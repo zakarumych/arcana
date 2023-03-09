@@ -2,21 +2,20 @@
 
 // Re-exports
 
-pub use {edict, gametime, ultraviolet};
-
-mod rate;
+pub use {edict, gametime, na};
 
 #[cfg(feature = "winit")]
 pub use winit;
 
-#[cfg(feature = "winit")]
+mod events;
+mod game;
+mod rate;
 mod window;
 
-#[cfg(feature = "winit")]
-mod events;
+pub use crate::{
+    events::{Event, EventLoop, EventLoopBuilder},
+    game::{run_game, Game},
+};
 
-#[cfg(all(feature = "winit", feature = "tokio"))]
-pub use crate::events::{Event, EventLoop, EventLoopBuilder};
-
-// #[cfg(feature = "derive")]
-// pub use engine_proc::*;
+#[cfg(feature = "derive")]
+pub use engine_proc::*;

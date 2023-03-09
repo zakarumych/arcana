@@ -10,14 +10,33 @@ derive = ["engine-proc"]
 tokio-multi-thread = ["tokio/rt-multi-thread"]
 
 [dependencies]
+# Procedural macros
 engine-proc = { path = "../engine-proc", optional = true }
+
+# ECS
 edict = "0.3.3"
+
+# Time
 gametime = "0.1.3"
+
+# Logging
 tracing = "0.1.29"
 tracing-error = "0.2.0"
-ultraviolet = "0.9.0"
+
+# Math
+na = { package = "nalgebra", version = "0.32" }
+
+# Channels
 flume = "0.10"
+
+# Concurrency
 parking_lot = "0.12"
-winit = { version = "0.28.1", optional = true, git = "https://github.com/rust-windowing/winit.git", branch = "new-keyboard-v3" }
-tokio = { version = "1.0", features = ["rt", "time"], default-features = false, optional = true }
+
+# Async
 futures = "0.3"
+tokio = { version = "1.0", features = ["rt", "time"], default-features = false }
+
+# Windowing and events
+keyboard-types = { version = "0.6" }
+winit = { version = "0.28", git = "https://github.com/rust-windowing/winit.git", branch = "new-keyboard-v3" }
+gilrs = { version = "0.10", optional = true }

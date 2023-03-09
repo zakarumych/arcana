@@ -1,26 +1,65 @@
 //! Async event loop.
 
 use std::{
-    cell::Cell,
-    future::Future,
-    ops::Deref,
-    ptr::NonNull,
-    rc::Rc,
-    sync::Arc,
-    task::Poll,
-    time::{Duration, Instant},
+    cell::Cell, future::Future, ops::Deref, ptr::NonNull, rc::Rc, sync::Arc, task::Poll,
+    time::Instant,
 };
 
-use gametime::{Clock, FrequencyTicker, TimeSpan};
+use gametime::{Clock, FrequencyTicker};
 use parking_lot::Mutex;
+
+#[cfg(target_os = "windows")]
+use winit::platform::windows::EventLoopBuilderExtWindows as _;
 use winit::{
-    event::{DeviceEvent, DeviceId, WindowEvent},
+    event::{DeviceEvent, WindowEvent},
     event_loop::EventLoopWindowTarget,
     window::WindowId,
 };
 
-#[cfg(target_os = "windows")]
-use winit::platform::windows::EventLoopBuilderExtWindows as _;
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[repr(transparent)]
+pub struct DeviceId(DeviceIdKind);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum DeviceIdKind {
+    Winit(winit::event::DeviceId),
+
+    #[cfg(feature = "gilrs")]
+    Gilrs(gilrs::GamepadId),
+}
+
+impl PartialEq<winit::event::DeviceId> for DeviceId {
+    fn eq(&self, other: &winit::event::DeviceId) -> bool {
+        match &self.0 {
+            DeviceIdKind::Winit(id) => *id == *other,
+            #[cfg(feature = "gilrs")]
+            DeviceIdKind::Gilrs(_) => false,
+        }
+    }
+}
+
+impl From<winit::event::DeviceId> for DeviceId {
+    fn from(id: winit::event::DeviceId) -> Self {
+        DeviceId(DeviceIdKind::Winit(id))
+    }
+}
+
+#[cfg(feature = "gilrs")]
+impl PartialEq<gilrs::GamepadId> for DeviceId {
+    fn eq(&self, other: &gilrs::GamepadId) -> bool {
+        match &self.0 {
+            DeviceIdKind::Winit(_) => false,
+            DeviceIdKind::Gilrs(id) => *id == *other,
+        }
+    }
+}
+
+#[cfg(feature = "gilrs")]
+impl From<gilrs::GamepadId> for DeviceId {
+    fn from(id: gilrs::GamepadId) -> Self {
+        DeviceId(DeviceIdKind::Gilrs(id))
+    }
+}
 
 #[derive(Debug)]
 pub enum Event {
@@ -35,6 +74,13 @@ pub enum Event {
 
     /// Emitted when the OS sends an event to a device.
     DeviceEvent {
+        device_id: DeviceId,
+        event: DeviceEvent,
+    },
+
+    /// Emitted when the OS sends an event to a gamepad.
+    #[cfg(feature = "gilrs")]
+    GamepadEvent {
         device_id: DeviceId,
         event: DeviceEvent,
     },
@@ -170,7 +216,10 @@ impl EventLoop {
                 }
             }
             winit::event::Event::DeviceEvent { device_id, event } => {
-                let _ = event_tx.send(Event::DeviceEvent { device_id, event });
+                let _ = event_tx.send(Event::DeviceEvent {
+                    device_id: device_id.into(),
+                    event,
+                });
             }
             winit::event::Event::MainEventsCleared => {}
             winit::event::Event::RedrawRequested(window_id) => {
