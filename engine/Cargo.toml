@@ -1,0 +1,23 @@
+[package]
+name = "nothing"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[features]
+derive = ["engine-proc"]
+tokio-multi-thread = ["tokio/rt-multi-thread"]
+
+[dependencies]
+engine-proc = { path = "../engine-proc", optional = true }
+edict = "0.3.3"
+gametime = "0.1.3"
+tracing = "0.1.29"
+tracing-error = "0.2.0"
+ultraviolet = "0.9.0"
+flume = "0.10"
+parking_lot = "0.12"
+winit = { version = "0.28.1", optional = true, git = "https://github.com/rust-windowing/winit.git", branch = "new-keyboard-v3" }
+tokio = { version = "1.0", features = ["rt", "time"], default-features = false, optional = true }
+futures = "0.3"
