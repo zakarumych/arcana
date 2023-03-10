@@ -255,33 +255,8 @@ impl EventLoop {
     }
 
     /// Collects new events and returns iterator over them.
-    pub async fn next(&self) -> impl Iterator<Item = Event> + '_ {
-        futures::pending!();
-        self.events.try_iter()
-    }
-
-    /// Collects new events and returns iterator over them.
-    pub async fn next_deadline(&self, deadline: Instant) -> impl Iterator<Item = Event> + '_ {
-        self.shared.deadline.set(Some(deadline));
-        futures::pending!();
-        self.events.try_iter()
-    }
-
-    /// Collects new events and returns iterator over them.
-    /// Waits to match the given rate.
-    pub async fn next_rate(
-        &self,
-        clock: &Clock,
-        ticker: &FrequencyTicker,
-    ) -> impl Iterator<Item = Event> + '_ {
-        match ticker.next_tick() {
-            None => {}
-            Some(deadline) => {
-                let deadline = clock.stamp_instant(deadline);
-                self.shared.deadline.set(Some(deadline));
-            }
-        }
-
+    pub async fn next(&self, deadline: Option<Instant>) -> impl Iterator<Item = Event> + '_ {
+        self.shared.deadline.set(deadline);
         futures::pending!();
         self.events.try_iter()
     }

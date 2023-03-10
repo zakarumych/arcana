@@ -3,8 +3,8 @@
 //     winit, Event, EventLoop, EventLoopBuilder,
 // };
 
-use nothing::game::run_game;
+use owl::game::run_game;
 
 fn main() {
-    run_game(|game| async move { game });
+    run_game(|game| async move {});
 }

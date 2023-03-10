@@ -1,4 +1,5 @@
 #![doc = include_str!("../../README.md")]
+#![feature(allocator_api)]
 
 // Re-exports
 
@@ -20,4 +21,4 @@ pub mod window;
 pub mod funnel;
 
 #[cfg(feature = "derive")]
-pub use engine_proc::*;
+pub use owl_proc::*;

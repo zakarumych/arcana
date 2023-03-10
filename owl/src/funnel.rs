@@ -1,9 +1,10 @@
+use blink_alloc::Blink;
 use edict::World;
 
 use crate::events::Event;
 
 pub trait Filter {
-    fn filter(&mut self, world: &mut World, event: Event) -> Option<Event>;
+    fn filter(&mut self, blink: &Blink, world: &mut World, event: Event) -> Option<Event>;
 }
 
 pub struct Funnel {
@@ -11,12 +12,13 @@ pub struct Funnel {
 }
 
 impl Funnel {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Funnel {
             filters: Vec::new(),
         }
     }
 
+    #[inline]
     pub fn add<F>(&mut self, funnel: F)
     where
         F: Filter + 'static,
@@ -25,9 +27,9 @@ impl Funnel {
     }
 
     #[inline]
-    pub fn filter(&mut self, world: &mut World, mut event: Event) -> Option<Event> {
+    pub fn filter(&mut self, blink: &Blink, world: &mut World, mut event: Event) -> Option<Event> {
         for filter in self.filters.iter_mut() {
-            event = filter.filter(world, event)?;
+            event = filter.filter(blink, world, event)?;
         }
         Some(event)
     }
@@ -35,7 +37,7 @@ impl Funnel {
 
 impl Filter for Funnel {
     #[inline]
-    fn filter(&mut self, world: &mut World, event: Event) -> Option<Event> {
-        self.filter(world, event)
+    fn filter(&mut self, blink: &Blink, world: &mut World, event: Event) -> Option<Event> {
+        self.filter(blink, world, event)
     }
 }
