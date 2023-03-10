@@ -7,15 +7,17 @@ pub use {edict, gametime, na};
 #[cfg(feature = "winit")]
 pub use winit;
 
-mod events;
-mod game;
-mod rate;
-mod window;
+#[cfg(all(feature = "input", feature = "graphics"))]
+pub mod game;
 
-pub use crate::{
-    events::{Event, EventLoop, EventLoopBuilder},
-    game::{run_game, Game},
-};
+#[cfg(feature = "input")]
+pub mod events;
+
+#[cfg(feature = "windowing")]
+pub mod window;
+
+#[cfg(feature = "input")]
+pub mod funnel;
 
 #[cfg(feature = "derive")]
 pub use engine_proc::*;

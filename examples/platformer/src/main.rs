@@ -3,8 +3,8 @@
 //     winit, Event, EventLoop, EventLoopBuilder,
 // };
 
-use nothing::{run_game, Game};
+use nothing::game::run_game;
 
 fn main() {
-    run_game(|| async { Game {} });
+    run_game(|game| async move { game });
 }
