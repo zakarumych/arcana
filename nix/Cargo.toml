@@ -1,5 +1,5 @@
 [package]
-name = "bat"
+name = "nix"
 version = "0.1.0"
 edition = "2021"
 
@@ -10,6 +10,7 @@ slab = "0.4"
 raw-window-handle = "0.5"
 tracing = "0.1"
 parking_lot = "0.12"
+codespan-reporting = "0.11"
 
 [target.'cfg(any(windows, all(unix, not(any(target_os = "macos", target_os = "ios")))))'.dependencies]
 ash = { version = "0.37.0", features = ["loaded"] }
@@ -17,6 +18,11 @@ gpu-alloc = { version = "0.5" }
 gpu-alloc-ash = { version = "0.5" }
 gpu-descriptor = { version = "0.2" }
 gpu-descriptor-ash = { version = "0.2" }
+naga = { version = "0.11", features = ["spv-in", "wgsl-in", "glsl-in", "spv-out"] }
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 metal = { version = "0.24.0" }
+objc = { version = "0.2" }
+core-graphics-types = { version = "0.1" }
+foreign-types = { version = "0.3.2" }
+naga = { version = "0.11", features = ["spv-in", "wgsl-in", "glsl-in", "msl-out"] }

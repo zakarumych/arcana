@@ -1,5 +1,3 @@
-use crate::backend::CommandBuffer;
-
 bitflags::bitflags! {
     /// Flags that describe the capabilities of a queue.
     pub struct QueueFlags: u32 {
@@ -14,7 +12,7 @@ bitflags::bitflags! {
     }
 }
 
-pub trait Queue {
-    fn new_command_buffer(&mut self) -> CommandBuffer;
-    fn submit(&mut self);
+pub enum QueueError {
+    OutOfMemory,
+    DeviceLost,
 }

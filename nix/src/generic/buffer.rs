@@ -43,7 +43,7 @@ pub struct BufferDesc<'a> {
 
 impl BufferDesc<'_> {
     /// Create a new buffer on given device.
-    pub fn create(self, device: &Device) -> Result<Buffer, OutOfMemory> {
-        device.create_buffer(self)
+    pub fn new(self, device: &Device) -> Result<Buffer, OutOfMemory> {
+        device.new_buffer(self)
     }
 }

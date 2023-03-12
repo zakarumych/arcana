@@ -158,7 +158,7 @@ impl crate::generic::Device for Device {
         Queue::new(self.clone(), handle, family.flags)
     }
 
-    fn create_buffer(&self, desc: BufferDesc) -> Result<Buffer, OutOfMemory> {
+    fn new_buffer(&self, desc: BufferDesc) -> Result<Buffer, OutOfMemory> {
         let size = u64::try_from(desc.layout.size()).map_err(|_| OutOfMemory)?;
         let align = u64::try_from(desc.layout.align()).map_err(|_| OutOfMemory)?;
 
@@ -207,7 +207,7 @@ impl crate::generic::Device for Device {
         Ok(buffer)
     }
 
-    fn create_image(&self, desc: ImageDesc) -> Result<Image, ImageError> {
+    fn new_image(&self, desc: ImageDesc) -> Result<Image, ImageError> {
         let image = unsafe {
             self.inner.device.create_image(
                 &vk::ImageCreateInfo::builder()
@@ -228,7 +228,7 @@ impl crate::generic::Device for Device {
         })?;
     }
 
-    fn create_surface(&self, window: &RawWindowHandle, display: &RawDisplayHandle) -> Surface {
+    fn new_surface(&self, window: &RawWindowHandle, display: &RawDisplayHandle) -> Surface {
         todo!()
     }
 }

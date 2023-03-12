@@ -1,6 +1,7 @@
-use crate::backend::{CreateError, Device, LoadError};
-
 use super::{feature::Features, queue::QueueFlags};
+
+pub struct LoadError(pub(crate) crate::backend::LoadErrorKind);
+pub struct CreateError(pub(crate) crate::backend::CreateErrorKind);
 
 /// Capabilities of a queue family of specific device.
 #[derive(Clone, Debug)]
@@ -31,7 +32,7 @@ pub struct Capabilities {
 /// Specifies how many queues of what family should be created.
 pub struct QueuesCreateDesc {
     /// Index of the queue family.
-    pub idx: u32,
+    pub family: u32,
 
     /// Number of queues to create.
     pub queue_count: usize,
@@ -47,13 +48,4 @@ pub struct DeviceDesc {
 
     /// List of features that should be enabled.
     pub features: Features,
-}
-
-pub trait Instance {
-    fn load() -> Result<Self, LoadError>
-    where
-        Self: Sized;
-
-    fn capabilities(&self) -> &Capabilities;
-    fn create(&self, info: DeviceDesc) -> Result<Device, CreateError>;
 }

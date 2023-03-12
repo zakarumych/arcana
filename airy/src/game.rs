@@ -32,7 +32,7 @@ pub struct Game {
 
     /// Graphics
     #[cfg(feature = "graphics")]
-    graphics: bat::Device,
+    graphics: nix::Device,
 }
 
 /// Marker resource.

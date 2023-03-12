@@ -1,12 +1,12 @@
 [package]
-name = "owl"
+name = "airy"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-derive = ["owl-proc"]
+derive = ["airy-proc"]
 
 # Enables multi-threaded runtime for tokio.
 tokio-multi-thread = ["tokio/rt-multi-thread"]
@@ -15,7 +15,7 @@ tokio-multi-thread = ["tokio/rt-multi-thread"]
 windowing = ["winit"]
 
 # Adds support for graphics output.
-graphics = ["windowing", "bat"]
+graphics = ["windowing", "nix"]
 
 # Adds support for audio output.
 audio = []
@@ -28,10 +28,10 @@ gamepad = ["gilrs", "input"]
 
 [dependencies]
 # Procedural macros
-owl-proc = { path = "proc", optional = true }
+airy-proc = { path = "proc", optional = true }
 
 # Instance
-bat = { path = "../bat", optional = true }
+nix = { path = "../nix", optional = true }
 
 # Memory allocator
 blink-alloc = { version = "0.2.5", features = ["nightly"] }

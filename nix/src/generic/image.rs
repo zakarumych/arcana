@@ -1,4 +1,4 @@
-use super::format::Format;
+use super::format::PixelFormat;
 
 pub enum ImageError {
     OutOfMemory,
@@ -23,7 +23,7 @@ bitflags::bitflags! {
 
 pub struct ImageDesc {
     pub dimensions: ImageDimensions,
-    pub format: Format,
+    pub format: PixelFormat,
     pub usage: ImageUsage,
     pub layers: u32,
     pub levels: u32,

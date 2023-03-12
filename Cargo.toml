@@ -1,2 +1,2 @@
 [workspace]
-members = ["owl", "examples/platformer"]
+members = ["airy", "examples/platformer"]

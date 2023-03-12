@@ -6,4 +6,4 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-owl = { path = "../../owl", features = ["derive", "gamepad", "graphics", "tokio-multi-thread"] }
+airy = { path = "../../airy", features = ["derive", "gamepad", "graphics", "tokio-multi-thread"] }

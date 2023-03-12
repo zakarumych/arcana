@@ -19,6 +19,8 @@ pub use self::{
     surface::Surface,
 };
 
+pub(crate) use self::instance::{CreateErrorKind, LoadErrorKind};
+
 #[track_caller]
 fn handle_host_oom() -> ! {
     std::alloc::handle_alloc_error(Layout::new::<()>())

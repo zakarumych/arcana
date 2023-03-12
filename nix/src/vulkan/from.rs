@@ -76,7 +76,17 @@ impl FromAsh<vk::QueueFamilyProperties2> for FamilyCapabilities {
 impl FromAsh<vk::QueueFlags> for QueueFlags {
     #[inline(always)]
     fn from_ash(value: vk::QueueFlags) -> Self {
-        from_flags!(vk::QueueFlags => QueueFlags, [GRAPHICS, COMPUTE, TRANSFER], value)
+        // from_flags!(vk::QueueFlags => QueueFlags, [GRAPHICS, COMPUTE, TRANSFER], value)
+
+        let mut result = QueueFlags::empty();
+        if value.contains(vk::QueueFlags::GRAPHICS) {
+            result |= QueueFlags::GRAPHICS | QueueFlags::TRANSFER;
+        } else if value.contains(vk::QueueFlags::COMPUTE) {
+            result |= QueueFlags::COMPUTE | QueueFlags::TRANSFER;
+        } else if value.contains(vk::QueueFlags::TRANSFER) {
+            result |= QueueFlags::TRANSFER;
+        }
+        result
     }
 }
 

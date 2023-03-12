@@ -24,17 +24,13 @@ pub struct Instance {
     debug_utils: Option<ash::extensions::ext::DebugUtils>,
 }
 
-pub struct LoadError(LoadErrorKind);
-
-enum LoadErrorKind {
+pub(crate) enum LoadErrorKind {
     LoadingError(ash::LoadingError),
     OutOfMemory,
     InitializationFailed,
 }
 
-pub struct CreateError(CreateErrorKind);
-
-enum CreateErrorKind {
+pub(crate) enum CreateErrorKind {
     OutOfMemory,
     InitializationFailed,
     TooManyObjects,
@@ -65,9 +61,8 @@ fn engine_version() -> u32 {
     vk::make_api_version(0, major, minor, patch)
 }
 
-// #[hidden_trait::expose]
-impl crate::generic::Instance for Instance {
-    fn load() -> Result<Self, LoadError> {
+impl Instance {
+    pub fn load() -> Result<Self, LoadError> {
         let entry =
             unsafe { Entry::load() }.map_err(|err| LoadError(LoadErrorKind::LoadingError(err)))?;
 
@@ -228,7 +223,10 @@ impl crate::generic::Instance for Instance {
             debug_utils,
         })
     }
+}
 
+#[hidden_trait::expose]
+impl crate::generic::Instance for Instance {
     fn capabilities(&self) -> &Capabilities {
         &self.capabilities
     }
@@ -238,17 +236,18 @@ impl crate::generic::Instance for Instance {
 
         let mut queue_create_infos = Vec::new();
 
-        for family_info in &info.queue_infos {
-            u32::try_from(family_info.queue_count).expect("Too many queues requested");
+        for queue_info in &info.queue_infos {
+            u32::try_from(queue_info.queue_count).expect("Too many queues requested");
             assert!(
-                self.capabilities.devices[info.idx].families[family_info.idx as usize].queue_count
-                    >= family_info.queue_count
+                self.capabilities.devices[info.idx].families[queue_info.family as usize]
+                    .queue_count
+                    >= queue_info.queue_count
             );
 
-            let priorities = vec![1.0; family_info.queue_count];
+            let priorities = vec![1.0; queue_info.queue_count];
             queue_create_infos.push(
                 vk::DeviceQueueCreateInfo::builder()
-                    .queue_family_index(family_info.idx)
+                    .queue_family_index(queue_info.family)
                     .queue_priorities(&priorities)
                     .build(),
             );

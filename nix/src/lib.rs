@@ -1,6 +1,7 @@
 //! Tiny graphics crate made for nothing but fun.
 
 pub mod generic;
+mod traits;
 
 #[cfg_attr(
     any(windows, all(unix, not(any(target_os = "macos", target_os = "ios")))),
