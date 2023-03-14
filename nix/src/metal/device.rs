@@ -1,4 +1,4 @@
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 
 use core_graphics_types::{base::CGFloat, geometry::CGRect};
 use foreign_types::ForeignType;
@@ -8,7 +8,10 @@ use objc::{
     runtime::{Object, BOOL, YES},
     sel, sel_impl,
 };
-use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
+use parking_lot::Mutex;
+use raw_window_handle::{
+    HasRawDisplayHandle, HasRawWindowHandle, RawDisplayHandle, RawWindowHandle,
+};
 
 use crate::generic::{
     compile_shader, BufferDesc, CreateLibraryError, CreatePipelineError, ImageDesc,
@@ -17,66 +20,75 @@ use crate::generic::{
 };
 
 use super::{
-    from::{IntoMetal, MetalFrom},
+    from::{IntoMetal, TryIntoMetal},
     Buffer, CreateLibraryErrorKind, CreatePipelineErrorKind, Image, Library, Queue, RenderPipeline,
     Surface,
 };
 
 struct DeviceInner {
     device: metal::Device,
-    queues: Vec<metal::CommandQueue>,
+    queues: Mutex<Vec<Option<metal::CommandQueue>>>,
 }
 
+unsafe impl Send for DeviceInner {}
+unsafe impl Sync for DeviceInner {}
+
+#[derive(Clone)]
 pub struct Device {
     inner: Arc<DeviceInner>,
 }
 
-pub(super) struct WeakDevice {
-    inner: Weak<DeviceInner>,
-}
+// pub(super) struct WeakDevice {
+//     inner: Weak<DeviceInner>,
+// }
 
-pub(super) trait DeviceOwned {
-    fn owner(&self) -> &WeakDevice;
-}
+// pub(super) trait DeviceOwned {
+//     fn owner(&self) -> &WeakDevice;
+// }
 
 impl Device {
-    pub(super) fn new(device: metal::Device, queues: Vec<metal::CommandQueue>) -> Self {
+    pub(super) fn new(device: metal::Device, queues: Vec<Option<metal::CommandQueue>>) -> Self {
         Device {
-            inner: Arc::new(DeviceInner { queues, device }),
+            inner: Arc::new(DeviceInner {
+                queues: Mutex::new(queues),
+                device,
+            }),
         }
     }
 
-    pub(super) fn ash(&self) -> &metal::Device {
-        &self.inner.device
-    }
+    // pub(super) fn metal(&self) -> &metal::Device {
+    //     &self.inner.device
+    // }
 
-    pub(super) fn is(&self, weak: &WeakDevice) -> bool {
-        Arc::as_ptr(&self.inner) == Weak::as_ptr(&weak.inner)
-    }
+    // pub(super) fn is(&self, weak: &WeakDevice) -> bool {
+    //     Arc::as_ptr(&self.inner) == Weak::as_ptr(&weak.inner)
+    // }
 
-    pub(super) fn is_owner(&self, owned: &impl DeviceOwned) -> bool {
-        self.is(owned.owner())
-    }
+    // pub(super) fn is_owner(&self, owned: &impl DeviceOwned) -> bool {
+    //     self.is(owned.owner())
+    // }
 
-    pub(super) fn weak(&self) -> WeakDevice {
-        WeakDevice {
-            inner: Arc::downgrade(&self.inner),
-        }
-    }
+    // pub(super) fn weak(&self) -> WeakDevice {
+    //     WeakDevice {
+    //         inner: Arc::downgrade(&self.inner),
+    //     }
+    // }
 }
 
 #[hidden_trait::expose]
 impl crate::traits::Device for Device {
     fn get_queue(&self, family: usize, idx: usize) -> Queue {
         assert_eq!(family, 0, "Metal only supports one queue family");
-        let queue = self.inner.queues[idx].clone();
+        let queue = self.inner.queues.lock()[idx]
+            .take()
+            .expect("Queue already taken");
         Queue::new(queue)
     }
 
     fn new_shader_library(&self, desc: LibraryDesc) -> Result<Library, CreateLibraryError> {
         match desc.input {
             LibraryInput::Source(source) => {
-                let mut transpiled_source: Box<[u8]>;
+                let transpiled_source: Box<[u8]>;
                 let source = match source.language {
                     ShaderLanguage::Msl => std::str::from_utf8(&*source.code).map_err(|err| {
                         CreateLibraryError(CreateLibraryErrorKind::CompileError(
@@ -167,10 +179,7 @@ impl crate::traits::Device for Device {
             let color_attachments = mdesc.color_attachments();
             for (idx, color_desc) in raster.color_targets.iter().enumerate() {
                 let color_attachment = color_attachments.object_at(idx as _).unwrap();
-                let format =
-                    <Option<metal::MTLPixelFormat> as MetalFrom<_>>::metal_from(color_desc.format)
-                        .ok_or_else(|| todo!())?;
-                color_attachment.set_pixel_format(format);
+                color_attachment.set_pixel_format(color_desc.format.try_into_metal().unwrap());
 
                 if let Some(blend_desc) = &color_desc.blend {
                     color_attachment.set_blending_enabled(true);
@@ -191,10 +200,7 @@ impl crate::traits::Device for Device {
             }
 
             if let Some(depth_stencil) = raster.depth_stencil {
-                let format = <Option<metal::MTLPixelFormat> as MetalFrom<_>>::metal_from(
-                    depth_stencil.format,
-                )
-                .ok_or_else(|| todo!())?;
+                let format = depth_stencil.format.try_into_metal().unwrap();
                 if depth_stencil.format.is_depth() {
                     mdesc.set_depth_attachment_pixel_format(format);
                 }
@@ -220,9 +226,7 @@ impl crate::traits::Device for Device {
 
     fn new_image(&self, desc: ImageDesc) -> Result<Image, ImageError> {
         let texture_descriptor = metal::TextureDescriptor::new();
-        let format = <Option<metal::MTLPixelFormat> as MetalFrom<_>>::metal_from(desc.format)
-            .ok_or_else(|| todo!())?;
-        texture_descriptor.set_pixel_format(format);
+        texture_descriptor.set_pixel_format(desc.format.try_into_metal().unwrap());
         match desc.dimensions {
             ImageDimensions::D1(size) => {
                 texture_descriptor.set_texture_type(metal::MTLTextureType::D1);
@@ -249,7 +253,13 @@ impl crate::traits::Device for Device {
         Ok(Image::new(texture))
     }
 
-    fn new_surface(&self, window: &RawWindowHandle, display: &RawDisplayHandle) -> Surface {
+    fn new_surface(
+        &self,
+        window: &impl HasRawWindowHandle,
+        display: &impl HasRawDisplayHandle,
+    ) -> Surface {
+        let window = window.raw_window_handle();
+        let display = display.raw_display_handle();
         let layer = match (window, display) {
             (RawWindowHandle::UiKit(handle), RawDisplayHandle::UiKit(_)) => unsafe {
                 layer_from_view(handle.ui_view.cast())

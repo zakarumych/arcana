@@ -1,7 +1,30 @@
+use std::fmt;
+
 use super::{feature::Features, queue::QueueFlags};
 
+#[derive(Debug)]
 pub struct LoadError(pub(crate) crate::backend::LoadErrorKind);
+
+impl fmt::Display for LoadError {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&self.0, f)
+    }
+}
+
+impl std::error::Error for LoadError {}
+
+#[derive(Debug)]
 pub struct CreateError(pub(crate) crate::backend::CreateErrorKind);
+
+impl fmt::Display for CreateError {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&self.0, f)
+    }
+}
+
+impl std::error::Error for CreateError {}
 
 /// Capabilities of a queue family of specific device.
 #[derive(Clone, Debug)]
@@ -39,12 +62,12 @@ pub struct QueuesCreateDesc {
 }
 
 /// Specifies how the device should be created.
-pub struct DeviceDesc {
+pub struct DeviceDesc<'a> {
     /// Index of the device.
     pub idx: usize,
 
     /// List of queue infos.
-    pub queue_infos: Vec<QueuesCreateDesc>,
+    pub queue_infos: &'a [QueuesCreateDesc],
 
     /// List of features that should be enabled.
     pub features: Features,

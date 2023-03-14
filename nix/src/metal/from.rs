@@ -39,11 +39,48 @@ where
     }
 }
 
-impl MetalFrom<PixelFormat> for Option<metal::MTLPixelFormat> {
+pub trait TryFromMetal<T>: Sized {
+    fn try_from_metal(t: T) -> Option<Self>;
+}
+
+pub trait TryMetalInto<T> {
+    fn try_metal_into(self) -> Option<T>;
+}
+
+impl<T, U> TryMetalInto<U> for T
+where
+    U: TryFromMetal<T>,
+{
     #[inline(always)]
-    fn metal_from(t: PixelFormat) -> Self {
+    fn try_metal_into(self) -> Option<U> {
+        U::try_from_metal(self)
+    }
+}
+
+pub trait TryMetalFrom<T>: Sized {
+    fn try_metal_from(t: T) -> Option<Self>;
+}
+
+pub trait TryIntoMetal<T> {
+    fn try_into_metal(self) -> Option<T>;
+}
+
+impl<T, U> TryIntoMetal<U> for T
+where
+    U: TryMetalFrom<T>,
+{
+    #[inline(always)]
+    fn try_into_metal(self) -> Option<U> {
+        U::try_metal_from(self)
+    }
+}
+
+impl TryMetalFrom<PixelFormat> for metal::MTLPixelFormat {
+    #[inline(always)]
+    fn try_metal_from(t: PixelFormat) -> Option<Self> {
         Some(match t {
             PixelFormat::R8Unorm => metal::MTLPixelFormat::R8Unorm,
+            PixelFormat::R8Srgb => metal::MTLPixelFormat::R8Unorm_sRGB,
             PixelFormat::R8Snorm => metal::MTLPixelFormat::R8Snorm,
             PixelFormat::R8Uint => metal::MTLPixelFormat::R8Uint,
             PixelFormat::R8Sint => metal::MTLPixelFormat::R8Sint,
@@ -58,6 +95,7 @@ impl MetalFrom<PixelFormat> for Option<metal::MTLPixelFormat> {
             PixelFormat::R32Sint => metal::MTLPixelFormat::R32Sint,
             PixelFormat::R32Float => metal::MTLPixelFormat::R32Float,
             PixelFormat::Rg8Unorm => metal::MTLPixelFormat::RG8Unorm,
+            PixelFormat::Rg8Srgb => metal::MTLPixelFormat::RG8Unorm_sRGB,
             PixelFormat::Rg8Snorm => metal::MTLPixelFormat::RG8Snorm,
             PixelFormat::Rg8Uint => metal::MTLPixelFormat::RG8Uint,
             PixelFormat::Rg8Sint => metal::MTLPixelFormat::RG8Sint,
@@ -86,7 +124,7 @@ impl MetalFrom<PixelFormat> for Option<metal::MTLPixelFormat> {
             // PixelFormat::Rgb32Sint => metal::MTLPixelFormat::RGB32Sint,
             // PixelFormat::Rgb32Float => metal::MTLPixelFormat::RGB32Float,
             PixelFormat::Rgba8Unorm => metal::MTLPixelFormat::RGBA8Unorm,
-            PixelFormat::Rgba8UnormSrgb => metal::MTLPixelFormat::RGBA8Unorm_sRGB,
+            PixelFormat::Rgba8Srgb => metal::MTLPixelFormat::RGBA8Unorm_sRGB,
             PixelFormat::Rgba8Snorm => metal::MTLPixelFormat::RGBA8Snorm,
             PixelFormat::Rgba8Uint => metal::MTLPixelFormat::RGBA8Uint,
             PixelFormat::Rgba8Sint => metal::MTLPixelFormat::RGBA8Sint,
@@ -101,21 +139,105 @@ impl MetalFrom<PixelFormat> for Option<metal::MTLPixelFormat> {
             PixelFormat::Rgba32Sint => metal::MTLPixelFormat::RGBA32Sint,
             PixelFormat::Rgba32Float => metal::MTLPixelFormat::RGBA32Float,
             // PixelFormat::Bgr8Unorm => metal::MTLPixelFormat::BGR8Unorm,
-            // PixelFormat::Bgr8UnormSrgb => metal::MTLPixelFormat::BGR8Unorm_sRGB,
+            // PixelFormat::Bgr8Srgb => metal::MTLPixelFormat::BGR8Unorm_sRGB,
             // PixelFormat::Bgr8Snorm => metal::MTLPixelFormat::BGR8Snorm,
             // PixelFormat::Bgr8Uint => metal::MTLPixelFormat::BGR8Uint,
             // PixelFormat::Bgr8Sint => metal::MTLPixelFormat::BGR8Sint,
             // PixelFormat::Bgra8Unorm => metal::MTLPixelFormat::BGRA8Unorm,
-            PixelFormat::Bgra8UnormSrgb => metal::MTLPixelFormat::BGRA8Unorm_sRGB,
+            PixelFormat::Bgra8Srgb => metal::MTLPixelFormat::BGRA8Unorm_sRGB,
             // PixelFormat::Bgra8Snorm => metal::MTLPixelFormat::BGRA8Snorm,
             // PixelFormat::Bgra8Uint => metal::MTLPixelFormat::BGRA8Uint,
             // PixelFormat::Bgra8Sint => metal::MTLPixelFormat::BGRA8Sint,
             PixelFormat::D16Unorm => metal::MTLPixelFormat::Depth16Unorm,
             PixelFormat::D32Float => metal::MTLPixelFormat::Depth32Float,
             PixelFormat::S8Uint => metal::MTLPixelFormat::Stencil8,
-            PixelFormat::D16UnormS8Uint => metal::MTLPixelFormat::Depth24Unorm_Stencil8,
+            // PixelFormat::D16UnormS8Uint => metal::MTLPixelFormat::Depth16Unorm_Stencil8,
             PixelFormat::D24UnormS8Uint => metal::MTLPixelFormat::Depth24Unorm_Stencil8,
             PixelFormat::D32FloatS8Uint => metal::MTLPixelFormat::Depth32Float_Stencil8,
+            _ => return None,
+        })
+    }
+}
+
+impl TryFromMetal<metal::MTLPixelFormat> for PixelFormat {
+    #[inline(always)]
+    fn try_from_metal(t: metal::MTLPixelFormat) -> Option<Self> {
+        Some(match t {
+            metal::MTLPixelFormat::R8Unorm => PixelFormat::R8Unorm,
+            metal::MTLPixelFormat::R8Unorm_sRGB => PixelFormat::R8Srgb,
+            metal::MTLPixelFormat::R8Snorm => PixelFormat::R8Snorm,
+            metal::MTLPixelFormat::R8Uint => PixelFormat::R8Uint,
+            metal::MTLPixelFormat::R8Sint => PixelFormat::R8Sint,
+            metal::MTLPixelFormat::R16Unorm => PixelFormat::R16Unorm,
+            metal::MTLPixelFormat::R16Snorm => PixelFormat::R16Snorm,
+            metal::MTLPixelFormat::R16Uint => PixelFormat::R16Uint,
+            metal::MTLPixelFormat::R16Sint => PixelFormat::R16Sint,
+            metal::MTLPixelFormat::R16Float => PixelFormat::R16Float,
+            // metal::MTLPixelFormat::R32Unorm => PixelFormat::R32Unorm,
+            // metal::MTLPixelFormat::R32Snorm => PixelFormat::R32Snorm,
+            metal::MTLPixelFormat::R32Uint => PixelFormat::R32Uint,
+            metal::MTLPixelFormat::R32Sint => PixelFormat::R32Sint,
+            metal::MTLPixelFormat::R32Float => PixelFormat::R32Float,
+            metal::MTLPixelFormat::RG8Unorm => PixelFormat::Rg8Unorm,
+            metal::MTLPixelFormat::RG8Unorm_sRGB => PixelFormat::Rg8Srgb,
+            metal::MTLPixelFormat::RG8Snorm => PixelFormat::Rg8Snorm,
+            metal::MTLPixelFormat::RG8Uint => PixelFormat::Rg8Uint,
+            metal::MTLPixelFormat::RG8Sint => PixelFormat::Rg8Sint,
+            metal::MTLPixelFormat::RG16Unorm => PixelFormat::Rg16Unorm,
+            metal::MTLPixelFormat::RG16Snorm => PixelFormat::Rg16Snorm,
+            metal::MTLPixelFormat::RG16Uint => PixelFormat::Rg16Uint,
+            metal::MTLPixelFormat::RG16Sint => PixelFormat::Rg16Sint,
+            metal::MTLPixelFormat::RG16Float => PixelFormat::Rg16Float,
+            // metal::MTLPixelFormat::RG32Unorm => PixelFormat::Rg32Unorm,
+            // metal::MTLPixelFormat::RG32Snorm => PixelFormat::Rg32Snorm,
+            metal::MTLPixelFormat::RG32Uint => PixelFormat::Rg32Uint,
+            metal::MTLPixelFormat::RG32Sint => PixelFormat::Rg32Sint,
+            metal::MTLPixelFormat::RG32Float => PixelFormat::Rg32Float,
+            // metal::MTLPixelFormat::RGB8Unorm => PixelFormat::Rgb8Unorm,
+            // metal::MTLPixelFormat::RGB8Snorm => PixelFormat::Rgb8Snorm,
+            // metal::MTLPixelFormat::RGB8Uint => PixelFormat::Rgb8Uint,
+            // metal::MTLPixelFormat::RGB8Sint => PixelFormat::Rgb8Sint,
+            // metal::MTLPixelFormat::RGB16Unorm => PixelFormat::Rgb16Unorm,
+            // metal::MTLPixelFormat::RGB16Snorm => PixelFormat::Rgb16Snorm,
+            // metal::MTLPixelFormat::RGB16Uint => PixelFormat::Rgb16Uint,
+            // metal::MTLPixelFormat::RGB16Sint => PixelFormat::Rgb16Sint,
+            // metal::MTLPixelFormat::RGB16Float => PixelFormat::Rgb16Float,
+            // metal::MTLPixelFormat::RGB32Unorm => PixelFormat::Rgb32Unorm,
+            // metal::MTLPixelFormat::RGB32Snorm => PixelFormat::Rgb32Snorm,
+            // metal::MTLPixelFormat::RGB32Uint => PixelFormat::Rgb32Uint,
+            // metal::MTLPixelFormat::RGB32Sint => PixelFormat::Rgb32Sint,
+            // metal::MTLPixelFormat::RGB32Float => PixelFormat::Rgb32Float,
+            metal::MTLPixelFormat::RGBA8Unorm => PixelFormat::Rgba8Unorm,
+            metal::MTLPixelFormat::RGBA8Unorm_sRGB => PixelFormat::Rgba8Srgb,
+            metal::MTLPixelFormat::RGBA8Snorm => PixelFormat::Rgba8Snorm,
+            metal::MTLPixelFormat::RGBA8Uint => PixelFormat::Rgba8Uint,
+            metal::MTLPixelFormat::RGBA8Sint => PixelFormat::Rgba8Sint,
+            metal::MTLPixelFormat::RGBA16Unorm => PixelFormat::Rgba16Unorm,
+            metal::MTLPixelFormat::RGBA16Snorm => PixelFormat::Rgba16Snorm,
+            metal::MTLPixelFormat::RGBA16Uint => PixelFormat::Rgba16Uint,
+            metal::MTLPixelFormat::RGBA16Sint => PixelFormat::Rgba16Sint,
+            metal::MTLPixelFormat::RGBA16Float => PixelFormat::Rgba16Float,
+            // metal::MTLPixelFormat::RGBA32Unorm => PixelFormat::Rgba32Unorm,
+            // metal::MTLPixelFormat::RGBA32Snorm => PixelFormat::Rgba32Snorm,
+            metal::MTLPixelFormat::RGBA32Uint => PixelFormat::Rgba32Uint,
+            metal::MTLPixelFormat::RGBA32Sint => PixelFormat::Rgba32Sint,
+            metal::MTLPixelFormat::RGBA32Float => PixelFormat::Rgba32Float,
+            // metal::MTLPixelFormat::BGR8Unorm => PixelFormat::Bgr8Unorm,
+            // metal::MTLPixelFormat::BGR8Unorm_sRGB => PixelFormat::Bgr8Srgb,
+            // metal::MTLPixelFormat::BGR8Snorm => PixelFormat::Bgr8Snorm,
+            // metal::MTLPixelFormat::BGR8Uint => PixelFormat::Bgr8Uint,
+            // metal::MTLPixelFormat::BGR8Sint => PixelFormat::Bgr8Sint,
+            // metal::MTLPixelFormat::BGRA8Unorm => PixelFormat::Bgra8Unorm,
+            metal::MTLPixelFormat::BGRA8Unorm_sRGB => PixelFormat::Bgra8Srgb,
+            // metal::MTLPixelFormat::BGRA8Snorm => PixelFormat::Bgra8Snorm,
+            // metal::MTLPixelFormat::BGRA8Uint => PixelFormat::Bgra8Uint,
+            // metal::MTLPixelFormat::BGRA8Sint => PixelFormat::Bgra8Sint,
+            metal::MTLPixelFormat::Depth16Unorm => PixelFormat::D16Unorm,
+            metal::MTLPixelFormat::Depth32Float => PixelFormat::D32Float,
+            metal::MTLPixelFormat::Stencil8 => PixelFormat::S8Uint,
+            // metal::MTLPixelFormat::Depth16Unorm_Stencil8 => PixelFormat::D16UnormS8Uint,
+            metal::MTLPixelFormat::Depth24Unorm_Stencil8 => PixelFormat::D24UnormS8Uint,
+            metal::MTLPixelFormat::Depth32Float_Stencil8 => PixelFormat::D32FloatS8Uint,
             _ => return None,
         })
     }

@@ -65,8 +65,16 @@ pub struct Shader<'a> {
     pub entry: Cow<'a, str>,
 }
 
+#[derive(Debug)]
 pub struct CreateLibraryError(pub(crate) CreateLibraryErrorKind);
 
+impl fmt::Display for CreateLibraryError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&self.0, f)
+    }
+}
+
+#[derive(Debug)]
 pub(crate) enum ShaderCompileError {
     NonUtf8(std::str::Utf8Error),
     ParseSpirV(naga::front::spv::Error),
@@ -79,6 +87,28 @@ pub(crate) enum ShaderCompileError {
 
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     GenMsl(naga::back::msl::Error),
+}
+
+impl fmt::Display for ShaderCompileError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ShaderCompileError::NonUtf8(err) => write!(f, "non-utf8: {}", err),
+            ShaderCompileError::ParseSpirV(err) => write!(f, "parse SPIR-V: {}", err),
+            ShaderCompileError::ParseWgsl(err) => write!(f, "parse WGSL: {}", err),
+            ShaderCompileError::ParseGlsl(errs) => {
+                write!(f, "parse GLSL: ")?;
+                for err in errs {
+                    write!(f, "{}", err)?;
+                }
+                Ok(())
+            }
+            ShaderCompileError::ValidationFailed => write!(f, "validation failed"),
+            #[cfg(any(windows, all(unix, not(any(target_os = "macos", target_os = "ios")))))]
+            ShaderCompileError::GenSpirV(err) => write!(f, "generate SPIR-V: {}", err),
+            #[cfg(any(target_os = "macos", target_os = "ios"))]
+            ShaderCompileError::GenMsl(err) => write!(f, "generate MSL: {}", err),
+        }
+    }
 }
 
 pub(crate) fn compile_shader(
@@ -161,7 +191,7 @@ pub(crate) fn compile_shader(
                 bounds_check_policies: Default::default(),
                 zero_initialize_workgroup_memory: false,
             };
-            let (string, translation) = naga::back::msl::write_string(
+            let (string, _translation) = naga::back::msl::write_string(
                 &module,
                 &info,
                 &options,

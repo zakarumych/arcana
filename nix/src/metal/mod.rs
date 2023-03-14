@@ -12,7 +12,7 @@ mod surface;
 
 pub use self::{
     buffer::Buffer,
-    command::CommandBuffer,
+    command::{CommandBuffer, CommandEncoder, RenderCommandEncoder},
     compute_pipeline::ComputePipeline,
     device::Device,
     image::Image,

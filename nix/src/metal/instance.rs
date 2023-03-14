@@ -1,4 +1,4 @@
-use std::convert::Infallible;
+use std::{convert::Infallible, fmt};
 
 use crate::generic::{
     Capabilities, CreateError, DeviceCapabilities, DeviceDesc, FamilyCapabilities, Features,
@@ -9,8 +9,19 @@ use super::Device;
 
 pub(crate) type LoadErrorKind = Infallible;
 
+#[derive(Debug)]
 pub(crate) enum CreateErrorKind {
     FailedToCreateDevice,
+}
+
+impl fmt::Display for CreateErrorKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            CreateErrorKind::FailedToCreateDevice => {
+                write!(f, "failed to create device")
+            }
+        }
+    }
 }
 
 pub struct Instance {
@@ -59,7 +70,7 @@ impl crate::traits::Instance for Instance {
         });
 
         let queues = (0..queue_count)
-            .map(|_| device.new_command_queue())
+            .map(|_| Some(device.new_command_queue()))
             .collect();
 
         Ok(Device::new(device, queues))

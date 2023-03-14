@@ -37,7 +37,7 @@ nix = { path = "../nix", optional = true }
 blink-alloc = { version = "0.2.5", features = ["nightly"] }
 
 # ECS
-edict = { version = "0.3.3", features = ["rayon"] }
+edict = { version = "0.4.0-rc.3", features = ["rayon"], path = "../../edict" }
 
 # Time
 gametime = "0.1.6"
@@ -62,3 +62,6 @@ tokio = { version = "1.0", features = ["rt", "time"], default-features = false }
 # Windowing and events
 winit = { version = "0.28", optional = true, git = "https://github.com/rust-windowing/winit.git", branch = "new-keyboard-v3" }
 gilrs = { version = "0.10", optional = true }
+
+# Containers
+hashbrown = { version = "0.13", features = ["nightly"] }

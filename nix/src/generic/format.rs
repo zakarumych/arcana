@@ -1,6 +1,7 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PixelFormat {
     R8Unorm,
+    R8Srgb,
     R8Snorm,
     R8Uint,
     R8Sint,
@@ -15,6 +16,7 @@ pub enum PixelFormat {
     R32Sint,
     R32Float,
     Rg8Unorm,
+    Rg8Srgb,
     Rg8Snorm,
     Rg8Uint,
     Rg8Sint,
@@ -29,7 +31,7 @@ pub enum PixelFormat {
     Rg32Sint,
     Rg32Float,
     Rgb8Unorm,
-    Rgb8UnormSrgb,
+    Rgb8Srgb,
     Rgb8Snorm,
     Rgb8Uint,
     Rgb8Sint,
@@ -44,7 +46,7 @@ pub enum PixelFormat {
     Rgb32Sint,
     Rgb32Float,
     Rgba8Unorm,
-    Rgba8UnormSrgb,
+    Rgba8Srgb,
     Rgba8Snorm,
     Rgba8Uint,
     Rgba8Sint,
@@ -59,12 +61,12 @@ pub enum PixelFormat {
     Rgba32Sint,
     Rgba32Float,
     Bgr8Unorm,
-    Bgr8UnormSrgb,
+    Bgr8Srgb,
     Bgr8Snorm,
     Bgr8Uint,
     Bgr8Sint,
     Bgra8Unorm,
-    Bgra8UnormSrgb,
+    Bgra8Srgb,
     Bgra8Snorm,
     Bgra8Uint,
     Bgra8Sint,
@@ -80,6 +82,7 @@ impl PixelFormat {
     pub fn is_color(&self) -> bool {
         match self {
             PixelFormat::R8Unorm
+            | PixelFormat::R8Srgb
             | PixelFormat::R8Snorm
             | PixelFormat::R8Uint
             | PixelFormat::R8Sint
@@ -94,6 +97,7 @@ impl PixelFormat {
             | PixelFormat::R32Sint
             | PixelFormat::R32Float
             | PixelFormat::Rg8Unorm
+            | PixelFormat::Rg8Srgb
             | PixelFormat::Rg8Snorm
             | PixelFormat::Rg8Uint
             | PixelFormat::Rg8Sint
@@ -108,7 +112,7 @@ impl PixelFormat {
             | PixelFormat::Rg32Sint
             | PixelFormat::Rg32Float
             | PixelFormat::Rgb8Unorm
-            | PixelFormat::Rgb8UnormSrgb
+            | PixelFormat::Rgb8Srgb
             | PixelFormat::Rgb8Snorm
             | PixelFormat::Rgb8Uint
             | PixelFormat::Rgb8Sint
@@ -123,7 +127,7 @@ impl PixelFormat {
             | PixelFormat::Rgb32Sint
             | PixelFormat::Rgb32Float
             | PixelFormat::Rgba8Unorm
-            | PixelFormat::Rgba8UnormSrgb
+            | PixelFormat::Rgba8Srgb
             | PixelFormat::Rgba8Snorm
             | PixelFormat::Rgba8Uint
             | PixelFormat::Rgba8Sint
@@ -138,12 +142,12 @@ impl PixelFormat {
             | PixelFormat::Rgba32Sint
             | PixelFormat::Rgba32Float
             | PixelFormat::Bgr8Unorm
-            | PixelFormat::Bgr8UnormSrgb
+            | PixelFormat::Bgr8Srgb
             | PixelFormat::Bgr8Snorm
             | PixelFormat::Bgr8Uint
             | PixelFormat::Bgr8Sint
             | PixelFormat::Bgra8Unorm
-            | PixelFormat::Bgra8UnormSrgb
+            | PixelFormat::Bgra8Srgb
             | PixelFormat::Bgra8Snorm
             | PixelFormat::Bgra8Uint
             | PixelFormat::Bgra8Sint => true,
@@ -159,6 +163,7 @@ impl PixelFormat {
     pub fn is_depth(&self) -> bool {
         match self {
             PixelFormat::R8Unorm
+            | PixelFormat::R8Srgb
             | PixelFormat::R8Snorm
             | PixelFormat::R8Uint
             | PixelFormat::R8Sint
@@ -173,6 +178,7 @@ impl PixelFormat {
             | PixelFormat::R32Sint
             | PixelFormat::R32Float
             | PixelFormat::Rg8Unorm
+            | PixelFormat::Rg8Srgb
             | PixelFormat::Rg8Snorm
             | PixelFormat::Rg8Uint
             | PixelFormat::Rg8Sint
@@ -187,7 +193,7 @@ impl PixelFormat {
             | PixelFormat::Rg32Sint
             | PixelFormat::Rg32Float
             | PixelFormat::Rgb8Unorm
-            | PixelFormat::Rgb8UnormSrgb
+            | PixelFormat::Rgb8Srgb
             | PixelFormat::Rgb8Snorm
             | PixelFormat::Rgb8Uint
             | PixelFormat::Rgb8Sint
@@ -202,7 +208,7 @@ impl PixelFormat {
             | PixelFormat::Rgb32Sint
             | PixelFormat::Rgb32Float
             | PixelFormat::Rgba8Unorm
-            | PixelFormat::Rgba8UnormSrgb
+            | PixelFormat::Rgba8Srgb
             | PixelFormat::Rgba8Snorm
             | PixelFormat::Rgba8Uint
             | PixelFormat::Rgba8Sint
@@ -217,12 +223,12 @@ impl PixelFormat {
             | PixelFormat::Rgba32Sint
             | PixelFormat::Rgba32Float
             | PixelFormat::Bgr8Unorm
-            | PixelFormat::Bgr8UnormSrgb
+            | PixelFormat::Bgr8Srgb
             | PixelFormat::Bgr8Snorm
             | PixelFormat::Bgr8Uint
             | PixelFormat::Bgr8Sint
             | PixelFormat::Bgra8Unorm
-            | PixelFormat::Bgra8UnormSrgb
+            | PixelFormat::Bgra8Srgb
             | PixelFormat::Bgra8Snorm
             | PixelFormat::Bgra8Uint
             | PixelFormat::Bgra8Sint => false,
@@ -238,6 +244,7 @@ impl PixelFormat {
     pub fn is_stencil(&self) -> bool {
         match self {
             PixelFormat::R8Unorm
+            | PixelFormat::R8Srgb
             | PixelFormat::R8Snorm
             | PixelFormat::R8Uint
             | PixelFormat::R8Sint
@@ -252,6 +259,7 @@ impl PixelFormat {
             | PixelFormat::R32Sint
             | PixelFormat::R32Float
             | PixelFormat::Rg8Unorm
+            | PixelFormat::Rg8Srgb
             | PixelFormat::Rg8Snorm
             | PixelFormat::Rg8Uint
             | PixelFormat::Rg8Sint
@@ -266,7 +274,7 @@ impl PixelFormat {
             | PixelFormat::Rg32Sint
             | PixelFormat::Rg32Float
             | PixelFormat::Rgb8Unorm
-            | PixelFormat::Rgb8UnormSrgb
+            | PixelFormat::Rgb8Srgb
             | PixelFormat::Rgb8Snorm
             | PixelFormat::Rgb8Uint
             | PixelFormat::Rgb8Sint
@@ -281,7 +289,7 @@ impl PixelFormat {
             | PixelFormat::Rgb32Sint
             | PixelFormat::Rgb32Float
             | PixelFormat::Rgba8Unorm
-            | PixelFormat::Rgba8UnormSrgb
+            | PixelFormat::Rgba8Srgb
             | PixelFormat::Rgba8Snorm
             | PixelFormat::Rgba8Uint
             | PixelFormat::Rgba8Sint
@@ -296,12 +304,12 @@ impl PixelFormat {
             | PixelFormat::Rgba32Sint
             | PixelFormat::Rgba32Float
             | PixelFormat::Bgr8Unorm
-            | PixelFormat::Bgr8UnormSrgb
+            | PixelFormat::Bgr8Srgb
             | PixelFormat::Bgr8Snorm
             | PixelFormat::Bgr8Uint
             | PixelFormat::Bgr8Sint
             | PixelFormat::Bgra8Unorm
-            | PixelFormat::Bgra8UnormSrgb
+            | PixelFormat::Bgra8Srgb
             | PixelFormat::Bgra8Snorm
             | PixelFormat::Bgra8Uint
             | PixelFormat::Bgra8Sint => false,

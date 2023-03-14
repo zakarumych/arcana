@@ -3,7 +3,10 @@
 
 // Re-exports
 
-pub use {edict, gametime, na};
+pub use {blink_alloc, edict, gametime, na};
+
+#[cfg(feature = "graphics")]
+pub use nix;
 
 #[cfg(feature = "winit")]
 pub use winit;
@@ -20,5 +23,8 @@ pub mod window;
 #[cfg(feature = "input")]
 pub mod funnel;
 
+#[cfg(feature = "graphics")]
+pub mod render;
+
 #[cfg(feature = "derive")]
-pub use owl_proc::*;
+pub use airy_proc::*;

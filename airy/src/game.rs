@@ -1,9 +1,7 @@
-use std::sync::Arc;
+use std::{error::Error, sync::Arc};
 
 use blink_alloc::Blink;
-use edict::{
-    world::WorldBuilder, ActionBuffer, ActionEncoder, Component, Entities, Scheduler, World,
-};
+use edict::{world::WorldBuilder, Component, Entities, EntityId, Scheduler, World};
 use futures::Future;
 use gametime::{Clock, ClockStep, FrequencyNumExt, FrequencyTicker, TimeSpan, TimeStamp};
 use winit::{
@@ -14,25 +12,32 @@ use winit::{
 use crate::{
     events::{Event, EventLoopBuilder},
     funnel::{Filter, Funnel},
+    render::{
+        render_system, RenderTarget, RenderTargetAlwaysUpdate, RenderTargetCounter,
+        RenderTargetUpdate,
+    },
 };
 
 /// Configuration for the game.
 pub struct Game {
     /// Main ECS world.
-    world: World,
+    pub world: World,
 
     /// Events funnel.
-    funnel: Funnel,
+    pub funnel: Funnel,
 
     /// System variable-rate scheduler.
-    var_scheduler: Option<Scheduler>,
+    pub var_scheduler: Option<Scheduler>,
 
     /// System fixed-rate scheduler.
-    fixed_scheduler: Option<Scheduler>,
+    pub fixed_scheduler: Option<Scheduler>,
 
-    /// Graphics
-    #[cfg(feature = "graphics")]
-    graphics: nix::Device,
+    /// Render target entity to render into main window.
+    /// Should be initialized with entity id of the final render target
+    /// of the render graph.
+    /// If set to some, the engine will spawn a window
+    /// and attach it to this render target.
+    pub render_to_window: Option<EntityId>,
 }
 
 /// Marker resource.
@@ -120,16 +125,22 @@ pub struct FixedTicker(pub FrequencyTicker);
 
 pub struct Limiter(pub FrequencyTicker);
 
-pub fn run_game<F, Fut>(setup: F)
+pub fn run_game<F, Fut, E>(setup: F)
 where
-    F: FnOnce(&mut Game) -> Fut + 'static,
-    Fut: Future,
+    F: FnOnce(Game) -> Fut + 'static,
+    Fut: Future<Output = Result<Game, E>>,
+    E: Error + 'static,
 {
     // Build the world.
     // Register external resources.
     let mut world_builder = WorldBuilder::new();
     world_builder.register_external::<winit::window::Window>();
     world_builder.register_external::<FrequencyTicker>();
+    world_builder.register_external::<nix::Surface>();
+    world_builder.register_component::<RenderTarget>();
+    world_builder.register_component::<RenderTargetAlwaysUpdate>();
+    world_builder.register_component::<RenderTargetUpdate>();
+
     let mut world = world_builder.build();
 
     // Start global clocks and frequency ticker.
@@ -148,36 +159,59 @@ where
 
     // Run the event loop.
     EventLoopBuilder::new().run(|events| async move {
-        // Create main window.
-        let window = Window::new(&events).unwrap();
+        let device = init_graphics();
+        let queue = device.get_queue(0, 0);
+        world.insert_resource(device);
+        world.insert_resource(queue);
+        world.insert_resource(RenderTargetCounter::new());
+
+        let mut scheduler = Scheduler::new();
+
+        scheduler.add_system(render_system);
+        let var_scheduler = Some(scheduler);
 
         // Setup the funnel
-        let mut funnel = Funnel::new();
-        funnel.add(MainWindowFilter { id: window.id() });
-        funnel.add(WindowsFilter);
-
-        world.spawn_external((window,));
+        let funnel = Funnel::new();
 
         // Construct the game config.
-        let mut game = Game {
+        let game = Game {
             world,
             funnel,
-            var_scheduler: None,
+            var_scheduler,
             fixed_scheduler: None,
+            render_to_window: None,
         };
 
         // Run the app setup closure.
-        setup(&mut game).await;
+        let game = setup(game).await.unwrap();
 
         let Game {
             mut world,
             mut funnel,
             mut var_scheduler,
             mut fixed_scheduler,
+            render_to_window,
         } = game;
 
+        if let Some(render_to_window) = render_to_window {
+            // Create main window.
+            let window = Window::new(&events).unwrap();
+            funnel.add(MainWindowFilter { id: window.id() });
+            funnel.add(WindowsFilter);
+
+            let surface = world
+                .expect_resource_mut::<nix::Device>()
+                .new_surface(&window, &window);
+
+            world
+                .insert_external_bundle(
+                    render_to_window,
+                    (surface, window, RenderTargetAlwaysUpdate),
+                )
+                .unwrap();
+        }
+
         let mut blink = Blink::new();
-        let mut actions = ActionBuffer::new();
         let mut last_fixed = TimeStamp::start();
 
         loop {
@@ -238,4 +272,22 @@ where
             blink.reset();
         }
     });
+}
+
+#[cfg(feature = "graphics")]
+fn init_graphics() -> nix::Device {
+    let instance = nix::Instance::load().expect("Failed to init graphics");
+
+    let device = instance
+        .create(nix::DeviceDesc {
+            idx: 0,
+            queue_infos: &[nix::QueuesCreateDesc {
+                family: 0,
+                queue_count: 1,
+            }],
+            features: nix::Features::empty(),
+        })
+        .unwrap();
+
+    device
 }

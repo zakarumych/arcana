@@ -1,3 +1,5 @@
+use std::{fmt, ops::Deref};
+
 use crate::generic::SurfaceError;
 
 use super::Image;
@@ -5,6 +7,8 @@ use super::Image;
 pub struct Surface {
     layer: metal::MetalLayer,
 }
+
+unsafe impl Send for Surface {}
 
 impl Surface {
     pub(super) fn new(layer: metal::MetalLayer) -> Self {
@@ -27,13 +31,36 @@ impl crate::traits::Surface for Surface {
     }
 }
 
+#[derive(Debug)]
 pub(crate) enum SurfaceErrorKind {
     SurfaceLost,
+}
+
+impl fmt::Display for SurfaceErrorKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SurfaceErrorKind::SurfaceLost => write!(f, "surface lost"),
+        }
+    }
 }
 
 pub struct SurfaceImage {
     drawable: metal::MetalDrawable,
     image: Image,
+}
+
+impl SurfaceImage {
+    pub(super) fn present(self) {
+        self.drawable.present();
+    }
+}
+
+impl Deref for SurfaceImage {
+    type Target = Image;
+
+    fn deref(&self) -> &Self::Target {
+        &self.image
+    }
 }
 
 #[hidden_trait::expose]

@@ -1,3 +1,5 @@
+use std::fmt;
+
 use crate::generic::ShaderCompileError;
 
 pub struct Library {
@@ -14,6 +16,15 @@ impl Library {
     }
 }
 
+#[derive(Debug)]
 pub(crate) enum CreateLibraryErrorKind {
     CompileError(ShaderCompileError),
+}
+
+impl fmt::Display for CreateLibraryErrorKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            CreateLibraryErrorKind::CompileError(err) => fmt::Display::fmt(err, f),
+        }
+    }
 }

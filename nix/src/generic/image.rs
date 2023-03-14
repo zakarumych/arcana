@@ -28,3 +28,97 @@ pub struct ImageDesc {
     pub layers: u32,
     pub levels: u32,
 }
+
+impl ImageDesc {
+    pub const fn new(dimensions: ImageDimensions, format: PixelFormat, usage: ImageUsage) -> Self {
+        ImageDesc {
+            dimensions,
+            format,
+            usage,
+            layers: 1,
+            levels: 1,
+        }
+    }
+
+    pub const fn new_d1(width: u32, format: PixelFormat, usage: ImageUsage) -> Self {
+        ImageDesc::new(ImageDimensions::D1(width), format, usage)
+    }
+
+    pub const fn new_d2(width: u32, height: u32, format: PixelFormat, usage: ImageUsage) -> Self {
+        ImageDesc::new(ImageDimensions::D2(width, height), format, usage)
+    }
+
+    pub const fn new_d3(
+        width: u32,
+        height: u32,
+        depth: u32,
+        format: PixelFormat,
+        usage: ImageUsage,
+    ) -> Self {
+        ImageDesc::new(ImageDimensions::D3(width, height, depth), format, usage)
+    }
+
+    pub fn layers(mut self, layers: u32) -> Self {
+        self.layers = layers;
+        self
+    }
+
+    pub fn levels(mut self, levels: u32) -> Self {
+        self.levels = levels;
+        self
+    }
+
+    pub const fn new_d1_texture(width: u32, format: PixelFormat) -> Self {
+        ImageDesc::new_d1(
+            width,
+            format,
+            ImageUsage::union(ImageUsage::SAMPLED, ImageUsage::TRANSFER_DST),
+        )
+    }
+
+    pub const fn new_d2_texture(width: u32, height: u32, format: PixelFormat) -> Self {
+        ImageDesc::new_d2(
+            width,
+            height,
+            format,
+            ImageUsage::union(ImageUsage::SAMPLED, ImageUsage::TRANSFER_DST),
+        )
+    }
+
+    pub const fn new_d3_texture(width: u32, height: u32, depth: u32, format: PixelFormat) -> Self {
+        ImageDesc::new_d3(
+            width,
+            height,
+            depth,
+            format,
+            ImageUsage::union(ImageUsage::SAMPLED, ImageUsage::TRANSFER_DST),
+        )
+    }
+
+    pub const fn new_d1_rtt(width: u32, format: PixelFormat) -> Self {
+        ImageDesc::new_d1(
+            width,
+            format,
+            ImageUsage::union(ImageUsage::SAMPLED, ImageUsage::TARGET),
+        )
+    }
+
+    pub const fn new_d2_rtt(width: u32, height: u32, format: PixelFormat) -> Self {
+        ImageDesc::new_d2(
+            width,
+            height,
+            format,
+            ImageUsage::union(ImageUsage::SAMPLED, ImageUsage::TARGET),
+        )
+    }
+
+    pub const fn new_d3_rtt(width: u32, height: u32, depth: u32, format: PixelFormat) -> Self {
+        ImageDesc::new_d3(
+            width,
+            height,
+            depth,
+            format,
+            ImageUsage::union(ImageUsage::SAMPLED, ImageUsage::TARGET),
+        )
+    }
+}
