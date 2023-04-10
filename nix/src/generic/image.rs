@@ -12,6 +12,7 @@ pub enum ImageDimensions {
 }
 
 bitflags::bitflags! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     pub struct ImageUsage: u32 {
         const TRANSFER_SRC = 0x0000_0001;
         const TRANSFER_DST = 0x0000_0002;

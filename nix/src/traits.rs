@@ -54,7 +54,9 @@ pub trait CommandEncoder {
     fn finish(self) -> crate::backend::CommandBuffer;
 }
 
-pub trait RenderCommandEncoder {}
+pub trait RenderCommandEncoder {
+    // fn set_pipeline(&mut self, pipeline: &crate::backend::RenderPipeline);
+}
 
 pub trait Surface {
     fn next_image(&mut self) -> Result<crate::backend::SurfaceImage, SurfaceError>;

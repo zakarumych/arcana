@@ -6,6 +6,7 @@ use crate::{
 };
 
 bitflags::bitflags! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     pub struct BufferUsage: u32 {
         const TRANSFER_SRC = 0x0000_0001;
         const TRANSFER_DST = 0x0000_0002;

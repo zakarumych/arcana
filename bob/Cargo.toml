@@ -1,12 +1,16 @@
 [package]
-name = "airy"
-version = "0.1.0"
-edition = "2021"
+name = "bob"
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+license.workspace = true
+version.workspace = true
+
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-derive = ["airy-proc"]
+derive = ["bob-proc"]
 
 # Enables multi-threaded runtime for tokio.
 tokio-multi-thread = ["tokio/rt-multi-thread"]
@@ -28,10 +32,13 @@ gamepad = ["gilrs", "input"]
 
 [dependencies]
 # Procedural macros
-airy-proc = { path = "proc", optional = true }
+bob-proc = { path = "proc", optional = true }
 
 # Instance
 nix = { path = "../nix", optional = true }
+
+# Asset management
+# joke = { path = "../joke" }
 
 # Memory allocator
 blink-alloc = { version = "0.2.5", features = ["nightly"] }
@@ -43,25 +50,25 @@ edict = { version = "0.4.0-rc.3", features = ["rayon"], path = "../../edict" }
 gametime = "0.1.6"
 
 # Logging
-tracing = "0.1.29"
+tracing = { workspace = true } 
 tracing-error = "0.2.0"
 
 # Math
 na = { package = "nalgebra", version = "0.32" }
 
 # Channels
-flume = "0.10"
+flume = { workspace = true }
 
 # Concurrency
-parking_lot = "0.12"
+parking_lot = { workspace = true }
 
 # Async
-futures = "0.3"
-tokio = { version = "1.0", features = ["rt", "time"], default-features = false }
+futures = { workspace = true }
+tokio = { workspace = true }
 
 # Windowing and events
 winit = { version = "0.28", optional = true, git = "https://github.com/rust-windowing/winit.git", branch = "new-keyboard-v3" }
 gilrs = { version = "0.10", optional = true }
 
 # Containers
-hashbrown = { version = "0.13", features = ["nightly"] }
+hashbrown = { workspace = true }

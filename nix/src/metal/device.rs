@@ -221,6 +221,9 @@ impl crate::traits::Device for Device {
     }
 
     fn new_buffer(&self, desc: BufferDesc) -> Result<Buffer, OutOfMemory> {
+        // self.inner
+        //     .device
+        //     .new_buffer_with_bytes_no_copy(bytes, length, options, deallocator)
         todo!()
     }
 
@@ -248,6 +251,7 @@ impl crate::traits::Device for Device {
         texture_descriptor.set_array_length(desc.layers as _);
         texture_descriptor.set_sample_count(1);
         texture_descriptor.set_usage(desc.usage.into_metal());
+        texture_descriptor.set_storage_mode(metal::MTLStorageMode::Private);
 
         let texture = self.inner.device.new_texture(&texture_descriptor);
         Ok(Image::new(texture))

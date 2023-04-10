@@ -63,6 +63,7 @@ pub struct Blend {
 
 bitflags::bitflags! {
     /// Mask for color blend write.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     pub struct WriteMask: u8 {
         const RED = 0x1;
         const GREEN = 0x2;

@@ -27,4 +27,4 @@ pub mod funnel;
 pub mod render;
 
 #[cfg(feature = "derive")]
-pub use airy_proc::*;
+pub use bob_proc::*;

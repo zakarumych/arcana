@@ -1,9 +1,15 @@
 [package]
 name = "platformer"
-version = "0.1.0"
-edition = "2021"
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+license.workspace = true
+version.workspace = true
+publish = false
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-airy = { path = "../../airy", features = ["derive", "gamepad", "graphics", "tokio-multi-thread"] }
+bob = { path = "../../bob", features = ["derive", "gamepad", "graphics", "tokio-multi-thread"] }
+joke = { path = "../../joke" }
+tokio = { workspace = true }

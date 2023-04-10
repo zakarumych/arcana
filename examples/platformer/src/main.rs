@@ -3,15 +3,16 @@
 //     winit, Event, EventLoop, EventLoopBuilder,
 // };
 
-use std::convert::Infallible;
+use std::{convert::Infallible, future::Ready};
 
-use airy::{
+use bob::{
     blink_alloc::BlinkAlloc,
     edict::{EntityId, World},
     game::run_game,
     nix,
     render::{Render, RenderBuilderContext, RenderContext},
 };
+use tokio::io::AsyncRead;
 
 pub struct MainPass {
     target: EntityId,
@@ -23,7 +24,7 @@ impl Render for MainPass {
         mut ctx: RenderContext<'_, '_>,
         _world: &World,
         _blink: &BlinkAlloc,
-    ) -> Result<(), airy::render::RenderError> {
+    ) -> Result<(), bob::render::RenderError> {
         let mut encoder = ctx.new_command_encoder().unwrap();
         let image = ctx.target(self.target);
         let render_encoder = encoder.render(nix::RenderPassDesc {
