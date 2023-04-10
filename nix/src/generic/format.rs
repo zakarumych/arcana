@@ -1,10 +1,10 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PixelFormat {
     R8Unorm,
-    R8Srgb,
     R8Snorm,
     R8Uint,
     R8Sint,
+    R8Srgb,
     R16Unorm,
     R16Snorm,
     R16Uint,
@@ -16,10 +16,10 @@ pub enum PixelFormat {
     R32Sint,
     R32Float,
     Rg8Unorm,
-    Rg8Srgb,
     Rg8Snorm,
     Rg8Uint,
     Rg8Sint,
+    Rg8Srgb,
     Rg16Unorm,
     Rg16Snorm,
     Rg16Uint,
@@ -31,10 +31,10 @@ pub enum PixelFormat {
     Rg32Sint,
     Rg32Float,
     Rgb8Unorm,
-    Rgb8Srgb,
     Rgb8Snorm,
     Rgb8Uint,
     Rgb8Sint,
+    Rgb8Srgb,
     Rgb16Unorm,
     Rgb16Snorm,
     Rgb16Uint,
@@ -46,10 +46,10 @@ pub enum PixelFormat {
     Rgb32Sint,
     Rgb32Float,
     Rgba8Unorm,
-    Rgba8Srgb,
     Rgba8Snorm,
     Rgba8Uint,
     Rgba8Sint,
+    Rgba8Srgb,
     Rgba16Unorm,
     Rgba16Snorm,
     Rgba16Uint,
@@ -61,15 +61,15 @@ pub enum PixelFormat {
     Rgba32Sint,
     Rgba32Float,
     Bgr8Unorm,
-    Bgr8Srgb,
     Bgr8Snorm,
     Bgr8Uint,
     Bgr8Sint,
+    Bgr8Srgb,
     Bgra8Unorm,
-    Bgra8Srgb,
     Bgra8Snorm,
     Bgra8Uint,
     Bgra8Sint,
+    Bgra8Srgb,
     D16Unorm,
     D32Float,
     S8Uint,
@@ -82,10 +82,10 @@ impl PixelFormat {
     pub fn is_color(&self) -> bool {
         match self {
             PixelFormat::R8Unorm
-            | PixelFormat::R8Srgb
             | PixelFormat::R8Snorm
             | PixelFormat::R8Uint
             | PixelFormat::R8Sint
+            | PixelFormat::R8Srgb
             | PixelFormat::R16Unorm
             | PixelFormat::R16Snorm
             | PixelFormat::R16Uint
@@ -97,10 +97,10 @@ impl PixelFormat {
             | PixelFormat::R32Sint
             | PixelFormat::R32Float
             | PixelFormat::Rg8Unorm
-            | PixelFormat::Rg8Srgb
             | PixelFormat::Rg8Snorm
             | PixelFormat::Rg8Uint
             | PixelFormat::Rg8Sint
+            | PixelFormat::Rg8Srgb
             | PixelFormat::Rg16Unorm
             | PixelFormat::Rg16Snorm
             | PixelFormat::Rg16Uint
@@ -112,10 +112,10 @@ impl PixelFormat {
             | PixelFormat::Rg32Sint
             | PixelFormat::Rg32Float
             | PixelFormat::Rgb8Unorm
-            | PixelFormat::Rgb8Srgb
             | PixelFormat::Rgb8Snorm
             | PixelFormat::Rgb8Uint
             | PixelFormat::Rgb8Sint
+            | PixelFormat::Rgb8Srgb
             | PixelFormat::Rgb16Unorm
             | PixelFormat::Rgb16Snorm
             | PixelFormat::Rgb16Uint
@@ -127,10 +127,10 @@ impl PixelFormat {
             | PixelFormat::Rgb32Sint
             | PixelFormat::Rgb32Float
             | PixelFormat::Rgba8Unorm
-            | PixelFormat::Rgba8Srgb
             | PixelFormat::Rgba8Snorm
             | PixelFormat::Rgba8Uint
             | PixelFormat::Rgba8Sint
+            | PixelFormat::Rgba8Srgb
             | PixelFormat::Rgba16Unorm
             | PixelFormat::Rgba16Snorm
             | PixelFormat::Rgba16Uint
@@ -142,15 +142,15 @@ impl PixelFormat {
             | PixelFormat::Rgba32Sint
             | PixelFormat::Rgba32Float
             | PixelFormat::Bgr8Unorm
-            | PixelFormat::Bgr8Srgb
             | PixelFormat::Bgr8Snorm
             | PixelFormat::Bgr8Uint
             | PixelFormat::Bgr8Sint
+            | PixelFormat::Bgr8Srgb
             | PixelFormat::Bgra8Unorm
-            | PixelFormat::Bgra8Srgb
             | PixelFormat::Bgra8Snorm
             | PixelFormat::Bgra8Uint
-            | PixelFormat::Bgra8Sint => true,
+            | PixelFormat::Bgra8Sint
+            | PixelFormat::Bgra8Srgb => true,
             PixelFormat::D16Unorm
             | PixelFormat::D32Float
             | PixelFormat::S8Uint
@@ -332,10 +332,10 @@ pub enum VertexFormat {
     Sint32,
     Unorm8,
     Unorm16,
-    // Unorm32,
+    Unorm32,
     Snorm8,
     Snorm16,
-    // Snorm32,
+    Snorm32,
     Float16,
     Float32,
     Uint8x2,
@@ -346,10 +346,10 @@ pub enum VertexFormat {
     Sint32x2,
     Unorm8x2,
     Unorm16x2,
-    // Unorm32x2,
+    Unorm32x2,
     Snorm8x2,
     Snorm16x2,
-    // Snorm32x2,
+    Snorm32x2,
     Float16x2,
     Float32x2,
     Uint8x3,
@@ -360,10 +360,10 @@ pub enum VertexFormat {
     Sint32x3,
     Unorm8x3,
     Unorm16x3,
-    // Unorm32x3,
+    Unorm32x3,
     Snorm8x3,
     Snorm16x3,
-    // Snorm32x3,
+    Snorm32x3,
     Float16x3,
     Float32x3,
     Uint8x4,
@@ -374,10 +374,10 @@ pub enum VertexFormat {
     Sint32x4,
     Unorm8x4,
     Unorm16x4,
-    // Unorm32x4,
+    Unorm32x4,
     Snorm8x4,
     Snorm16x4,
-    // Snorm32x4,
+    Snorm32x4,
     Float16x4,
     Float32x4,
 }

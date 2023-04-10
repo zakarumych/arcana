@@ -1,8 +1,15 @@
-use super::format::PixelFormat;
+use super::{format::PixelFormat, OutOfMemory};
 
 pub enum ImageError {
     OutOfMemory,
     InvalidFormat,
+}
+
+impl From<OutOfMemory> for ImageError {
+    #[inline(always)]
+    fn from(_: OutOfMemory) -> Self {
+        ImageError::OutOfMemory
+    }
 }
 
 pub enum ImageDimensions {
@@ -22,15 +29,18 @@ bitflags::bitflags! {
     }
 }
 
-pub struct ImageDesc {
+pub struct ImageDesc<'a> {
     pub dimensions: ImageDimensions,
     pub format: PixelFormat,
     pub usage: ImageUsage,
     pub layers: u32,
     pub levels: u32,
+
+    /// Image debug name.
+    pub name: &'a str,
 }
 
-impl ImageDesc {
+impl<'a> ImageDesc<'a> {
     pub const fn new(dimensions: ImageDimensions, format: PixelFormat, usage: ImageUsage) -> Self {
         ImageDesc {
             dimensions,
@@ -38,6 +48,7 @@ impl ImageDesc {
             usage,
             layers: 1,
             levels: 1,
+            name: "",
         }
     }
 
@@ -121,5 +132,10 @@ impl ImageDesc {
             format,
             ImageUsage::union(ImageUsage::SAMPLED, ImageUsage::TARGET),
         )
+    }
+
+    pub const fn with_name(mut self, name: &'a str) -> Self {
+        self.name = name;
+        self
     }
 }

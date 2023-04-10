@@ -61,7 +61,7 @@ pub struct LibraryDesc<'a> {
 }
 
 pub struct Shader<'a> {
-    pub module: Library,
+    pub library: Library,
     pub entry: Cow<'a, str>,
 }
 
@@ -111,15 +111,67 @@ impl fmt::Display for ShaderCompileError {
     }
 }
 
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 pub(crate) fn compile_shader(
     code: &[u8],
     filename: Option<&str>,
-    src: ShaderLanguage,
-    dst: ShaderLanguage,
-) -> Result<Box<[u8]>, ShaderCompileError> {
-    debug_assert_ne!(src, dst);
+    lang: ShaderLanguage,
+) -> Result<String, ShaderCompileError> {
+    let (module, info) = parse_shader(code, filename, lang)?;
 
-    let module = match src {
+    let options = naga::back::msl::Options {
+        lang_version: (2, 4),
+        per_stage_map: Default::default(),
+        inline_samplers: Vec::new(),
+        spirv_cross_compatibility: false,
+        fake_missing_bindings: false,
+        bounds_check_policies: Default::default(),
+        zero_initialize_workgroup_memory: false,
+    };
+
+    let (string, _translation) = naga::back::msl::write_string(
+        &module,
+        &info,
+        &options,
+        &naga::back::msl::PipelineOptions {
+            allow_point_size: false,
+        },
+    )
+    .map_err(ShaderCompileError::GenMsl)?;
+
+    Ok(string)
+}
+
+#[cfg(any(windows, all(unix, not(any(target_os = "macos", target_os = "ios")))))]
+pub(crate) fn compile_shader(
+    code: &[u8],
+    filename: Option<&str>,
+    lang: ShaderLanguage,
+) -> Result<Box<[u32]>, ShaderCompileError> {
+    let (module, info) = parse_shader(code, filename, lang)?;
+
+    let options = naga::back::spv::Options {
+        lang_version: (1, 3),
+        flags: naga::back::spv::WriterFlags::empty(),
+        binding_map: naga::back::spv::BindingMap::default(),
+        capabilities: None,
+        bounds_check_policies: naga::proc::BoundsCheckPolicies::default(),
+        zero_initialize_workgroup_memory: naga::back::spv::ZeroInitializeWorkgroupMemoryMode::None,
+    };
+
+    let words = naga::back::spv::write_vec(&module, &info, &options, None)
+        .map(|vec| vec.into())
+        .map_err(ShaderCompileError::GenSpirV)?;
+
+    Ok(words)
+}
+
+pub(crate) fn parse_shader(
+    code: &[u8],
+    filename: Option<&str>,
+    lang: ShaderLanguage,
+) -> Result<(naga::Module, naga::valid::ModuleInfo), ShaderCompileError> {
+    let module = match lang {
         ShaderLanguage::SpirV => {
             naga::front::spv::parse_u8_slice(code, &naga::front::spv::Options::default())
                 .map_err(ShaderCompileError::ParseSpirV)?
@@ -165,48 +217,7 @@ pub(crate) fn compile_shader(
             ShaderCompileError::ValidationFailed
         })?;
 
-    match dst {
-        #[cfg(any(windows, all(unix, not(any(target_os = "macos", target_os = "ios")))))]
-        ShaderLanguage::SpirV => {
-            let options = naga::back::spv::Options {
-                lang_version: (1, 3),
-                flags: naga::back::spv::WriterFlags::empty(),
-                binding_map: naga::back::spv::BindingMap::default(),
-                capabilities: None,
-                bounds_check_policies: naga::proc::BoundsCheckPolicies::default(),
-                zero_initialize_workgroup_memory:
-                    naga::back::spv::ZeroInitializeWorkgroupMemoryMode::None,
-            };
-            naga::back::spv::write_vec(&module, &info, &options, None)
-                ..map_err(ShaderCompileError::GenSpirV)?
-        }
-        #[cfg(any(target_os = "macos", target_os = "ios"))]
-        ShaderLanguage::Msl => {
-            let options = naga::back::msl::Options {
-                lang_version: (2, 4),
-                per_stage_map: Default::default(),
-                inline_samplers: Vec::new(),
-                spirv_cross_compatibility: false,
-                fake_missing_bindings: false,
-                bounds_check_policies: Default::default(),
-                zero_initialize_workgroup_memory: false,
-            };
-            let (string, _translation) = naga::back::msl::write_string(
-                &module,
-                &info,
-                &options,
-                &naga::back::msl::PipelineOptions {
-                    allow_point_size: false,
-                },
-            )
-            .map_err(ShaderCompileError::GenMsl)?;
-
-            Ok(string.into_bytes().into_boxed_slice())
-        }
-        _ => {
-            unreachable!()
-        }
-    }
+    Ok((module, info))
 }
 
 fn emit_annotated_error<E: std::error::Error>(

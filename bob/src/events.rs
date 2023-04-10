@@ -8,14 +8,16 @@ use std::{
 use gametime::{Clock, FrequencyTicker};
 use parking_lot::Mutex;
 
-#[cfg(target_os = "windows")]
-use winit::platform::windows::EventLoopBuilderExtWindows as _;
 use winit::{
     event::{DeviceEvent, WindowEvent},
     event_loop::EventLoopWindowTarget,
     window::WindowId,
 };
 
+#[cfg(target_os = "windows")]
+use winit::platform::windows::EventLoopBuilderExtWindows as _;
+
+/// Runtime unique identifier for a device.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(transparent)]
 pub struct DeviceId(DeviceIdKind);
@@ -61,35 +63,38 @@ impl From<gilrs::GamepadId> for DeviceId {
     }
 }
 
+/// Event emitted by the event loop.
 #[derive(Debug)]
 pub enum Event {
     /// Emitted once in the beginning of the event loop iteration.
+    ///
+    /// Main loop should run next update phase upon receiving this event.
     Update,
 
-    /// Emitted when the OS sends an event to a winit window.
+    /// Emitted when the OS sends an event for a winit window.
     WindowEvent {
         window_id: WindowId,
         event: WindowEvent<'static>,
     },
 
-    /// Emitted when the OS sends an event to a device.
+    /// Emitted when the OS sends an event for a device.
     DeviceEvent {
         device_id: DeviceId,
         event: DeviceEvent,
     },
 
-    /// Emitted when the OS sends an event to a gamepad.
+    /// Emitted when the OS sends an event for a gamepad.
     #[cfg(feature = "gilrs")]
     GamepadEvent {
         device_id: DeviceId,
-        event: DeviceEvent,
+        event: gilrs::EventType,
     },
 
     /// Emitted when the OS requests a redraw for a window.
     RedrawRequested(WindowId),
 }
 
-pub enum UserEvent {
+enum UserEvent {
     Wake,
 }
 

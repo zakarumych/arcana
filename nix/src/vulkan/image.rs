@@ -1,7 +1,7 @@
 use ash::vk::{self};
 use gpu_alloc::MemoryBlock;
 
-use crate::generic::{Format, ImageDimensions, ImageUsage};
+use crate::generic::{ImageDimensions, ImageUsage, PixelFormat};
 
 use super::device::WeakDevice;
 
@@ -17,7 +17,7 @@ pub struct Image {
     handle: vk::Image,
     owner: WeakDevice,
     dimensions: ImageDimensions,
-    format: Format,
+    format: PixelFormat,
     usage: ImageUsage,
     layers: u32,
     levels: u32,
@@ -38,7 +38,7 @@ impl Image {
         owner: WeakDevice,
         handle: vk::Image,
         dimensions: ImageDimensions,
-        format: Format,
+        format: PixelFormat,
         usage: ImageUsage,
         layers: u32,
         levels: u32,

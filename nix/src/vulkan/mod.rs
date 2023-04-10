@@ -7,19 +7,28 @@ mod from;
 mod image;
 mod instance;
 mod queue;
+mod render_pipeline;
+mod shader;
 mod surface;
 
 pub use self::{
     buffer::Buffer,
-    command::CommandBuffer,
+    command::{CommandBuffer, CommandEncoder, RenderCommandEncoder},
     device::Device,
     image::Image,
-    instance::{CreateError, Instance, LoadError},
+    instance::Instance,
     queue::Queue,
-    surface::Surface,
+    render_pipeline::RenderPipeline,
+    shader::Library,
+    surface::{Surface, SurfaceImage},
 };
 
-pub(crate) use self::instance::{CreateErrorKind, LoadErrorKind};
+pub(crate) use self::{
+    instance::{CreateErrorKind, LoadErrorKind},
+    render_pipeline::CreatePipelineErrorKind,
+    shader::CreateLibraryErrorKind,
+    surface::SurfaceErrorKind,
+};
 
 #[track_caller]
 fn handle_host_oom() -> ! {

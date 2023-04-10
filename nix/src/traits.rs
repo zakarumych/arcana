@@ -36,7 +36,7 @@ pub trait Device {
         &self,
         window: &impl HasRawWindowHandle,
         display: &impl HasRawDisplayHandle,
-    ) -> crate::backend::Surface;
+    ) -> Result<crate::backend::Surface, SurfaceError>;
 }
 
 pub trait Queue {

@@ -11,5 +11,4 @@ publish = false
 
 [dependencies]
 bob = { path = "../../bob", features = ["derive", "gamepad", "graphics", "tokio-multi-thread"] }
-joke = { path = "../../joke" }
 tokio = { workspace = true }

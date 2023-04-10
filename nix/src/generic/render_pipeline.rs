@@ -41,7 +41,7 @@ impl Default for PrimitiveTopology {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ColorTargetDesc {
     pub format: PixelFormat,
     pub blend: Option<BlendDesc>,
@@ -100,8 +100,8 @@ pub enum BlendOp {
 
 pub struct DepthStencilDesc {
     pub format: PixelFormat,
-    pub depth_write_enabled: bool,
-    pub depth_compare: CompareFunction,
+    pub write_enabled: bool,
+    pub compare: CompareFunction,
 }
 
 pub enum CompareFunction {

@@ -16,7 +16,7 @@ use raw_window_handle::{
 use crate::generic::{
     compile_shader, BufferDesc, CreateLibraryError, CreatePipelineError, ImageDesc,
     ImageDimensions, ImageError, LibraryDesc, LibraryInput, OutOfMemory, RenderPipelineDesc,
-    ShaderCompileError, ShaderLanguage, VertexStepMode,
+    ShaderCompileError, ShaderLanguage, SurfaceError, VertexStepMode,
 };
 
 use super::{
@@ -261,7 +261,7 @@ impl crate::traits::Device for Device {
         &self,
         window: &impl HasRawWindowHandle,
         display: &impl HasRawDisplayHandle,
-    ) -> Surface {
+    ) -> Result<Surface, SurfaceError> {
         let window = window.raw_window_handle();
         let display = display.raw_display_handle();
         let layer = match (window, display) {
@@ -278,7 +278,7 @@ impl crate::traits::Device for Device {
         };
 
         layer.set_device(&self.inner.device);
-        Surface::new(layer)
+        Ok(Surface::new(layer))
     }
 }
 

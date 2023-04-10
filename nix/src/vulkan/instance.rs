@@ -2,15 +2,25 @@ use std::{
     alloc::Layout,
     convert::identity,
     ffi::{c_void, CStr},
+    fmt,
 };
 
 use ash::*;
 
-use crate::generic::{Capabilities, DeviceCapabilities, DeviceDesc, FamilyCapabilities, Features};
+use crate::generic::{
+    Capabilities, CreateError, DeviceCapabilities, DeviceDesc, FamilyCapabilities, Features,
+    LoadError, OutOfMemory,
+};
 
 use super::{
     device::Device, from::*, handle_host_oom, queue::Family, unexpected_error, Version, VERSION_1_1,
 };
+
+macro_rules! extension_name {
+    ($name:literal) => {
+        str::as_ptr(concat!($name, "\0")) as *const i8
+    };
+}
 
 #[derive(Clone)]
 pub struct Instance {
@@ -22,19 +32,49 @@ pub struct Instance {
 
     #[cfg(any(debug_assertions, feature = "debug"))]
     debug_utils: Option<ash::extensions::ext::DebugUtils>,
+
+    surface: Option<ash::extensions::khr::Surface>,
+
+    #[cfg(target_os = "windows")]
+    win32_surface: Option<ash::extensions::khr::Win32Surface>,
 }
 
+#[derive(Debug)]
 pub(crate) enum LoadErrorKind {
-    LoadingError(ash::LoadingError),
     OutOfMemory,
+    LoadingError(ash::LoadingError),
     InitializationFailed,
 }
 
+impl fmt::Display for LoadErrorKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            LoadErrorKind::LoadingError(err) => {
+                write!(f, "failed to load Vulkan entry points: {}", err)
+            }
+            LoadErrorKind::OutOfMemory => write!(f, "{OutOfMemory}"),
+            LoadErrorKind::InitializationFailed => write!(f, "initialization failed"),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub(crate) enum CreateErrorKind {
     OutOfMemory,
     InitializationFailed,
     TooManyObjects,
     DeviceLost,
+}
+
+impl fmt::Display for CreateErrorKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            CreateErrorKind::OutOfMemory => write!(f, "{OutOfMemory}"),
+            CreateErrorKind::InitializationFailed => write!(f, "initialization failed"),
+            CreateErrorKind::TooManyObjects => write!(f, "too many objects"),
+            CreateErrorKind::DeviceLost => write!(f, "device lost"),
+        }
+    }
 }
 
 unsafe fn find_layer<'a>(
@@ -54,6 +94,7 @@ unsafe fn find_extension<'a>(
         CStr::from_ptr(extension.extension_name.as_ptr()).to_bytes() == name.as_bytes()
     })
 }
+
 fn engine_version() -> u32 {
     let major = env!("CARGO_PKG_VERSION_MAJOR").parse().unwrap();
     let minor = env!("CARGO_PKG_VERSION_MINOR").parse().unwrap();
@@ -63,8 +104,12 @@ fn engine_version() -> u32 {
 
 impl Instance {
     pub fn load() -> Result<Self, LoadError> {
+        // Load the Vulkan entry points.
+
         let entry =
             unsafe { Entry::load() }.map_err(|err| LoadError(LoadErrorKind::LoadingError(err)))?;
+
+        // Collect instance layers and extensions.
 
         let layers = entry
             .enumerate_instance_layer_properties()
@@ -87,6 +132,8 @@ impl Instance {
                 err => unexpected_error(err),
             })?;
 
+        // Enable layers and instance extensions.
+
         let mut enabled_extension_names = Vec::new();
 
         #[cfg(any(debug_assertions, feature = "debug"))]
@@ -103,6 +150,20 @@ impl Instance {
             debug_utils = true;
         }
 
+        let mut has_surface = false;
+        if let Some(surface_extension) = unsafe { find_extension(&extensions, "VK_KHR_surface") } {
+            #[cfg(target_os = "windows")]
+            let name = "VK_KHR_win32_surface";
+
+            if let Some(platform_extension) = unsafe { find_extension(&extensions, name) } {
+                has_surface = true;
+                enabled_extension_names.push(surface_extension.extension_name.as_ptr());
+                enabled_extension_names.push(platform_extension.extension_name.as_ptr());
+            }
+        }
+
+        // Choose latest Vulkan version.
+
         let api_version = entry
             .try_enumerate_instance_version()
             .map_err(|err| match err {
@@ -117,6 +178,8 @@ impl Instance {
             minor: vk::api_version_minor(api_version),
             patch: vk::api_version_patch(api_version),
         };
+
+        // Create the Vulkan instance.
 
         let result = unsafe {
             entry.create_instance(
@@ -157,9 +220,27 @@ impl Instance {
             err => unexpected_error(err),
         })?;
 
+        // Init debug utils extension functions
+
         #[cfg(any(debug_assertions, feature = "debug"))]
         let debug_utils =
             debug_utils.then(|| ash::extensions::ext::DebugUtils::new(&entry, &instance));
+
+        // Init surface extension functions
+        let mut surface = None;
+
+        #[cfg(target_os = "windows")]
+        let mut win32_surface = None;
+        if has_surface {
+            surface = Some(ash::extensions::khr::Surface::new(&entry, &instance));
+
+            #[cfg(target_os = "windows")]
+            {
+                win32_surface = Some(ash::extensions::khr::Win32Surface::new(&entry, &instance));
+            }
+        }
+
+        // Collect physical devices
 
         let devices =
             unsafe { instance.enumerate_physical_devices() }.map_err(|err| match err {
@@ -180,7 +261,17 @@ impl Instance {
                 vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => LoadError(LoadErrorKind::OutOfMemory),
                 vk::Result::ERROR_LAYER_NOT_PRESENT => unreachable!("No layer specified"),
                 err => unexpected_error(err),
-            });
+            })?;
+
+            let mut features = Features::empty();
+
+            if has_surface {
+                if let Some(extension) = unsafe { find_extension(&extensions, "VK_KHR_swapchain") }
+                {
+                    enabled_extension_names.push(extension.extension_name.as_ptr());
+                    features |= Features::SURFACE;
+                }
+            }
 
             let memory = unsafe { instance.get_physical_device_memory_properties(device) };
 
@@ -207,10 +298,12 @@ impl Instance {
             };
 
             device_caps.push(DeviceCapabilities {
-                features: Features {},
+                features: Features::empty(),
                 families,
             })
         }
+
+        // Build instance instance.
 
         Ok(Instance {
             version,
@@ -221,37 +314,58 @@ impl Instance {
                 devices: device_caps,
             },
             debug_utils,
+            surface,
+
+            #[cfg(target_os = "windows")]
+            win32_surface,
         })
     }
 }
 
 #[hidden_trait::expose]
-impl crate::generic::Instance for Instance {
+impl crate::traits::Instance for Instance {
     fn capabilities(&self) -> &Capabilities {
         &self.capabilities
     }
 
-    fn create(&self, info: DeviceDesc) -> Result<Device, CreateError> {
-        let physical_device = self.devices[info.idx];
+    fn create(&self, desc: DeviceDesc) -> Result<Device, CreateError> {
+        let physical_device = self.devices[desc.idx];
+        let device_caps = &self.capabilities.devices[desc.idx];
 
-        let mut queue_create_infos = Vec::new();
+        // Check for duplicate queue families
+        let duplicates = desc.queue_infos.iter().enumerate().any(|(idx, info)| {
+            desc.queue_infos[..idx]
+                .iter()
+                .any(|other| other.family == info.family)
+        });
+        assert!(!duplicates, "Queue family specified more than once");
 
-        for queue_info in &info.queue_infos {
-            u32::try_from(queue_info.queue_count).expect("Too many queues requested");
-            assert!(
-                self.capabilities.devices[info.idx].families[queue_info.family as usize]
-                    .queue_count
-                    >= queue_info.queue_count
-            );
+        // Collect queue create infos
+        let mut queue_create_infos = desc
+            .queue_infos
+            .iter()
+            .map(|queue_info| {
+                u32::try_from(queue_info.queue_count).expect("Too many queues requested");
+                let family_caps = &device_caps.families[queue_info.family as usize];
+                let max_queue_count = family_caps.queue_count;
+                assert!(
+                    max_queue_count >= queue_info.queue_count,
+                    "Family {} has {} queues, but {} were requested",
+                    queue_info.family,
+                    max_queue_count,
+                    queue_info.queue_count
+                );
 
-            let priorities = vec![1.0; queue_info.queue_count];
-            queue_create_infos.push(
+                let priorities = vec![1.0; queue_info.queue_count];
+
                 vk::DeviceQueueCreateInfo::builder()
                     .queue_family_index(queue_info.family)
                     .queue_priorities(&priorities)
-                    .build(),
-            );
-        }
+                    .build()
+            })
+            .collect::<Vec<_>>();
+
+        // Init memory allocator
 
         let limits = unsafe {
             self.instance
@@ -291,10 +405,17 @@ impl crate::generic::Instance for Instance {
             },
         );
 
+        let mut enabled_extension_names = Vec::new();
+        if desc.features.contains(Features::SURFACE) {
+            enabled_extension_names.push(extension_name!("VK_KHR_swapchain"));
+        }
+
         let result = unsafe {
             self.instance.create_device(
                 physical_device,
-                &vk::DeviceCreateInfo::builder().queue_create_infos(&queue_create_infos),
+                &vk::DeviceCreateInfo::builder()
+                    .enabled_extension_names(&enabled_extension_names)
+                    .queue_create_infos(&queue_create_infos),
                 None,
             )
         };
@@ -312,16 +433,17 @@ impl crate::generic::Instance for Instance {
             err => unexpected_error(err),
         })?;
 
+        // Collect families from the device.
         let mut families = Vec::new();
-        for family_info in &info.queue_infos {
+        for family_info in desc.queue_infos {
+            let family_caps = &device_caps.families[family_info.family as usize];
             let mut queues = Vec::new();
             for idx in 0..family_info.queue_count {
-                let queue = unsafe { device.get_device_queue(family_info.idx, idx as u32) };
+                let queue = unsafe { device.get_device_queue(family_info.family, idx as u32) };
                 queues.push(queue);
             }
             families.push(Family {
-                flags: self.capabilities.devices[info.idx].families[family_info.idx as usize]
-                    .queue_flags,
+                flags: family_caps.queue_flags,
                 queues,
             });
         }
@@ -333,9 +455,16 @@ impl crate::generic::Instance for Instance {
             physical_device,
             device,
             families,
+            desc.features,
             allocator,
             #[cfg(any(debug_assertions, feature = "debug"))]
             self.debug_utils.clone(),
+            self.surface.clone(),
+            desc.features
+                .contains(Features::SURFACE)
+                .then(|| ash::extensions::khr::Swapchain::new(&self.instance, &device)),
+            #[cfg(target_os = "windows")]
+            self.win32_surface.clone(),
         );
 
         Ok(device)
