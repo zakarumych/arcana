@@ -12,6 +12,7 @@ impl From<OutOfMemory> for ImageError {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ImageDimensions {
     D1(u32),
     D2(u32, u32),

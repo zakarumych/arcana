@@ -25,6 +25,13 @@ pub enum RenderError {
     OutOfMemory(nix::OutOfMemory),
 }
 
+impl From<nix::OutOfMemory> for RenderError {
+    #[inline(always)]
+    fn from(err: nix::OutOfMemory) -> Self {
+        RenderError::OutOfMemory(err)
+    }
+}
+
 impl fmt::Display for RenderError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -136,7 +143,7 @@ pub fn render_system(world: &World, mut state: State<RenderState>) {
         ))
         .for_each(|(eid, target, surface_opt)| {
             if let Some(surface) = surface_opt {
-                match surface.next_image() {
+                match surface.next_image(&mut *queue) {
                     Err(err) => {
                         tracing::error!(err = ?err);
                         drop_surfaces.push(eid);

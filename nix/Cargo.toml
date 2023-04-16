@@ -6,6 +6,9 @@ readme.workspace = true
 license.workspace = true
 version.workspace = true
 
+[features]
+handle-device-lost = [] # Enable to handle device lost errors.
+
 [dependencies]
 hidden-trait = "0.1"
 bitflags = "2.0"
@@ -14,6 +17,7 @@ raw-window-handle = "0.5"
 tracing = "0.1"
 parking_lot = "0.12"
 codespan-reporting = "0.11"
+hashbrown = "0.13"
 
 [target.'cfg(any(windows, all(unix, not(any(target_os = "macos", target_os = "ios")))))'.dependencies]
 ash = { version = "0.37.0", features = ["loaded"] }

@@ -382,9 +382,9 @@ checksum = "9ea835d29036a4087793836fa931b08837ad5e957da9e23886b29586fb9b6650"
 
 [[package]]
 name = "edict"
-version = "0.4.0-rc.4"
+version = "0.4.0-rc.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "655faa5805ce396d09833db706e96e215c976feaf0d8b8464ffba78e125a561a"
+checksum = "b56a33d37f54d51e10899cd6f2112080f3f5cc63640c4897d7b799202421467d"
 dependencies = [
  "atomicell",
  "edict-proc",
@@ -1042,6 +1042,7 @@ dependencies = [
  "gpu-alloc-ash",
  "gpu-descriptor",
  "gpu-descriptor-ash",
+ "hashbrown 0.13.2",
  "hidden-trait",
  "metal",
  "naga",

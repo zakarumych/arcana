@@ -4,6 +4,7 @@ use std::{
 };
 
 use ash::vk::{self, Handle};
+use gpu_alloc::MemoryBlock;
 use gpu_alloc_ash::AshMemoryDevice;
 use parking_lot::Mutex;
 use raw_window_handle::{
@@ -12,17 +13,21 @@ use raw_window_handle::{
 use slab::Slab;
 
 use crate::generic::{
-    compile_shader, BufferDesc, CompareFunction, CreateLibraryError, CreatePipelineError, Features,
-    ImageDesc, ImageError, LibraryDesc, LibraryInput, Memory, OutOfMemory, PrimitiveTopology,
+    compile_shader, BufferDesc, CreateLibraryError, CreatePipelineError, Features, ImageDesc,
+    ImageError, LibraryDesc, LibraryInput, Memory, OutOfMemory, PrimitiveTopology,
     RenderPipelineDesc, ShaderLanguage, SurfaceError, VertexStepMode,
 };
 
 use super::{
+    buffer::Buffer,
     from::{IntoAsh, TryIntoAsh},
     handle_host_oom,
+    image::Image,
     queue::{Family, Queue},
+    render_pipeline::RenderPipeline,
     shader::Library,
-    unexpected_error, Buffer, Image, RenderPipeline, Surface, Version,
+    surface::{Surface, SurfaceErrorKind},
+    unexpected_error, Version,
 };
 
 struct DeviceInner {
@@ -65,6 +70,7 @@ impl fmt::Debug for Device {
     }
 }
 
+#[derive(Clone)]
 pub(super) struct WeakDevice {
     inner: std::sync::Weak<DeviceInner>,
 }
@@ -76,8 +82,15 @@ impl WeakDevice {
     }
 
     #[inline]
-    pub fn drop_buffer(&self, idx: usize) {
+    pub fn drop_buffer(&self, idx: usize, block: MemoryBlock<vk::DeviceMemory>) {
         if let Some(inner) = self.inner.upgrade() {
+            unsafe {
+                inner
+                    .allocator
+                    .lock()
+                    .dealloc(AshMemoryDevice::wrap(&inner.device), block)
+            }
+
             let mut buffers = inner.buffers.lock();
             let buffer = buffers.remove(idx);
             unsafe {
@@ -87,8 +100,15 @@ impl WeakDevice {
     }
 
     #[inline]
-    pub fn drop_image(&self, idx: usize) {
+    pub fn drop_image(&self, idx: usize, block: MemoryBlock<vk::DeviceMemory>) {
         if let Some(inner) = self.inner.upgrade() {
+            unsafe {
+                inner
+                    .allocator
+                    .lock()
+                    .dealloc(AshMemoryDevice::wrap(&inner.device), block)
+            }
+
             let mut images = inner.images.lock();
             let image = images.remove(idx);
             unsafe {
@@ -157,6 +177,22 @@ impl Device {
         }
     }
 
+    pub(super) fn swapchain(&self) -> &ash::extensions::khr::Swapchain {
+        self.inner.swapchain.as_ref().unwrap()
+    }
+
+    pub(super) fn surface(&self) -> &ash::extensions::khr::Surface {
+        self.inner.surface.as_ref().unwrap()
+    }
+
+    pub(super) fn physical_device(&self) -> vk::PhysicalDevice {
+        self.inner.physical_device
+    }
+
+    pub(super) fn queue_families(&self) -> impl Iterator<Item = u32> + '_ {
+        self.inner.families.iter().map(|f| f.index)
+    }
+
     #[cfg(any(debug_assertions, feature = "debug"))]
     fn set_object_name(&self, ty: vk::ObjectType, handle: u64, name: &str) {
         if !name.is_empty() {
@@ -176,7 +212,7 @@ impl Device {
     }
 }
 
-// #[hidden_trait::expose]
+#[hidden_trait::expose]
 impl crate::traits::Device for Device {
     fn get_queue(&self, family: usize, idx: usize) -> Queue {
         let family = &self.inner.families[family];
@@ -216,7 +252,7 @@ impl crate::traits::Device for Device {
                 };
                 let result = unsafe {
                     me.device.create_shader_module(
-                        &ash::vk::ShaderModuleCreateInfo::builder().code(code),
+                        &vk::ShaderModuleCreateInfo::builder().code(code),
                         None,
                     )
                 };
@@ -243,7 +279,7 @@ impl crate::traits::Device for Device {
             .vertex_attributes
             .iter()
             .enumerate()
-            .map(|(idx, attr)| ash::vk::VertexInputAttributeDescription {
+            .map(|(idx, attr)| vk::VertexInputAttributeDescription {
                 location: idx as u32,
                 binding: attr.buffer_index,
                 format: attr.format.try_into_ash().expect("Unsupported on Vulkan"),
@@ -255,12 +291,12 @@ impl crate::traits::Device for Device {
             .vertex_layouts
             .iter()
             .enumerate()
-            .map(|(idx, attr)| ash::vk::VertexInputBindingDescription {
+            .map(|(idx, attr)| vk::VertexInputBindingDescription {
                 binding: idx as u32,
                 stride: attr.stride,
                 input_rate: match attr.step_mode {
-                    VertexStepMode::Vertex => ash::vk::VertexInputRate::VERTEX,
-                    VertexStepMode::Instance { rate: 1 } => ash::vk::VertexInputRate::INSTANCE,
+                    VertexStepMode::Vertex => vk::VertexInputRate::VERTEX,
+                    VertexStepMode::Instance { rate: 1 } => vk::VertexInputRate::INSTANCE,
                     VertexStepMode::Instance { rate } => {
                         panic!(
                             "Instance vertex step mode with rate {rate} is not supported on Vulkan"
@@ -275,8 +311,8 @@ impl crate::traits::Device for Device {
 
         let mut names = Vec::with_capacity(2);
 
-        let mut stages = vec![ash::vk::PipelineShaderStageCreateInfo::builder()
-            .stage(ash::vk::ShaderStageFlags::VERTEX)
+        let mut stages = vec![vk::PipelineShaderStageCreateInfo::builder()
+            .stage(vk::ShaderStageFlags::VERTEX)
             .module(desc.vertex_shader.library.module())
             .name({
                 let entry = std::ffi::CString::new(&*desc.vertex_shader.entry).unwrap();
@@ -285,15 +321,15 @@ impl crate::traits::Device for Device {
             })
             .build()];
 
-        let mut raster_state = ash::vk::PipelineRasterizationStateCreateInfo::builder();
-        let mut depth_state = ash::vk::PipelineDepthStencilStateCreateInfo::builder();
+        let mut raster_state = vk::PipelineRasterizationStateCreateInfo::builder();
+        let mut depth_state = vk::PipelineDepthStencilStateCreateInfo::builder();
         let mut attachments = Vec::new();
 
         if let Some(raster) = &desc.raster {
             if let Some(fragment_shader) = &raster.fragment_shader {
                 stages.push(
-                    ash::vk::PipelineShaderStageCreateInfo::builder()
-                        .stage(ash::vk::ShaderStageFlags::FRAGMENT)
+                    vk::PipelineShaderStageCreateInfo::builder()
+                        .stage(vk::ShaderStageFlags::FRAGMENT)
                         .module(fragment_shader.library.module())
                         .name({
                             let entry = std::ffi::CString::new(&*fragment_shader.entry).unwrap();
@@ -307,20 +343,20 @@ impl crate::traits::Device for Device {
             raster_state = raster_state
                 .depth_clamp_enable(true)
                 .rasterizer_discard_enable(false)
-                .polygon_mode(ash::vk::PolygonMode::FILL)
-                .cull_mode(ash::vk::CullModeFlags::BACK)
-                .front_face(ash::vk::FrontFace::CLOCKWISE);
+                .polygon_mode(vk::PolygonMode::FILL)
+                .cull_mode(vk::CullModeFlags::BACK)
+                .front_face(vk::FrontFace::CLOCKWISE);
 
-            if let Some(depth_stencil) = raster.depth_stencil {
+            if let Some(depth) = &raster.depth_stencil {
                 depth_state = depth_state
-                    .depth_test_enable(depth_stencil.format.is_depth())
-                    .depth_compare_op(depth_stencil.compare.into_ash())
-                    .depth_write_enable(depth_stencil.write_enabled)
-                    .stencil_test_enable(depth_stencil.format.is_stencil());
+                    .depth_test_enable(depth.format.is_depth())
+                    .depth_compare_op(depth.compare.into_ash())
+                    .depth_write_enable(depth.write_enabled)
+                    .stencil_test_enable(depth.format.is_stencil());
             }
 
             for color in &raster.color_targets {
-                let mut blend_state = ash::vk::PipelineColorBlendAttachmentState::builder();
+                let mut blend_state = vk::PipelineColorBlendAttachmentState::builder();
                 if let Some(blend) = color.blend {
                     blend_state = blend_state
                         .blend_enable(true)
@@ -340,45 +376,41 @@ impl crate::traits::Device for Device {
 
         let result = unsafe {
             me.device.create_graphics_pipelines(
-                ash::vk::PipelineCache::null(),
+                vk::PipelineCache::null(),
                 std::slice::from_ref(
-                    &ash::vk::GraphicsPipelineCreateInfo::builder()
+                    &vk::GraphicsPipelineCreateInfo::builder()
                         .stages(&stages)
                         .vertex_input_state(
-                            &ash::vk::PipelineVertexInputStateCreateInfo::builder()
+                            &vk::PipelineVertexInputStateCreateInfo::builder()
                                 .vertex_attribute_descriptions(&vertex_attributes)
                                 .vertex_binding_descriptions(&vertex_bindings),
                         )
                         .input_assembly_state(
-                            &ash::vk::PipelineInputAssemblyStateCreateInfo::builder().topology(
+                            &vk::PipelineInputAssemblyStateCreateInfo::builder().topology(
                                 match desc.primitive_topology {
-                                    PrimitiveTopology::Point => {
-                                        ash::vk::PrimitiveTopology::POINT_LIST
-                                    }
-                                    PrimitiveTopology::Line => {
-                                        ash::vk::PrimitiveTopology::LINE_LIST
-                                    }
+                                    PrimitiveTopology::Point => vk::PrimitiveTopology::POINT_LIST,
+                                    PrimitiveTopology::Line => vk::PrimitiveTopology::LINE_LIST,
                                     PrimitiveTopology::Triangle => {
-                                        ash::vk::PrimitiveTopology::TRIANGLE_LIST
+                                        vk::PrimitiveTopology::TRIANGLE_LIST
                                     }
                                 },
                             ),
                         )
                         .rasterization_state(&raster_state)
                         .multisample_state(
-                            &ash::vk::PipelineMultisampleStateCreateInfo::builder()
-                                .rasterization_samples(ash::vk::SampleCountFlags::TYPE_1),
+                            &vk::PipelineMultisampleStateCreateInfo::builder()
+                                .rasterization_samples(vk::SampleCountFlags::TYPE_1),
                         )
                         .depth_stencil_state(&depth_state)
                         .color_blend_state(
-                            &ash::vk::PipelineColorBlendStateCreateInfo::builder()
+                            &vk::PipelineColorBlendStateCreateInfo::builder()
                                 .attachments(&attachments)
                                 .blend_constants([0.0; 4]),
                         )
                         .dynamic_state(
-                            &ash::vk::PipelineDynamicStateCreateInfo::builder().dynamic_states(&[
-                                ash::vk::DynamicState::VIEWPORT,
-                                ash::vk::DynamicState::SCISSOR,
+                            &vk::PipelineDynamicStateCreateInfo::builder().dynamic_states(&[
+                                vk::DynamicState::VIEWPORT,
+                                vk::DynamicState::SCISSOR,
                             ]),
                         ),
                 ),
@@ -458,7 +490,8 @@ impl crate::traits::Device for Device {
                     .mip_levels(desc.levels)
                     .samples(vk::SampleCountFlags::TYPE_1)
                     .tiling(vk::ImageTiling::OPTIMAL)
-                    .usage((desc.usage, desc.format).into_ash()),
+                    .usage((desc.usage, desc.format).into_ash())
+                    .initial_layout(vk::ImageLayout::GENERAL),
                 None,
             )
         }
@@ -540,7 +573,63 @@ impl crate::traits::Device for Device {
                         err => unexpected_error(err),
                     })?;
 
-                Ok(Surface::new(self.weak(), surface))
+                let result = unsafe {
+                    self.surface()
+                        .get_physical_device_surface_formats(self.physical_device(), surface)
+                };
+                let formats = result.map_err(|err| match err {
+                    ash::vk::Result::ERROR_OUT_OF_HOST_MEMORY => handle_host_oom(),
+                    ash::vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => SurfaceError(OutOfMemory.into()),
+                    ash::vk::Result::ERROR_SURFACE_LOST_KHR => {
+                        SurfaceError(SurfaceErrorKind::SurfaceLost)
+                    }
+                    _ => unexpected_error(err),
+                })?;
+
+                let result = unsafe {
+                    self.surface()
+                        .get_physical_device_surface_present_modes(self.physical_device(), surface)
+                };
+                let modes = result.map_err(|err| match err {
+                    ash::vk::Result::ERROR_OUT_OF_HOST_MEMORY => handle_host_oom(),
+                    ash::vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => SurfaceError(OutOfMemory.into()),
+                    ash::vk::Result::ERROR_SURFACE_LOST_KHR => {
+                        SurfaceError(SurfaceErrorKind::SurfaceLost)
+                    }
+                    _ => unexpected_error(err),
+                })?;
+
+                let family_supports =
+                    self.queue_families()
+                        .try_fold(Vec::new(), |mut supports, idx| {
+                            let result = unsafe {
+                                self.surface().get_physical_device_surface_support(
+                                    self.physical_device(),
+                                    idx,
+                                    surface,
+                                )
+                            };
+                            let support = result.map_err(|err| match err {
+                                ash::vk::Result::ERROR_OUT_OF_HOST_MEMORY => handle_host_oom(),
+                                ash::vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => {
+                                    SurfaceError(OutOfMemory.into())
+                                }
+                                ash::vk::Result::ERROR_SURFACE_LOST_KHR => {
+                                    SurfaceError(SurfaceErrorKind::SurfaceLost)
+                                }
+                                _ => unexpected_error(err),
+                            })?;
+                            supports.push(support);
+                            Ok(supports)
+                        })?;
+
+                Ok(Surface::new(
+                    self.weak(),
+                    surface,
+                    formats,
+                    modes,
+                    family_supports,
+                ))
             },
             (RawWindowHandle::Win32(_), _) => {
                 panic!("Mismatched window and display type")

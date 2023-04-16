@@ -50,8 +50,9 @@ pub trait Queue {
 }
 
 pub trait CommandEncoder {
+    fn barrier(&mut self);
     fn render(&mut self, desc: RenderPassDesc) -> crate::backend::RenderCommandEncoder<'_>;
-    fn finish(self) -> crate::backend::CommandBuffer;
+    fn finish(self) -> Result<crate::backend::CommandBuffer, OutOfMemory>;
 }
 
 pub trait RenderCommandEncoder {
@@ -59,7 +60,10 @@ pub trait RenderCommandEncoder {
 }
 
 pub trait Surface {
-    fn next_image(&mut self) -> Result<crate::backend::SurfaceImage, SurfaceError>;
+    fn next_image(
+        &mut self,
+        queue: &mut crate::backend::Queue,
+    ) -> Result<crate::backend::SurfaceImage, SurfaceError>;
 }
 
 pub trait SurfaceImage: Deref<Target = Image> {

@@ -1,11 +1,13 @@
+use ash::vk;
+
 use crate::generic::OutOfMemory;
 
 pub struct RenderPipeline {
-    pipeline: ash::vk::Pipeline,
+    pipeline: vk::Pipeline,
 }
 
 impl RenderPipeline {
-    pub(super) fn new(pipeline: ash::vk::Pipeline) -> Self {
+    pub(super) fn new(pipeline: vk::Pipeline) -> Self {
         RenderPipeline { pipeline }
     }
 }

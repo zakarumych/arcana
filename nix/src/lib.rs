@@ -1,4 +1,5 @@
 //! Tiny graphics crate made for nothing but fun.
+#![deny(unsafe_op_in_unsafe_fn)]
 
 pub mod generic;
 mod traits;
@@ -10,4 +11,4 @@ mod traits;
 #[cfg_attr(any(target_os = "macos", target_os = "ios"), path = "metal/mod.rs")]
 pub mod backend;
 
-// pub use self::{backend::*, generic::*};
+pub use self::{backend::*, generic::*};

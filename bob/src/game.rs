@@ -201,7 +201,8 @@ where
 
             let surface = world
                 .expect_resource_mut::<nix::Device>()
-                .new_surface(&window, &window);
+                .new_surface(&window, &window)
+                .unwrap();
 
             world
                 .insert_external_bundle(
@@ -285,7 +286,7 @@ fn init_graphics() -> nix::Device {
                 family: 0,
                 queue_count: 1,
             }],
-            features: nix::Features::empty(),
+            features: nix::Features::SURFACE,
         })
         .unwrap();
 

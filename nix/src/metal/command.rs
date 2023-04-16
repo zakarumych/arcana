@@ -28,6 +28,9 @@ impl crate::traits::CommandEncoder for CommandEncoder {
         let mdesc = metal::RenderPassDescriptor::new();
         let color_attachments = mdesc.color_attachments();
         for (idx, color) in desc.color_attachments.iter().enumerate() {
+            let format = color.image.format();
+            debug_assert!(!format.is_color());
+
             let attachment = metal::RenderPassColorAttachmentDescriptor::new();
             attachment.set_texture(Some(color.image.texture()));
             attachment.set_load_action(match color.load {
@@ -55,6 +58,8 @@ impl crate::traits::CommandEncoder for CommandEncoder {
         if let Some(depth) = desc.depth_stencil_attachment {
             let format = depth.image.format();
             debug_assert!(!format.is_color());
+            debug_assert!(format.is_depth() || format.is_stencil());
+
             if format.is_depth() {
                 let attachment = mdesc.depth_attachment().unwrap();
                 attachment.set_texture(Some(depth.image.texture()));

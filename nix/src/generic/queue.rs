@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::OutOfMemory;
+use crate::generic::OutOfMemory;
 
 bitflags::bitflags! {
     /// Flags that describe the capabilities of a queue.

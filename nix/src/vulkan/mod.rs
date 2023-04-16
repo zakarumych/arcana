@@ -1,5 +1,7 @@
 use std::{alloc::Layout, fmt};
 
+use ash::vk;
+
 mod buffer;
 mod command;
 mod device;
@@ -36,7 +38,7 @@ fn handle_host_oom() -> ! {
 }
 
 #[track_caller]
-fn unexpected_error(err: ash::vk::Result) -> ! {
+fn unexpected_error(err: vk::Result) -> ! {
     unreachable!("unexpected error: {err:?}")
 }
 
@@ -50,8 +52,32 @@ struct Version {
 }
 
 impl Version {
+    const V1_0: Self = Self {
+        major: 1,
+        minor: 0,
+        patch: 0,
+    };
+
+    const V1_1: Self = Self {
+        major: 1,
+        minor: 1,
+        patch: 0,
+    };
+
+    const V1_2: Self = Self {
+        major: 1,
+        minor: 2,
+        patch: 0,
+    };
+
+    const V1_3: Self = Self {
+        major: 1,
+        minor: 3,
+        patch: 0,
+    };
+
     fn api_version(&self) -> u32 {
-        ash::vk::make_api_version(0, self.major, self.minor, self.patch)
+        vk::make_api_version(0, self.major, self.minor, self.patch)
     }
 }
 

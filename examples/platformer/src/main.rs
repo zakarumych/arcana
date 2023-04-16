@@ -39,7 +39,7 @@ impl Render for MainPass {
             depth_stencil_attachment: None,
         });
         drop(render_encoder);
-        ctx.commit(encoder.finish());
+        ctx.commit(encoder.finish()?);
         Ok(())
     }
 }
@@ -55,7 +55,7 @@ fn main() {
                     .clear(nix::ClearColor(1.0, 0.5, 0.3, 1.0))],
                 ..Default::default()
             });
-            ctx.commit(encoder.finish());
+            ctx.commit(encoder.finish()?);
             Ok(())
         });
 

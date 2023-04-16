@@ -22,7 +22,6 @@ macro_rules! extension_name {
     };
 }
 
-#[derive(Clone)]
 pub struct Instance {
     entry: ash::Entry,
     version: Version,
@@ -81,16 +80,16 @@ unsafe fn find_layer<'a>(
     layers: &'a [vk::LayerProperties],
     name: &str,
 ) -> Option<&'a vk::LayerProperties> {
-    layers
-        .iter()
-        .find(|layer| CStr::from_ptr(layer.layer_name.as_ptr()).to_bytes() == name.as_bytes())
+    layers.iter().find(|layer| unsafe {
+        CStr::from_ptr(layer.layer_name.as_ptr()).to_bytes() == name.as_bytes()
+    })
 }
 
 unsafe fn find_extension<'a>(
     extensions: &'a [vk::ExtensionProperties],
     name: &str,
 ) -> Option<&'a vk::ExtensionProperties> {
-    extensions.iter().find(|extension| {
+    extensions.iter().find(|extension| unsafe {
         CStr::from_ptr(extension.extension_name.as_ptr()).to_bytes() == name.as_bytes()
     })
 }
@@ -179,6 +178,16 @@ impl Instance {
             patch: vk::api_version_patch(api_version),
         };
 
+        let mut has_physical_device_properties2 = false;
+        if version < Version::V1_1 {
+            if let Some(extension) =
+                unsafe { find_extension(&extensions, "VK_KHR_get_physical_device_properties2") }
+            {
+                has_physical_device_properties2 = true;
+                enabled_extension_names.push(extension.extension_name.as_ptr());
+            }
+        }
+
         // Create the Vulkan instance.
 
         let result = unsafe {
@@ -263,17 +272,44 @@ impl Instance {
                 err => unexpected_error(err),
             })?;
 
+            let mut features = vk::PhysicalDeviceFeatures2::builder();
+            let mut features11 = vk::PhysicalDeviceVulkan11Features::builder();
+            let mut features12 = vk::PhysicalDeviceVulkan12Features::builder();
+            let mut features13 = vk::PhysicalDeviceVulkan13Features::builder();
+
+            if version >= Version::V1_1 || has_physical_device_properties2 {
+                if version >= Version::V1_1 {
+                    features = features.push_next(&mut features11);
+                }
+                if version >= Version::V1_2 {
+                    features = features.push_next(&mut features12);
+                }
+                if version >= Version::V1_3 {
+                    features = features.push_next(&mut features13);
+                }
+                unsafe {
+                    instance.get_physical_device_features2(device, &mut features);
+                }
+            } else {
+                features.features = unsafe { instance.get_physical_device_features(device) };
+            }
+
+            if features13.dynamic_rendering == 0 {
+                if unsafe { find_extension(&extensions, "VK_KHR_dynamic_rendering") }.is_none() {
+                    // Skip devices that don't support dynamic rendering.
+                    continue;
+                };
+            }
+
             let mut features = Features::empty();
 
             if has_surface {
-                if let Some(extension) = unsafe { find_extension(&extensions, "VK_KHR_swapchain") }
-                {
-                    enabled_extension_names.push(extension.extension_name.as_ptr());
+                if unsafe { find_extension(&extensions, "VK_KHR_swapchain") }.is_some() {
                     features |= Features::SURFACE;
                 }
             }
 
-            let memory = unsafe { instance.get_physical_device_memory_properties(device) };
+            // let memory = unsafe { instance.get_physical_device_memory_properties(device) };
 
             let families = if version >= VERSION_1_1 {
                 let count =
@@ -341,7 +377,7 @@ impl crate::traits::Instance for Instance {
         assert!(!duplicates, "Queue family specified more than once");
 
         // Collect queue create infos
-        let mut queue_create_infos = desc
+        let queue_create_infos = desc
             .queue_infos
             .iter()
             .map(|queue_info| {
@@ -406,19 +442,42 @@ impl crate::traits::Instance for Instance {
         );
 
         let mut enabled_extension_names = Vec::new();
+
+        let mut features = vk::PhysicalDeviceFeatures2::builder();
+        let mut features11 = vk::PhysicalDeviceVulkan11Features::builder();
+        let mut features12 = vk::PhysicalDeviceVulkan12Features::builder();
+        let mut features13 = vk::PhysicalDeviceVulkan13Features::builder();
+
+        if self.version < Version::V1_3 {
+            // Dynamic rendering is required
+            enabled_extension_names.push(extension_name!("VK_KHR_dynamic_rendering"));
+        } else {
+            features13.dynamic_rendering = 1;
+        }
+
         if desc.features.contains(Features::SURFACE) {
             enabled_extension_names.push(extension_name!("VK_KHR_swapchain"));
         }
 
-        let result = unsafe {
-            self.instance.create_device(
-                physical_device,
-                &vk::DeviceCreateInfo::builder()
-                    .enabled_extension_names(&enabled_extension_names)
-                    .queue_create_infos(&queue_create_infos),
-                None,
-            )
-        };
+        let mut info = vk::DeviceCreateInfo::builder()
+            .enabled_extension_names(&enabled_extension_names)
+            .queue_create_infos(&queue_create_infos);
+
+        if self.version < Version::V1_1 {
+            info.p_enabled_features = &features.features;
+        } else {
+            info = info.push_next(&mut features);
+            info = info.push_next(&mut features11);
+
+            if self.version >= Version::V1_2 {
+                info = info.push_next(&mut features12);
+            }
+            if self.version >= Version::V1_3 {
+                info = info.push_next(&mut features13);
+            }
+        }
+
+        let result = unsafe { self.instance.create_device(physical_device, &info, None) };
 
         let device = result.map_err(|err| match err {
             vk::Result::ERROR_OUT_OF_HOST_MEMORY => handle_host_oom(),
@@ -435,18 +494,24 @@ impl crate::traits::Instance for Instance {
 
         // Collect families from the device.
         let mut families = Vec::new();
-        for family_info in desc.queue_infos {
-            let family_caps = &device_caps.families[family_info.family as usize];
+        for queue_info in desc.queue_infos {
+            let family_caps = &device_caps.families[queue_info.family as usize];
             let mut queues = Vec::new();
-            for idx in 0..family_info.queue_count {
-                let queue = unsafe { device.get_device_queue(family_info.family, idx as u32) };
+            for idx in 0..queue_info.queue_count {
+                let queue = unsafe { device.get_device_queue(queue_info.family, idx as u32) };
                 queues.push(queue);
             }
             families.push(Family {
+                index: queue_info.family,
                 flags: family_caps.queue_flags,
                 queues,
             });
         }
+
+        let swapchain = desc
+            .features
+            .contains(Features::SURFACE)
+            .then(|| ash::extensions::khr::Swapchain::new(&self.instance, &device));
 
         let device = Device::new(
             self.version,
@@ -460,9 +525,7 @@ impl crate::traits::Instance for Instance {
             #[cfg(any(debug_assertions, feature = "debug"))]
             self.debug_utils.clone(),
             self.surface.clone(),
-            desc.features
-                .contains(Features::SURFACE)
-                .then(|| ash::extensions::khr::Swapchain::new(&self.instance, &device)),
+            swapchain,
             #[cfg(target_os = "windows")]
             self.win32_surface.clone(),
         );
@@ -477,13 +540,13 @@ unsafe extern "system" fn vulkan_debug_callback(
     p_callback_data: *const vk::DebugUtilsMessengerCallbackDataEXT,
     _p_user_data: *mut c_void,
 ) -> vk::Bool32 {
-    vulkan_debug_callback_impl(message_severity, message_types, p_callback_data);
+    unsafe { vulkan_debug_callback_impl(message_severity, message_types, p_callback_data) }
     vk::FALSE
 }
 
 unsafe fn vulkan_debug_callback_impl(
     message_severity: vk::DebugUtilsMessageSeverityFlagsEXT,
-    message_types: vk::DebugUtilsMessageTypeFlagsEXT,
+    _message_types: vk::DebugUtilsMessageTypeFlagsEXT,
     p_callback_data: *const vk::DebugUtilsMessengerCallbackDataEXT,
 ) {
     let enabled = match message_severity {
@@ -505,21 +568,23 @@ unsafe fn vulkan_debug_callback_impl(
         return;
     }
 
-    let message_id_name = CStr::from_ptr((*p_callback_data).p_message_id_name)
+    let callback_data = unsafe { &*p_callback_data };
+
+    let message_id_name = unsafe { CStr::from_ptr(callback_data.p_message_id_name) }
         .to_str()
         .unwrap_or("<Non-UTF8>");
-    let message_id_number = (*p_callback_data).message_id_number;
-    let message = CStr::from_ptr((*p_callback_data).p_message)
+    let message_id_number = callback_data.message_id_number;
+    let message = unsafe { CStr::from_ptr(callback_data.p_message) }
         .to_str()
         .unwrap_or("<Non-UTF8>");
 
-    let objects = (0..(*p_callback_data).object_count)
-        .map(|idx| &*(*p_callback_data).p_objects.add(idx as usize))
+    let objects = (0..callback_data.object_count)
+        .map(|idx| unsafe { &*callback_data.p_objects.add(idx as usize) })
         .map(|object| {
             (
                 object.object_type,
                 object.object_handle,
-                CStr::from_ptr(object.p_object_name)
+                unsafe { CStr::from_ptr(object.p_object_name) }
                     .to_str()
                     .unwrap_or("<Non-UTF8>"),
             )

@@ -1,17 +1,19 @@
 use std::fmt;
 
+use ash::vk;
+
 use crate::generic::{OutOfMemory, ShaderCompileError};
 
 pub struct Library {
-    module: ash::vk::ShaderModule,
+    module: vk::ShaderModule,
 }
 
 impl Library {
-    pub(super) fn new(module: ash::vk::ShaderModule) -> Self {
+    pub(super) fn new(module: vk::ShaderModule) -> Self {
         Library { module }
     }
 
-    pub(super) fn module(&self) -> ash::vk::ShaderModule {
+    pub(super) fn module(&self) -> vk::ShaderModule {
         self.module
     }
 }

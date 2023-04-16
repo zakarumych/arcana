@@ -94,7 +94,7 @@ pub enum Event {
     RedrawRequested(WindowId),
 }
 
-enum UserEvent {
+pub enum UserEvent {
     Wake,
 }
 

@@ -1,4 +1,4 @@
-use std::alloc::Layout;
+use std::{alloc::Layout, mem::ManuallyDrop, sync::Arc};
 
 use ash::vk;
 use gpu_alloc::MemoryBlock;
@@ -7,25 +7,31 @@ use crate::generic::BufferUsage;
 
 use super::device::{DeviceOwned, WeakDevice};
 
-pub struct Buffer {
-    handle: vk::Buffer,
+struct Inner {
     owner: WeakDevice,
     layout: Layout,
     usage: BufferUsage,
-    block: MemoryBlock<vk::DeviceMemory>,
+    block: ManuallyDrop<MemoryBlock<vk::DeviceMemory>>,
     idx: usize,
 }
 
-impl Drop for Buffer {
+#[derive(Clone)]
+pub struct Buffer {
+    handle: vk::Buffer,
+    inner: Arc<Inner>,
+}
+
+impl Drop for Inner {
     fn drop(&mut self) {
-        self.owner.drop_buffer(self.idx);
+        let block = unsafe { ManuallyDrop::take(&mut self.block) };
+        self.owner.drop_buffer(self.idx, block);
     }
 }
 
 impl DeviceOwned for Buffer {
     #[inline(always)]
     fn owner(&self) -> &WeakDevice {
-        &self.owner
+        &self.inner.owner
     }
 }
 
@@ -39,12 +45,14 @@ impl Buffer {
         idx: usize,
     ) -> Self {
         Buffer {
-            owner,
             handle,
-            layout,
-            usage,
-            block,
-            idx,
+            inner: Arc::new(Inner {
+                owner,
+                layout,
+                usage,
+                block: ManuallyDrop::new(block),
+                idx,
+            }),
         }
     }
 

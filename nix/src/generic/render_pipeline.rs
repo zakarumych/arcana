@@ -98,12 +98,14 @@ pub enum BlendOp {
     Max,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct DepthStencilDesc {
     pub format: PixelFormat,
     pub write_enabled: bool,
     pub compare: CompareFunction,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum CompareFunction {
     Never,
     Less,
