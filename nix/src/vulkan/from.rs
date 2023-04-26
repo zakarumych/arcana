@@ -1,8 +1,9 @@
 use ash::vk;
 
 use crate::generic::{
-    BlendFactor, BlendOp, BufferUsage, CompareFunction, FamilyCapabilities, ImageDimensions,
-    ImageUsage, PixelFormat, QueueFlags, VertexFormat, WriteMask,
+    AddressMode, BlendFactor, BlendOp, BufferUsage, CompareFunction, FamilyCapabilities, Filter,
+    ImageDimensions, ImageUsage, MipMapMode, PixelFormat, QueueFlags, ShaderStage, ShaderStages,
+    VertexFormat, WriteMask,
 };
 
 macro_rules! from_flags {
@@ -11,6 +12,7 @@ macro_rules! from_flags {
     };
     ($from:ty => $to:ty, [$($from_flag:ident => $to_flag:ident),* $(,)?], $flags:expr) => {{
         let mut dst = <$to>::empty();
+        #[allow(unused_mut)]
         let mut src = $flags;
         $(
             if src.contains(<$from>::$from_flag) {
@@ -40,7 +42,7 @@ where
 }
 
 pub trait AshFrom<T> {
-    fn ash_from(ash: T) -> Self;
+    fn ash_from(generic: T) -> Self;
 }
 
 pub trait IntoAsh<A> {
@@ -507,5 +509,62 @@ impl AshFrom<WriteMask> for vk::ColorComponentFlags {
             flags |= vk::ColorComponentFlags::A;
         }
         flags
+    }
+}
+
+impl AshFrom<Filter> for ash::vk::Filter {
+    #[inline(always)]
+    fn ash_from(filter: Filter) -> Self {
+        match filter {
+            Filter::Nearest => ash::vk::Filter::NEAREST,
+            Filter::Linear => ash::vk::Filter::LINEAR,
+        }
+    }
+}
+
+impl AshFrom<MipMapMode> for ash::vk::SamplerMipmapMode {
+    #[inline(always)]
+    fn ash_from(mode: MipMapMode) -> Self {
+        match mode {
+            MipMapMode::Nearest => ash::vk::SamplerMipmapMode::NEAREST,
+            MipMapMode::Linear => ash::vk::SamplerMipmapMode::LINEAR,
+        }
+    }
+}
+
+impl AshFrom<AddressMode> for ash::vk::SamplerAddressMode {
+    #[inline(always)]
+    fn ash_from(mode: AddressMode) -> Self {
+        match mode {
+            AddressMode::Repeat => ash::vk::SamplerAddressMode::REPEAT,
+            AddressMode::MirrorRepeat => ash::vk::SamplerAddressMode::MIRRORED_REPEAT,
+            AddressMode::ClampToEdge => ash::vk::SamplerAddressMode::CLAMP_TO_EDGE,
+        }
+    }
+}
+
+impl AshFrom<ShaderStage> for ash::vk::ShaderStageFlags {
+    fn ash_from(stage: ShaderStage) -> Self {
+        match stage {
+            ShaderStage::Vertex => ash::vk::ShaderStageFlags::VERTEX,
+            ShaderStage::Fragment => ash::vk::ShaderStageFlags::FRAGMENT,
+            ShaderStage::Compute => ash::vk::ShaderStageFlags::COMPUTE,
+        }
+    }
+}
+
+impl AshFrom<ShaderStages> for ash::vk::ShaderStageFlags {
+    fn ash_from(stages: ShaderStages) -> Self {
+        let mut result = ash::vk::ShaderStageFlags::empty();
+        if stages.contains(ShaderStages::VERTEX) {
+            result |= ash::vk::ShaderStageFlags::VERTEX;
+        }
+        if stages.contains(ShaderStages::FRAGMENT) {
+            result |= ash::vk::ShaderStageFlags::FRAGMENT;
+        }
+        if stages.contains(ShaderStages::COMPUTE) {
+            result |= ash::vk::ShaderStageFlags::COMPUTE;
+        }
+        result
     }
 }

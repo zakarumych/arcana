@@ -195,6 +195,7 @@ impl Image {
         Ok(view)
     }
 
+    #[inline(always)]
     pub(super) fn handle(&self) -> vk::Image {
         self.handle
     }

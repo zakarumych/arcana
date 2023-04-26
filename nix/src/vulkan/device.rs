@@ -6,6 +6,7 @@ use std::{
 use ash::vk::{self, Handle};
 use gpu_alloc::MemoryBlock;
 use gpu_alloc_ash::AshMemoryDevice;
+use hashbrown::HashMap;
 use parking_lot::Mutex;
 use raw_window_handle::{
     HasRawDisplayHandle, HasRawWindowHandle, RawDisplayHandle, RawWindowHandle,
@@ -13,9 +14,9 @@ use raw_window_handle::{
 use slab::Slab;
 
 use crate::generic::{
-    compile_shader, BufferDesc, CreateLibraryError, CreatePipelineError, Features, ImageDesc,
-    ImageError, LibraryDesc, LibraryInput, Memory, OutOfMemory, PrimitiveTopology,
-    RenderPipelineDesc, ShaderLanguage, SurfaceError, VertexStepMode,
+    compile_shader, ArgumentKind, BufferDesc, CreateLibraryError, CreatePipelineError, Features,
+    ImageDesc, ImageError, LibraryDesc, LibraryInput, Memory, OutOfMemory, PrimitiveTopology,
+    RenderPipelineDesc, SamplerDesc, ShaderLanguage, SurfaceError, VertexStepMode,
 };
 
 use super::{
@@ -23,11 +24,16 @@ use super::{
     from::{IntoAsh, TryIntoAsh},
     handle_host_oom,
     image::Image,
+    layout::{
+        DescriptorSetLayout, DescriptorSetLayoutDesc, PipelineLayout, PipelineLayoutDesc,
+        WeakDescriptorSetLayout, WeakPipelineLayout,
+    },
     queue::{Family, Queue},
     render_pipeline::RenderPipeline,
+    sampler::WeakSampler,
     shader::Library,
     surface::{Surface, SurfaceErrorKind},
-    unexpected_error, Version,
+    unexpected_error, Sampler, Version,
 };
 
 struct DeviceInner {
@@ -37,9 +43,16 @@ struct DeviceInner {
     version: Version,
     families: Vec<Family>,
     features: Features,
+    properties: ash::vk::PhysicalDeviceProperties,
 
     buffers: Mutex<Slab<vk::Buffer>>,
     images: Mutex<Slab<vk::Image>>,
+    samplers: Mutex<HashMap<SamplerDesc, WeakSampler>>,
+
+    set_layouts: Mutex<HashMap<DescriptorSetLayoutDesc, WeakDescriptorSetLayout>>,
+    pipeline_layouts: Mutex<HashMap<PipelineLayoutDesc, WeakPipelineLayout>>,
+    pipelines: Mutex<Slab<vk::Pipeline>>,
+
     allocator: Mutex<gpu_alloc::GpuAllocator<vk::DeviceMemory>>,
 
     _entry: ash::Entry,
@@ -116,6 +129,90 @@ impl WeakDevice {
             }
         }
     }
+
+    #[inline]
+    pub fn drop_sampler(&self, desc: SamplerDesc) {
+        if let Some(inner) = self.inner.upgrade() {
+            let mut samplers = inner.samplers.lock();
+            match samplers.entry(desc) {
+                hashbrown::hash_map::Entry::Occupied(entry) => {
+                    let weak = entry.get();
+                    // It is only safe to drop when no strong refs exist.
+                    // While this function is called when last strong reference is dropped
+                    // the entry could be replaced by new sampler before lock was acquired.
+                    if weak.unused() {
+                        // No strong references exists.
+                        unsafe {
+                            inner.device.destroy_sampler(weak.handle(), None);
+                        }
+                    }
+                }
+                _ => {
+                    // Entry was removed, probably in `new_sampler` call with the same `SamplerDesc`.
+                }
+            }
+        }
+    }
+
+    #[inline]
+    pub fn drop_descriptor_set_layout(&self, desc: DescriptorSetLayoutDesc) {
+        if let Some(inner) = self.inner.upgrade() {
+            let mut samplers = inner.set_layouts.lock();
+            match samplers.entry(desc) {
+                hashbrown::hash_map::Entry::Occupied(entry) => {
+                    let weak = entry.get();
+                    // It is only safe to drop when no strong refs exist.
+                    // While this function is called when last strong reference is dropped
+                    // the entry could be replaced by new layout before lock was acquired.
+                    if weak.unused() {
+                        // No strong references exists.
+                        unsafe {
+                            inner
+                                .device
+                                .destroy_descriptor_set_layout(weak.handle(), None);
+                        }
+                    }
+                }
+                _ => {
+                    // Entry was removed, probably in `new_sampler` call with the same `SamplerDesc`.
+                }
+            }
+        }
+    }
+
+    #[inline]
+    pub fn drop_pipeline_layout(&self, desc: PipelineLayoutDesc) {
+        if let Some(inner) = self.inner.upgrade() {
+            let mut pipeline_layouts = inner.pipeline_layouts.lock();
+            match pipeline_layouts.entry(desc) {
+                hashbrown::hash_map::Entry::Occupied(entry) => {
+                    let weak = entry.get();
+                    // It is only safe to drop when no strong refs exist.
+                    // While this function is called when last strong reference is dropped
+                    // the entry could be replaced by new layout before lock was acquired.
+                    if weak.unused() {
+                        // No strong references exists.
+                        unsafe {
+                            inner.device.destroy_pipeline_layout(weak.handle(), None);
+                        }
+                    }
+                }
+                _ => {
+                    // Entry was removed, probably in `new_sampler` call with the same `SamplerDesc`.
+                }
+            }
+        }
+    }
+
+    #[inline]
+    pub fn drop_pipeline(&self, idx: usize) {
+        if let Some(inner) = self.inner.upgrade() {
+            let pipeline = inner.pipelines.lock().remove(idx);
+            unsafe {
+                inner.device.destroy_pipeline(pipeline, None);
+            }
+        }
+    }
 }
 
 pub(super) trait DeviceOwned {
@@ -131,6 +228,7 @@ impl Device {
         device: ash::Device,
         families: Vec<Family>,
         features: Features,
+        properties: ash::vk::PhysicalDeviceProperties,
         allocator: gpu_alloc::GpuAllocator<vk::DeviceMemory>,
         #[cfg(any(debug_assertions, feature = "debug"))] debug_utils: Option<
             ash::extensions::ext::DebugUtils,
@@ -147,8 +245,13 @@ impl Device {
                 version,
                 families,
                 features,
+                properties,
                 buffers: Mutex::new(Slab::new()),
                 images: Mutex::new(Slab::new()),
+                samplers: Mutex::new(HashMap::new()),
+                set_layouts: Mutex::new(HashMap::new()),
+                pipeline_layouts: Mutex::new(HashMap::new()),
+                pipelines: Mutex::new(Slab::new()),
                 allocator: Mutex::new(allocator),
                 debug_utils,
                 surface,
@@ -210,6 +313,154 @@ impl Device {
             }
         }
     }
+
+    fn new_sampler_slow(&self, count: usize, desc: SamplerDesc) -> Result<Sampler, OutOfMemory> {
+        if self.inner.properties.limits.max_sampler_allocation_count as usize >= count {
+            return Err(OutOfMemory);
+        }
+
+        let result = unsafe {
+            self.ash().create_sampler(
+                &ash::vk::SamplerCreateInfo::builder()
+                    .min_filter(desc.min_filter.into_ash())
+                    .mag_filter(desc.mag_filter.into_ash())
+                    .mipmap_mode(desc.mip_map_mode.into_ash())
+                    .address_mode_u(desc.address_mode[0].into_ash())
+                    .address_mode_v(desc.address_mode[1].into_ash())
+                    .address_mode_w(desc.address_mode[2].into_ash())
+                    .anisotropy_enable(desc.anisotropy.is_some())
+                    .max_anisotropy(desc.anisotropy.unwrap_or(0.0))
+                    .unnormalized_coordinates(!desc.normalized),
+                None,
+            )
+        };
+
+        let handle = result.map_err(|err| match err {
+            ash::vk::Result::ERROR_OUT_OF_HOST_MEMORY => handle_host_oom(),
+            ash::vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => OutOfMemory,
+            _ => unexpected_error(err),
+        })?;
+
+        Ok(Sampler::new(self.weak(), handle, desc))
+    }
+
+    fn new_set_layout_slow(
+        &self,
+        desc: DescriptorSetLayoutDesc,
+    ) -> Result<DescriptorSetLayout, OutOfMemory> {
+        let bindings = desc
+            .arguments
+            .iter()
+            .enumerate()
+            .map(|(idx, arg)| {
+                ash::vk::DescriptorSetLayoutBinding::builder()
+                    .binding(idx as u32)
+                    .descriptor_count(arg.size)
+                    .descriptor_type(match arg.kind {
+                        ArgumentKind::Constant => ash::vk::DescriptorType::INLINE_UNIFORM_BLOCK,
+                        ArgumentKind::UniformBuffer => ash::vk::DescriptorType::UNIFORM_BUFFER,
+                        ArgumentKind::StorageBuffer => ash::vk::DescriptorType::STORAGE_BUFFER,
+                        ArgumentKind::SampledImage => ash::vk::DescriptorType::SAMPLED_IMAGE,
+                        ArgumentKind::StorageImage => ash::vk::DescriptorType::STORAGE_IMAGE,
+                        ArgumentKind::Sampler => ash::vk::DescriptorType::SAMPLER,
+                    })
+                    .stage_flags(arg.stages.into_ash())
+                    .build()
+            })
+            .collect::<Vec<_>>();
+
+        let result = unsafe {
+            self.ash().create_descriptor_set_layout(
+                &ash::vk::DescriptorSetLayoutCreateInfo::builder()
+                    .flags(ash::vk::DescriptorSetLayoutCreateFlags::PUSH_DESCRIPTOR_KHR)
+                    .bindings(&bindings),
+                None,
+            )
+        };
+
+        let handle = result.map_err(|err| match err {
+            ash::vk::Result::ERROR_OUT_OF_HOST_MEMORY => handle_host_oom(),
+            ash::vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => OutOfMemory,
+            _ => unexpected_error(err),
+        })?;
+        Ok(DescriptorSetLayout::new(self.weak(), handle, desc))
+    }
+
+    fn new_set_layout(
+        &self,
+        desc: DescriptorSetLayoutDesc,
+    ) -> Result<DescriptorSetLayout, OutOfMemory> {
+        let mut set_layouts = self.inner.set_layouts.lock();
+
+        match set_layouts.entry(desc) {
+            hashbrown::hash_map::Entry::Occupied(entry) => match entry.get().upgrade() {
+                Some(set_layout) => Ok(set_layout.clone()),
+                None => {
+                    let set_layout = self.new_set_layout_slow(entry.key().clone())?;
+                    entry.replace_entry(set_layout.downgrade());
+                    Ok(set_layout)
+                }
+            },
+            hashbrown::hash_map::Entry::Vacant(entry) => {
+                let set_layout = self.new_set_layout_slow(entry.key().clone())?;
+                entry.insert(set_layout.downgrade());
+                Ok(set_layout)
+            }
+        }
+    }
+
+    fn new_pipeline_layout_slow(
+        &self,
+        desc: PipelineLayoutDesc,
+    ) -> Result<PipelineLayout, OutOfMemory> {
+        let set_layouts = desc
+            .groups
+            .iter()
+            .map(|group| {
+                self.new_set_layout(DescriptorSetLayoutDesc {
+                    arguments: group.clone(),
+                })
+            })
+            .collect::<Result<Vec<_>, OutOfMemory>>()?;
+
+        let handles = set_layouts
+            .iter()
+            .map(|set_layout| set_layout.handle())
+            .collect::<Vec<_>>();
+
+        let result = unsafe {
+            self.ash().create_pipeline_layout(
+                &ash::vk::PipelineLayoutCreateInfo::builder().set_layouts(&handles),
+                None,
+            )
+        };
+        let handle = result.map_err(|err| match err {
+            ash::vk::Result::ERROR_OUT_OF_HOST_MEMORY => handle_host_oom(),
+            ash::vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => OutOfMemory,
+            _ => unexpected_error(err),
+        })?;
+        Ok(PipelineLayout::new(self.weak(), handle, desc))
+    }
+
+    fn new_pipeline_layout(&self, desc: PipelineLayoutDesc) -> Result<PipelineLayout, OutOfMemory> {
+        let mut pipeline_layouts = self.inner.pipeline_layouts.lock();
+
+        match pipeline_layouts.entry(desc) {
+            hashbrown::hash_map::Entry::Occupied(entry) => match entry.get().upgrade() {
+                Some(pipeline_layout) => Ok(pipeline_layout.clone()),
+                None => {
+                    let pipeline_layout = self.new_pipeline_layout_slow(entry.key().clone())?;
+                    entry.replace_entry(pipeline_layout.downgrade());
+                    Ok(pipeline_layout)
+                }
+            },
+            hashbrown::hash_map::Entry::Vacant(entry) => {
+                let pipeline_layout = self.new_pipeline_layout_slow(entry.key().clone())?;
+                entry.insert(pipeline_layout.downgrade());
+                Ok(pipeline_layout)
+            }
+        }
+    }
 }
 
 #[hidden_trait::expose]
@@ -224,7 +475,7 @@ impl crate::traits::Device for Device {
         let me = &*self.inner;
         match desc.input {
             LibraryInput::Source(source) => {
-                let compied: Box<[u32]>;
+                let compiled: Box<[u32]>;
                 let code = match source.language {
                     ShaderLanguage::SpirV => unsafe {
                         let (left, words, right) = source.code.align_to::<u32>();
@@ -240,14 +491,14 @@ impl crate::traits::Device for Device {
                                 code = tail;
                             }
 
-                            compied = words.into();
-                            &*compied
+                            compiled = words.into();
+                            &*compiled
                         }
                     },
                     _ => {
-                        compied = compile_shader(&source.code, source.filename, source.language)
+                        compiled = compile_shader(&source.code, source.filename, source.language)
                             .map_err(|err| CreateLibraryError(err.into()))?;
-                        &*compied
+                        &*compiled
                     }
                 };
                 let result = unsafe {
@@ -274,6 +525,18 @@ impl crate::traits::Device for Device {
         desc: RenderPipelineDesc,
     ) -> Result<RenderPipeline, CreatePipelineError> {
         let me = &*self.inner;
+
+        let layout_desc = PipelineLayoutDesc {
+            groups: desc
+                .arguments
+                .iter()
+                .map(|group| group.arguments.to_vec())
+                .collect(),
+        };
+
+        let layout = self
+            .new_pipeline_layout(layout_desc)
+            .map_err(|err| CreatePipelineError(err.into()))?;
 
         let vertex_attributes = desc
             .vertex_attributes
@@ -412,7 +675,8 @@ impl crate::traits::Device for Device {
                                 vk::DynamicState::VIEWPORT,
                                 vk::DynamicState::SCISSOR,
                             ]),
-                        ),
+                        )
+                        .layout(layout.handle()),
                 ),
                 None,
             )
@@ -423,8 +687,11 @@ impl crate::traits::Device for Device {
             vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => CreatePipelineError(OutOfMemory.into()),
             _ => unexpected_error(err),
         })?;
+        let pipeline = pipelines[0];
 
-        Ok(RenderPipeline::new(pipelines[0]))
+        let idx = self.inner.pipelines.lock().insert(pipeline);
+
+        Ok(RenderPipeline::new(self.weak(), pipeline, idx, layout))
     }
 
     fn new_buffer(&self, desc: BufferDesc) -> Result<Buffer, OutOfMemory> {
@@ -539,6 +806,26 @@ impl crate::traits::Device for Device {
             idx,
         );
         Ok(image)
+    }
+
+    fn new_sampler(&self, desc: SamplerDesc) -> Result<Sampler, OutOfMemory> {
+        let mut samplers = self.inner.samplers.lock();
+        let len = samplers.len();
+        match samplers.entry(desc) {
+            hashbrown::hash_map::Entry::Occupied(mut entry) => match entry.get().upgrade() {
+                Some(sampler) => Ok(sampler),
+                None => {
+                    let sampler = self.new_sampler_slow(len, desc)?;
+                    entry.replace_entry(sampler.downgrade());
+                    Ok(sampler)
+                }
+            },
+            hashbrown::hash_map::Entry::Vacant(entry) => {
+                let sampler = self.new_sampler_slow(len, desc)?;
+                entry.insert(sampler.downgrade());
+                Ok(sampler)
+            }
+        }
     }
 
     fn new_surface(

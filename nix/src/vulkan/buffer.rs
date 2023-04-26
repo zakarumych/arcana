@@ -56,6 +56,7 @@ impl Buffer {
         }
     }
 
+    #[inline(always)]
     pub(super) fn handle(&self) -> vk::Buffer {
         self.handle
     }

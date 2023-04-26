@@ -26,6 +26,15 @@ impl fmt::Display for ShaderStage {
     }
 }
 
+bitflags::bitflags! {
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+    pub struct ShaderStages : u32 {
+        const VERTEX = 1 << ShaderStage::Vertex as u32;
+        const FRAGMENT = 1 << ShaderStage::Fragment as u32;
+        const COMPUTE = 1 << ShaderStage::Compute as u32;
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ShaderLanguage {
     SpirV,

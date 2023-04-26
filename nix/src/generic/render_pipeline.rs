@@ -1,6 +1,6 @@
 use crate::backend::CreatePipelineErrorKind;
 
-use super::{PixelFormat, Shader, VertexFormat};
+use super::{arguments::ArgumentGroup, PixelFormat, Shader, VertexFormat};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct VertexAttributeDesc {
@@ -124,6 +124,7 @@ pub struct RenderPipelineDesc<'a> {
     pub vertex_layouts: Vec<VertexLayoutDesc>,
     pub primitive_topology: PrimitiveTopology,
     pub raster: Option<RasterDesc<'a>>,
+    pub arguments: &'a [ArgumentGroup<'a>],
 }
 
 pub struct RasterDesc<'a> {

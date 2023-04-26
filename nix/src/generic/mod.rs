@@ -1,3 +1,4 @@
+mod arguments;
 mod buffer;
 mod feature;
 mod format;
@@ -6,12 +7,16 @@ mod instance;
 mod queue;
 mod render;
 mod render_pipeline;
+mod sampler;
 mod shader;
 mod surface;
 
 use std::{error::Error, fmt};
 
 pub use self::{
+    arguments::{
+        Argument, ArgumentGroup, ArgumentKind, Arguments, WriteArgument, WriteArgumentGroup,
+    },
     buffer::{BufferDesc, BufferUsage, Memory},
     feature::Features,
     format::{PixelFormat, VertexFormat},
@@ -27,9 +32,10 @@ pub use self::{
         CreatePipelineError, DepthStencilDesc, PrimitiveTopology, RasterDesc, RenderPipelineDesc,
         VertexAttributeDesc, VertexLayoutDesc, VertexStepMode, WriteMask,
     },
+    sampler::{AddressMode, Filter, MipMapMode, SamplerDesc},
     shader::{
         CreateLibraryError, LibraryDesc, LibraryInput, Shader, ShaderLanguage, ShaderSource,
-        ShaderStage,
+        ShaderStage, ShaderStages,
     },
     surface::SurfaceError,
 };

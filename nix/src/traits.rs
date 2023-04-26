@@ -3,11 +3,11 @@ use std::ops::Deref;
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 
 use crate::{
-    backend::{Buffer, Image},
+    backend::{Buffer, Image, Sampler},
     generic::{
         BufferDesc, Capabilities, CreateError, CreateLibraryError, CreatePipelineError, DeviceDesc,
         ImageDesc, ImageError, LibraryDesc, OutOfMemory, QueueError, RenderPassDesc,
-        RenderPipelineDesc, SurfaceError,
+        RenderPipelineDesc, SamplerDesc, SurfaceError,
     },
 };
 
@@ -32,6 +32,7 @@ pub trait Device {
     ) -> Result<crate::backend::RenderPipeline, CreatePipelineError>;
     fn new_buffer(&self, desc: BufferDesc) -> Result<Buffer, OutOfMemory>;
     fn new_image(&self, desc: ImageDesc) -> Result<Image, ImageError>;
+    fn new_sampler(&self, desc: SamplerDesc) -> Result<Sampler, OutOfMemory>;
     fn new_surface(
         &self,
         window: &impl HasRawWindowHandle,

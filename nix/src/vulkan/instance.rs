@@ -403,11 +403,10 @@ impl crate::traits::Instance for Instance {
 
         // Init memory allocator
 
-        let limits = unsafe {
+        let properties = unsafe {
             self.instance
                 .get_physical_device_properties(physical_device)
-        }
-        .limits;
+        };
 
         let memory_properties = unsafe {
             self.instance
@@ -417,9 +416,9 @@ impl crate::traits::Instance for Instance {
         let allocator = gpu_alloc::GpuAllocator::<vk::DeviceMemory>::new(
             gpu_alloc::Config::i_am_prototyping(),
             gpu_alloc::DeviceProperties {
-                max_memory_allocation_count: limits.max_memory_allocation_count,
+                max_memory_allocation_count: properties.limits.max_memory_allocation_count,
                 max_memory_allocation_size: u64::max_value(), // FIXME: Can query this information if instance is v1.1
-                non_coherent_atom_size: limits.non_coherent_atom_size,
+                non_coherent_atom_size: properties.limits.non_coherent_atom_size,
                 memory_types: memory_properties.memory_types
                     [..memory_properties.memory_type_count as usize]
                     .iter()
@@ -521,6 +520,7 @@ impl crate::traits::Instance for Instance {
             device,
             families,
             desc.features,
+            properties,
             allocator,
             #[cfg(any(debug_assertions, feature = "debug"))]
             self.debug_utils.clone(),

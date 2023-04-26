@@ -8,8 +8,10 @@ mod device;
 mod from;
 mod image;
 mod instance;
+mod layout;
 mod queue;
 mod render_pipeline;
+mod sampler;
 mod shader;
 mod surface;
 
@@ -21,6 +23,7 @@ pub use self::{
     instance::Instance,
     queue::Queue,
     render_pipeline::RenderPipeline,
+    sampler::Sampler,
     shader::Library,
     surface::{Surface, SurfaceImage},
 };
