@@ -5,7 +5,7 @@ use crate::generic::{
     LoadError, QueueFlags,
 };
 
-use super::Device;
+use super::{Device, Queue};
 
 pub(crate) type LoadErrorKind = Infallible;
 
@@ -55,7 +55,7 @@ impl crate::traits::Instance for Instance {
         &self.capabilities
     }
 
-    fn create(&self, info: DeviceDesc) -> Result<Device, CreateError> {
+    fn create(&self, info: DeviceDesc) -> Result<(Device, Vec<Queue>), CreateError> {
         let device = metal::Device::system_default()
             .ok_or(CreateError(CreateErrorKind::FailedToCreateDevice))?;
 
@@ -70,9 +70,9 @@ impl crate::traits::Instance for Instance {
         });
 
         let queues = (0..queue_count)
-            .map(|_| Some(device.new_command_queue()))
+            .map(|_| Queue::new(device.clone(), device.new_command_queue()))
             .collect();
 
-        Ok(Device::new(device, queues))
+        Ok((Device::new(device), queues))
     }
 }

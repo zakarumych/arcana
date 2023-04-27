@@ -133,4 +133,5 @@ pub struct RasterDesc<'a> {
     pub depth_stencil: Option<DepthStencilDesc>,
 }
 
+#[derive(Debug)]
 pub struct CreatePipelineError(pub(crate) CreatePipelineErrorKind);

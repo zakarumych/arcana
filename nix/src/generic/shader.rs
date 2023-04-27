@@ -54,21 +54,43 @@ impl fmt::Display for ShaderLanguage {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Hash)]
 pub struct ShaderSource<'a> {
     pub code: Cow<'a, [u8]>,
     pub filename: Option<&'a str>,
     pub language: ShaderLanguage,
 }
 
+#[macro_export]
+macro_rules! include_shader_source {
+    ($filename:literal as $lang:expr) => {
+        $crate::ShaderSource {
+            code: std::borrow::Cow::Borrowed(std::include_bytes!($filename)),
+            filename: std::option::Option::Some($filename),
+            language: $lang,
+        }
+    };
+}
+
+#[derive(Clone, Debug, PartialEq, Hash)]
 pub enum LibraryInput<'a> {
     Source(ShaderSource<'a>),
 }
 
+#[macro_export]
+macro_rules! include_library {
+    ($filename:literal as $lang:expr) => {
+        $crate::LibraryInput::Source($crate::include_shader_source!($filename as $lang))
+    };
+}
+
+#[derive(Clone, Debug, PartialEq, Hash)]
 pub struct LibraryDesc<'a> {
     pub name: &'a str,
     pub input: LibraryInput<'a>,
 }
 
+#[derive(Clone)]
 pub struct Shader<'a> {
     pub library: Library,
     pub entry: Cow<'a, str>,

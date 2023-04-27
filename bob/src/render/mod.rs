@@ -143,7 +143,7 @@ pub fn render_system(world: &World, mut state: State<RenderState>) {
         ))
         .for_each(|(eid, target, surface_opt)| {
             if let Some(surface) = surface_opt {
-                match surface.next_image(&mut *queue) {
+                match surface.next_frame(&mut *queue) {
                     Err(err) => {
                         tracing::error!(err = ?err);
                         drop_surfaces.push(eid);
@@ -209,7 +209,11 @@ pub fn render_system(world: &World, mut state: State<RenderState>) {
         }
     }
 
+    let mut encoder = queue.new_command_encoder().unwrap();
+
     for surface_image in surface_images {
-        queue.present(surface_image.1).unwrap();
+        encoder.present(surface_image.1);
     }
+
+    queue.submit(Some(encoder.finish().unwrap())).unwrap();
 }

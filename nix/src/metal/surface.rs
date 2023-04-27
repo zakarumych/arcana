@@ -1,8 +1,8 @@
-use std::{fmt, ops::Deref};
+use std::fmt;
 
 use crate::generic::SurfaceError;
 
-use super::Image;
+use super::{Image, Queue};
 
 pub struct Surface {
     layer: metal::MetalLayer,
@@ -18,13 +18,13 @@ impl Surface {
 
 #[hidden_trait::expose]
 impl crate::traits::Surface for Surface {
-    fn next_image(&mut self) -> Result<SurfaceImage, SurfaceError> {
+    fn next_frame(&mut self, _queue: &mut Queue) -> Result<Frame, SurfaceError> {
         let drawable = self
             .layer
             .next_drawable()
             .ok_or(SurfaceError(SurfaceErrorKind::SurfaceLost))?;
         let image = Image::new(drawable.texture().to_owned());
-        Ok(SurfaceImage {
+        Ok(Frame {
             drawable: drawable.to_owned(),
             image,
         })
@@ -44,27 +44,21 @@ impl fmt::Display for SurfaceErrorKind {
     }
 }
 
-pub struct SurfaceImage {
+pub struct Frame {
     drawable: metal::MetalDrawable,
     image: Image,
 }
 
-impl SurfaceImage {
-    pub(super) fn present(self) {
-        self.drawable.present();
-    }
-}
-
-impl Deref for SurfaceImage {
-    type Target = Image;
-
-    fn deref(&self) -> &Self::Target {
-        &self.image
+impl Frame {
+    #[inline(always)]
+    pub(super) fn drawable(&self) -> &metal::MetalDrawableRef {
+        &self.drawable
     }
 }
 
 #[hidden_trait::expose]
-impl crate::traits::SurfaceImage for SurfaceImage {
+impl crate::traits::Frame for Frame {
+    #[inline(always)]
     fn image(&self) -> &Image {
         &self.image
     }

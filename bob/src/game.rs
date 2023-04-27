@@ -37,7 +37,7 @@ pub struct Game {
     /// of the render graph.
     /// If set to some, the engine will spawn a window
     /// and attach it to this render target.
-    pub render_to_window: Option<EntityId>,
+    pub render_window: Option<EntityId>,
 }
 
 /// Marker resource.
@@ -159,8 +159,7 @@ where
 
     // Run the event loop.
     EventLoopBuilder::new().run(|events| async move {
-        let device = init_graphics();
-        let queue = device.get_queue(0, 0);
+        let (device, queue) = init_graphics();
         world.insert_resource(device);
         world.insert_resource(queue);
         world.insert_resource(RenderTargetCounter::new());
@@ -179,7 +178,7 @@ where
             funnel,
             var_scheduler,
             fixed_scheduler: None,
-            render_to_window: None,
+            render_window: None,
         };
 
         // Run the app setup closure.
@@ -190,7 +189,7 @@ where
             mut funnel,
             mut var_scheduler,
             mut fixed_scheduler,
-            render_to_window,
+            render_window: render_to_window,
         } = game;
 
         if let Some(render_to_window) = render_to_window {
@@ -276,10 +275,10 @@ where
 }
 
 #[cfg(feature = "graphics")]
-fn init_graphics() -> nix::Device {
+fn init_graphics() -> (nix::Device, nix::Queue) {
     let instance = nix::Instance::load().expect("Failed to init graphics");
 
-    let device = instance
+    let (device, mut queues) = instance
         .create(nix::DeviceDesc {
             idx: 0,
             queue_infos: &[nix::QueuesCreateDesc {
@@ -289,6 +288,6 @@ fn init_graphics() -> nix::Device {
             features: nix::Features::SURFACE,
         })
         .unwrap();
-
-    device
+    let queue = queues.pop().unwrap();
+    (device, queue)
 }

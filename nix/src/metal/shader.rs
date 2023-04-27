@@ -2,6 +2,7 @@ use std::fmt;
 
 use crate::generic::ShaderCompileError;
 
+#[derive(Clone)]
 pub struct Library {
     library: metal::Library,
 }

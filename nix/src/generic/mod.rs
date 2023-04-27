@@ -1,3 +1,4 @@
+mod _arguments;
 mod arguments;
 mod buffer;
 mod feature;
@@ -9,15 +10,17 @@ mod render;
 mod render_pipeline;
 mod sampler;
 mod shader;
+mod stages;
 mod surface;
 
 use std::{error::Error, fmt};
 
 pub use self::{
+    _arguments::{data_types::*, ArgumentKind, ArgumentLayout, Arguments},
     arguments::{
         Argument, ArgumentGroup, ArgumentKind, Arguments, WriteArgument, WriteArgumentGroup,
     },
-    buffer::{BufferDesc, BufferUsage, Memory},
+    buffer::{BufferDesc, BufferInitDesc, BufferUsage, Memory},
     feature::Features,
     format::{PixelFormat, VertexFormat},
     image::{ImageDesc, ImageDimensions, ImageError, ImageUsage},
@@ -37,6 +40,7 @@ pub use self::{
         CreateLibraryError, LibraryDesc, LibraryInput, Shader, ShaderLanguage, ShaderSource,
         ShaderStage, ShaderStages,
     },
+    stages::{RenderStage, RenderStages},
     surface::SurfaceError,
 };
 

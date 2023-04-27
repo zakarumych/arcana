@@ -45,6 +45,17 @@ pub trait TryFromMetal<T>: Sized {
 
 pub trait TryMetalInto<T> {
     fn try_metal_into(self) -> Option<T>;
+
+    fn expect_metal_into(self) -> T
+    where
+        Self: Sized + Copy + std::fmt::Debug,
+    {
+        self.try_metal_into().expect(&format!(
+            "Failed to convert {:?} to {:?}",
+            self,
+            std::any::type_name::<T>()
+        ))
+    }
 }
 
 impl<T, U> TryMetalInto<U> for T
@@ -110,6 +121,7 @@ impl TryMetalFrom<PixelFormat> for metal::MTLPixelFormat {
             PixelFormat::Rg32Sint => metal::MTLPixelFormat::RG32Sint,
             PixelFormat::Rg32Float => metal::MTLPixelFormat::RG32Float,
             // PixelFormat::Rgb8Unorm => metal::MTLPixelFormat::RGB8Unorm,
+            // PixelFormat::Rgb8Srgb => metal::MTLPixelFormat::RGB8Unorm_sRGB,
             // PixelFormat::Rgb8Snorm => metal::MTLPixelFormat::RGB8Snorm,
             // PixelFormat::Rgb8Uint => metal::MTLPixelFormat::RGB8Uint,
             // PixelFormat::Rgb8Sint => metal::MTLPixelFormat::RGB8Sint,
@@ -143,7 +155,7 @@ impl TryMetalFrom<PixelFormat> for metal::MTLPixelFormat {
             // PixelFormat::Bgr8Snorm => metal::MTLPixelFormat::BGR8Snorm,
             // PixelFormat::Bgr8Uint => metal::MTLPixelFormat::BGR8Uint,
             // PixelFormat::Bgr8Sint => metal::MTLPixelFormat::BGR8Sint,
-            // PixelFormat::Bgra8Unorm => metal::MTLPixelFormat::BGRA8Unorm,
+            PixelFormat::Bgra8Unorm => metal::MTLPixelFormat::BGRA8Unorm,
             PixelFormat::Bgra8Srgb => metal::MTLPixelFormat::BGRA8Unorm_sRGB,
             // PixelFormat::Bgra8Snorm => metal::MTLPixelFormat::BGRA8Snorm,
             // PixelFormat::Bgra8Uint => metal::MTLPixelFormat::BGRA8Uint,
@@ -227,7 +239,7 @@ impl TryFromMetal<metal::MTLPixelFormat> for PixelFormat {
             // metal::MTLPixelFormat::BGR8Snorm => PixelFormat::Bgr8Snorm,
             // metal::MTLPixelFormat::BGR8Uint => PixelFormat::Bgr8Uint,
             // metal::MTLPixelFormat::BGR8Sint => PixelFormat::Bgr8Sint,
-            // metal::MTLPixelFormat::BGRA8Unorm => PixelFormat::Bgra8Unorm,
+            metal::MTLPixelFormat::BGRA8Unorm => PixelFormat::Bgra8Unorm,
             metal::MTLPixelFormat::BGRA8Unorm_sRGB => PixelFormat::Bgra8Srgb,
             // metal::MTLPixelFormat::BGRA8Snorm => PixelFormat::Bgra8Snorm,
             // metal::MTLPixelFormat::BGRA8Uint => PixelFormat::Bgra8Uint,
@@ -243,10 +255,10 @@ impl TryFromMetal<metal::MTLPixelFormat> for PixelFormat {
     }
 }
 
-impl MetalFrom<VertexFormat> for metal::MTLVertexFormat {
+impl TryMetalFrom<VertexFormat> for metal::MTLVertexFormat {
     #[inline(always)]
-    fn metal_from(t: VertexFormat) -> Self {
-        match t {
+    fn try_metal_from(format: VertexFormat) -> Option<Self> {
+        Some(match format {
             VertexFormat::Uint8 => metal::MTLVertexFormat::UChar,
             VertexFormat::Uint16 => metal::MTLVertexFormat::UShort,
             VertexFormat::Uint32 => metal::MTLVertexFormat::UInt,
@@ -303,7 +315,8 @@ impl MetalFrom<VertexFormat> for metal::MTLVertexFormat {
             // VertexFormat::Snorm32x4 => metal::MTLVertexFormat::Int4Normalized,
             VertexFormat::Float16x4 => metal::MTLVertexFormat::Half4,
             VertexFormat::Float32x4 => metal::MTLVertexFormat::Float4,
-        }
+            _ => return None,
+        })
     }
 }
 
@@ -314,6 +327,17 @@ impl MetalFrom<PrimitiveTopology> for metal::MTLPrimitiveTopologyClass {
             PrimitiveTopology::Point => metal::MTLPrimitiveTopologyClass::Point,
             PrimitiveTopology::Line => metal::MTLPrimitiveTopologyClass::Line,
             PrimitiveTopology::Triangle => metal::MTLPrimitiveTopologyClass::Triangle,
+        }
+    }
+}
+
+impl MetalFrom<PrimitiveTopology> for metal::MTLPrimitiveType {
+    #[inline(always)]
+    fn metal_from(t: PrimitiveTopology) -> Self {
+        match t {
+            PrimitiveTopology::Point => metal::MTLPrimitiveType::Point,
+            PrimitiveTopology::Line => metal::MTLPrimitiveType::Line,
+            PrimitiveTopology::Triangle => metal::MTLPrimitiveType::Triangle,
         }
     }
 }
@@ -410,3 +434,23 @@ impl MetalFrom<ImageUsage> for metal::MTLTextureUsage {
         mask
     }
 }
+
+// impl MetalFrom<RenderStages> for metal::MTLRenderStages {
+//     fn metal_from(stages: RenderStages) -> Self {
+//         let mut mask = metal::MTLRenderStages::empty();
+//         if stages.intersects(
+//             RenderStages::DRAW_INDIRECT | RenderStages::VERTEX_INPUT | RenderStages::VERTEX_SHADER,
+//         ) {
+//             mask |= metal::MTLRenderStages::Vertex;
+//         }
+//         if stages.contains(
+//             RenderStages::EARLY_FRAGMENT_TEST
+//                 | RenderStages::FRAGMENT_SHADER
+//                 | RenderStages::LATE_FRAGMENT_TEST
+//                 | RenderStages::COLOR_OUTPUT,
+//         ) {
+//             mask |= metal::MTLRenderStages::Fragment;
+//         }
+//         mask
+//     }
+// }

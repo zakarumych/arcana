@@ -5,7 +5,7 @@ use ash::vk;
 use crate::generic::{OutOfMemory, QueueError, QueueFlags};
 
 use super::{
-    device::Device, handle_host_oom, unexpected_error, CommandBuffer, CommandEncoder, SurfaceImage,
+    device::Device, handle_host_oom, unexpected_error, CommandBuffer, CommandEncoder, Frame,
 };
 
 #[derive(Clone)]
@@ -140,14 +140,14 @@ impl crate::traits::Queue for Queue {
         })
     }
 
-    fn present(&mut self, surface: SurfaceImage) -> Result<(), QueueError> {
+    fn present(&mut self, frame: Frame) -> Result<(), QueueError> {
         let result = unsafe {
             self.device.ash().queue_submit(
                 self.handle,
                 &[vk::SubmitInfo::builder()
                     .wait_semaphores(&self.wait_semaphores)
                     .wait_dst_stage_mask(&self.wait_stages)
-                    .signal_semaphores(&[surface.present()])
+                    .signal_semaphores(&[frame.present()])
                     .build()],
                 vk::Fence::null(),
             )
@@ -167,9 +167,9 @@ impl crate::traits::Queue for Queue {
             self.device.swapchain().queue_present(
                 self.handle,
                 &vk::PresentInfoKHR::builder()
-                    .wait_semaphores(&[surface.present()])
-                    .swapchains(&[surface.swapchain()])
-                    .image_indices(&[surface.image_idx()]),
+                    .wait_semaphores(&[frame.present()])
+                    .swapchains(&[frame.swapchain()])
+                    .image_indices(&[frame.image_idx()]),
             )
         };
 

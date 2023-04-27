@@ -25,7 +25,7 @@ pub use self::{
     render_pipeline::RenderPipeline,
     sampler::Sampler,
     shader::Library,
-    surface::{Surface, SurfaceImage},
+    surface::{Frame, Surface},
 };
 
 pub(crate) use self::{

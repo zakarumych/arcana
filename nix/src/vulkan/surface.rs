@@ -271,7 +271,7 @@ const SUBOPTIMAL_WAIT: Duration = Duration::from_secs(1);
 
 #[hidden_trait::expose]
 impl crate::traits::Surface for Surface {
-    fn next_image(&mut self, queue: &mut Queue) -> Result<SurfaceImage, SurfaceError> {
+    fn next_frame(&mut self, queue: &mut Queue) -> Result<Frame, SurfaceError> {
         let device = self
             .owner
             .upgrade()
@@ -330,7 +330,7 @@ impl crate::traits::Surface for Surface {
 
             queue.add_wait(*acquire, vk::PipelineStageFlags::ALL_COMMANDS);
 
-            return Ok(SurfaceImage {
+            return Ok(Frame {
                 swapchain: current.handle,
                 image: image.clone(),
                 idx,
@@ -340,14 +340,14 @@ impl crate::traits::Surface for Surface {
     }
 }
 
-pub struct SurfaceImage {
+pub struct Frame {
     swapchain: vk::SwapchainKHR,
     image: Image,
     idx: u32,
     present: vk::Semaphore,
 }
 
-impl SurfaceImage {
+impl Frame {
     pub(super) fn swapchain(&self) -> vk::SwapchainKHR {
         self.swapchain
     }
@@ -361,7 +361,7 @@ impl SurfaceImage {
     }
 }
 
-impl Deref for SurfaceImage {
+impl Deref for Frame {
     type Target = Image;
 
     fn deref(&self) -> &Self::Target {
@@ -370,7 +370,7 @@ impl Deref for SurfaceImage {
 }
 
 #[hidden_trait::expose]
-impl crate::traits::SurfaceImage for SurfaceImage {
+impl crate::traits::Frame for Frame {
     fn image(&self) -> &Image {
         &self.image
     }

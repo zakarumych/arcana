@@ -1,10 +1,3 @@
-use std::alloc::Layout;
-
-use crate::{
-    backend::{Buffer, Device},
-    generic::OutOfMemory,
-};
-
 bitflags::bitflags! {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     pub struct BufferUsage: u32 {
@@ -29,8 +22,8 @@ pub enum Memory {
 /// Buffer description.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct BufferDesc<'a> {
-    /// Buffer memory layout.
-    pub layout: Layout,
+    /// Buffer size.
+    pub size: usize,
 
     /// Buffer usage flags.
     pub usage: BufferUsage,
@@ -42,9 +35,18 @@ pub struct BufferDesc<'a> {
     pub name: &'a str,
 }
 
-impl BufferDesc<'_> {
-    /// Create a new buffer on given device.
-    pub fn new(self, device: &Device) -> Result<Buffer, OutOfMemory> {
-        device.new_buffer(self)
-    }
+/// Buffer description with initial contents.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct BufferInitDesc<'a> {
+    /// Buffer initial contents.
+    pub data: &'a [u8],
+
+    /// Buffer usage flags.
+    pub usage: BufferUsage,
+
+    /// Buffer memory type.
+    pub memory: Memory,
+
+    /// Buffer debug name.
+    pub name: &'a str,
 }

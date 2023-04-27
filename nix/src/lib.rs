@@ -11,4 +11,8 @@ mod traits;
 #[cfg_attr(any(target_os = "macos", target_os = "ios"), path = "metal/mod.rs")]
 pub mod backend;
 
-pub use self::{backend::*, generic::*};
+// pub use self::{backend::*, generic::*};
+
+mod private {
+    pub trait Sealed {}
+}

@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use core_graphics_types::{base::CGFloat, geometry::CGRect};
 use foreign_types::ForeignType;
 use metal::CAMetalLayer;
@@ -8,35 +6,30 @@ use objc::{
     runtime::{Object, BOOL, YES},
     sel, sel_impl,
 };
-use parking_lot::Mutex;
+
 use raw_window_handle::{
     HasRawDisplayHandle, HasRawWindowHandle, RawDisplayHandle, RawWindowHandle,
 };
 
 use crate::generic::{
-    compile_shader, BufferDesc, CreateLibraryError, CreatePipelineError, ImageDesc,
-    ImageDimensions, ImageError, LibraryDesc, LibraryInput, OutOfMemory, RenderPipelineDesc,
-    ShaderCompileError, ShaderLanguage, SurfaceError, VertexStepMode,
+    compile_shader, BufferDesc, BufferInitDesc, CreateLibraryError, CreatePipelineError, ImageDesc,
+    ImageDimensions, ImageError, LibraryDesc, LibraryInput, Memory, OutOfMemory,
+    RenderPipelineDesc, ShaderCompileError, ShaderLanguage, SurfaceError, VertexStepMode,
 };
 
 use super::{
     from::{IntoMetal, TryIntoMetal},
-    Buffer, CreateLibraryErrorKind, CreatePipelineErrorKind, Image, Library, Queue, RenderPipeline,
+    Buffer, CreateLibraryErrorKind, CreatePipelineErrorKind, Image, Library, RenderPipeline,
     Surface,
 };
 
-struct DeviceInner {
-    device: metal::Device,
-    queues: Mutex<Vec<Option<metal::CommandQueue>>>,
-}
-
-unsafe impl Send for DeviceInner {}
-unsafe impl Sync for DeviceInner {}
-
 #[derive(Clone)]
 pub struct Device {
-    inner: Arc<DeviceInner>,
+    device: metal::Device,
 }
+
+unsafe impl Sync for Device {}
+unsafe impl Send for Device {}
 
 // pub(super) struct WeakDevice {
 //     inner: Weak<DeviceInner>,
@@ -47,21 +40,16 @@ pub struct Device {
 // }
 
 impl Device {
-    pub(super) fn new(device: metal::Device, queues: Vec<Option<metal::CommandQueue>>) -> Self {
-        Device {
-            inner: Arc::new(DeviceInner {
-                queues: Mutex::new(queues),
-                device,
-            }),
-        }
+    pub(super) fn new(device: metal::Device) -> Self {
+        Device { device }
     }
 
     // pub(super) fn metal(&self) -> &metal::Device {
-    //     &self.inner.device
+    //     &self.device
     // }
 
     // pub(super) fn is(&self, weak: &WeakDevice) -> bool {
-    //     Arc::as_ptr(&self.inner) == Weak::as_ptr(&weak.inner)
+    //     Arc::as_ptr(&self) == Weak::as_ptr(&weak.inner)
     // }
 
     // pub(super) fn is_owner(&self, owned: &impl DeviceOwned) -> bool {
@@ -70,25 +58,17 @@ impl Device {
 
     // pub(super) fn weak(&self) -> WeakDevice {
     //     WeakDevice {
-    //         inner: Arc::downgrade(&self.inner),
+    //         inner: Arc::downgrade(&self),
     //     }
     // }
 }
 
 #[hidden_trait::expose]
 impl crate::traits::Device for Device {
-    fn get_queue(&self, family: usize, idx: usize) -> Queue {
-        assert_eq!(family, 0, "Metal only supports one queue family");
-        let queue = self.inner.queues.lock()[idx]
-            .take()
-            .expect("Queue already taken");
-        Queue::new(queue)
-    }
-
     fn new_shader_library(&self, desc: LibraryDesc) -> Result<Library, CreateLibraryError> {
         match desc.input {
             LibraryInput::Source(source) => {
-                let transpiled_source: Box<[u8]>;
+                let transpiled_source: String;
                 let source = match source.language {
                     ShaderLanguage::Msl => std::str::from_utf8(&*source.code).map_err(|err| {
                         CreateLibraryError(CreateLibraryErrorKind::CompileError(
@@ -96,18 +76,16 @@ impl crate::traits::Device for Device {
                         ))
                     })?,
                     src => {
-                        transpiled_source =
-                            compile_shader(&source.code, source.filename, src, ShaderLanguage::Msl)
-                                .map_err(|err| {
-                                    CreateLibraryError(CreateLibraryErrorKind::CompileError(err))
-                                })?;
-                        std::str::from_utf8(&*transpiled_source).unwrap()
+                        transpiled_source = compile_shader(&source.code, source.filename, src)
+                            .map_err(|err| {
+                                CreateLibraryError(CreateLibraryErrorKind::CompileError(err))
+                            })?;
+                        &transpiled_source
                     }
                 };
                 let options = metal::CompileOptions::new();
                 options.set_language_version(metal::MTLLanguageVersion::V2_4);
                 let library = self
-                    .inner
                     .device
                     .new_library_with_source(&source, &options)
                     .unwrap();
@@ -125,7 +103,7 @@ impl crate::traits::Device for Device {
 
         let vertex_function = desc
             .vertex_shader
-            .module
+            .library
             .get_function(&desc.vertex_shader.entry)
             .ok_or_else(|| CreatePipelineError(CreatePipelineErrorKind::InvalidShaderEntry))?;
 
@@ -155,7 +133,7 @@ impl crate::traits::Device for Device {
         let attributes = vertex_desc.attributes();
         for (idx, vertex_attribute) in desc.vertex_attributes.iter().enumerate() {
             let attribute_desc = metal::VertexAttributeDescriptor::new();
-            attribute_desc.set_format(vertex_attribute.format.into_metal());
+            attribute_desc.set_format(vertex_attribute.format.try_into_metal().unwrap());
             attribute_desc.set_offset(vertex_attribute.offset as _);
             attribute_desc.set_buffer_index(vertex_attribute.buffer_index as _);
             attributes.set_object_at(idx as _, Some(&attribute_desc));
@@ -167,7 +145,7 @@ impl crate::traits::Device for Device {
         if let Some(raster) = desc.raster {
             if let Some(fragment_shader) = raster.fragment_shader {
                 let fragment_function = fragment_shader
-                    .module
+                    .library
                     .get_function(&fragment_shader.entry)
                     .ok_or_else(|| {
                         CreatePipelineError(CreatePipelineErrorKind::InvalidShaderEntry)
@@ -211,20 +189,53 @@ impl crate::traits::Device for Device {
         }
 
         Ok(RenderPipeline::new(
-            self.inner
-                .device
+            self.device
                 .new_render_pipeline_state(&mdesc)
                 .map_err(|err| {
                     CreatePipelineError(CreatePipelineErrorKind::FailedToBuildPipeline(err))
                 })?,
+            desc.primitive_topology.into_metal(),
         ))
     }
 
     fn new_buffer(&self, desc: BufferDesc) -> Result<Buffer, OutOfMemory> {
-        // self.inner
-        //     .device
-        //     .new_buffer_with_bytes_no_copy(bytes, length, options, deallocator)
-        todo!()
+        let mut options = metal::MTLResourceOptions::empty();
+
+        match desc.memory {
+            Memory::Device => options |= metal::MTLResourceOptions::StorageModePrivate,
+            Memory::Shared => options |= metal::MTLResourceOptions::StorageModeShared,
+            Memory::Upload => {
+                options |= metal::MTLResourceOptions::StorageModeManaged
+                    | metal::MTLResourceOptions::CPUCacheModeWriteCombined
+            }
+            Memory::Download => options |= metal::MTLResourceOptions::StorageModeManaged,
+        }
+
+        let buffer = self.device.new_buffer(desc.size as _, options);
+        Ok(Buffer::new(buffer))
+    }
+
+    fn new_buffer_init(&self, desc: BufferInitDesc) -> Result<Buffer, OutOfMemory> {
+        let Ok(len) = u64::try_from(desc.data.len()) else {
+            return Err(OutOfMemory);
+        };
+
+        let mut options = metal::MTLResourceOptions::empty();
+
+        match desc.memory {
+            Memory::Device => options |= metal::MTLResourceOptions::StorageModePrivate,
+            Memory::Shared => options |= metal::MTLResourceOptions::StorageModeShared,
+            Memory::Upload => {
+                options |= metal::MTLResourceOptions::StorageModeManaged
+                    | metal::MTLResourceOptions::CPUCacheModeWriteCombined
+            }
+            Memory::Download => options |= metal::MTLResourceOptions::StorageModeManaged,
+        }
+
+        let buffer = self
+            .device
+            .new_buffer_with_data(desc.data.as_ptr().cast(), len, options);
+        Ok(Buffer::new(buffer))
     }
 
     fn new_image(&self, desc: ImageDesc) -> Result<Image, ImageError> {
@@ -253,7 +264,7 @@ impl crate::traits::Device for Device {
         texture_descriptor.set_usage(desc.usage.into_metal());
         texture_descriptor.set_storage_mode(metal::MTLStorageMode::Private);
 
-        let texture = self.inner.device.new_texture(&texture_descriptor);
+        let texture = self.device.new_texture(&texture_descriptor);
         Ok(Image::new(texture))
     }
 
@@ -277,7 +288,7 @@ impl crate::traits::Device for Device {
             _ => unreachable!("Unsupported window type for the metal backend"),
         };
 
-        layer.set_device(&self.inner.device);
+        layer.set_device(&self.device);
         Ok(Surface::new(layer))
     }
 }
@@ -288,7 +299,7 @@ unsafe fn layer_from_view(view: *mut Object) -> metal::MetalLayer {
     let is_valid_layer: BOOL = msg_send![main_layer, isKindOfClass: class];
 
     if is_valid_layer == YES {
-        ForeignType::from_ptr(main_layer.cast())
+        unsafe { ForeignType::from_ptr(main_layer.cast()) }
     } else {
         let new_layer: *mut CAMetalLayer = msg_send![class, new];
         let frame: CGRect = msg_send![main_layer, bounds];
@@ -297,7 +308,7 @@ unsafe fn layer_from_view(view: *mut Object) -> metal::MetalLayer {
         {
             let () = msg_send![view, setLayer: new_layer];
             let () = msg_send![view, setWantsLayer: YES];
-            let () = msg_send![new_layer, setContentsGravity: kCAGravityTopLeft];
+            let () = unsafe { msg_send![new_layer, setContentsGravity: kCAGravityTopLeft] };
             let window: *mut Object = msg_send![view, window];
             if !window.is_null() {
                 let scale_factor: CGFloat = msg_send![window, backingScaleFactor];
@@ -312,7 +323,7 @@ unsafe fn layer_from_view(view: *mut Object) -> metal::MetalLayer {
             let scale_factor: CGFloat = msg_send![screen, nativeScale];
             let () = msg_send![view, setContentScaleFactor: scale_factor];
         }
-        ForeignType::from_ptr(new_layer)
+        unsafe { ForeignType::from_ptr(new_layer) }
     }
 }
 
