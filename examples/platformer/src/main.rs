@@ -44,8 +44,14 @@ impl Render for MainPass {
 
 impl MainPass {
     fn build(world: &mut World) -> EntityId {
+        // Start building render.
         let mut builder = RenderBuilderContext::new("main_pass", world);
+
+        // This render defines a single render target.
         let target = builder.create_target("main");
+
+        // Build the render with MainPass as `Render` impl.
+        // `MainPass::render` will be called every frame to encode commands for this render.
         builder.build(MainPass {
             target,
             pipeline: None,
@@ -95,7 +101,13 @@ impl MainPass {
 
 fn main() {
     run_game(|mut game| async move {
-        game.render_window = Some(MainPass::build(&mut game.world));
+        // Create main pass.
+        // It returns target id that it renders to.
+        let target = MainPass::build(&mut game.world);
+
+        // // Use window's surface for the render target.
+        game.render_window = Some(target);
+
         Ok::<_, Infallible>(game)
     });
 }

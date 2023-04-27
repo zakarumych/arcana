@@ -2,16 +2,10 @@ use std::ops::Range;
 
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 
-use crate::{
-    backend::{Buffer, Image, Sampler},
-    generic::{
-        ArgumentKind, ArgumentLayout, Arguments, BufferDesc, BufferDesc, BufferInitDesc,
-        Capabilities, Capabilities, CreateError, CreateError, CreateLibraryError,
-        CreateLibraryError, CreatePipelineError, CreatePipelineError, DeviceDesc, DeviceDesc,
-        ImageDesc, ImageDesc, ImageError, ImageError, LibraryDesc, LibraryDesc, OutOfMemory,
-        OutOfMemory, QueueError, QueueError, RenderPassDesc, RenderPassDesc, RenderPipelineDesc,
-        RenderPipelineDesc, RenderStages, SamplerDesc, SurfaceError, SurfaceError,
-    },
+use crate::generic::{
+    ArgumentKind, BufferDesc, BufferInitDesc, Capabilities, CreateError, CreateLibraryError,
+    CreatePipelineError, DeviceDesc, ImageDesc, ImageError, LibraryDesc, OutOfMemory, QueueError,
+    RenderPassDesc, RenderPipelineDesc, RenderStages, SurfaceError, WriteArgument,
 };
 
 pub trait Instance {
@@ -96,7 +90,7 @@ pub trait RenderCommandEncoder {
     fn with_pipeline(&mut self, pipeline: &crate::backend::RenderPipeline);
 
     /// Sets arguments for the current pipeline.
-    fn with_arguments(&mut self, arguments: &mut impl Arguments, index: u32);
+    fn with_arguments(&mut self, group: u32, arguments: &[WriteArgument]);
 
     /// Draws primitives.
     fn draw(&mut self, vertices: Range<u32>, instances: Range<u32>);
@@ -114,9 +108,9 @@ pub trait Frame {
     fn image(&self) -> &crate::backend::Image;
 }
 
-pub trait Image {
-    fn id(&self) -> ImageId;
-}
+// pub trait Image {
+//     fn id(&self) -> ImageId;
+// }
 
 pub trait Buffer {
     /// Write data to the buffer.
@@ -129,10 +123,4 @@ pub trait Buffer {
     /// Use [`CommandEncoder::write_buffer`] to update
     /// buffer in safer way.
     unsafe fn write_unchecked(&self, offset: u64, data: &[u8]);
-}
-
-/// A single shader argument with statically known layout.
-pub trait Argument: crate::private::Sealed + 'static {
-    /// Returns layout of the argument.
-    const KIND: ArgumentKind;
 }

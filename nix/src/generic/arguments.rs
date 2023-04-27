@@ -1,4 +1,4 @@
-use crate::backend::{Buffer, CommandEncoder, Device, Image};
+use crate::backend::{Buffer, CommandEncoder, Device, Image, Sampler};
 
 use super::ShaderStages;
 
@@ -29,18 +29,11 @@ pub enum WriteArgument<'a> {
     Const(&'a [u8]),
     Buffer(&'a [Buffer]),
     Image(&'a [Image]),
-    // Sampler(&'a [Sampler]),
-}
-
-#[derive(Clone, Copy)]
-pub struct WriteArgumentGroup<'a> {
-    pub arguments: &'a [WriteArgument<'a>],
+    Sampler(&'a [Sampler]),
 }
 
 pub trait Arguments {
     type Cache;
 
-    fn bind(&self, cache: &mut Self::Cache, device: &Device, encoder: &mut CommandEncoder);
+    fn bind(&self, cache: &mut Self::Cache, encoder: &mut CommandEncoder);
 }
-
-pub struct ExampleArguments {}

@@ -515,6 +515,9 @@ impl crate::traits::Device for Device {
                     _ => unexpected_error(err),
                 })?;
 
+                #[cfg(any(debug_assertions, feature = "debug"))]
+                self.set_object_name(vk::ObjectType::SHADER_MODULE, module.as_raw(), desc.name);
+
                 Ok(Library::new(module))
             }
         }
@@ -524,8 +527,6 @@ impl crate::traits::Device for Device {
         &self,
         desc: RenderPipelineDesc,
     ) -> Result<RenderPipeline, CreatePipelineError> {
-        let me = &*self.inner;
-
         let layout_desc = PipelineLayoutDesc {
             groups: desc
                 .arguments
@@ -638,7 +639,7 @@ impl crate::traits::Device for Device {
         }
 
         let result = unsafe {
-            me.device.create_graphics_pipelines(
+            self.inner.device.create_graphics_pipelines(
                 vk::PipelineCache::null(),
                 std::slice::from_ref(
                     &vk::GraphicsPipelineCreateInfo::builder()
@@ -688,6 +689,9 @@ impl crate::traits::Device for Device {
             _ => unexpected_error(err),
         })?;
         let pipeline = pipelines[0];
+
+        #[cfg(any(debug_assertions, feature = "debug"))]
+        self.set_object_name(vk::ObjectType::PIPELINE, pipeline.as_raw(), desc.name);
 
         let idx = self.inner.pipelines.lock().insert(pipeline);
 
@@ -812,7 +816,7 @@ impl crate::traits::Device for Device {
         let mut samplers = self.inner.samplers.lock();
         let len = samplers.len();
         match samplers.entry(desc) {
-            hashbrown::hash_map::Entry::Occupied(mut entry) => match entry.get().upgrade() {
+            hashbrown::hash_map::Entry::Occupied(entry) => match entry.get().upgrade() {
                 Some(sampler) => Ok(sampler),
                 None => {
                     let sampler = self.new_sampler_slow(len, desc)?;
