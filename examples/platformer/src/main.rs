@@ -7,34 +7,137 @@ use std::convert::Infallible;
 
 use bob::{
     blink_alloc::BlinkAlloc,
-    edict::{EntityId, World},
-    game::run_game,
-    nix,
+    edict::{EntityId, Res, Scheduler, World},
+    game::{run_game, FPS},
+    gametime::ClockStep,
+    nix::{self, Arguments, Constants},
     render::{Render, RenderBuilderContext, RenderContext, RenderError},
 };
+
+#[derive(nix::Arguments)]
+pub struct MainArguments {
+    #[nix(vertex)]
+    pub colors: nix::Buffer,
+}
+
+#[derive(nix::Constants)]
+pub struct MainConstants {
+    pub angle: f32,
+    pub width: u32,
+    pub height: u32,
+}
 
 pub struct MainPass {
     target: EntityId,
     pipeline: Option<nix::RenderPipeline>,
+    arguments: Option<MainArguments>,
+    constants: MainConstants,
 }
 
 impl Render for MainPass {
     fn render(
         &mut self,
         mut ctx: RenderContext<'_, '_>,
-        _world: &World,
+        world: &World,
         _blink: &BlinkAlloc,
     ) -> Result<(), RenderError> {
         let mut encoder = ctx.new_command_encoder()?;
         let target = ctx.target(self.target).clone();
-        let pipeline = self.get_pipeline(ctx.device(), target.format());
+        let pipeline = self.pipeline.get_or_insert_with(|| {
+            let main_library = ctx
+                .device()
+                .new_shader_library(nix::LibraryDesc {
+                    name: "main",
+                    input: nix::include_library!("shaders/main.wgsl" as nix::ShaderLanguage::Wgsl),
+                })
+                .unwrap();
+
+            ctx.device()
+                .new_render_pipeline(nix::RenderPipelineDesc {
+                    name: "main",
+                    vertex_shader: nix::Shader {
+                        library: main_library.clone(),
+                        entry: "vs_main".into(),
+                    },
+                    vertex_attributes: vec![],
+                    vertex_layouts: vec![],
+                    primitive_topology: nix::PrimitiveTopology::Triangle,
+                    raster: Some(nix::RasterDesc {
+                        fragment_shader: Some(nix::Shader {
+                            library: main_library,
+                            entry: "fs_main".into(),
+                        }),
+                        color_targets: vec![nix::ColorTargetDesc {
+                            format: target.format(),
+                            blend: None,
+                        }],
+                        depth_stencil: None,
+                    }),
+                    arguments: &[MainArguments::LAYOUT],
+                    constants: MainConstants::SIZE,
+                })
+                .unwrap()
+        });
+
+        encoder.init_image(
+            nix::PipelineStages::empty(),
+            nix::PipelineStages::COLOR_OUTPUT,
+            &target,
+        );
         let mut render = encoder.render(nix::RenderPassDesc {
             color_attachments: &[
                 nix::AttachmentDesc::new(&target).clear(nix::ClearColor(1.0, 0.5, 0.3, 1.0))
             ],
             ..Default::default()
         });
+
+        let dims = target.dimensions().to_2d();
+
+        let arguments = self.arguments.get_or_insert_with(|| {
+            let colors = ctx
+                .device()
+                .new_buffer_init(nix::BufferInitDesc {
+                    data: bytemuck::cast_slice(&[
+                        1.0,
+                        1.0,
+                        0.0,
+                        f32::NAN,
+                        0.0,
+                        1.0,
+                        1.0,
+                        f32::NAN,
+                        1.0,
+                        0.0,
+                        1.0,
+                        f32::NAN,
+                    ]),
+                    name: "colors",
+                    usage: nix::BufferUsage::UNIFORM,
+                    memory: nix::Memory::Shared,
+                })
+                .unwrap();
+            MainArguments { colors }
+        });
+
+        self.constants = MainConstants {
+            angle: world
+                .expect_resource::<ClockStep>()
+                .now
+                .elapsed_since_start()
+                .as_secs_f32(),
+            width: dims.width(),
+            height: dims.height(),
+        };
+
         render.with_pipeline(pipeline);
+        render.with_arguments(0, arguments);
+        render.with_constants(&self.constants);
+
+        render.with_viewport(
+            nix::Offset3::ZERO,
+            nix::Extent3::new(dims.width() as f32, dims.height() as f32, 1.0),
+        );
+        render.with_scissor(nix::Offset2::ZERO, dims);
         render.draw(0..3, 0..1);
         drop(render);
         ctx.commit(encoder.finish()?);
@@ -55,47 +158,14 @@ impl MainPass {
         builder.build(MainPass {
             target,
             pipeline: None,
+            arguments: None,
+            constants: MainConstants {
+                angle: 0.0,
+                width: 0,
+                height: 0,
+            },
         });
         target
-    }
-
-    fn get_pipeline(
-        &mut self,
-        device: &nix::Device,
-        target_format: nix::PixelFormat,
-    ) -> &nix::RenderPipeline {
-        self.pipeline.get_or_insert_with(|| {
-            let main_library = device
-                .new_shader_library(nix::LibraryDesc {
-                    name: "main",
-                    input: nix::include_library!("shaders/main.wgsl" as nix::ShaderLanguage::Wgsl),
-                })
-                .unwrap();
-
-            device
-                .new_render_pipeline(nix::RenderPipelineDesc {
-                    name: "main",
-                    vertex_shader: nix::Shader {
-                        library: main_library.clone(),
-                        entry: "vs_main".into(),
-                    },
-                    vertex_attributes: vec![],
-                    vertex_layouts: vec![],
-                    primitive_topology: nix::PrimitiveTopology::Triangle,
-                    raster: Some(nix::RasterDesc {
-                        fragment_shader: Some(nix::Shader {
-                            library: main_library,
-                            entry: "fs_main".into(),
-                        }),
-                        color_targets: vec![nix::ColorTargetDesc {
-                            format: target_format,
-                            blend: None,
-                        }],
-                        depth_stencil: None,
-                    }),
-                })
-                .unwrap()
-        })
     }
 }
 
@@ -107,6 +177,10 @@ fn main() {
 
         // // Use window's surface for the render target.
         game.render_window = Some(target);
+
+        game.fixed_scheduler
+            .get_or_insert_with(Scheduler::new)
+            .add_system(move |fps: Res<FPS>| println!("FPS: {}", fps.fps()));
 
         Ok::<_, Infallible>(game)
     });

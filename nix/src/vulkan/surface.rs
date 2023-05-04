@@ -110,6 +110,8 @@ impl Surface {
             return Err(SurfaceError(SurfaceErrorKind::SurfaceLost));
         }
 
+        self.retire_deadline = None;
+
         let old = self.current.take();
 
         let result = unsafe {
@@ -245,7 +247,7 @@ impl Surface {
             let can_destroy = swapchain
                 .images
                 .iter_mut()
-                .all(|(image, _)| image.is_last());
+                .all(|(image, _)| image.detached());
             if can_destroy {
                 for (_, [acquire, present]) in swapchain.images {
                     unsafe {
@@ -276,6 +278,8 @@ impl crate::traits::Surface for Surface {
             .owner
             .upgrade()
             .ok_or(SurfaceError(SurfaceErrorKind::SurfaceLost))?;
+
+        self.clear_retired(&device)?;
 
         let now = Instant::now();
 

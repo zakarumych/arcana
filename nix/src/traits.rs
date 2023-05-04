@@ -3,9 +3,10 @@ use std::ops::Range;
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 
 use crate::generic::{
-    ArgumentKind, BufferDesc, BufferInitDesc, Capabilities, CreateError, CreateLibraryError,
-    CreatePipelineError, DeviceDesc, ImageDesc, ImageError, LibraryDesc, OutOfMemory, QueueError,
-    RenderPassDesc, RenderPipelineDesc, RenderStages, SurfaceError, WriteArgument,
+    Arguments, BufferDesc, BufferInitDesc, Capabilities, Constants, CreateError,
+    CreateLibraryError, CreatePipelineError, DeviceDesc, Extent2, Extent3, ImageDesc,
+    ImageDimensions, ImageError, LibraryDesc, Offset2, Offset3, OutOfMemory, PipelineStages,
+    PixelFormat, QueueError, RenderPassDesc, RenderPipelineDesc, SamplerDesc, SurfaceError,
 };
 
 pub trait Instance {
@@ -38,6 +39,9 @@ pub trait Device {
     /// Create a new image.
     fn new_image(&self, desc: ImageDesc) -> Result<crate::backend::Image, ImageError>;
 
+    /// Create a new sampler.
+    fn new_sampler(&self, desc: SamplerDesc) -> Result<crate::backend::Sampler, OutOfMemory>;
+
     /// Create a new surface associated with given window.
     fn new_surface(
         &self,
@@ -58,9 +62,31 @@ pub trait Queue {
     fn submit<I>(&mut self, command_buffers: I) -> Result<(), QueueError>
     where
         I: IntoIterator<Item = crate::backend::CommandBuffer>;
+
+    /// Inserts a checkpoint into queue and check previous checkpoints.
+    /// Checkpoints are required to synchronize resource use and reclamation.
+    fn check_point(&mut self);
 }
 
 pub trait CommandEncoder {
+    /// Synchronizes the access to the resources.
+    /// Commands in `before` stages of subsequent commands will be
+    /// executed only after commands in `after` stages of previous commands
+    /// are finished.
+    fn barrier(&mut self, after: PipelineStages, before: PipelineStages);
+
+    /// Synchronizes the access to the image.
+    /// Commands in `before` stages of subsequent commands will be
+    /// executed only after commands in `after` stages of previous commands
+    /// are finished.
+    /// Image content is discarded.
+    fn init_image(
+        &mut self,
+        after: PipelineStages,
+        before: PipelineStages,
+        image: &crate::backend::Image,
+    );
+
     /// Returns encoder for copy commands.
     fn copy(&mut self) -> crate::backend::CopyCommandEncoder<'_>;
 
@@ -75,22 +101,29 @@ pub trait CommandEncoder {
 }
 
 pub trait CopyCommandEncoder {
+    /// Synchronizes the access to the resources.
+    /// Commands in `before` stages of subsequent commands will be
+    /// executed only after commands in `after` stages of previous commands
+    /// are finished.
+    fn barrier(&mut self, after: PipelineStages, before: PipelineStages);
+
     /// Writes data to the buffer.
     fn write_buffer(&mut self, buffer: &crate::backend::Buffer, offset: u64, data: &[u8]);
 }
 
 pub trait RenderCommandEncoder {
-    /// Synchronizes the access to the resources.
-    /// Commands in `before` stages of subsequent commands will be
-    /// executed only after commands in `after` stages of previous commands
-    /// are finished.
-    fn barrier(&mut self, after: RenderStages, before: RenderStages);
-
     /// Sets the current render pipeline.
     fn with_pipeline(&mut self, pipeline: &crate::backend::RenderPipeline);
 
-    /// Sets arguments for the current pipeline.
-    fn with_arguments(&mut self, group: u32, arguments: &[WriteArgument]);
+    fn with_viewport(&mut self, offset: Offset3<f32>, extent: Extent3<f32>);
+
+    fn with_scissor(&mut self, offset: Offset2<i32>, extent: Extent2<u32>);
+
+    /// Sets arguments group for the current pipeline.
+    fn with_arguments(&mut self, group: u32, arguments: &impl Arguments);
+
+    /// Sets constants for the current pipeline.
+    fn with_constants(&mut self, constants: &impl Constants);
 
     /// Draws primitives.
     fn draw(&mut self, vertices: Range<u32>, instances: Range<u32>);
@@ -108,11 +141,46 @@ pub trait Frame {
     fn image(&self) -> &crate::backend::Image;
 }
 
-// pub trait Image {
-//     fn id(&self) -> ImageId;
-// }
+pub trait Image {
+    /// Returns the pixel format of the image.
+    fn format(&self) -> PixelFormat;
+
+    /// Returns the dimensions of the image.
+    fn dimensions(&self) -> ImageDimensions;
+
+    /// Returns the number of layers in the image.
+    fn layers(&self) -> u32;
+
+    /// Returns the number of mip levels in the image.
+    fn levels(&self) -> u32;
+
+    /// Returns `true` if the buffer is not shared,
+    /// meaning that there are no other references to the buffer
+    /// including references that tracks that GPU may be using the buffer.
+    ///
+    /// If this method returns `true` then it is safe to write to the buffer
+    /// from host and use in any way.
+    ///
+    /// If old content is not needed then no synchronization is required.
+    /// Otherwise memory barrier with is required.
+    fn detached(&self) -> bool;
+}
 
 pub trait Buffer {
+    /// Returns the size of the buffer in bytes.
+    fn size(&self) -> usize;
+
+    /// Returns `true` if the buffer is not shared,
+    /// meaning that there are no other references to the buffer
+    /// including references that tracks that GPU may be using the buffer.
+    ///
+    /// If this method returns `true` then it is safe to write to the buffer
+    /// from host and use in any way.
+    ///
+    /// If old content is not needed then no synchronization is required.
+    /// Otherwise memory barrier with is required.
+    fn detached(&self) -> bool;
+
     /// Write data to the buffer.
     ///
     /// # Safety
@@ -122,5 +190,5 @@ pub trait Buffer {
     ///
     /// Use [`CommandEncoder::write_buffer`] to update
     /// buffer in safer way.
-    unsafe fn write_unchecked(&self, offset: u64, data: &[u8]);
+    unsafe fn write_unchecked(&mut self, offset: u64, data: &[u8]);
 }

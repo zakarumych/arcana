@@ -52,22 +52,13 @@ pub struct Capabilities {
     pub devices: Vec<DeviceCapabilities>,
 }
 
-/// Specifies how many queues of what family should be created.
-pub struct QueuesCreateDesc {
-    /// Index of the queue family.
-    pub family: u32,
-
-    /// Number of queues to create.
-    pub queue_count: usize,
-}
-
 /// Specifies how the device should be created.
 pub struct DeviceDesc<'a> {
     /// Index of the device.
     pub idx: usize,
 
     /// List of queue infos.
-    pub queue_infos: &'a [QueuesCreateDesc],
+    pub queue_infos: &'a [u32],
 
     /// List of features that should be enabled.
     pub features: Features,

@@ -10,6 +10,7 @@ version.workspace = true
 handle-device-lost = [] # Enable to handle device lost errors.
 
 [dependencies]
+nix-proc = { path = "proc" }
 hidden-trait = "0.1"
 bitflags = "2.0"
 slab = "0.4"

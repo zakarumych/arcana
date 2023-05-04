@@ -2,8 +2,8 @@ use ash::vk;
 
 use crate::generic::{
     AddressMode, BlendFactor, BlendOp, BufferUsage, CompareFunction, FamilyCapabilities, Filter,
-    ImageDimensions, ImageUsage, MipMapMode, PixelFormat, QueueFlags, ShaderStage, ShaderStages,
-    VertexFormat, WriteMask,
+    ImageDimensions, ImageUsage, MipMapMode, PipelineStage, PipelineStages, PixelFormat,
+    QueueFlags, ShaderStage, ShaderStages, VertexFormat, WriteMask,
 };
 
 macro_rules! from_flags {
@@ -555,16 +555,42 @@ impl AshFrom<ShaderStage> for ash::vk::ShaderStageFlags {
 
 impl AshFrom<ShaderStages> for ash::vk::ShaderStageFlags {
     fn ash_from(stages: ShaderStages) -> Self {
-        let mut result = ash::vk::ShaderStageFlags::empty();
-        if stages.contains(ShaderStages::VERTEX) {
-            result |= ash::vk::ShaderStageFlags::VERTEX;
+        from_flags!(ShaderStages => vk::ShaderStageFlags, [
+            VERTEX => VERTEX,
+            FRAGMENT => FRAGMENT,
+            COMPUTE => COMPUTE,
+        ], stages)
+    }
+}
+
+impl AshFrom<PipelineStage> for ash::vk::PipelineStageFlags {
+    fn ash_from(stage: PipelineStage) -> Self {
+        match stage {
+            PipelineStage::DrawIndirect => ash::vk::PipelineStageFlags::DRAW_INDIRECT,
+            PipelineStage::VertexInput => ash::vk::PipelineStageFlags::VERTEX_INPUT,
+            PipelineStage::VertexShader => ash::vk::PipelineStageFlags::VERTEX_SHADER,
+            PipelineStage::EarlyFragmentTest => ash::vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS,
+            PipelineStage::FragmentShader => ash::vk::PipelineStageFlags::FRAGMENT_SHADER,
+            PipelineStage::LateFragmentTest => ash::vk::PipelineStageFlags::LATE_FRAGMENT_TESTS,
+            PipelineStage::ColorOutput => ash::vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+            PipelineStage::ComputeShader => ash::vk::PipelineStageFlags::COMPUTE_SHADER,
+            PipelineStage::Transfer => ash::vk::PipelineStageFlags::TRANSFER,
         }
-        if stages.contains(ShaderStages::FRAGMENT) {
-            result |= ash::vk::ShaderStageFlags::FRAGMENT;
-        }
-        if stages.contains(ShaderStages::COMPUTE) {
-            result |= ash::vk::ShaderStageFlags::COMPUTE;
-        }
-        result
+    }
+}
+
+impl AshFrom<PipelineStages> for ash::vk::PipelineStageFlags {
+    fn ash_from(stages: PipelineStages) -> Self {
+        from_flags!(PipelineStages => vk::PipelineStageFlags, [
+            DRAW_INDIRECT => DRAW_INDIRECT,
+            VERTEX_INPUT => VERTEX_INPUT,
+            VERTEX_SHADER => VERTEX_SHADER,
+            EARLY_FRAGMENT_TEST => EARLY_FRAGMENT_TESTS,
+            FRAGMENT_SHADER => FRAGMENT_SHADER,
+            LATE_FRAGMENT_TEST => LATE_FRAGMENT_TESTS,
+            COLOR_OUTPUT => COLOR_ATTACHMENT_OUTPUT,
+            COMPUTE_SHADER => COMPUTE_SHADER,
+            TRANSFER => TRANSFER,
+        ], stages)
     }
 }

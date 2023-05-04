@@ -18,8 +18,10 @@ impl Drop for Inner {
     }
 }
 
+#[derive(Clone)]
 pub struct RenderPipeline {
     handle: vk::Pipeline,
+    layout: vk::PipelineLayout,
     inner: Arc<Inner>,
 }
 
@@ -32,11 +34,21 @@ impl RenderPipeline {
     ) -> Self {
         RenderPipeline {
             handle,
+            layout: layout.handle(),
             inner: Arc::new(Inner { owner, layout, idx }),
         }
     }
+
+    pub(super) fn handle(&self) -> vk::Pipeline {
+        self.handle
+    }
+
+    pub(super) fn layout(&self) -> &PipelineLayout {
+        &self.inner.layout
+    }
 }
 
+#[derive(Debug)]
 pub enum CreatePipelineErrorKind {
     OutOfMemory,
     InvalidShaderEntry,

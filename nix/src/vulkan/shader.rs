@@ -4,6 +4,7 @@ use ash::vk;
 
 use crate::generic::{OutOfMemory, ShaderCompileError};
 
+#[derive(Clone)]
 pub struct Library {
     module: vk::ShaderModule,
 }

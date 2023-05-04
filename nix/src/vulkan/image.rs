@@ -96,16 +96,6 @@ impl Image {
     }
 
     #[inline(always)]
-    pub(super) fn format(&self) -> PixelFormat {
-        self.inner.format
-    }
-
-    #[inline(always)]
-    pub(super) fn dimensions(&self) -> ImageDimensions {
-        self.inner.dimensions
-    }
-
-    #[inline(always)]
     pub(super) fn extent_2d(&self) -> vk::Extent2D {
         match self.inner.dimensions {
             ImageDimensions::D1(width) => vk::Extent2D { width, height: 1 },
@@ -199,10 +189,35 @@ impl Image {
     pub(super) fn handle(&self) -> vk::Image {
         self.handle
     }
+}
 
-    pub(super) fn is_last(&mut self) -> bool {
+#[hidden_trait::expose]
+impl crate::traits::Image for Image {
+    #[inline(always)]
+    fn format(&self) -> PixelFormat {
+        self.inner.format
+    }
+
+    #[inline(always)]
+    fn dimensions(&self) -> ImageDimensions {
+        self.inner.dimensions
+    }
+
+    #[inline(always)]
+    fn layers(&self) -> u32 {
+        self.inner.layers
+    }
+
+    #[inline(always)]
+    fn levels(&self) -> u32 {
+        self.inner.levels
+    }
+
+    #[inline(always)]
+    fn detached(&self) -> bool {
         // If strong is 1, it cannot be changed by another thread
         // since there are no weaks and &mut self is exclusive.
+        debug_assert_eq!(Arc::weak_count(&self.inner), 0, "No weak refs allowed");
         Arc::strong_count(&self.inner) == 1
     }
 }

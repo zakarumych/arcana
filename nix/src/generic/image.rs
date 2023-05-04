@@ -1,4 +1,4 @@
-use super::{format::PixelFormat, OutOfMemory};
+use super::{format::PixelFormat, Extent1, Extent2, Extent3, OutOfMemory};
 
 pub enum ImageError {
     OutOfMemory,
@@ -17,6 +17,32 @@ pub enum ImageDimensions {
     D1(u32),
     D2(u32, u32),
     D3(u32, u32, u32),
+}
+
+impl ImageDimensions {
+    pub fn to_1d(self) -> Extent1<u32> {
+        match self {
+            ImageDimensions::D1(width) => Extent1::new(width),
+            ImageDimensions::D2(width, _) => Extent1::new(width),
+            ImageDimensions::D3(width, _, _) => Extent1::new(width),
+        }
+    }
+
+    pub fn to_2d(self) -> Extent2<u32> {
+        match self {
+            ImageDimensions::D1(width) => Extent2::new(width, 1),
+            ImageDimensions::D2(width, height) => Extent2::new(width, height),
+            ImageDimensions::D3(width, height, _) => Extent2::new(width, height),
+        }
+    }
+
+    pub fn to_3d(self) -> Extent3<u32> {
+        match self {
+            ImageDimensions::D1(width) => Extent3::new(width, 1, 1),
+            ImageDimensions::D2(width, height) => Extent3::new(width, height, 1),
+            ImageDimensions::D3(width, height, depth) => Extent3::new(width, height, depth),
+        }
+    }
 }
 
 bitflags::bitflags! {

@@ -1,9 +1,11 @@
-use std::{error::Error, sync::Arc};
+use std::{collections::VecDeque, error::Error, sync::Arc};
 
 use blink_alloc::Blink;
 use edict::{world::WorldBuilder, Component, Entities, EntityId, Scheduler, World};
 use futures::Future;
-use gametime::{Clock, ClockStep, FrequencyNumExt, FrequencyTicker, TimeSpan, TimeStamp};
+use gametime::{
+    Clock, ClockStep, FrequencyNumExt, FrequencyTicker, TimeSpan, TimeSpanNumExt, TimeStamp,
+};
 use winit::{
     event::WindowEvent,
     window::{Window, WindowId},
@@ -27,9 +29,11 @@ pub struct Game {
     pub funnel: Funnel,
 
     /// System variable-rate scheduler.
+    /// Those systems run every frame.
     pub var_scheduler: Option<Scheduler>,
 
     /// System fixed-rate scheduler.
+    /// Those systems run every fixed time interval.
     pub fixed_scheduler: Option<Scheduler>,
 
     /// Render target entity to render into main window.
@@ -125,6 +129,39 @@ pub struct FixedTicker(pub FrequencyTicker);
 
 pub struct Limiter(pub FrequencyTicker);
 
+pub struct FPS {
+    frames: VecDeque<TimeStamp>,
+}
+
+impl FPS {
+    pub fn new() -> Self {
+        FPS {
+            frames: VecDeque::with_capacity(500),
+        }
+    }
+
+    pub fn add(&mut self, time: TimeStamp) {
+        while self.frames.len() >= 500 {
+            self.frames.pop_front();
+        }
+        self.frames.push_back(time);
+        while *self.frames.back().unwrap() > *self.frames.front().unwrap() + 30u32.seconds() {
+            self.frames.pop_front();
+        }
+    }
+
+    pub fn fps(&self) -> f32 {
+        if self.frames.len() < 2 {
+            return 0.0;
+        }
+        let first = *self.frames.front().unwrap();
+        let last = *self.frames.back().unwrap();
+        let duration = last - first;
+        let average = duration / (self.frames.len() as u64 - 1);
+        average.as_secs_f32().recip()
+    }
+}
+
 pub fn run_game<F, Fut, E>(setup: F)
 where
     F: FnOnce(Game) -> Fut + 'static,
@@ -154,8 +191,9 @@ where
         step: TimeSpan::ZERO,
     });
 
-    world.insert_resource(Limiter(FrequencyTicker::new(60u32.hz(), clocks.now())));
-    world.insert_resource(FixedTicker(FrequencyTicker::new(60u32.hz(), clocks.now())));
+    world.insert_resource(Limiter(FrequencyTicker::new(60u32.khz(), clocks.now())));
+    world.insert_resource(FixedTicker(FrequencyTicker::new(1u32.hz(), clocks.now())));
+    world.insert_resource(FPS::new());
 
     // Run the event loop.
     EventLoopBuilder::new().run(|events| async move {
@@ -189,10 +227,10 @@ where
             mut funnel,
             mut var_scheduler,
             mut fixed_scheduler,
-            render_window: render_to_window,
+            render_window,
         } = game;
 
-        if let Some(render_to_window) = render_to_window {
+        if let Some(render_window) = render_window {
             // Create main window.
             let window = Window::new(&events).unwrap();
             funnel.add(MainWindowFilter { id: window.id() });
@@ -204,10 +242,7 @@ where
                 .unwrap();
 
             world
-                .insert_external_bundle(
-                    render_to_window,
-                    (surface, window, RenderTargetAlwaysUpdate),
-                )
+                .insert_external_bundle(render_window, (surface, window, RenderTargetAlwaysUpdate))
                 .unwrap();
         }
 
@@ -221,32 +256,30 @@ where
 
             let deadline = world
                 .get_resource::<Limiter>()
-                .and_then(|limiter| limiter.0.next_tick())
-                .map(|stamp| clocks.stamp_instant(stamp));
+                .and_then(|limiter| limiter.0.next_tick());
 
-            let events = events.next(deadline).await;
-            let step = clocks.step();
-
-            *world.expect_resource_mut::<ClockStep>() = ClockStep {
-                now: step.now,
-                step: step.step,
-            };
-
-            world
-                .get_resource_mut::<Limiter>()
-                .map(|mut limiter| limiter.0.ticks(clocks.now()));
+            let events = events.next(deadline.map(|s| clocks.stamp_instant(s))).await;
 
             for event in events {
                 funnel.filter(&blink, &mut world, event);
+                blink.reset();
             }
 
-            blink.reset();
+            let clock_step = clocks.step();
+
+            *world.expect_resource_mut::<ClockStep>() = ClockStep {
+                now: clock_step.now,
+                step: clock_step.step,
+            };
 
             if let Some(fixed_scheduler) = &mut fixed_scheduler {
-                let ticks = world.expect_resource_mut::<FixedTicker>().0.ticks(step.now);
+                let ticks = world
+                    .expect_resource_mut::<FixedTicker>()
+                    .0
+                    .ticks(clock_step.now);
 
                 for now in ticks {
-                    debug_assert!(now <= step.now);
+                    debug_assert!(now <= clock_step.now);
                     debug_assert!(now >= last_fixed);
                     let step = now - last_fixed;
                     *world.expect_resource_mut::<ClockStep>() = ClockStep { now, step };
@@ -256,20 +289,28 @@ where
                         fixed_scheduler.run_rayon(&mut world)
                     }
                     last_fixed = now;
+                    blink.reset();
                 }
             }
 
-            blink.reset();
+            let ticks = world
+                .expect_resource_mut::<Limiter>()
+                .0
+                .ticks(clock_step.now)
+                .count();
 
-            if let Some(var_scheduler) = &mut var_scheduler {
-                if cfg!(debug_assertions) {
-                    var_scheduler.run_sequential(&mut world)
-                } else {
-                    var_scheduler.run_rayon(&mut world)
+            if ticks > 0 {
+                world.expect_resource_mut::<FPS>().add(clock_step.now);
+
+                if let Some(var_scheduler) = &mut var_scheduler {
+                    if cfg!(debug_assertions) {
+                        var_scheduler.run_sequential(&mut world)
+                    } else {
+                        var_scheduler.run_rayon(&mut world)
+                    }
+                    blink.reset();
                 }
             }
-
-            blink.reset();
         }
     });
 }
@@ -281,10 +322,7 @@ fn init_graphics() -> (nix::Device, nix::Queue) {
     let (device, mut queues) = instance
         .create(nix::DeviceDesc {
             idx: 0,
-            queue_infos: &[nix::QueuesCreateDesc {
-                family: 0,
-                queue_count: 1,
-            }],
+            queue_infos: &[0],
             features: nix::Features::SURFACE,
         })
         .unwrap();

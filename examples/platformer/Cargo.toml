@@ -12,3 +12,6 @@ publish = false
 [dependencies]
 bob = { path = "../../bob", features = ["derive", "gamepad", "graphics", "tokio-multi-thread"] }
 tokio = { workspace = true }
+bytemuck = "1.0"
+
+ash = { version = "0.37.0", features = ["loaded"] }

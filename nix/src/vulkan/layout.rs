@@ -1,12 +1,19 @@
-use std::sync::{Arc, Weak};
+use std::{
+    any::TypeId,
+    hash::{Hash, Hasher},
+    sync::{Arc, Weak},
+};
 
-use crate::generic::Argument;
+use hashbrown::HashMap;
+use parking_lot::Mutex;
+
+use crate::generic::ArgumentLayout;
 
 use super::device::WeakDevice;
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub(super) struct DescriptorSetLayoutDesc {
-    pub arguments: Vec<Argument>,
+    pub arguments: Vec<ArgumentLayout>,
 }
 
 struct DescriptorSetLayoutInner {
@@ -81,20 +88,30 @@ impl DescriptorSetLayout {
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub(super) struct PipelineLayoutDesc {
-    pub groups: Vec<Vec<Argument>>,
+    pub groups: Vec<Vec<ArgumentLayout>>,
+    pub constants: usize,
 }
 
 struct PipelineLayoutInner {
+    set_layouts: Vec<DescriptorSetLayout>,
     owner: WeakDevice,
     desc: PipelineLayoutDesc,
+    templates: Mutex<
+        HashMap<(TypeId, ash::vk::PipelineBindPoint, u32), ash::vk::DescriptorUpdateTemplate>,
+    >,
 }
 
 impl Drop for PipelineLayoutInner {
     fn drop(&mut self) {
-        self.owner.drop_pipeline_layout(std::mem::replace(
+        let desc = std::mem::replace(
             &mut self.desc,
-            PipelineLayoutDesc { groups: Vec::new() },
-        ));
+            PipelineLayoutDesc {
+                groups: Vec::new(),
+                constants: 0,
+            },
+        );
+        self.owner
+            .drop_pipeline_layout(desc, self.templates.get_mut().values().copied());
     }
 }
 
@@ -102,6 +119,20 @@ impl Drop for PipelineLayoutInner {
 pub(super) struct WeakPipelineLayout {
     handle: ash::vk::PipelineLayout,
     inner: Weak<PipelineLayoutInner>,
+}
+
+impl PartialEq for WeakPipelineLayout {
+    fn eq(&self, other: &Self) -> bool {
+        self.inner.ptr_eq(&other.inner)
+    }
+}
+
+impl Eq for WeakPipelineLayout {}
+
+impl Hash for WeakPipelineLayout {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.inner.as_ptr().hash(state)
+    }
 }
 
 impl WeakPipelineLayout {
@@ -133,10 +164,16 @@ impl PipelineLayout {
         owner: WeakDevice,
         handle: ash::vk::PipelineLayout,
         desc: PipelineLayoutDesc,
+        set_layouts: Vec<DescriptorSetLayout>,
     ) -> Self {
         PipelineLayout {
             handle,
-            inner: Arc::new(PipelineLayoutInner { owner, desc }),
+            inner: Arc::new(PipelineLayoutInner {
+                owner,
+                desc,
+                templates: Mutex::new(HashMap::new()),
+                set_layouts,
+            }),
         }
     }
 
@@ -149,5 +186,16 @@ impl PipelineLayout {
 
     pub fn handle(&self) -> ash::vk::PipelineLayout {
         self.handle
+    }
+
+    pub fn group_layout(&self, idx: usize) -> &[ArgumentLayout] {
+        &self.inner.desc.groups[idx]
+    }
+
+    pub fn templates(
+        &self,
+    ) -> &Mutex<HashMap<(TypeId, ash::vk::PipelineBindPoint, u32), ash::vk::DescriptorUpdateTemplate>>
+    {
+        &self.inner.templates
     }
 }

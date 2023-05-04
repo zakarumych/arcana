@@ -1,0 +1,41 @@
+#version 310 es
+
+precision highp float;
+precision highp int;
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+struct Particle {
+    vec2 pos;
+    vec2 vel;
+};
+struct SimParams {
+    float deltaT;
+    float rule1Distance;
+    float rule2Distance;
+    float rule3Distance;
+    float rule1Scale;
+    float rule2Scale;
+    float rule3Scale;
+};
+layout(std430) readonly buffer type_4_block_0Compute { SimParams _group_0_binding_0_cs[]; };
+
+layout(std430) readonly buffer Particles_block_1Compute {
+    Particle particles[];
+} _group_0_binding_1_cs;
+
+layout(std430) buffer Particles_block_2Compute {
+    Particle particles[];
+} _group_0_binding_2_cs;
+
+
+void main() {
+    uvec3 global_invocation_id = gl_GlobalInvocationID;
+    Particle _e9 = _group_0_binding_1_cs.particles[0];
+    _group_0_binding_2_cs.particles[0] = _e9;
+    float _e19 = _group_0_binding_0_cs[0].deltaT;
+    float _e24 = _group_0_binding_0_cs[0].rule1Distance;
+    _group_0_binding_2_cs.particles[0].pos = vec2(_e19, _e24);
+    return;
+}
+

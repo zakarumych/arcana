@@ -183,7 +183,7 @@ pub(crate) fn compile_shader(
 
     let options = naga::back::spv::Options {
         lang_version: (1, 3),
-        flags: naga::back::spv::WriterFlags::empty(),
+        flags: naga::back::spv::WriterFlags::ADJUST_COORDINATE_SPACE,
         binding_map: naga::back::spv::BindingMap::default(),
         capabilities: None,
         bounds_check_policies: naga::proc::BoundsCheckPolicies::default(),

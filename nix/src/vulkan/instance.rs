@@ -6,15 +6,14 @@ use std::{
 };
 
 use ash::*;
+use hashbrown::HashMap;
 
 use crate::generic::{
     Capabilities, CreateError, DeviceCapabilities, DeviceDesc, FamilyCapabilities, Features,
     LoadError, OutOfMemory,
 };
 
-use super::{
-    device::Device, from::*, handle_host_oom, queue::Family, unexpected_error, Version, VERSION_1_1,
-};
+use super::{device::Device, from::*, handle_host_oom, unexpected_error, Queue, Version};
 
 macro_rules! extension_name {
     ($name:literal) => {
@@ -287,6 +286,7 @@ impl Instance {
                 if version >= Version::V1_3 {
                     features = features.push_next(&mut features13);
                 }
+
                 unsafe {
                     instance.get_physical_device_features2(device, &mut features);
                 }
@@ -294,11 +294,39 @@ impl Instance {
                 features.features = unsafe { instance.get_physical_device_features(device) };
             }
 
+            if version < Version::V1_1 {
+                if unsafe { find_extension(&extensions, "VK_KHR_descriptor_update_template") }
+                    .is_none()
+                {
+                    // Skip devices that don't support descriptor update templates.
+                    continue;
+                }
+            }
+
             if features13.dynamic_rendering == 0 {
                 if unsafe { find_extension(&extensions, "VK_KHR_dynamic_rendering") }.is_none() {
                     // Skip devices that don't support dynamic rendering.
                     continue;
-                };
+                }
+            }
+
+            if features13.inline_uniform_block == 0 {
+                if unsafe { find_extension(&extensions, "VK_EXT_inline_uniform_block") }.is_none() {
+                    // Skip devices that don't support inline uniform blocks.
+                    continue;
+                }
+            }
+
+            // if features13.synchronization2 == 0 {
+            //     if unsafe { find_extension(&extensions, "VK_KHR_synchronization2") }.is_none() {
+            //         // Skip devices that don't support synchronization2.
+            //         continue;
+            //     }
+            // }
+
+            if unsafe { find_extension(&extensions, "VK_KHR_push_descriptor") }.is_none() {
+                // Skip devices that don't support push descriptors.
+                continue;
             }
 
             let mut features = Features::empty();
@@ -309,9 +337,35 @@ impl Instance {
                 }
             }
 
+            let mut properties = vk::PhysicalDeviceProperties2::builder();
+            let mut properties11 = vk::PhysicalDeviceVulkan11Properties::builder();
+            let mut properties12 = vk::PhysicalDeviceVulkan12Properties::builder();
+            let mut properties13 = vk::PhysicalDeviceVulkan13Properties::builder();
+            let mut properties_pd = vk::PhysicalDevicePushDescriptorPropertiesKHR::builder();
+
+            if version >= Version::V1_1 || has_physical_device_properties2 {
+                if version >= Version::V1_1 {
+                    properties = properties.push_next(&mut properties11);
+                }
+                if version >= Version::V1_2 {
+                    properties = properties.push_next(&mut properties12);
+                }
+                if version >= Version::V1_3 {
+                    properties = properties.push_next(&mut properties13);
+                }
+
+                properties = properties.push_next(&mut properties_pd);
+
+                unsafe {
+                    instance.get_physical_device_properties2(device, &mut properties);
+                }
+            } else {
+                properties.properties = unsafe { instance.get_physical_device_properties(device) };
+            }
+
             // let memory = unsafe { instance.get_physical_device_memory_properties(device) };
 
-            let families = if version >= VERSION_1_1 {
+            let families = if version >= Version::V1_1 {
                 let count =
                     unsafe { instance.get_physical_device_queue_family_properties2_len(device) };
                 let mut families = vec![vk::QueueFamilyProperties2::default(); count];
@@ -349,6 +403,8 @@ impl Instance {
             capabilities: Capabilities {
                 devices: device_caps,
             },
+
+            #[cfg(any(debug_assertions, feature = "debug"))]
             debug_utils,
             surface,
 
@@ -364,45 +420,47 @@ impl crate::traits::Instance for Instance {
         &self.capabilities
     }
 
-    fn create(&self, desc: DeviceDesc) -> Result<Device, CreateError> {
+    fn create(&self, desc: DeviceDesc) -> Result<(Device, Vec<Queue>), CreateError> {
         let physical_device = self.devices[desc.idx];
         let device_caps = &self.capabilities.devices[desc.idx];
 
-        // Check for duplicate queue families
-        let duplicates = desc.queue_infos.iter().enumerate().any(|(idx, info)| {
-            desc.queue_infos[..idx]
-                .iter()
-                .any(|other| other.family == info.family)
-        });
-        assert!(!duplicates, "Queue family specified more than once");
-
         // Collect queue create infos
-        let queue_create_infos = desc
-            .queue_infos
-            .iter()
-            .map(|queue_info| {
-                u32::try_from(queue_info.queue_count).expect("Too many queues requested");
-                let family_caps = &device_caps.families[queue_info.family as usize];
-                let max_queue_count = family_caps.queue_count;
-                assert!(
-                    max_queue_count >= queue_info.queue_count,
-                    "Family {} has {} queues, but {} were requested",
-                    queue_info.family,
-                    max_queue_count,
-                    queue_info.queue_count
-                );
+        // Pre-allocate queue priorities array of enough size
+        let mut priorities = vec![1.0; desc.queue_infos.len()];
+        let mut queue_create_infos = Vec::<vk::DeviceQueueCreateInfo>::new();
 
-                let priorities = vec![1.0; queue_info.queue_count];
+        for &family in desc.queue_infos {
+            match queue_create_infos
+                .iter_mut()
+                .find(|info| info.queue_family_index == family)
+            {
+                Some(info) => {
+                    info.queue_count += 1;
+                }
+                None => {
+                    let mut info = vk::DeviceQueueCreateInfo::default();
+                    info.queue_family_index = family;
+                    info.p_queue_priorities = priorities.as_mut_ptr();
+                    info.queue_count = 1;
+                    queue_create_infos.push(info);
+                }
+            }
+        }
 
-                vk::DeviceQueueCreateInfo::builder()
-                    .queue_family_index(queue_info.family)
-                    .queue_priorities(&priorities)
-                    .build()
-            })
-            .collect::<Vec<_>>();
+        for info in &queue_create_infos {
+            u32::try_from(info.queue_count).expect("Too many queues requested");
+            let family_caps = &device_caps.families[info.queue_family_index as usize];
+            let max_queue_count = family_caps.queue_count;
+            assert!(
+                max_queue_count as u32 >= info.queue_count,
+                "Family {} has {} queues, but {} were requested",
+                info.queue_family_index,
+                max_queue_count,
+                info.queue_count
+            );
+        }
 
         // Init memory allocator
-
         let properties = unsafe {
             self.instance
                 .get_physical_device_properties(physical_device)
@@ -447,12 +505,22 @@ impl crate::traits::Instance for Instance {
         let mut features12 = vk::PhysicalDeviceVulkan12Features::builder();
         let mut features13 = vk::PhysicalDeviceVulkan13Features::builder();
 
+        if self.version < Version::V1_1 {
+            enabled_extension_names.push(extension_name!("VK_KHR_descriptor_update_template"));
+        }
+
         if self.version < Version::V1_3 {
             // Dynamic rendering is required
             enabled_extension_names.push(extension_name!("VK_KHR_dynamic_rendering"));
+            enabled_extension_names.push(extension_name!("VK_EXT_inline_uniform_block"));
+            // enabled_extension_names.push(extension_name!("VK_KHR_synchronization2"));
         } else {
             features13.dynamic_rendering = 1;
+            features13.inline_uniform_block = 1;
+            // features13.synchronization2 = 1;
         }
+
+        enabled_extension_names.push(extension_name!("VK_KHR_push_descriptor"));
 
         if desc.features.contains(Features::SURFACE) {
             enabled_extension_names.push(extension_name!("VK_KHR_swapchain"));
@@ -491,26 +559,12 @@ impl crate::traits::Instance for Instance {
             err => unexpected_error(err),
         })?;
 
-        // Collect families from the device.
-        let mut families = Vec::new();
-        for queue_info in desc.queue_infos {
-            let family_caps = &device_caps.families[queue_info.family as usize];
-            let mut queues = Vec::new();
-            for idx in 0..queue_info.queue_count {
-                let queue = unsafe { device.get_device_queue(queue_info.family, idx as u32) };
-                queues.push(queue);
-            }
-            families.push(Family {
-                index: queue_info.family,
-                flags: family_caps.queue_flags,
-                queues,
-            });
-        }
-
         let swapchain = desc
             .features
             .contains(Features::SURFACE)
             .then(|| ash::extensions::khr::Swapchain::new(&self.instance, &device));
+
+        let push_descriptor = ash::extensions::khr::PushDescriptor::new(&self.instance, &device);
 
         let device = Device::new(
             self.version,
@@ -518,19 +572,42 @@ impl crate::traits::Instance for Instance {
             self.instance.clone(),
             physical_device,
             device,
-            families,
+            queue_create_infos
+                .iter()
+                .map(|info| info.queue_family_index)
+                .collect(),
             desc.features,
             properties,
             allocator,
-            #[cfg(any(debug_assertions, feature = "debug"))]
-            self.debug_utils.clone(),
+            push_descriptor,
             self.surface.clone(),
             swapchain,
             #[cfg(target_os = "windows")]
             self.win32_surface.clone(),
+            #[cfg(any(debug_assertions, feature = "debug"))]
+            self.debug_utils.clone(),
         );
 
-        Ok(device)
+        // Collect queues from the device.
+        let mut queues = Vec::new();
+        let mut family_counters = HashMap::new();
+
+        for &family in desc.queue_infos {
+            let counter = family_counters.entry(family).or_insert(0);
+
+            let family_caps = &device_caps.families[family as usize];
+            let queue = unsafe { device.ash().get_device_queue(family, *counter) };
+            *counter += 1;
+
+            queues.push(Queue::new(
+                device.clone(),
+                queue,
+                family_caps.queue_flags,
+                family,
+            ));
+        }
+
+        Ok((device, queues))
     }
 }
 

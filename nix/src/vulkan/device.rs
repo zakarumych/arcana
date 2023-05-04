@@ -1,5 +1,7 @@
 use std::{
+    any::TypeId,
     ffi, fmt,
+    hash::{Hash, Hasher},
     sync::{Arc, Weak},
 };
 
@@ -13,10 +15,14 @@ use raw_window_handle::{
 };
 use slab::Slab;
 
-use crate::generic::{
-    compile_shader, ArgumentKind, BufferDesc, CreateLibraryError, CreatePipelineError, Features,
-    ImageDesc, ImageError, LibraryDesc, LibraryInput, Memory, OutOfMemory, PrimitiveTopology,
-    RenderPipelineDesc, SamplerDesc, ShaderLanguage, SurfaceError, VertexStepMode,
+use crate::{
+    generic::{
+        compile_shader, ArgumentKind, BufferDesc, BufferInitDesc, CreateLibraryError,
+        CreatePipelineError, Features, ImageDesc, ImageError, LibraryDesc, LibraryInput, Memory,
+        OutOfMemory, PrimitiveTopology, RenderPipelineDesc, SamplerDesc, ShaderLanguage,
+        SurfaceError, VertexStepMode,
+    },
+    proc_macro::descriptor_type,
 };
 
 use super::{
@@ -28,7 +34,6 @@ use super::{
         DescriptorSetLayout, DescriptorSetLayoutDesc, PipelineLayout, PipelineLayoutDesc,
         WeakDescriptorSetLayout, WeakPipelineLayout,
     },
-    queue::{Family, Queue},
     render_pipeline::RenderPipeline,
     sampler::WeakSampler,
     shader::Library,
@@ -36,12 +41,58 @@ use super::{
     unexpected_error, Sampler, Version,
 };
 
+struct DescriptorUpdateTemplateEntries {
+    entries: Vec<ash::vk::DescriptorUpdateTemplateEntry>,
+}
+
+impl PartialEq for DescriptorUpdateTemplateEntries {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.entries.iter().zip(other.entries.iter()).all(|(a, b)| {
+            a.dst_binding == b.dst_binding
+                && a.dst_array_element == b.dst_array_element
+                && a.descriptor_count == b.descriptor_count
+                && a.descriptor_type == b.descriptor_type
+                && a.offset == b.offset
+                && a.stride == b.stride
+        })
+    }
+
+    #[inline]
+    fn ne(&self, other: &Self) -> bool {
+        self.entries.iter().zip(other.entries.iter()).any(|(a, b)| {
+            a.dst_binding != b.dst_binding
+                && a.dst_array_element != b.dst_array_element
+                && a.descriptor_count != b.descriptor_count
+                && a.descriptor_type != b.descriptor_type
+                && a.offset != b.offset
+                && a.stride != b.stride
+        })
+    }
+}
+
+impl Eq for DescriptorUpdateTemplateEntries {}
+
+impl Hash for DescriptorUpdateTemplateEntries {
+    #[inline]
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        for entry in &self.entries {
+            entry.dst_binding.hash(state);
+            entry.dst_array_element.hash(state);
+            entry.descriptor_count.hash(state);
+            entry.descriptor_type.hash(state);
+            entry.offset.hash(state);
+            entry.stride.hash(state);
+        }
+    }
+}
+
 struct DeviceInner {
     device: ash::Device,
     instance: ash::Instance,
     physical_device: vk::PhysicalDevice,
     version: Version,
-    families: Vec<Family>,
+    families: Vec<u32>,
     features: Features,
     properties: ash::vk::PhysicalDeviceProperties,
 
@@ -57,14 +108,23 @@ struct DeviceInner {
 
     _entry: ash::Entry,
 
-    #[cfg(any(debug_assertions, feature = "debug"))]
-    debug_utils: Option<ash::extensions::ext::DebugUtils>,
-
+    push_descriptor: ash::extensions::khr::PushDescriptor,
     surface: Option<ash::extensions::khr::Surface>,
     swapchain: Option<ash::extensions::khr::Swapchain>,
 
     #[cfg(target_os = "windows")]
     win32_surface: Option<ash::extensions::khr::Win32Surface>,
+
+    #[cfg(any(debug_assertions, feature = "debug"))]
+    debug_utils: Option<ash::extensions::ext::DebugUtils>,
+}
+
+impl Drop for DeviceInner {
+    fn drop(&mut self) {
+        if let Err(err) = unsafe { self.device.device_wait_idle() } {
+            tracing::error!("Failed to wait for device idle: {}", err);
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -181,8 +241,20 @@ impl WeakDevice {
     }
 
     #[inline]
-    pub fn drop_pipeline_layout(&self, desc: PipelineLayoutDesc) {
+    pub fn drop_pipeline_layout(
+        &self,
+        desc: PipelineLayoutDesc,
+        templates: impl Iterator<Item = ash::vk::DescriptorUpdateTemplate>,
+    ) {
         if let Some(inner) = self.inner.upgrade() {
+            unsafe {
+                for template in templates {
+                    inner
+                        .device
+                        .destroy_descriptor_update_template(template, None);
+                }
+            }
+
             let mut pipeline_layouts = inner.pipeline_layouts.lock();
             match pipeline_layouts.entry(desc) {
                 hashbrown::hash_map::Entry::Occupied(entry) => {
@@ -226,16 +298,17 @@ impl Device {
         instance: ash::Instance,
         physical_device: vk::PhysicalDevice,
         device: ash::Device,
-        families: Vec<Family>,
+        families: Vec<u32>,
         features: Features,
         properties: ash::vk::PhysicalDeviceProperties,
         allocator: gpu_alloc::GpuAllocator<vk::DeviceMemory>,
-        #[cfg(any(debug_assertions, feature = "debug"))] debug_utils: Option<
-            ash::extensions::ext::DebugUtils,
-        >,
+        push_descriptor: ash::extensions::khr::PushDescriptor,
         surface: Option<ash::extensions::khr::Surface>,
         swapchain: Option<ash::extensions::khr::Swapchain>,
         #[cfg(target_os = "windows")] win32_surface: Option<ash::extensions::khr::Win32Surface>,
+        #[cfg(any(debug_assertions, feature = "debug"))] debug_utils: Option<
+            ash::extensions::ext::DebugUtils,
+        >,
     ) -> Self {
         Device {
             inner: Arc::new(DeviceInner {
@@ -253,10 +326,12 @@ impl Device {
                 pipeline_layouts: Mutex::new(HashMap::new()),
                 pipelines: Mutex::new(Slab::new()),
                 allocator: Mutex::new(allocator),
-                debug_utils,
+                push_descriptor,
                 surface,
                 swapchain,
                 win32_surface,
+                #[cfg(any(debug_assertions, feature = "debug"))]
+                debug_utils,
                 _entry: entry,
             }),
         }
@@ -284,6 +359,10 @@ impl Device {
         self.inner.swapchain.as_ref().unwrap()
     }
 
+    pub fn push_descriptor(&self) -> &ash::extensions::khr::PushDescriptor {
+        &self.inner.push_descriptor
+    }
+
     pub(super) fn surface(&self) -> &ash::extensions::khr::Surface {
         self.inner.surface.as_ref().unwrap()
     }
@@ -292,8 +371,8 @@ impl Device {
         self.inner.physical_device
     }
 
-    pub(super) fn queue_families(&self) -> impl Iterator<Item = u32> + '_ {
-        self.inner.families.iter().map(|f| f.index)
+    pub(super) fn queue_families(&self) -> &[u32] {
+        &self.inner.families
     }
 
     #[cfg(any(debug_assertions, feature = "debug"))]
@@ -354,16 +433,11 @@ impl Device {
             .enumerate()
             .map(|(idx, arg)| {
                 ash::vk::DescriptorSetLayoutBinding::builder()
-                    .binding(idx as u32)
-                    .descriptor_count(arg.size)
-                    .descriptor_type(match arg.kind {
-                        ArgumentKind::Constant => ash::vk::DescriptorType::INLINE_UNIFORM_BLOCK,
-                        ArgumentKind::UniformBuffer => ash::vk::DescriptorType::UNIFORM_BUFFER,
-                        ArgumentKind::StorageBuffer => ash::vk::DescriptorType::STORAGE_BUFFER,
-                        ArgumentKind::SampledImage => ash::vk::DescriptorType::SAMPLED_IMAGE,
-                        ArgumentKind::StorageImage => ash::vk::DescriptorType::STORAGE_IMAGE,
-                        ArgumentKind::Sampler => ash::vk::DescriptorType::SAMPLER,
-                    })
+                    .binding(u32::try_from(idx).expect("Too many descriptor bindings"))
+                    .descriptor_count(
+                        u32::try_from(arg.size).expect("Too many descriptors in array"),
+                    )
+                    .descriptor_type(descriptor_type(arg.kind))
                     .stage_flags(arg.stages.into_ash())
                     .build()
             })
@@ -428,18 +502,25 @@ impl Device {
             .map(|set_layout| set_layout.handle())
             .collect::<Vec<_>>();
 
-        let result = unsafe {
-            self.ash().create_pipeline_layout(
-                &ash::vk::PipelineLayoutCreateInfo::builder().set_layouts(&handles),
-                None,
-            )
-        };
+        let mut info = ash::vk::PipelineLayoutCreateInfo::builder().set_layouts(&handles);
+
+        let push_constant_ranges;
+
+        if desc.constants > 0 {
+            push_constant_ranges = ash::vk::PushConstantRange::builder()
+                .stage_flags(ash::vk::ShaderStageFlags::ALL)
+                .size((desc.constants as u32 + 3) & !3);
+
+            info = info.push_constant_ranges(std::slice::from_ref(&push_constant_ranges));
+        }
+
+        let result = unsafe { self.ash().create_pipeline_layout(&info, None) };
         let handle = result.map_err(|err| match err {
             ash::vk::Result::ERROR_OUT_OF_HOST_MEMORY => handle_host_oom(),
             ash::vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => OutOfMemory,
             _ => unexpected_error(err),
         })?;
-        Ok(PipelineLayout::new(self.weak(), handle, desc))
+        Ok(PipelineLayout::new(self.weak(), handle, desc, set_layouts))
     }
 
     fn new_pipeline_layout(&self, desc: PipelineLayoutDesc) -> Result<PipelineLayout, OutOfMemory> {
@@ -461,16 +542,51 @@ impl Device {
             }
         }
     }
+
+    #[doc(hidden)]
+    pub(super) fn get_descriptor_update_template<T: 'static>(
+        &self,
+        entries: &[ash::vk::DescriptorUpdateTemplateEntry],
+        bind: ash::vk::PipelineBindPoint,
+        layout: &PipelineLayout,
+        set: u32,
+    ) -> Result<ash::vk::DescriptorUpdateTemplate, OutOfMemory> {
+        match layout
+            .templates()
+            .lock()
+            .entry((TypeId::of::<T>(), bind, set))
+        {
+            hashbrown::hash_map::Entry::Occupied(entry) => Ok(*entry.get()),
+            hashbrown::hash_map::Entry::Vacant(entry) => {
+                let result = unsafe {
+                    self.ash().create_descriptor_update_template(
+                        &ash::vk::DescriptorUpdateTemplateCreateInfo::builder()
+                            .template_type(
+                                ash::vk::DescriptorUpdateTemplateType::PUSH_DESCRIPTORS_KHR,
+                            )
+                            .pipeline_bind_point(bind)
+                            .pipeline_layout(layout.handle())
+                            .descriptor_update_entries(entries)
+                            .set(set),
+                        None,
+                    )
+                };
+
+                let template = result.map_err(|err| match err {
+                    ash::vk::Result::ERROR_OUT_OF_HOST_MEMORY => handle_host_oom(),
+                    ash::vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => OutOfMemory,
+                    _ => unexpected_error(err),
+                })?;
+
+                entry.insert(template);
+                Ok(template)
+            }
+        }
+    }
 }
 
 #[hidden_trait::expose]
 impl crate::traits::Device for Device {
-    fn get_queue(&self, family: usize, idx: usize) -> Queue {
-        let family = &self.inner.families[family];
-        let handle = family.queues[idx];
-        Queue::new(self.clone(), handle, family.flags)
-    }
-
     fn new_shader_library(&self, desc: LibraryDesc) -> Result<Library, CreateLibraryError> {
         let me = &*self.inner;
         match desc.input {
@@ -533,6 +649,7 @@ impl crate::traits::Device for Device {
                 .iter()
                 .map(|group| group.arguments.to_vec())
                 .collect(),
+            constants: desc.constants,
         };
 
         let layout = self
@@ -605,11 +722,12 @@ impl crate::traits::Device for Device {
             }
 
             raster_state = raster_state
-                .depth_clamp_enable(true)
+                .depth_clamp_enable(false)
                 .rasterizer_discard_enable(false)
                 .polygon_mode(vk::PolygonMode::FILL)
                 .cull_mode(vk::CullModeFlags::BACK)
-                .front_face(vk::FrontFace::CLOCKWISE);
+                .front_face(vk::FrontFace::CLOCKWISE)
+                .line_width(1.0);
 
             if let Some(depth) = &raster.depth_stencil {
                 depth_state = depth_state
@@ -671,6 +789,24 @@ impl crate::traits::Device for Device {
                                 .attachments(&attachments)
                                 .blend_constants([0.0; 4]),
                         )
+                        .viewport_state(
+                            &ash::vk::PipelineViewportStateCreateInfo::builder()
+                                .scissors(&[vk::Rect2D {
+                                    offset: vk::Offset2D { x: 0, y: 0 },
+                                    extent: vk::Extent2D {
+                                        width: 0,
+                                        height: 0,
+                                    },
+                                }])
+                                .viewports(&[vk::Viewport {
+                                    x: 0.0,
+                                    y: 0.0,
+                                    width: 0.0,
+                                    height: 0.0,
+                                    min_depth: 0.0,
+                                    max_depth: 1.0,
+                                }]),
+                        )
                         .dynamic_state(
                             &vk::PipelineDynamicStateCreateInfo::builder().dynamic_states(&[
                                 vk::DynamicState::VIEWPORT,
@@ -699,8 +835,7 @@ impl crate::traits::Device for Device {
     }
 
     fn new_buffer(&self, desc: BufferDesc) -> Result<Buffer, OutOfMemory> {
-        let size = u64::try_from(desc.layout.size()).map_err(|_| OutOfMemory)?;
-        let align = u64::try_from(desc.layout.align()).map_err(|_| OutOfMemory)?;
+        let size = u64::try_from(desc.size).map_err(|_| OutOfMemory)?;
 
         let buffer = unsafe {
             self.inner.device.create_buffer(
@@ -718,7 +853,7 @@ impl crate::traits::Device for Device {
         })?;
 
         let requirements = unsafe { self.inner.device.get_buffer_memory_requirements(buffer) };
-        let align_mask = requirements.alignment.max(align) - 1;
+        let align_mask = requirements.alignment - 1;
 
         let block = unsafe {
             self.inner.allocator.lock().alloc(
@@ -738,12 +873,56 @@ impl crate::traits::Device for Device {
             gpu_alloc::AllocationError::TooManyObjects => OutOfMemory,
         })?;
 
-        #[cfg(any(debug_assertions, feature = "debug"))]
-        self.set_object_name(vk::ObjectType::BUFFER, buffer.as_raw(), desc.name);
+        let result = unsafe {
+            self.inner
+                .device
+                .bind_buffer_memory(buffer, *block.memory(), block.offset())
+        };
 
-        let idx = self.inner.buffers.lock().insert(buffer);
+        match result {
+            Ok(()) => {
+                #[cfg(any(debug_assertions, feature = "debug"))]
+                self.set_object_name(vk::ObjectType::BUFFER, buffer.as_raw(), desc.name);
 
-        let buffer = Buffer::new(self.weak(), buffer, desc.layout, desc.usage, block, idx);
+                let idx = self.inner.buffers.lock().insert(buffer);
+
+                let buffer = Buffer::new(self.weak(), buffer, desc.size, desc.usage, block, idx);
+                Ok(buffer)
+            }
+            Err(err) => {
+                unsafe {
+                    self.inner
+                        .allocator
+                        .lock()
+                        .dealloc(AshMemoryDevice::wrap(&self.inner.device), block);
+
+                    self.ash().destroy_buffer(buffer, None);
+                }
+
+                match err {
+                    vk::Result::ERROR_OUT_OF_HOST_MEMORY => handle_host_oom(),
+                    vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => Err(OutOfMemory),
+                    _ => unexpected_error(err),
+                }
+            }
+        }
+    }
+
+    fn new_buffer_init(&self, desc: BufferInitDesc<'_>) -> Result<Buffer, OutOfMemory> {
+        assert!(!matches!(desc.memory, Memory::Device));
+
+        let mut buffer = self.new_buffer(BufferDesc {
+            size: desc.data.len(),
+            usage: desc.usage,
+            memory: desc.memory,
+            name: desc.name,
+        })?;
+
+        // Safety: Buffer is not user anywhere
+        // and created with HOST_VISIBLE flag.
+        unsafe {
+            buffer.write_unchecked(0, desc.data);
+        }
         Ok(buffer)
     }
 
@@ -793,23 +972,49 @@ impl crate::traits::Device for Device {
             gpu_alloc::AllocationError::TooManyObjects => OutOfMemory,
         })?;
 
-        #[cfg(any(debug_assertions, feature = "debug"))]
-        self.set_object_name(vk::ObjectType::IMAGE, image.as_raw(), desc.name);
+        let result = unsafe {
+            self.inner
+                .device
+                .bind_image_memory(image, *block.memory(), block.offset())
+        };
 
-        let idx = self.inner.images.lock().insert(image);
+        match result {
+            Ok(()) => {
+                #[cfg(any(debug_assertions, feature = "debug"))]
+                self.set_object_name(vk::ObjectType::IMAGE, image.as_raw(), desc.name);
 
-        let image = Image::new(
-            self.weak(),
-            image,
-            desc.dimensions,
-            desc.format,
-            desc.usage,
-            desc.layers,
-            desc.levels,
-            block,
-            idx,
-        );
-        Ok(image)
+                let idx = self.inner.images.lock().insert(image);
+
+                let image = Image::new(
+                    self.weak(),
+                    image,
+                    desc.dimensions,
+                    desc.format,
+                    desc.usage,
+                    desc.layers,
+                    desc.levels,
+                    block,
+                    idx,
+                );
+                Ok(image)
+            }
+            Err(err) => {
+                unsafe {
+                    self.inner
+                        .allocator
+                        .lock()
+                        .dealloc(AshMemoryDevice::wrap(&self.inner.device), block);
+
+                    self.ash().destroy_image(image, None);
+                }
+
+                match err {
+                    vk::Result::ERROR_OUT_OF_HOST_MEMORY => handle_host_oom(),
+                    vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => Err(ImageError::OutOfMemory),
+                    _ => unexpected_error(err),
+                }
+            }
+        }
     }
 
     fn new_sampler(&self, desc: SamplerDesc) -> Result<Sampler, OutOfMemory> {
@@ -848,21 +1053,21 @@ impl crate::traits::Device for Device {
 
         match (window, display) {
             #[cfg(target_os = "windows")]
-            (RawWindowHandle::Win32(window), RawDisplayHandle::Windows(_)) => unsafe {
+            (RawWindowHandle::Win32(window), RawDisplayHandle::Windows(_)) => {
                 let win32_surface = me.win32_surface.as_ref().unwrap();
-
-                let surface = win32_surface
-                    .create_win32_surface(
+                let result = unsafe {
+                    win32_surface.create_win32_surface(
                         &ash::vk::Win32SurfaceCreateInfoKHR::builder()
                             // .hinstance(hinstance)
                             .hwnd(window.hwnd),
                         None,
                     )
-                    .map_err(|err| match err {
-                        vk::Result::ERROR_OUT_OF_HOST_MEMORY => handle_host_oom(),
-                        vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => SurfaceError(OutOfMemory.into()),
-                        err => unexpected_error(err),
-                    })?;
+                };
+                let surface = result.map_err(|err| match err {
+                    vk::Result::ERROR_OUT_OF_HOST_MEMORY => handle_host_oom(),
+                    vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => SurfaceError(OutOfMemory.into()),
+                    err => unexpected_error(err),
+                })?;
 
                 let result = unsafe {
                     self.surface()
@@ -892,7 +1097,8 @@ impl crate::traits::Device for Device {
 
                 let family_supports =
                     self.queue_families()
-                        .try_fold(Vec::new(), |mut supports, idx| {
+                        .iter()
+                        .try_fold(Vec::new(), |mut supports, &idx| {
                             let result = unsafe {
                                 self.surface().get_physical_device_surface_support(
                                     self.physical_device(),
@@ -921,7 +1127,7 @@ impl crate::traits::Device for Device {
                     modes,
                     family_supports,
                 ))
-            },
+            }
             (RawWindowHandle::Win32(_), _) => {
                 panic!("Mismatched window and display type")
             }

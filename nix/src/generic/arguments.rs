@@ -1,10 +1,10 @@
-use crate::backend::{Buffer, CommandEncoder, Device, Image, Sampler};
+use crate::backend::RenderCommandEncoder;
 
 use super::ShaderStages;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ArgumentKind {
-    Constant,
+    // Constant,
     UniformBuffer,
     StorageBuffer,
     SampledImage,
@@ -13,27 +13,56 @@ pub enum ArgumentKind {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct Argument {
+pub struct ArgumentLayout {
     pub kind: ArgumentKind,
-    pub size: u32,
+    pub size: usize,
     pub stages: ShaderStages,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct ArgumentGroup<'a> {
-    pub arguments: &'a [Argument],
+pub struct ArgumentGroupLayout<'a> {
+    pub arguments: &'a [ArgumentLayout],
 }
 
-#[derive(Clone, Copy)]
-pub enum WriteArgument<'a> {
-    Const(&'a [u8]),
-    Buffer(&'a [Buffer]),
-    Image(&'a [Image]),
-    Sampler(&'a [Sampler]),
+#[doc(hidden)]
+pub trait ArgumentsSealed {}
+
+pub trait Arguments: ArgumentsSealed + 'static {
+    const LAYOUT: ArgumentGroupLayout<'static>;
+
+    /// Bind arguments to the command encoder.
+    fn bind_render(&self, group: u32, encoder: &mut RenderCommandEncoder);
+
+    // /// Bind arguments to the command encoder.
+    // fn bind_compute(&self, group: u32, encoder: &mut ComputeCommandEncoder);
 }
 
-pub trait Arguments {
-    type Cache;
+// /// Marker type for `Argument` trait.
+// pub enum Constant {}
 
-    fn bind(&self, cache: &mut Self::Cache, encoder: &mut CommandEncoder);
+// impl ArgumentsSealed for Constant {}
+
+/// Marker type for `Argument` trait.
+pub enum Uniform {}
+
+impl ArgumentsSealed for Uniform {}
+
+/// Marker type for `Argument` trait.
+pub enum Sampled {}
+
+impl ArgumentsSealed for Sampled {}
+
+/// Marker type for `Argument` trait.
+pub enum Storage {}
+
+impl ArgumentsSealed for Storage {}
+
+/// Marker type for `Argument` trait.
+pub enum Automatic {}
+
+impl ArgumentsSealed for Automatic {}
+
+pub trait ArgumentsField<T: ArgumentsSealed>: ArgumentsSealed {
+    const KIND: ArgumentKind;
+    const SIZE: usize;
 }

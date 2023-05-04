@@ -2,6 +2,8 @@ use std::{alloc::Layout, fmt};
 
 use ash::vk;
 
+mod access;
+mod arguments;
 mod buffer;
 mod command;
 mod device;
@@ -10,6 +12,7 @@ mod image;
 mod instance;
 mod layout;
 mod queue;
+mod refs;
 mod render_pipeline;
 mod sampler;
 mod shader;
@@ -17,7 +20,7 @@ mod surface;
 
 pub use self::{
     buffer::Buffer,
-    command::{CommandBuffer, CommandEncoder, RenderCommandEncoder},
+    command::{CommandBuffer, CommandEncoder, CopyCommandEncoder, RenderCommandEncoder},
     device::Device,
     image::Image,
     instance::Instance,
@@ -91,26 +94,26 @@ impl fmt::Display for Version {
     }
 }
 
-const VERSION_1_0: Version = Version {
-    major: 1,
-    minor: 0,
-    patch: 0,
-};
+pub mod proc_macro {
+    pub use crate::generic::Constants;
 
-const VERSION_1_1: Version = Version {
-    major: 1,
-    minor: 1,
-    patch: 0,
-};
+    pub use super::{
+        arguments::{descriptor_type, Arguments, ArgumentsField},
+        refs::Refs,
+    };
+    pub use ash::vk::DescriptorUpdateTemplateEntry;
+    pub use bytemuck::{Pod, Zeroable};
+    pub use std::{
+        mem::{align_of, size_of, MaybeUninit},
+        ptr::addr_of,
+    };
 
-const VERSION_1_2: Version = Version {
-    major: 1,
-    minor: 2,
-    patch: 0,
-};
+    pub const fn pad_for<T: Constants>(end: usize) -> usize {
+        let align = align_of::<T>();
+        pad_align(end, align)
+    }
 
-const VERSION_1_3: Version = Version {
-    major: 1,
-    minor: 3,
-    patch: 0,
-};
+    pub const fn pad_align(end: usize, align: usize) -> usize {
+        ((end + (align - 1)) & !(align - 1)) - end
+    }
+}

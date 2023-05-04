@@ -216,4 +216,5 @@ pub fn render_system(world: &World, mut state: State<RenderState>) {
     }
 
     queue.submit(Some(encoder.finish().unwrap())).unwrap();
+    queue.check_point();
 }
