@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use blink_alloc::BlinkAlloc;
-use edict::{ActionEncoder, EntityId, QueryOneError, World};
+use edict::{ActionEncoder, ChildOf, EntityId, QueryOneError, World};
 use hashbrown::HashSet;
 
 use super::{RenderComponent, RenderContext, RenderError, RenderTarget, TargetFor};
@@ -97,13 +97,13 @@ impl<'a> RenderBuilderContext<'a> {
     ///
     /// Built render will be target's producer,
     /// whenever target is to be updated, the render will be invoked.
-    pub fn create_target(&mut self, name: &str) -> EntityId {
+    pub fn create_target(&mut self, name: &str, stages: nix::PipelineStages) -> EntityId {
         let target = self.actions.allocate();
         let name = Arc::<str>::from(name);
         let id = self.id;
 
         self.actions.closure(move |world: &mut World| {
-            let render_target = RenderTarget::new(name, world);
+            let render_target = RenderTarget::new(name, world, stages);
             world.insert(target, render_target).unwrap();
 
             // Connect target to render
@@ -122,14 +122,14 @@ impl<'a> RenderBuilderContext<'a> {
     /// always invoking target's producer before itself.
     /// Built render will be new target's producer,
     /// whenever new target is to be updated, the render will be invoked.
-    pub fn update_target(&mut self, target: EntityId) -> EntityId {
+    pub fn update_target(&mut self, target: EntityId, stages: nix::PipelineStages) -> EntityId {
         self.depends_on.insert(target);
         let new_target = self.actions.allocate();
         let id = self.id;
 
         self.actions.closure(move |world: &mut World| {
             match world.query_one_mut::<&mut RenderTarget>(target) {
-                Ok(render_target) => match render_target.write() {
+                Ok(render_target) => match render_target.write(stages) {
                     None => {
                         tracing::error!("Render target {target} is already accessed");
                         let _ = world.despawn(new_target);
@@ -138,6 +138,7 @@ impl<'a> RenderBuilderContext<'a> {
                     Some(updated) => {
                         world.insert(new_target, updated).unwrap();
                         world.add_relation(new_target, TargetFor, id).unwrap();
+                        world.add_relation(new_target, ChildOf, target).unwrap();
                     }
                 },
                 Err(QueryOneError::NotSatisfied) => {
@@ -158,13 +159,13 @@ impl<'a> RenderBuilderContext<'a> {
     ///
     /// Built render will statically depend on target,
     /// always invoking target's producer before itself.
-    pub fn read_target<T>(&mut self, target: EntityId) {
+    pub fn read_target<T>(&mut self, target: EntityId, stages: nix::PipelineStages) {
         self.depends_on.insert(target);
         let id = self.id;
         self.actions.closure(move |world: &mut World| {
             match world.query_one_mut::<&mut RenderTarget>(target) {
                 Ok(render_target) => {
-                    if !render_target.read() {
+                    if !render_target.read(stages) {
                         tracing::error!("Render target {target} is already written");
                         let _ = world.despawn(id);
                     }

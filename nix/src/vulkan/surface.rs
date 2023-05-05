@@ -7,7 +7,7 @@ use std::{
 
 use ash::vk;
 
-use crate::generic::{ImageDimensions, OutOfMemory, SurfaceError};
+use crate::generic::{ImageDimensions, OutOfMemory, PipelineStages, SurfaceError};
 
 use super::{
     device::WeakDevice,
@@ -273,7 +273,11 @@ const SUBOPTIMAL_WAIT: Duration = Duration::from_secs(1);
 
 #[hidden_trait::expose]
 impl crate::traits::Surface for Surface {
-    fn next_frame(&mut self, queue: &mut Queue) -> Result<Frame, SurfaceError> {
+    fn next_frame(
+        &mut self,
+        queue: &mut Queue,
+        before: PipelineStages,
+    ) -> Result<Frame, SurfaceError> {
         let device = self
             .owner
             .upgrade()
@@ -332,7 +336,7 @@ impl crate::traits::Surface for Surface {
             let (image, [acquire, present]) = &mut current.images[idx as usize];
             std::mem::swap(&mut current.next, acquire);
 
-            queue.add_wait(*acquire, vk::PipelineStageFlags::ALL_COMMANDS);
+            queue.add_wait(*acquire, before);
 
             return Ok(Frame {
                 swapchain: current.handle,

@@ -17,10 +17,10 @@ use slab::Slab;
 
 use crate::{
     generic::{
-        compile_shader, ArgumentKind, BufferDesc, BufferInitDesc, CreateLibraryError,
-        CreatePipelineError, Features, ImageDesc, ImageError, LibraryDesc, LibraryInput, Memory,
-        OutOfMemory, PrimitiveTopology, RenderPipelineDesc, SamplerDesc, ShaderLanguage,
-        SurfaceError, VertexStepMode,
+        compile_shader, BufferDesc, BufferInitDesc, CreateLibraryError, CreatePipelineError,
+        Features, ImageDesc, ImageError, LibraryDesc, LibraryInput, Memory, OutOfMemory,
+        PrimitiveTopology, RenderPipelineDesc, SamplerDesc, ShaderLanguage, SurfaceError,
+        VertexStepMode,
     },
     proc_macro::descriptor_type,
 };

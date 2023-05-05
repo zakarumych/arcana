@@ -7,11 +7,13 @@ use std::convert::Infallible;
 
 use bob::{
     blink_alloc::BlinkAlloc,
-    edict::{EntityId, Res, Scheduler, World},
+    edict::{EntityId, QueryRef, Res, ResMut, Scheduler, World},
+    egui::EguiResource,
     game::{run_game, FPS},
     gametime::ClockStep,
     nix::{self, Arguments, Constants},
     render::{Render, RenderBuilderContext, RenderContext, RenderError},
+    winit::window::Window,
 };
 
 #[derive(nix::Arguments)]
@@ -34,6 +36,30 @@ pub struct MainPass {
     constants: MainConstants,
 }
 
+impl MainPass {
+    fn build(world: &mut World) -> EntityId {
+        // Start building render.
+        let mut builder = RenderBuilderContext::new("main_pass", world);
+
+        // This render defines a single render target.
+        let target = builder.create_target("main", nix::PipelineStages::COLOR_OUTPUT);
+
+        // Build the render with MainPass as `Render` impl.
+        // `MainPass::render` will be called every frame to encode commands for this render.
+        builder.build(MainPass {
+            target,
+            pipeline: None,
+            arguments: None,
+            constants: MainConstants {
+                angle: 0.0,
+                width: 0,
+                height: 0,
+            },
+        });
+        target
+    }
+}
+
 impl Render for MainPass {
     fn render(
         &mut self,
@@ -42,7 +68,7 @@ impl Render for MainPass {
         _blink: &BlinkAlloc,
     ) -> Result<(), RenderError> {
         let mut encoder = ctx.new_command_encoder()?;
-        let target = ctx.target(self.target).clone();
+        let target = ctx.write_target(self.target, &mut encoder).clone();
         let pipeline = self.pipeline.get_or_insert_with(|| {
             let main_library = ctx
                 .device()
@@ -79,11 +105,6 @@ impl Render for MainPass {
                 .unwrap()
         });
 
-        encoder.init_image(
-            nix::PipelineStages::empty(),
-            nix::PipelineStages::COLOR_OUTPUT,
-            &target,
-        );
         let mut render = encoder.render(nix::RenderPassDesc {
             color_attachments: &[
                 nix::AttachmentDesc::new(&target).clear(nix::ClearColor(1.0, 0.5, 0.3, 1.0))
@@ -145,42 +166,31 @@ impl Render for MainPass {
     }
 }
 
-impl MainPass {
-    fn build(world: &mut World) -> EntityId {
-        // Start building render.
-        let mut builder = RenderBuilderContext::new("main_pass", world);
-
-        // This render defines a single render target.
-        let target = builder.create_target("main");
-
-        // Build the render with MainPass as `Render` impl.
-        // `MainPass::render` will be called every frame to encode commands for this render.
-        builder.build(MainPass {
-            target,
-            pipeline: None,
-            arguments: None,
-            constants: MainConstants {
-                angle: 0.0,
-                width: 0,
-                height: 0,
-            },
-        });
-        target
-    }
-}
-
 fn main() {
     run_game(|mut game| async move {
         // Create main pass.
         // It returns target id that it renders to.
         let target = MainPass::build(&mut game.world);
 
-        // // Use window's surface for the render target.
+        // Use window's surface for the render target.
         game.render_window = Some(target);
 
         game.fixed_scheduler
             .get_or_insert_with(Scheduler::new)
             .add_system(move |fps: Res<FPS>| println!("FPS: {}", fps.fps()));
+
+        game.var_scheduler
+            .get_or_insert_with(Scheduler::new)
+            .add_system(
+                move |mut egui: ResMut<EguiResource>, mut window: QueryRef<&Window>| {
+                    let Ok(window) = window.get_one(target) else { return; };
+                    egui.run(window, |ctx| {
+                        bob::egui::Window::new("Hello world!").show(ctx, |ui| {
+                            ui.label("Hello world!");
+                        });
+                    });
+                },
+            );
 
         Ok::<_, Infallible>(game)
     });

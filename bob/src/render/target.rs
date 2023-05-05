@@ -18,16 +18,22 @@ pub struct RenderTarget {
     name: Arc<str>,
     version: u32,
     access: Option<RenderAccess>,
+    waits: nix::PipelineStages,
+    writes: nix::PipelineStages,
+    reads: nix::PipelineStages,
 }
 
 impl RenderTarget {
-    pub fn new(name: Arc<str>, world: &World) -> Self {
+    pub fn new(name: Arc<str>, world: &World, stages: nix::PipelineStages) -> Self {
         let id = world.expect_resource_mut::<RenderTargetCounter>().next();
         RenderTarget {
             id,
             name,
             version: 1,
             access: None,
+            waits: nix::PipelineStages::empty(),
+            writes: stages,
+            reads: nix::PipelineStages::empty(),
         }
     }
 
@@ -35,29 +41,47 @@ impl RenderTarget {
         TargetId(self.id)
     }
 
-    pub fn read(&mut self) -> bool {
+    pub fn read(&mut self, stages: nix::PipelineStages) -> bool {
         match self.access {
             Some(RenderAccess::Write) => false,
             _ => {
                 self.access = Some(RenderAccess::Read);
+                self.reads |= stages;
                 true
             }
         }
     }
 
-    pub fn write(&mut self) -> Option<RenderTarget> {
+    pub fn write(&mut self, stages: nix::PipelineStages) -> Option<RenderTarget> {
         match self.access {
             Some(_) => None,
             None => {
                 self.access = Some(RenderAccess::Write);
+                debug_assert_eq!(stages, nix::PipelineStages::empty());
+                self.reads = stages;
                 Some(RenderTarget {
                     id: self.id,
                     name: self.name.clone(),
                     version: self.version + 1,
                     access: None,
+                    waits: self.writes,
+                    writes: stages,
+                    reads: nix::PipelineStages::empty(),
                 })
             }
         }
+    }
+
+    pub(super) fn waits(&self) -> nix::PipelineStages {
+        self.waits
+    }
+
+    pub(super) fn writes(&self) -> nix::PipelineStages {
+        self.writes
+    }
+
+    pub(super) fn reads(&self) -> nix::PipelineStages {
+        self.reads
     }
 }
 

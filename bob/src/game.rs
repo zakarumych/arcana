@@ -12,7 +12,8 @@ use winit::{
 };
 
 use crate::{
-    events::{Event, EventLoopBuilder},
+    egui::EguiResource,
+    events::{Event, EventLoop, EventLoopBuilder},
     funnel::{Filter, Funnel},
     render::{
         render_system, RenderTarget, RenderTargetAlwaysUpdate, RenderTargetCounter,
@@ -197,10 +198,12 @@ where
 
     // Run the event loop.
     EventLoopBuilder::new().run(|events| async move {
+        world.insert_resource(events);
         let (device, queue) = init_graphics();
         world.insert_resource(device);
         world.insert_resource(queue);
         world.insert_resource(RenderTargetCounter::new());
+        world.insert_resource(EguiResource::new());
 
         let mut scheduler = Scheduler::new();
 
@@ -231,6 +234,9 @@ where
         } = game;
 
         if let Some(render_window) = render_window {
+            let mut world = world.local();
+            let events = world.get_resource::<EventLoop>().unwrap();
+
             // Create main window.
             let window = Window::new(&events).unwrap();
             funnel.add(MainWindowFilter { id: window.id() });
@@ -242,28 +248,39 @@ where
                 .unwrap();
 
             world
+                .get_resource_mut::<EguiResource>()
+                .unwrap()
+                .add_window(window.id(), &events);
+            drop(events);
+
+            world
                 .insert_external_bundle(render_window, (surface, window, RenderTargetAlwaysUpdate))
                 .unwrap();
         }
 
         let mut blink = Blink::new();
         let mut last_fixed = TimeStamp::start();
+        let mut events_array = Vec::new();
 
         loop {
             if world.get_resource::<Quit>().is_some() {
                 return;
             }
 
+            let mut world = world.local();
+            let events = world.get_resource::<EventLoop>().unwrap();
+
             let deadline = world
                 .get_resource::<Limiter>()
                 .and_then(|limiter| limiter.0.next_tick());
 
-            let events = events.next(deadline.map(|s| clocks.stamp_instant(s))).await;
+            events_array.extend(events.next(deadline.map(|s| clocks.stamp_instant(s))).await);
+            drop(events);
 
-            for event in events {
+            for event in events_array.drain(..) {
                 funnel.filter(&blink, &mut world, event);
-                blink.reset();
             }
+            blink.reset();
 
             let clock_step = clocks.step();
 

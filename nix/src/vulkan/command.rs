@@ -3,8 +3,8 @@ use std::ops::Range;
 use ash::vk;
 
 use crate::generic::{
-    Arguments, ClearColor, ClearDepthStencil, Extent2, Extent3, LoadOp, Offset2, Offset3,
-    OutOfMemory, PipelineStages, RenderPassDesc, StoreOp,
+    Arguments, ClearColor, ClearDepthStencil, Constants, Extent2, Extent3, LoadOp, Offset2,
+    Offset3, OutOfMemory, PipelineStages, RenderPassDesc, StoreOp,
 };
 
 use super::{
@@ -214,17 +214,17 @@ impl crate::traits::CommandEncoder for CommandEncoder {
     }
 
     #[inline(always)]
-    fn present(&mut self, frame: Frame) {
+    fn present(&mut self, frame: Frame, after: PipelineStages) {
         unsafe {
             self.device.ash().cmd_pipeline_barrier(
                 self.handle,
-                ash::vk::PipelineStageFlags::ALL_COMMANDS,
-                ash::vk::PipelineStageFlags::ALL_COMMANDS,
+                ash::vk::PipelineStageFlags::BOTTOM_OF_PIPE | after.into_ash(),
+                ash::vk::PipelineStageFlags::TOP_OF_PIPE,
                 vk::DependencyFlags::empty(),
                 &[],
                 &[],
                 &[ash::vk::ImageMemoryBarrier::builder()
-                    .src_access_mask(ash::vk::AccessFlags::from_raw(0b1_1111_1111_1111_1111))
+                    .src_access_mask(access_for_stages(after))
                     .dst_access_mask(ash::vk::AccessFlags::empty())
                     .old_layout(ash::vk::ImageLayout::GENERAL)
                     .new_layout(ash::vk::ImageLayout::PRESENT_SRC_KHR)
@@ -356,7 +356,7 @@ impl crate::traits::RenderCommandEncoder for RenderCommandEncoder<'_> {
     }
 
     #[inline(never)]
-    fn with_constants(&mut self, constants: &impl crate::Constants) {
+    fn with_constants(&mut self, constants: &impl Constants) {
         let Some(layout) = self.current_layout.as_ref() else {
             panic!("Constants binding requires a pipeline to be bound to the encoder");
         };
@@ -429,12 +429,12 @@ fn barrier(
     unsafe {
         device.ash().cmd_pipeline_barrier(
             handle,
-            after.into_ash(),
-            before.into_ash(),
+            ash::vk::PipelineStageFlags::BOTTOM_OF_PIPE | after.into_ash(),
+            ash::vk::PipelineStageFlags::TOP_OF_PIPE | before.into_ash(),
             vk::DependencyFlags::empty(),
             &[vk::MemoryBarrier::builder()
-                .src_access_mask(vk::AccessFlags::from_raw(0b1_1111_1111_1111_1111))
-                .dst_access_mask(vk::AccessFlags::from_raw(0b1_1111_1111_1111_1111))
+                .src_access_mask(access_for_stages(after))
+                .dst_access_mask(access_for_stages(before))
                 .build()],
             &[],
             &[],

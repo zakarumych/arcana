@@ -59,13 +59,12 @@ pub trait Queue {
     fn new_command_encoder(&mut self) -> Result<crate::backend::CommandEncoder, OutOfMemory>;
 
     /// Submit command buffers to the queue.
-    fn submit<I>(&mut self, command_buffers: I) -> Result<(), QueueError>
+    ///
+    /// If `check_point` is `true`, inserts a checkpoint into queue and check previous checkpoints.
+    /// Checkpoints are required to synchronize resource use and reclamation.
+    fn submit<I>(&mut self, command_buffers: I, check_point: bool) -> Result<(), QueueError>
     where
         I: IntoIterator<Item = crate::backend::CommandBuffer>;
-
-    /// Inserts a checkpoint into queue and check previous checkpoints.
-    /// Checkpoints are required to synchronize resource use and reclamation.
-    fn check_point(&mut self);
 }
 
 pub trait CommandEncoder {
@@ -94,7 +93,7 @@ pub trait CommandEncoder {
     fn render(&mut self, desc: RenderPassDesc) -> crate::backend::RenderCommandEncoder<'_>;
 
     /// Presents the frame to the surface.
-    fn present(&mut self, frame: crate::backend::Frame);
+    fn present(&mut self, frame: crate::backend::Frame, after: PipelineStages);
 
     /// Finishes encoding and returns the command buffer.
     fn finish(self) -> Result<crate::backend::CommandBuffer, OutOfMemory>;
@@ -134,6 +133,7 @@ pub trait Surface {
     fn next_frame(
         &mut self,
         queue: &mut crate::backend::Queue,
+        before: PipelineStages,
     ) -> Result<crate::backend::Frame, SurfaceError>;
 }
 

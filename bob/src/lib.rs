@@ -28,3 +28,5 @@ pub mod render;
 
 #[cfg(feature = "derive")]
 pub use bob_proc::*;
+
+pub mod egui;

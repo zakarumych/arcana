@@ -19,7 +19,7 @@ tokio-multi-thread = ["tokio/rt-multi-thread"]
 windowing = ["winit"]
 
 # Adds support for graphics output.
-graphics = ["windowing", "nix"]
+graphics = ["windowing", "nix", "egui", "egui-winit"]
 
 # Adds support for audio output.
 audio = []
@@ -67,8 +67,13 @@ futures = { workspace = true }
 tokio = { workspace = true }
 
 # Windowing and events
-winit = { version = "0.28", optional = true, git = "https://github.com/rust-windowing/winit.git", branch = "new-keyboard-v3" }
+# winit = { version = "0.28", optional = true, git = "https://github.com/rust-windowing/winit.git", branch = "new-keyboard-v3" }
+winit = { version = "0.28", optional = true }
 gilrs = { version = "0.10", optional = true }
 
 # Containers
 hashbrown = { workspace = true }
+
+# GUI
+egui = { version = "0.21", optional = true }
+egui-winit = { version = "0.21", optional = true } 

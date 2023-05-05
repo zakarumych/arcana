@@ -1,11 +1,12 @@
-use std::fmt;
+use std::{collections::VecDeque, fmt};
 
 use ash::vk;
 
-use crate::generic::{OutOfMemory, QueueError, QueueFlags};
+use crate::generic::{OutOfMemory, PipelineStages, QueueError, QueueFlags};
 
 use super::{
-    device::Device, handle_host_oom, refs::Refs, unexpected_error, CommandBuffer, CommandEncoder,
+    device::Device, from::IntoAsh, handle_host_oom, refs::Refs, unexpected_error, CommandBuffer,
+    CommandEncoder,
 };
 
 pub struct Queue {
@@ -19,9 +20,19 @@ pub struct Queue {
     wait_semaphores: Vec<vk::Semaphore>,
     wait_stages: Vec<vk::PipelineStageFlags>,
 
-    // epochs: Vec<(ash::vk::Fence, Vec<Refs>)>,
     next_epoch: Vec<Refs>,
     free_refs: Vec<Refs>,
+
+    epochs: VecDeque<(ash::vk::Fence, Vec<Refs>)>,
+}
+
+impl Drop for Queue {
+    fn drop(&mut self) {
+        unsafe {
+            self.device.ash().destroy_command_pool(self.pool, None);
+            self.device.ash().queue_wait_idle(self.handle);
+        }
+    }
 }
 
 impl fmt::Debug for Queue {
@@ -41,15 +52,17 @@ impl Queue {
             wait_semaphores: Vec::new(),
             wait_stages: Vec::new(),
 
-            // epochs: Vec::new(),
             next_epoch: Vec::new(),
             free_refs: Vec::new(),
+
+            epochs: VecDeque::new(),
         }
     }
 
-    pub(super) fn add_wait(&mut self, semaphores: vk::Semaphore, stages: vk::PipelineStageFlags) {
+    pub(super) fn add_wait(&mut self, semaphores: vk::Semaphore, before: PipelineStages) {
         self.wait_semaphores.push(semaphores);
-        self.wait_stages.push(stages);
+        self.wait_stages
+            .push(ash::vk::PipelineStageFlags::TOP_OF_PIPE | before.into_ash());
     }
 
     #[cold]
@@ -69,6 +82,37 @@ impl Queue {
         })?;
         self.pool = pool;
         Ok(())
+    }
+
+    fn next_check_point(&mut self) -> ash::vk::Fence {
+        if self.epochs.len() >= 3 {
+            let (fence, mut refs) = self.epochs.pop_front().unwrap();
+
+            unsafe {
+                self.device
+                    .ash()
+                    .wait_for_fences(&[fence], true, !0)
+                    .unwrap();
+            }
+
+            refs.iter_mut().for_each(Refs::clear);
+            self.free_refs.append(&mut refs);
+
+            let next_epoch = std::mem::take(&mut self.next_epoch);
+            self.epochs.push_back((fence, next_epoch));
+            fence
+        } else {
+            let fence = unsafe {
+                self.device
+                    .ash()
+                    .create_fence(&ash::vk::FenceCreateInfo::builder(), None)
+            }
+            .unwrap();
+
+            let next_epoch = std::mem::take(&mut self.next_epoch);
+            self.epochs.push_back((fence, next_epoch));
+            fence
+        }
     }
 }
 
@@ -126,7 +170,7 @@ impl crate::traits::Queue for Queue {
         ))
     }
 
-    fn submit<I>(&mut self, command_buffers: I) -> Result<(), QueueError>
+    fn submit<I>(&mut self, command_buffers: I, check_point: bool) -> Result<(), QueueError>
     where
         I: IntoIterator<Item = CommandBuffer>,
     {
@@ -149,6 +193,12 @@ impl crate::traits::Queue for Queue {
             }
         }
 
+        let fence = if check_point {
+            self.next_check_point()
+        } else {
+            ash::vk::Fence::null()
+        };
+
         let result = unsafe {
             self.device.ash().queue_submit(
                 self.handle,
@@ -158,7 +208,7 @@ impl crate::traits::Queue for Queue {
                     .signal_semaphores(&present_semaphores)
                     .command_buffers(&command_buffer_handles)
                     .build()],
-                vk::Fence::null(),
+                fence,
             )
         };
 
@@ -197,16 +247,5 @@ impl crate::traits::Queue for Queue {
             };
         }
         Ok(())
-    }
-
-    fn check_point(&mut self) {
-        // TODO: This is not the best way to do this.
-        // Better insert fences and check them.
-        unsafe {
-            self.device.ash().queue_wait_idle(self.handle).unwrap();
-        }
-
-        self.next_epoch.iter_mut().for_each(Refs::clear);
-        self.free_refs.append(&mut self.next_epoch);
     }
 }

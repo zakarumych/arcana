@@ -19,11 +19,11 @@ impl Funnel {
     }
 
     #[inline]
-    pub fn add<F>(&mut self, funnel: F)
+    pub fn add<F>(&mut self, filter: F)
     where
         F: Filter + 'static,
     {
-        self.filters.push(Box::new(funnel));
+        self.filters.push(Box::new(filter));
     }
 
     #[inline]
