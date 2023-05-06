@@ -15,18 +15,17 @@ use raw_window_handle::{
 };
 use slab::Slab;
 
-use crate::{
-    generic::{
-        compile_shader, BufferDesc, BufferInitDesc, CreateLibraryError, CreatePipelineError,
-        Features, ImageDesc, ImageError, LibraryDesc, LibraryInput, Memory, OutOfMemory,
-        PrimitiveTopology, RenderPipelineDesc, SamplerDesc, ShaderLanguage, SurfaceError,
-        VertexStepMode,
-    },
-    proc_macro::descriptor_type,
+use crate::generic::{
+    compile_shader, BufferDesc, BufferInitDesc, CreateLibraryError, CreatePipelineError, Features,
+    ImageDesc, ImageDimensions, ImageError, LibraryDesc, LibraryInput, Memory, OutOfMemory,
+    PrimitiveTopology, RenderPipelineDesc, SamplerDesc, ShaderLanguage, SurfaceError, Swizzle,
+    VertexStepMode, ViewDesc,
 };
 
 use super::{
+    arguments::descriptor_type,
     buffer::Buffer,
+    format_aspect,
     from::{IntoAsh, TryIntoAsh},
     handle_host_oom,
     image::Image,
@@ -98,6 +97,7 @@ struct DeviceInner {
 
     buffers: Mutex<Slab<vk::Buffer>>,
     images: Mutex<Slab<vk::Image>>,
+    image_views: Mutex<Slab<vk::ImageView>>,
     samplers: Mutex<HashMap<SamplerDesc, WeakSampler>>,
 
     set_layouts: Mutex<HashMap<DescriptorSetLayoutDesc, WeakDescriptorSetLayout>>,
@@ -285,6 +285,30 @@ impl WeakDevice {
             }
         }
     }
+
+    #[inline]
+    pub fn drop_image_view(&self, idx: usize) {
+        if let Some(inner) = self.inner.upgrade() {
+            let mut image_views = inner.image_views.lock();
+            let view = image_views.remove(idx);
+            unsafe {
+                inner.device.destroy_image_view(view, None);
+            }
+        }
+    }
+
+    #[inline]
+    pub fn drop_image_views(&self, iter: impl Iterator<Item = usize>) {
+        if let Some(inner) = self.inner.upgrade() {
+            let mut image_views = inner.image_views.lock();
+            for idx in iter {
+                let image_view = image_views.remove(idx);
+                unsafe {
+                    inner.device.destroy_image_view(image_view, None);
+                }
+            }
+        }
+    }
 }
 
 pub(super) trait DeviceOwned {
@@ -319,12 +343,13 @@ impl Device {
                 families,
                 features,
                 properties,
-                buffers: Mutex::new(Slab::new()),
-                images: Mutex::new(Slab::new()),
-                samplers: Mutex::new(HashMap::new()),
-                set_layouts: Mutex::new(HashMap::new()),
-                pipeline_layouts: Mutex::new(HashMap::new()),
-                pipelines: Mutex::new(Slab::new()),
+                buffers: Mutex::new(Slab::with_capacity(1024)),
+                images: Mutex::new(Slab::with_capacity(1024)),
+                image_views: Mutex::new(Slab::with_capacity(1024)),
+                samplers: Mutex::new(HashMap::with_capacity(64)),
+                set_layouts: Mutex::new(HashMap::with_capacity(256)),
+                pipeline_layouts: Mutex::new(HashMap::with_capacity(64)),
+                pipelines: Mutex::new(Slab::with_capacity(128)),
                 allocator: Mutex::new(allocator),
                 push_descriptor,
                 surface,
@@ -394,7 +419,7 @@ impl Device {
     }
 
     fn new_sampler_slow(&self, count: usize, desc: SamplerDesc) -> Result<Sampler, OutOfMemory> {
-        if self.inner.properties.limits.max_sampler_allocation_count as usize >= count {
+        if self.inner.properties.limits.max_sampler_allocation_count as usize <= count {
             return Err(OutOfMemory);
         }
 
@@ -583,6 +608,49 @@ impl Device {
             }
         }
     }
+
+    #[inline(never)]
+    #[cold]
+    pub(super) fn new_image_view(
+        &self,
+        image: vk::Image,
+        dimensions: ImageDimensions,
+        desc: ViewDesc,
+    ) -> Result<(ash::vk::ImageView, usize), OutOfMemory> {
+        let result = unsafe {
+            self.inner.device.create_image_view(
+                &vk::ImageViewCreateInfo::builder()
+                    .image(image)
+                    .view_type(match dimensions {
+                        ImageDimensions::D1(..) => vk::ImageViewType::TYPE_1D,
+                        ImageDimensions::D2(..) => vk::ImageViewType::TYPE_2D,
+                        ImageDimensions::D3(..) => vk::ImageViewType::TYPE_3D,
+                    })
+                    .format(desc.format.try_into_ash().unwrap())
+                    .subresource_range(
+                        vk::ImageSubresourceRange::builder()
+                            .aspect_mask(format_aspect(desc.format))
+                            .base_mip_level(desc.base_level)
+                            .level_count(desc.levels)
+                            .base_array_layer(desc.base_layer)
+                            .layer_count(desc.layers)
+                            .build(),
+                    )
+                    .components(desc.swizzle.into_ash()),
+                None,
+            )
+        };
+
+        let view = result.map_err(|err| match err {
+            vk::Result::ERROR_OUT_OF_HOST_MEMORY => handle_host_oom(),
+            vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => OutOfMemory,
+            _ => unexpected_error(err),
+        })?;
+
+        let idx = self.inner.image_views.lock().insert(view);
+
+        Ok((view, idx))
+    }
 }
 
 #[hidden_trait::expose]
@@ -705,6 +773,8 @@ impl crate::traits::Device for Device {
         let mut raster_state = vk::PipelineRasterizationStateCreateInfo::builder();
         let mut depth_state = vk::PipelineDepthStencilStateCreateInfo::builder();
         let mut attachments = Vec::new();
+        let mut color_attachment_formats = Vec::new();
+        let mut rendering = vk::PipelineRenderingCreateInfo::builder();
 
         if let Some(raster) = &desc.raster {
             if let Some(fragment_shader) = &raster.fragment_shader {
@@ -725,8 +795,8 @@ impl crate::traits::Device for Device {
                 .depth_clamp_enable(false)
                 .rasterizer_discard_enable(false)
                 .polygon_mode(vk::PolygonMode::FILL)
-                .cull_mode(vk::CullModeFlags::BACK)
-                .front_face(vk::FrontFace::CLOCKWISE)
+                .cull_mode(raster.culling.into_ash())
+                .front_face(raster.front_face.into_ash())
                 .line_width(1.0);
 
             if let Some(depth) = &raster.depth_stencil {
@@ -735,6 +805,13 @@ impl crate::traits::Device for Device {
                     .depth_compare_op(depth.compare.into_ash())
                     .depth_write_enable(depth.write_enabled)
                     .stencil_test_enable(depth.format.is_stencil());
+
+                if depth.format.is_depth() {
+                    rendering.depth_attachment_format = depth.format.try_into_ash().unwrap();
+                }
+                if depth.format.is_stencil() {
+                    rendering.stencil_attachment_format = depth.format.try_into_ash().unwrap();
+                }
             }
 
             for color in &raster.color_targets {
@@ -751,16 +828,22 @@ impl crate::traits::Device for Device {
                         .color_write_mask(blend.mask.into_ash());
                 }
                 attachments.push(blend_state.build());
+                color_attachment_formats.push(color.format.try_into_ash().unwrap());
             }
         } else {
             raster_state = raster_state.rasterizer_discard_enable(true);
         }
 
+        rendering = rendering
+            .view_mask(0)
+            .color_attachment_formats(&color_attachment_formats);
+        let create_info = vk::GraphicsPipelineCreateInfo::builder().push_next(&mut rendering);
+
         let result = unsafe {
             self.inner.device.create_graphics_pipelines(
                 vk::PipelineCache::null(),
                 std::slice::from_ref(
-                    &vk::GraphicsPipelineCreateInfo::builder()
+                    &create_info
                         .stages(&stages)
                         .vertex_input_state(
                             &vk::PipelineVertexInputStateCreateInfo::builder()
@@ -787,7 +870,7 @@ impl crate::traits::Device for Device {
                         .color_blend_state(
                             &vk::PipelineColorBlendStateCreateInfo::builder()
                                 .attachments(&attachments)
-                                .blend_constants([0.0; 4]),
+                                .blend_constants([1.0; 4]),
                         )
                         .viewport_state(
                             &ash::vk::PipelineViewportStateCreateInfo::builder()
@@ -936,12 +1019,13 @@ impl crate::traits::Device for Device {
                             .try_into_ash()
                             .ok_or(ImageError::InvalidFormat)?,
                     )
+                    .extent(desc.dimensions.to_3d().into_ash())
                     .array_layers(desc.layers)
                     .mip_levels(desc.levels)
                     .samples(vk::SampleCountFlags::TYPE_1)
                     .tiling(vk::ImageTiling::OPTIMAL)
                     .usage((desc.usage, desc.format).into_ash())
-                    .initial_layout(vk::ImageLayout::GENERAL),
+                    .initial_layout(vk::ImageLayout::UNDEFINED),
                 None,
             )
         }
@@ -954,7 +1038,7 @@ impl crate::traits::Device for Device {
         let requirements = unsafe { self.inner.device.get_image_memory_requirements(image) };
         let align_mask = requirements.alignment - 1;
 
-        let block = unsafe {
+        let result = unsafe {
             self.inner.allocator.lock().alloc(
                 AshMemoryDevice::wrap(&self.inner.device),
                 gpu_alloc::Request {
@@ -964,13 +1048,28 @@ impl crate::traits::Device for Device {
                     memory_types: requirements.memory_type_bits,
                 },
             )
-        }
-        .map_err(|err| match err {
-            gpu_alloc::AllocationError::OutOfDeviceMemory => OutOfMemory,
-            gpu_alloc::AllocationError::OutOfHostMemory => handle_host_oom(),
-            gpu_alloc::AllocationError::NoCompatibleMemoryTypes => OutOfMemory,
-            gpu_alloc::AllocationError::TooManyObjects => OutOfMemory,
-        })?;
+        };
+
+        let block = match result {
+            Ok(block) => block,
+            Err(err) => {
+                unsafe {
+                    self.inner.device.destroy_image(image, None);
+                }
+                match err {
+                    gpu_alloc::AllocationError::OutOfDeviceMemory => {
+                        return Err(ImageError::OutOfMemory)
+                    }
+                    gpu_alloc::AllocationError::OutOfHostMemory => handle_host_oom(),
+                    gpu_alloc::AllocationError::NoCompatibleMemoryTypes => {
+                        return Err(ImageError::OutOfMemory)
+                    }
+                    gpu_alloc::AllocationError::TooManyObjects => {
+                        return Err(ImageError::OutOfMemory)
+                    }
+                }
+            }
+        };
 
         let result = unsafe {
             self.inner
@@ -978,43 +1077,71 @@ impl crate::traits::Device for Device {
                 .bind_image_memory(image, *block.memory(), block.offset())
         };
 
-        match result {
-            Ok(()) => {
-                #[cfg(any(debug_assertions, feature = "debug"))]
-                self.set_object_name(vk::ObjectType::IMAGE, image.as_raw(), desc.name);
+        if let Err(err) = result {
+            unsafe {
+                self.inner
+                    .allocator
+                    .lock()
+                    .dealloc(AshMemoryDevice::wrap(&self.inner.device), block);
 
-                let idx = self.inner.images.lock().insert(image);
-
-                let image = Image::new(
-                    self.weak(),
-                    image,
-                    desc.dimensions,
-                    desc.format,
-                    desc.usage,
-                    desc.layers,
-                    desc.levels,
-                    block,
-                    idx,
-                );
-                Ok(image)
+                self.inner.device.destroy_image(image, None);
             }
-            Err(err) => {
+
+            match err {
+                vk::Result::ERROR_OUT_OF_HOST_MEMORY => handle_host_oom(),
+                vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => return Err(ImageError::OutOfMemory),
+                _ => unexpected_error(err),
+            }
+        }
+
+        let result = self.new_image_view(
+            image,
+            desc.dimensions,
+            ViewDesc {
+                format: desc.format,
+                base_layer: 0,
+                layers: desc.layers,
+                base_level: 0,
+                levels: desc.levels,
+                swizzle: Swizzle::IDENTITY,
+            },
+        );
+
+        let (view, view_idx) = match result {
+            Ok((view, idx)) => (view, idx),
+            Err(OutOfMemory) => {
                 unsafe {
                     self.inner
                         .allocator
                         .lock()
                         .dealloc(AshMemoryDevice::wrap(&self.inner.device), block);
 
-                    self.ash().destroy_image(image, None);
+                    self.inner.device.destroy_image(image, None);
                 }
 
-                match err {
-                    vk::Result::ERROR_OUT_OF_HOST_MEMORY => handle_host_oom(),
-                    vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => Err(ImageError::OutOfMemory),
-                    _ => unexpected_error(err),
-                }
+                return Err(ImageError::OutOfMemory);
             }
-        }
+        };
+
+        #[cfg(any(debug_assertions, feature = "debug"))]
+        self.set_object_name(vk::ObjectType::IMAGE, image.as_raw(), desc.name);
+
+        let idx = self.inner.images.lock().insert(image);
+
+        let image = Image::new(
+            self.weak(),
+            image,
+            view,
+            view_idx,
+            desc.dimensions,
+            desc.format,
+            desc.usage,
+            desc.layers,
+            desc.levels,
+            block,
+            idx,
+        );
+        return Ok(image);
     }
 
     fn new_sampler(&self, desc: SamplerDesc) -> Result<Sampler, OutOfMemory> {

@@ -51,12 +51,12 @@ fn derive_impl(input: syn::DeriveInput) -> syn::Result<proc_macro2::TokenStream>
                 .take(idx)
                 .fold(quote! { 0 }, |acc, field| {
                     let ty = &field.ty;
-                    quote_spanned! { ty.span() => #acc + nix::proc_macro::size_of::<<#ty as nix::proc_macro::Constants>::Pod>() }
+                    quote_spanned! { ty.span() => #acc + nix::for_macro::size_of::<<#ty as nix::for_macro::Constants>::Pod>() }
                 });
 
             let ty = &field.ty;
             quote::quote_spanned! {
-                ty.span() => nix::proc_macro::pad_for::<#ty>(#end)
+                ty.span() => nix::for_macro::pad_for::<#ty>(#end)
             }
         })
         .collect::<Vec<_>>();
@@ -65,10 +65,10 @@ fn derive_impl(input: syn::DeriveInput) -> syn::Result<proc_macro2::TokenStream>
         .iter()
         .fold(quote! { 0 }, |acc, field| {
             let ty = &field.ty;
-            quote_spanned! { ty.span() => #acc + nix::proc_macro::size_of::<<#ty as nix::proc_macro::Constants>::Pod>() }
+            quote_spanned! { ty.span() => #acc + nix::for_macro::size_of::<<#ty as nix::for_macro::Constants>::Pod>() }
         });
 
-    let tail_pad = quote::quote!(nix::proc_macro::pad_align(#tail, 16));
+    let tail_pad = quote::quote!(nix::for_macro::pad_align(#tail, 16));
 
     match data.fields {
         syn::Fields::Named(_) => {
@@ -91,15 +91,15 @@ fn derive_impl(input: syn::DeriveInput) -> syn::Result<proc_macro2::TokenStream>
                 #vis struct #name_pod {
                     #(
                         #pad_names: [u8; #field_pad_sizes],
-                        #field_names: <#field_types as nix::proc_macro::Constants>::Pod,
+                        #field_names: <#field_types as nix::for_macro::Constants>::Pod,
                     )*
                     _nix_tail_pad: [u8; #tail_pad],
                 }
 
-                unsafe impl nix::proc_macro::Zeroable for #name_pod {}
-                unsafe impl nix::proc_macro::Pod for #name_pod {}
+                unsafe impl nix::for_macro::Zeroable for #name_pod {}
+                unsafe impl nix::for_macro::Pod for #name_pod {}
 
-                impl nix::proc_macro::Constants for #name {
+                impl nix::for_macro::Constants for #name {
                     type Pod = #name_pod;
 
                     fn as_pod(&self) -> #name_pod {

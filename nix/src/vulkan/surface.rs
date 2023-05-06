@@ -7,7 +7,9 @@ use std::{
 
 use ash::vk;
 
-use crate::generic::{ImageDimensions, OutOfMemory, PipelineStages, SurfaceError};
+use crate::generic::{
+    ImageDimensions, OutOfMemory, PipelineStages, SurfaceError, Swizzle, ViewDesc,
+};
 
 use super::{
     device::WeakDevice,
@@ -191,29 +193,50 @@ impl Surface {
 
         let pixel_format = self.preferred_format.format.try_ash_into().unwrap();
         let usage = self.preferred_usage.ash_into();
+        let dimensions = ImageDimensions::D2(
+            self.caps.current_extent.width,
+            self.caps.current_extent.height,
+        );
+
+        let mut swapchain_images = Vec::new();
+        for image in &images {
+            let (view, view_idx) = device
+                .new_image_view(
+                    *image,
+                    dimensions,
+                    ViewDesc {
+                        format: pixel_format,
+                        base_layer: 0,
+                        layers: 1,
+                        base_level: 0,
+                        levels: 1,
+                        swizzle: Swizzle::IDENTITY,
+                    },
+                )
+                .unwrap();
+
+            let acquire = semaphore(device.ash())?;
+            let present = semaphore(device.ash())?;
+
+            let image = Image::from_swapchain_image(
+                device.weak(),
+                *image,
+                view,
+                view_idx,
+                ImageDimensions::D2(
+                    self.caps.current_extent.width,
+                    self.caps.current_extent.height,
+                ),
+                pixel_format,
+                usage,
+            );
+
+            swapchain_images.push((image, [acquire, present]));
+        }
 
         self.current = Some(Swapchain {
             handle,
-            images: images
-                .into_iter()
-                .map(|handle| {
-                    let acquire = semaphore(device.ash())?;
-                    let present = semaphore(device.ash())?;
-
-                    let image = Image::from_swapchain_image(
-                        device.weak(),
-                        handle,
-                        ImageDimensions::D2(
-                            self.caps.current_extent.width,
-                            self.caps.current_extent.height,
-                        ),
-                        pixel_format,
-                        usage,
-                    );
-
-                    Ok((image, [acquire, present]))
-                })
-                .collect::<Result<_, _>>()?,
+            images: swapchain_images,
             next,
         });
         Ok(())
@@ -230,14 +253,16 @@ impl Surface {
                 vk::Result::ERROR_DEVICE_LOST => SurfaceError(SurfaceErrorKind::SurfaceLost),
                 _ => unexpected_error(err),
             })?;
-        }
 
-        self.clear_retired(device)?;
-        assert_eq!(
-            self.retired.len(),
-            0,
-            "User-code should not hold on to swapchain images."
-        );
+            todo!("Notify Queues that all epochs are done");
+
+            self.clear_retired(device)?;
+            assert_eq!(
+                self.retired.len(),
+                0,
+                "User-code should not hold on to swapchain images."
+            );
+        }
 
         Ok(())
     }
@@ -386,7 +411,7 @@ impl crate::traits::Frame for Frame {
 
 fn pick_format(formats: &[vk::SurfaceFormatKHR]) -> vk::SurfaceFormatKHR {
     for &format in formats {
-        if format.format == vk::Format::B8G8R8A8_SRGB {
+        if format.format == vk::Format::R8G8B8A8_UNORM {
             return format;
         }
     }
@@ -401,7 +426,7 @@ fn pick_format(formats: &[vk::SurfaceFormatKHR]) -> vk::SurfaceFormatKHR {
         }
     }
     for &format in formats {
-        if format.format == vk::Format::R8G8B8A8_UNORM {
+        if format.format == vk::Format::B8G8R8A8_SRGB {
             return format;
         }
     }

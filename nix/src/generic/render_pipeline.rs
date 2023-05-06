@@ -54,6 +54,24 @@ pub struct BlendDesc {
     pub alpha: Blend,
 }
 
+impl Default for BlendDesc {
+    fn default() -> Self {
+        BlendDesc {
+            mask: WriteMask::all(),
+            color: Blend {
+                op: BlendOp::Add,
+                src: BlendFactor::One,
+                dst: BlendFactor::OneMinusSrcAlpha,
+            },
+            alpha: Blend {
+                op: BlendOp::Add,
+                src: BlendFactor::One,
+                dst: BlendFactor::OneMinusSrcAlpha,
+            },
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Blend {
     pub op: BlendOp,
@@ -117,6 +135,33 @@ pub enum CompareFunction {
     Always,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum FrontFace {
+    Clockwise,
+    CounterClockwise,
+}
+
+impl Default for FrontFace {
+    #[inline(always)]
+    fn default() -> Self {
+        FrontFace::Clockwise
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Culling {
+    None,
+    Front,
+    Back,
+}
+
+impl Default for Culling {
+    #[inline(always)]
+    fn default() -> Self {
+        Culling::Back
+    }
+}
+
 pub struct RenderPipelineDesc<'a> {
     pub name: &'a str,
     pub vertex_shader: Shader<'a>,
@@ -132,6 +177,8 @@ pub struct RasterDesc<'a> {
     pub fragment_shader: Option<Shader<'a>>,
     pub color_targets: Vec<ColorTargetDesc>,
     pub depth_stencil: Option<DepthStencilDesc>,
+    pub front_face: FrontFace,
+    pub culling: Culling,
 }
 
 #[derive(Debug)]

@@ -70,18 +70,18 @@ fn derive_impl(input: syn::DeriveInput) -> syn::Result<proc_macro2::TokenStream>
         .map(|(field, attrs)| {
             let ty = &field.ty;
             match attrs.kind {
-                None => quote::quote!(<#ty as nix::proc_macro::ArgumentsField<nix::proc_macro::Automatic>>),
+                None => quote::quote!(<#ty as nix::for_macro::ArgumentsField<nix::for_macro::Automatic>>),
                 // Some(Kind::Constant(_)) => {
-                //     quote::quote!(<#ty as nix::proc_macro::ArgumentsField<nix::proc_macro::Constant>>)
+                //     quote::quote!(<#ty as nix::for_macro::ArgumentsField<nix::for_macro::Constant>>)
                 // }
                 Some(Kind::Uniform(_)) => {
-                    quote::quote!(<#ty as nix::proc_macro::ArgumentsField<nix::proc_macro::Uniform>>)
+                    quote::quote!(<#ty as nix::for_macro::ArgumentsField<nix::for_macro::Uniform>>)
                 }
                 Some(Kind::Sampled(_)) => {
-                    quote::quote!(<#ty as nix::proc_macro::ArgumentsField<nix::proc_macro::Sampled>>)
+                    quote::quote!(<#ty as nix::for_macro::ArgumentsField<nix::for_macro::Sampled>>)
                 }
                 Some(Kind::Storage(_)) => {
-                    quote::quote!(<#ty as nix::proc_macro::ArgumentsField<nix::proc_macro::Storage>>)
+                    quote::quote!(<#ty as nix::for_macro::ArgumentsField<nix::for_macro::Storage>>)
                 }
             }
         })
@@ -149,12 +149,12 @@ fn derive_impl(input: syn::DeriveInput) -> syn::Result<proc_macro2::TokenStream>
                 }
 
                 impl #name {
-                    const fn nix_generated_template_entries() -> [nix::proc_macro::DescriptorUpdateTemplateEntry; #fields_count] {
-                        let update = nix::proc_macro::MaybeUninit::<#update_name>::uninit();
+                    const fn nix_generated_template_entries() -> [nix::for_macro::DescriptorUpdateTemplateEntry; #fields_count] {
+                        let update = nix::for_macro::MaybeUninit::<#update_name>::uninit();
                         let ptr = update.as_ptr();
                         [
                             #(
-                                nix::proc_macro::DescriptorUpdateTemplateEntry {
+                                nix::for_macro::DescriptorUpdateTemplateEntry {
                                     dst_binding: #field_bindings,
                                     dst_array_element: 0,
                                     descriptor_count: {
@@ -163,8 +163,8 @@ fn derive_impl(input: syn::DeriveInput) -> syn::Result<proc_macro2::TokenStream>
                                         }
                                         #field_argument_impls::SIZE as u32
                                     },
-                                    descriptor_type: nix::proc_macro::descriptor_type(#field_argument_impls::KIND),
-                                    offset: unsafe { nix::proc_macro::addr_of!((*ptr).#fields_name).cast::<u8>().offset_from(ptr.cast::<u8>()) as usize },
+                                    descriptor_type: nix::for_macro::descriptor_type(#field_argument_impls::KIND),
+                                    offset: unsafe { nix::for_macro::addr_of!((*ptr).#fields_name).cast::<u8>().offset_from(ptr.cast::<u8>()) as usize },
                                     stride: #field_argument_impls::STRIDE,
                                 },
                             )*
@@ -172,7 +172,7 @@ fn derive_impl(input: syn::DeriveInput) -> syn::Result<proc_macro2::TokenStream>
                     }
                 }
 
-                impl nix::proc_macro::Arguments for #name {
+                impl nix::for_macro::Arguments for #name {
                     const LAYOUT: nix::ArgumentGroupLayout<'static> = nix::ArgumentGroupLayout {
                         arguments: &[#(nix::ArgumentLayout {
                             kind: #field_argument_impls::KIND,
@@ -184,8 +184,8 @@ fn derive_impl(input: syn::DeriveInput) -> syn::Result<proc_macro2::TokenStream>
                     type Update = #update_name;
 
                     #[inline(always)]
-                    fn template_entries() -> &'static [nix::proc_macro::DescriptorUpdateTemplateEntry] {
-                        static ENTRIES: [nix::proc_macro::DescriptorUpdateTemplateEntry; #fields_count] = #name::nix_generated_template_entries();
+                    fn template_entries() -> &'static [nix::for_macro::DescriptorUpdateTemplateEntry] {
+                        static ENTRIES: [nix::for_macro::DescriptorUpdateTemplateEntry; #fields_count] = #name::nix_generated_template_entries();
                         &ENTRIES
                     }
 
@@ -197,7 +197,7 @@ fn derive_impl(input: syn::DeriveInput) -> syn::Result<proc_macro2::TokenStream>
                     }
 
                     #[inline(always)]
-                    fn add_refs(&self, refs: &mut nix::proc_macro::Refs) {
+                    fn add_refs(&self, refs: &mut nix::for_macro::Refs) {
                         #(#field_argument_impls::add_refs(&self.#fields_name, refs);)*
                     }
                 }

@@ -57,7 +57,7 @@ impl RenderTarget {
             Some(_) => None,
             None => {
                 self.access = Some(RenderAccess::Write);
-                debug_assert_eq!(stages, nix::PipelineStages::empty());
+                debug_assert_eq!(self.reads, nix::PipelineStages::empty());
                 self.reads = stages;
                 Some(RenderTarget {
                     id: self.id,
@@ -102,7 +102,16 @@ pub struct TargetFor;
 impl Relation for TargetFor {
     const EXCLUSIVE: bool = true;
     const SYMMETRIC: bool = false;
-    const OWNED: bool = false;
+    const OWNED: bool = true;
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct NextVersionOf;
+
+impl Relation for NextVersionOf {
+    const EXCLUSIVE: bool = true;
+    const SYMMETRIC: bool = false;
+    const OWNED: bool = true;
 }
 
 #[derive(Default)]

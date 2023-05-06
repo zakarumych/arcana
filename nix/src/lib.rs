@@ -11,16 +11,17 @@ mod traits;
 #[cfg_attr(any(target_os = "macos", target_os = "ios"), path = "metal/mod.rs")]
 pub mod backend;
 
-pub use self::{backend::*, generic::*};
-pub use nix_proc::{Arguments, Constants};
-
 mod private {
     pub trait Sealed {}
 }
 
-#[doc(hidden)]
-pub mod proc_macro {
-    pub use crate::backend::proc_macro::*;
+pub use self::{backend::*, generic::*};
+pub use nix_proc::{Arguments, Constants};
 
-    pub use crate::generic::{Automatic, Constants, Sampled, Storage, Uniform};
+#[doc(hidden)]
+pub mod for_macro {
+    pub use crate::backend::for_macro::*;
+    pub use crate::generic::{
+        Automatic, Constants, LibraryInput, Sampled, ShaderSource, Storage, Uniform,
+    };
 }

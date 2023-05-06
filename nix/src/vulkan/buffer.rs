@@ -84,13 +84,17 @@ impl crate::traits::Buffer for Buffer {
     }
 
     #[inline(always)]
-    unsafe fn write_unchecked(&mut self, offset: u64, data: &[u8]) {
+    unsafe fn write_unchecked(&mut self, offset: usize, data: &[u8]) {
         let inner = Arc::get_mut(&mut self.inner).unwrap();
         if let Some(device) = inner.owner.upgrade() {
             unsafe {
                 let ptr = inner
                     .block
-                    .map(AshMemoryDevice::wrap(device.ash()), offset, data.len())
+                    .map(
+                        AshMemoryDevice::wrap(device.ash()),
+                        offset as u64,
+                        data.len(),
+                    )
                     .unwrap();
                 std::ptr::copy_nonoverlapping(data.as_ptr(), ptr.as_ptr(), data.len());
             }

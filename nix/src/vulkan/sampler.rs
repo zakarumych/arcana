@@ -1,10 +1,17 @@
-use std::sync::{Arc, Weak};
+use std::{
+    mem::size_of,
+    sync::{Arc, Weak},
+};
 
 use ash::vk;
 
-use crate::generic::SamplerDesc;
+use crate::generic::{ArgumentKind, Automatic, SamplerDesc};
 
-use super::device::{DeviceOwned, WeakDevice};
+use super::{
+    arguments::ArgumentsField,
+    device::{DeviceOwned, WeakDevice},
+    refs::Refs,
+};
 
 struct Inner {
     owner: WeakDevice,
@@ -77,5 +84,28 @@ impl Sampler {
     #[inline(always)]
     pub(super) fn handle(&self) -> vk::Sampler {
         self.handle
+    }
+}
+
+impl ArgumentsField<Automatic> for Sampler {
+    const KIND: ArgumentKind = ArgumentKind::Sampler;
+    const SIZE: usize = 1;
+    const OFFSET: usize = 0;
+    const STRIDE: usize = size_of::<vk::DescriptorImageInfo>();
+
+    type Update = vk::DescriptorImageInfo;
+
+    #[inline(always)]
+    fn update(&self) -> vk::DescriptorImageInfo {
+        vk::DescriptorImageInfo {
+            sampler: self.handle,
+            image_view: vk::ImageView::null(),
+            image_layout: vk::ImageLayout::UNDEFINED,
+        }
+    }
+
+    #[inline(always)]
+    fn add_refs(&self, refs: &mut Refs) {
+        refs.add_sampler(self.clone());
     }
 }

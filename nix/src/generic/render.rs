@@ -23,8 +23,6 @@ pub struct AttachmentDesc<'a, T> {
     pub image: &'a Image,
     pub load: LoadOp<T>,
     pub store: StoreOp,
-    pub level: u32,
-    pub layer: u32,
 }
 
 impl<'a, T> AttachmentDesc<'a, T> {
@@ -33,8 +31,6 @@ impl<'a, T> AttachmentDesc<'a, T> {
             image,
             load: LoadOp::Load,
             store: StoreOp::Store,
-            level: 0,
-            layer: 0,
         }
     }
 

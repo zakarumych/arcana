@@ -64,7 +64,7 @@ pub struct ShaderSource<'a> {
 #[macro_export]
 macro_rules! include_shader_source {
     ($filename:literal as $lang:expr) => {
-        $crate::ShaderSource {
+        $crate::for_macro::ShaderSource {
             code: std::borrow::Cow::Borrowed(std::include_bytes!($filename)),
             filename: std::option::Option::Some($filename),
             language: $lang,
@@ -80,7 +80,7 @@ pub enum LibraryInput<'a> {
 #[macro_export]
 macro_rules! include_library {
     ($filename:literal as $lang:expr) => {
-        $crate::LibraryInput::Source($crate::include_shader_source!($filename as $lang))
+        $crate::for_macro::LibraryInput::Source($crate::include_shader_source!($filename as $lang))
     };
 }
 

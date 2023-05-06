@@ -12,7 +12,7 @@ use winit::{
 };
 
 use crate::{
-    egui::EguiResource,
+    egui::{EguiFilter, EguiResource},
     events::{Event, EventLoop, EventLoopBuilder},
     funnel::{Filter, Funnel},
     render::{
@@ -31,11 +31,11 @@ pub struct Game {
 
     /// System variable-rate scheduler.
     /// Those systems run every frame.
-    pub var_scheduler: Option<Scheduler>,
+    pub var_scheduler: Scheduler,
 
     /// System fixed-rate scheduler.
     /// Those systems run every fixed time interval.
-    pub fixed_scheduler: Option<Scheduler>,
+    pub fixed_scheduler: Scheduler,
 
     /// Render target entity to render into main window.
     /// Should be initialized with entity id of the final render target
@@ -205,11 +205,6 @@ where
         world.insert_resource(RenderTargetCounter::new());
         world.insert_resource(EguiResource::new());
 
-        let mut scheduler = Scheduler::new();
-
-        scheduler.add_system(render_system);
-        let var_scheduler = Some(scheduler);
-
         // Setup the funnel
         let funnel = Funnel::new();
 
@@ -217,8 +212,8 @@ where
         let game = Game {
             world,
             funnel,
-            var_scheduler,
-            fixed_scheduler: None,
+            var_scheduler: Scheduler::new(),
+            fixed_scheduler: Scheduler::new(),
             render_window: None,
         };
 
@@ -233,6 +228,8 @@ where
             render_window,
         } = game;
 
+        var_scheduler.add_system(render_system);
+
         if let Some(render_window) = render_window {
             let mut world = world.local();
             let events = world.get_resource::<EventLoop>().unwrap();
@@ -241,6 +238,7 @@ where
             let window = Window::new(&events).unwrap();
             funnel.add(MainWindowFilter { id: window.id() });
             funnel.add(WindowsFilter);
+            funnel.add(EguiFilter);
 
             let surface = world
                 .expect_resource_mut::<nix::Device>()
@@ -289,25 +287,23 @@ where
                 step: clock_step.step,
             };
 
-            if let Some(fixed_scheduler) = &mut fixed_scheduler {
-                let ticks = world
-                    .expect_resource_mut::<FixedTicker>()
-                    .0
-                    .ticks(clock_step.now);
+            let ticks = world
+                .expect_resource_mut::<FixedTicker>()
+                .0
+                .ticks(clock_step.now);
 
-                for now in ticks {
-                    debug_assert!(now <= clock_step.now);
-                    debug_assert!(now >= last_fixed);
-                    let step = now - last_fixed;
-                    *world.expect_resource_mut::<ClockStep>() = ClockStep { now, step };
-                    if cfg!(debug_assertions) {
-                        fixed_scheduler.run_sequential(&mut world)
-                    } else {
-                        fixed_scheduler.run_rayon(&mut world)
-                    }
-                    last_fixed = now;
-                    blink.reset();
+            for now in ticks {
+                debug_assert!(now <= clock_step.now);
+                debug_assert!(now >= last_fixed);
+                let step = now - last_fixed;
+                *world.expect_resource_mut::<ClockStep>() = ClockStep { now, step };
+                if cfg!(debug_assertions) {
+                    fixed_scheduler.run_sequential(&mut world)
+                } else {
+                    fixed_scheduler.run_rayon(&mut world)
                 }
+                last_fixed = now;
+                blink.reset();
             }
 
             let ticks = world
@@ -319,14 +315,12 @@ where
             if ticks > 0 {
                 world.expect_resource_mut::<FPS>().add(clock_step.now);
 
-                if let Some(var_scheduler) = &mut var_scheduler {
-                    if cfg!(debug_assertions) {
-                        var_scheduler.run_sequential(&mut world)
-                    } else {
-                        var_scheduler.run_rayon(&mut world)
-                    }
-                    blink.reset();
+                if cfg!(debug_assertions) {
+                    var_scheduler.run_sequential(&mut world)
+                } else {
+                    var_scheduler.run_rayon(&mut world)
                 }
+                blink.reset();
             }
         }
     });

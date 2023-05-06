@@ -29,8 +29,8 @@ pub struct Queue {
 impl Drop for Queue {
     fn drop(&mut self) {
         unsafe {
+            self.device.ash().queue_wait_idle(self.handle).unwrap();
             self.device.ash().destroy_command_pool(self.pool, None);
-            self.device.ash().queue_wait_idle(self.handle);
         }
     }
 }
@@ -93,6 +93,8 @@ impl Queue {
                     .ash()
                     .wait_for_fences(&[fence], true, !0)
                     .unwrap();
+
+                self.device.ash().reset_fences(&[fence]).unwrap();
             }
 
             refs.iter_mut().for_each(Refs::clear);

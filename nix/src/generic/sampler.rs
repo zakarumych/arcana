@@ -94,7 +94,7 @@ impl SamplerDesc {
             anisotropy: None,
             min_lod: 0.0,
             max_lod: f32::INFINITY,
-            normalized: false,
+            normalized: true,
         }
     }
 }

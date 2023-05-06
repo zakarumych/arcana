@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use super::{format::PixelFormat, Extent1, Extent2, Extent3, OutOfMemory};
 
 pub enum ImageError {
@@ -12,6 +14,56 @@ impl From<OutOfMemory> for ImageError {
     }
 }
 
+/// Image component swizzle
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ComponentSwizzle {
+    Identity,
+    Zero,
+    One,
+    R,
+    G,
+    B,
+    A,
+}
+
+impl Default for ComponentSwizzle {
+    fn default() -> Self {
+        ComponentSwizzle::Identity
+    }
+}
+
+/// Image swizzle
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct Swizzle {
+    pub r: ComponentSwizzle,
+    pub g: ComponentSwizzle,
+    pub b: ComponentSwizzle,
+    pub a: ComponentSwizzle,
+}
+
+impl Swizzle {
+    pub const IDENTITY: Self = Swizzle {
+        r: ComponentSwizzle::Identity,
+        g: ComponentSwizzle::Identity,
+        b: ComponentSwizzle::Identity,
+        a: ComponentSwizzle::Identity,
+    };
+
+    pub const RRRR: Self = Swizzle {
+        r: ComponentSwizzle::R,
+        g: ComponentSwizzle::R,
+        b: ComponentSwizzle::R,
+        a: ComponentSwizzle::R,
+    };
+
+    pub const _111R: Self = Swizzle {
+        r: ComponentSwizzle::One,
+        g: ComponentSwizzle::One,
+        b: ComponentSwizzle::One,
+        a: ComponentSwizzle::R,
+    };
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ImageDimensions {
     D1(u32),
@@ -20,6 +72,34 @@ pub enum ImageDimensions {
 }
 
 impl ImageDimensions {
+    #[inline(always)]
+    pub fn width(&self) -> u32 {
+        match self {
+            ImageDimensions::D1(width) => *width,
+            ImageDimensions::D2(width, _) => *width,
+            ImageDimensions::D3(width, _, _) => *width,
+        }
+    }
+
+    #[inline(always)]
+    pub fn height(&self) -> u32 {
+        match self {
+            ImageDimensions::D1(_) => 1,
+            ImageDimensions::D2(_, height) => *height,
+            ImageDimensions::D3(_, height, _) => *height,
+        }
+    }
+
+    #[inline(always)]
+    pub fn depth(&self) -> u32 {
+        match self {
+            ImageDimensions::D1(_) => 1,
+            ImageDimensions::D2(_, _) => 1,
+            ImageDimensions::D3(_, _, depth) => *depth,
+        }
+    }
+
+    #[inline(always)]
     pub fn to_1d(self) -> Extent1<u32> {
         match self {
             ImageDimensions::D1(width) => Extent1::new(width),
@@ -28,6 +108,7 @@ impl ImageDimensions {
         }
     }
 
+    #[inline(always)]
     pub fn to_2d(self) -> Extent2<u32> {
         match self {
             ImageDimensions::D1(width) => Extent2::new(width, 1),
@@ -36,6 +117,7 @@ impl ImageDimensions {
         }
     }
 
+    #[inline(always)]
     pub fn to_3d(self) -> Extent3<u32> {
         match self {
             ImageDimensions::D1(width) => Extent3::new(width, 1, 1),
@@ -62,8 +144,6 @@ pub struct ImageDesc<'a> {
     pub usage: ImageUsage,
     pub layers: u32,
     pub levels: u32,
-
-    /// Image debug name.
     pub name: &'a str,
 }
 
@@ -164,5 +244,48 @@ impl<'a> ImageDesc<'a> {
     pub const fn with_name(mut self, name: &'a str) -> Self {
         self.name = name;
         self
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct ViewDesc {
+    pub format: PixelFormat,
+    pub base_layer: u32,
+    pub layers: u32,
+    pub base_level: u32,
+    pub levels: u32,
+    pub swizzle: Swizzle,
+}
+
+impl ViewDesc {
+    pub fn new(format: PixelFormat) -> Self {
+        ViewDesc {
+            format,
+            base_layer: 0,
+            layers: 1,
+            base_level: 0,
+            levels: 1,
+            swizzle: Swizzle::IDENTITY,
+        }
+    }
+
+    pub fn layers(self, range: Range<u32>) -> Self {
+        Self {
+            layers: range.end - range.start,
+            base_layer: range.start,
+            ..self
+        }
+    }
+
+    pub fn levels(self, range: Range<u32>) -> Self {
+        Self {
+            levels: range.end - range.start,
+            base_level: range.start,
+            ..self
+        }
+    }
+
+    pub fn swizzle(self, swizzle: Swizzle) -> Self {
+        Self { swizzle, ..self }
     }
 }

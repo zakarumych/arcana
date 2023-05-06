@@ -9,7 +9,7 @@ use blink_alloc::BlinkAlloc;
 use edict::{
     epoch::EpochId,
     query::{Or2, With},
-    ChildOf, Component, Entities, EntityId, Modified, State, World,
+    Component, Entities, EntityId, Modified, State, World,
 };
 use hashbrown::{hash_map::DefaultHashBuilder, HashMap, HashSet};
 
@@ -19,7 +19,9 @@ pub(crate) use self::target::RenderTargetCounter;
 
 pub use self::{
     build::{Render, RenderBuilderContext},
-    target::{RenderTarget, RenderTargetAlwaysUpdate, RenderTargetUpdate, TargetFor},
+    target::{
+        NextVersionOf, RenderTarget, RenderTargetAlwaysUpdate, RenderTargetUpdate, TargetFor,
+    },
 };
 
 type BlinkHashMap<'a, K, V> = HashMap<K, V, DefaultHashBuilder, &'a BlinkAlloc>;
@@ -209,9 +211,9 @@ pub fn render_system(world: &World, mut state: State<RenderState>) {
         .for_each(|(tid, rt, surface_opt)| {
             if let Some(surface) = surface_opt {
                 let mut prev_tid = tid;
-                while let Ok((ChildOf, parent)) = world
+                while let Ok((NextVersionOf, parent)) = world
                     .new_query()
-                    .relates_exclusive::<&ChildOf>()
+                    .relates_exclusive::<&NextVersionOf>()
                     .get_one(prev_tid)
                 {
                     prev_tid = parent;
@@ -249,17 +251,12 @@ pub fn render_system(world: &World, mut state: State<RenderState>) {
     let mut activate_renders = HashSet::new_in(&state.blink);
     let mut render_queue = VecDeque::new_in(&state.blink);
     let mut render_query = world.query::<&mut RenderComponent>();
-    let mut child_of_query = world.new_query().relates_exclusive::<&ChildOf>();
+    let mut next_version_query = world.new_query().relates_exclusive::<&NextVersionOf>();
     let mut render_target_query = world.query::<&RenderTarget>();
 
     // For all targets that needs to be updated.
     while let Some(tid) = render_targets_to_update.pop() {
         let rt = render_target_query.get_one(tid).unwrap();
-
-        // Update parent render target.
-        if let Ok((ChildOf, parent)) = child_of_query.get_one(tid) {
-            render_targets_to_update.push(parent);
-        }
 
         write_barriers.insert(tid, rt.waits()..rt.writes());
         if !rt.reads().is_empty() {
@@ -311,10 +308,13 @@ pub fn render_system(world: &World, mut state: State<RenderState>) {
         }
     }
 
+    let mut cbufs = Vec::new_in(&state.blink);
+
     // Walk render schedule and run renders in opposite order.
     while let Some(rid) = render_schedule.pop() {
         let render = render_query.get_one(rid).unwrap();
-        let mut cbufs = Vec::new_in(&state.blink);
+
+        let cbufs_pre = cbufs.len();
         let result = render.run(
             &device,
             &mut queue,
@@ -328,7 +328,8 @@ pub fn render_system(world: &World, mut state: State<RenderState>) {
 
         match result {
             Ok(()) => {
-                queue.submit(cbufs, false).unwrap();
+                let cbufs_post = cbufs.len();
+                cbufs[cbufs_pre..cbufs_post].reverse();
             }
             Err(err) => {
                 tracing::event!(tracing::Level::ERROR, err = ?err);
@@ -336,10 +337,13 @@ pub fn render_system(world: &World, mut state: State<RenderState>) {
         }
     }
 
+    cbufs.reverse();
+    queue.submit(cbufs, false).unwrap();
+
     let mut encoder = queue.new_command_encoder().unwrap();
 
-    for (frame, writes) in frames {
-        encoder.present(frame, writes);
+    for (frame, after) in frames {
+        encoder.present(frame, after);
     }
 
     queue.submit(Some(encoder.finish().unwrap()), true).unwrap();

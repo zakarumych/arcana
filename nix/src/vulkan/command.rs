@@ -8,8 +8,9 @@ use crate::generic::{
 };
 
 use super::{
-    access::access_for_stages, from::IntoAsh, handle_host_oom, layout::PipelineLayout, refs::Refs,
-    unexpected_error, Buffer, Device, Frame, Image, RenderPipeline,
+    access::access_for_stages, format_aspect, from::IntoAsh, handle_host_oom,
+    layout::PipelineLayout, refs::Refs, unexpected_error, Buffer, Device, Frame, Image,
+    RenderPipeline,
 };
 
 pub struct CommandBuffer {
@@ -75,24 +76,15 @@ impl crate::traits::CommandEncoder for CommandEncoder {
             let format = color.image.format();
             debug_assert!(format.is_color());
 
-            let color_extent = color.image.extent_2d();
+            let color_extent: ash::vk::Extent2D = color.image.dimensions().to_2d().into_ash();
             extent.width = extent.width.min(color_extent.width);
             extent.height = extent.height.min(color_extent.height);
 
             let mut attachment = vk::RenderingAttachmentInfo::builder();
 
-            let view = color
-                .image
-                .view(
-                    self.device.ash(),
-                    color.level..color.level + 1,
-                    color.layer..color.layer + 1,
-                )
-                .unwrap();
-
             self.refs.add_image(color.image.clone());
 
-            attachment.image_view = view;
+            attachment.image_view = color.image.view_handle();
             attachment.image_layout = vk::ImageLayout::GENERAL;
             attachment.load_op = match color.load {
                 LoadOp::Load => vk::AttachmentLoadOp::LOAD,
@@ -122,25 +114,16 @@ impl crate::traits::CommandEncoder for CommandEncoder {
             let format = depth.image.format();
             debug_assert!(format.is_depth() || format.is_stencil());
 
-            let depth_extent = depth.image.extent_2d();
+            let depth_extent: ash::vk::Extent2D = depth.image.dimensions().to_2d().into_ash();
             extent.width = extent.width.min(depth_extent.width);
             extent.height = extent.height.min(depth_extent.height);
 
             if format.is_depth() {
                 let mut attachment = vk::RenderingAttachmentInfo::builder();
 
-                let view = depth
-                    .image
-                    .view(
-                        self.device.ash(),
-                        depth.level..depth.level + 1,
-                        depth.layer..depth.layer + 1,
-                    )
-                    .unwrap();
-
                 self.refs.add_image(depth.image.clone());
 
-                attachment.image_view = view;
+                attachment.image_view = depth.image.view_handle();
                 attachment.image_layout = vk::ImageLayout::GENERAL;
                 attachment.load_op = match depth.load {
                     LoadOp::Load => vk::AttachmentLoadOp::LOAD,
@@ -162,18 +145,9 @@ impl crate::traits::CommandEncoder for CommandEncoder {
             if format.is_stencil() {
                 let mut attachment = vk::RenderingAttachmentInfo::builder();
 
-                let view = depth
-                    .image
-                    .view(
-                        self.device.ash(),
-                        depth.level..depth.level + 1,
-                        depth.layer..depth.layer + 1,
-                    )
-                    .unwrap();
-
                 self.refs.add_image(depth.image.clone());
 
-                attachment.image_view = view;
+                attachment.image_view = depth.image.view_handle();
                 attachment.load_op = match depth.load {
                     LoadOp::Load => vk::AttachmentLoadOp::LOAD,
                     LoadOp::Clear(ClearDepthStencil { depth, stencil }) => {
@@ -375,6 +349,36 @@ impl crate::traits::RenderCommandEncoder for RenderCommandEncoder<'_> {
     }
 
     #[inline(always)]
+    fn bind_vertex_buffers(&mut self, start: u32, buffers: &[(&crate::backend::Buffer, usize)]) {
+        let mut handles = smallvec::SmallVec::<[_; 8]>::with_capacity(buffers.len());
+        let mut offsets = smallvec::SmallVec::<[_; 8]>::with_capacity(buffers.len());
+        for &(buffer, offset) in buffers.iter() {
+            handles.push(buffer.handle());
+            offsets.push(offset as u64);
+            self.refs.add_buffer(buffer.clone());
+        }
+
+        unsafe {
+            self.device
+                .ash()
+                .cmd_bind_vertex_buffers(self.handle, start, &handles, &offsets)
+        }
+    }
+
+    #[inline(always)]
+    fn bind_index_buffer(&mut self, buffer: &crate::backend::Buffer, offset: usize) {
+        unsafe {
+            self.device.ash().cmd_bind_index_buffer(
+                self.handle,
+                buffer.handle(),
+                offset as u64,
+                vk::IndexType::UINT32,
+            )
+        }
+        self.refs.add_buffer(buffer.clone());
+    }
+
+    #[inline(always)]
     fn draw(&mut self, vertices: Range<u32>, instances: Range<u32>) {
         unsafe {
             self.device.ash().cmd_draw(
@@ -382,6 +386,20 @@ impl crate::traits::RenderCommandEncoder for RenderCommandEncoder<'_> {
                 vertices.end - vertices.start,
                 instances.end - instances.start,
                 vertices.start,
+                instances.start,
+            );
+        }
+    }
+
+    #[inline(always)]
+    fn draw_indexed(&mut self, vertex_offset: i32, indices: Range<u32>, instances: Range<u32>) {
+        unsafe {
+            self.device.ash().cmd_draw_indexed(
+                self.handle,
+                indices.end - indices.start,
+                instances.end - instances.start,
+                indices.start,
+                vertex_offset,
                 instances.start,
             );
         }
@@ -394,13 +412,6 @@ pub struct CopyCommandEncoder<'a> {
     refs: &'a mut Refs,
 }
 
-impl Drop for CopyCommandEncoder<'_> {
-    #[inline(always)]
-    fn drop(&mut self) {
-        unsafe { self.device.ash().cmd_end_rendering(self.handle) }
-    }
-}
-
 #[hidden_trait::expose]
 impl crate::traits::CopyCommandEncoder for CopyCommandEncoder<'_> {
     #[inline(always)]
@@ -408,13 +419,126 @@ impl crate::traits::CopyCommandEncoder for CopyCommandEncoder<'_> {
         barrier(&self.device, self.handle, after, before);
     }
 
+    #[inline(always)]
+    fn init_image(&mut self, after: PipelineStages, before: PipelineStages, image: &Image) {
+        image_barrier(&self.device, self.handle, after, before, image);
+        self.refs.add_image(image.clone());
+    }
+
+    #[inline(never)]
+    fn copy_buffer_to_image(
+        &mut self,
+        src: &Buffer,
+        start: usize,
+        bytes_per_line: usize,
+        bytes_per_plane: usize,
+        dst: &Image,
+        offset: Offset3<u32>,
+        extent: Extent3<u32>,
+        layers: Range<u32>,
+        level: u32,
+    ) {
+        let texel_size = dst.format().size();
+        debug_assert_eq!(bytes_per_line % texel_size, 0);
+        debug_assert_eq!(bytes_per_plane % texel_size, 0);
+        let texel_per_line = bytes_per_line / texel_size;
+        let texel_per_plane = bytes_per_plane / texel_size;
+
+        self.refs.add_buffer(src.clone());
+        self.refs.add_image(dst.clone());
+
+        unsafe {
+            self.device.ash().cmd_copy_buffer_to_image(
+                self.handle,
+                src.handle(),
+                dst.handle(),
+                ash::vk::ImageLayout::GENERAL,
+                &[vk::BufferImageCopy {
+                    buffer_offset: start as u64,
+                    buffer_row_length: texel_per_line as u32,
+                    buffer_image_height: texel_per_plane as u32,
+                    image_subresource: vk::ImageSubresourceLayers {
+                        aspect_mask: format_aspect(dst.format()),
+                        mip_level: dst.base_level() + level,
+                        base_array_layer: dst.base_layer() + layers.start,
+                        layer_count: layers.end - layers.start,
+                    },
+                    image_offset: vk::Offset3D {
+                        x: offset.x() as i32,
+                        y: offset.y() as i32,
+                        z: offset.z() as i32,
+                    },
+                    image_extent: vk::Extent3D {
+                        width: extent.width(),
+                        height: extent.height(),
+                        depth: extent.depth(),
+                    },
+                }],
+            )
+        }
+    }
+
+    #[inline(never)]
+    fn copy_image_region(
+        &mut self,
+        src: &Image,
+        src_offset: Offset3<u32>,
+        src_base_layer: u32,
+        dst: &Image,
+        dst_offset: Offset3<u32>,
+        dst_base_layer: u32,
+        extent: Extent3<u32>,
+        layers: u32,
+    ) {
+        self.refs.add_image(src.clone());
+        self.refs.add_image(dst.clone());
+        unsafe {
+            self.device.ash().cmd_copy_image(
+                self.handle,
+                src.handle(),
+                ash::vk::ImageLayout::GENERAL,
+                dst.handle(),
+                ash::vk::ImageLayout::GENERAL,
+                &[vk::ImageCopy {
+                    src_subresource: vk::ImageSubresourceLayers {
+                        aspect_mask: format_aspect(src.format()),
+                        mip_level: src.base_level(),
+                        base_array_layer: src.base_layer() + src_base_layer,
+                        layer_count: layers,
+                    },
+                    src_offset: vk::Offset3D {
+                        x: src_offset.x() as i32,
+                        y: src_offset.y() as i32,
+                        z: src_offset.z() as i32,
+                    },
+                    dst_subresource: vk::ImageSubresourceLayers {
+                        aspect_mask: format_aspect(dst.format()),
+                        mip_level: dst.base_level(),
+                        base_array_layer: dst.base_layer() + dst_base_layer,
+                        layer_count: layers,
+                    },
+                    dst_offset: vk::Offset3D {
+                        x: dst_offset.x() as i32,
+                        y: dst_offset.y() as i32,
+                        z: dst_offset.z() as i32,
+                    },
+                    extent: vk::Extent3D {
+                        width: extent.width(),
+                        height: extent.height(),
+                        depth: extent.depth(),
+                    },
+                }],
+            )
+        }
+    }
+
     #[inline]
-    fn write_buffer(&mut self, buffer: &Buffer, offset: u64, data: &[u8]) {
+    fn write_buffer(&mut self, buffer: &Buffer, offset: usize, data: &[u8]) {
         self.refs.add_buffer(buffer.clone());
         unsafe {
             self.device
                 .ash()
-                .cmd_update_buffer(self.handle, buffer.handle(), offset, data)
+                .cmd_update_buffer(self.handle, buffer.handle(), offset as u64, data)
         }
     }
 }

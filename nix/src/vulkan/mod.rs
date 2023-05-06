@@ -18,6 +18,8 @@ mod sampler;
 mod shader;
 mod surface;
 
+use crate::generic::PixelFormat;
+
 pub use self::{
     buffer::Buffer,
     command::{CommandBuffer, CommandEncoder, CopyCommandEncoder, RenderCommandEncoder},
@@ -94,7 +96,22 @@ impl fmt::Display for Version {
     }
 }
 
-pub mod proc_macro {
+#[inline(always)]
+fn format_aspect(format: PixelFormat) -> vk::ImageAspectFlags {
+    let mut aspect = vk::ImageAspectFlags::empty();
+    if format.is_color() {
+        aspect |= vk::ImageAspectFlags::COLOR;
+    }
+    if format.is_depth() {
+        aspect |= vk::ImageAspectFlags::DEPTH;
+    }
+    if format.is_stencil() {
+        aspect |= vk::ImageAspectFlags::STENCIL;
+    }
+    aspect
+}
+
+pub mod for_macro {
     pub use crate::generic::Constants;
 
     pub use super::{

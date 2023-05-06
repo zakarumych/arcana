@@ -1,9 +1,10 @@
 use ash::vk;
 
 use crate::generic::{
-    AddressMode, BlendFactor, BlendOp, BufferUsage, CompareFunction, FamilyCapabilities, Filter,
-    ImageDimensions, ImageUsage, MipMapMode, PipelineStage, PipelineStages, PixelFormat,
-    QueueFlags, ShaderStage, ShaderStages, VertexFormat, WriteMask,
+    AddressMode, BlendFactor, BlendOp, BufferUsage, CompareFunction, ComponentSwizzle, Culling,
+    Extent2, Extent3, FamilyCapabilities, Filter, FrontFace, ImageDimensions, ImageUsage,
+    MipMapMode, Offset2, Offset3, PipelineStage, PipelineStages, PixelFormat, QueueFlags,
+    ShaderStage, ShaderStages, Swizzle, VertexFormat, WriteMask,
 };
 
 macro_rules! from_flags {
@@ -544,6 +545,7 @@ impl AshFrom<AddressMode> for ash::vk::SamplerAddressMode {
 }
 
 impl AshFrom<ShaderStage> for ash::vk::ShaderStageFlags {
+    #[inline(always)]
     fn ash_from(stage: ShaderStage) -> Self {
         match stage {
             ShaderStage::Vertex => ash::vk::ShaderStageFlags::VERTEX,
@@ -554,6 +556,7 @@ impl AshFrom<ShaderStage> for ash::vk::ShaderStageFlags {
 }
 
 impl AshFrom<ShaderStages> for ash::vk::ShaderStageFlags {
+    #[inline(always)]
     fn ash_from(stages: ShaderStages) -> Self {
         from_flags!(ShaderStages => vk::ShaderStageFlags, [
             VERTEX => VERTEX,
@@ -564,6 +567,7 @@ impl AshFrom<ShaderStages> for ash::vk::ShaderStageFlags {
 }
 
 impl AshFrom<PipelineStage> for ash::vk::PipelineStageFlags {
+    #[inline(always)]
     fn ash_from(stage: PipelineStage) -> Self {
         match stage {
             PipelineStage::DrawIndirect => ash::vk::PipelineStageFlags::DRAW_INDIRECT,
@@ -580,6 +584,7 @@ impl AshFrom<PipelineStage> for ash::vk::PipelineStageFlags {
 }
 
 impl AshFrom<PipelineStages> for ash::vk::PipelineStageFlags {
+    #[inline(always)]
     fn ash_from(stages: PipelineStages) -> Self {
         from_flags!(PipelineStages => vk::PipelineStageFlags, [
             DRAW_INDIRECT => DRAW_INDIRECT,
@@ -592,5 +597,95 @@ impl AshFrom<PipelineStages> for ash::vk::PipelineStageFlags {
             COMPUTE_SHADER => COMPUTE_SHADER,
             TRANSFER => TRANSFER,
         ], stages)
+    }
+}
+
+impl AshFrom<FrontFace> for ash::vk::FrontFace {
+    #[inline(always)]
+    fn ash_from(face: FrontFace) -> Self {
+        match face {
+            FrontFace::Clockwise => ash::vk::FrontFace::CLOCKWISE,
+            FrontFace::CounterClockwise => ash::vk::FrontFace::COUNTER_CLOCKWISE,
+        }
+    }
+}
+
+impl AshFrom<Culling> for ash::vk::CullModeFlags {
+    #[inline(always)]
+    fn ash_from(generic: Culling) -> Self {
+        match generic {
+            Culling::None => ash::vk::CullModeFlags::NONE,
+            Culling::Front => ash::vk::CullModeFlags::FRONT,
+            Culling::Back => ash::vk::CullModeFlags::BACK,
+        }
+    }
+}
+
+impl AshFrom<Extent2> for ash::vk::Extent2D {
+    #[inline(always)]
+    fn ash_from(generic: Extent2) -> Self {
+        ash::vk::Extent2D {
+            width: generic.width(),
+            height: generic.height(),
+        }
+    }
+}
+
+impl AshFrom<Extent3> for ash::vk::Extent3D {
+    #[inline(always)]
+    fn ash_from(generic: Extent3) -> Self {
+        ash::vk::Extent3D {
+            width: generic.width(),
+            height: generic.height(),
+            depth: generic.depth(),
+        }
+    }
+}
+
+impl AshFrom<Offset2> for ash::vk::Offset2D {
+    #[inline(always)]
+    fn ash_from(generic: Offset2) -> Self {
+        ash::vk::Offset2D {
+            x: generic.x(),
+            y: generic.y(),
+        }
+    }
+}
+
+impl AshFrom<Offset3> for ash::vk::Offset3D {
+    #[inline(always)]
+    fn ash_from(generic: Offset3) -> Self {
+        ash::vk::Offset3D {
+            x: generic.x(),
+            y: generic.y(),
+            z: generic.z(),
+        }
+    }
+}
+
+impl AshFrom<ComponentSwizzle> for ash::vk::ComponentSwizzle {
+    #[inline(always)]
+    fn ash_from(component: ComponentSwizzle) -> Self {
+        match component {
+            ComponentSwizzle::Identity => ash::vk::ComponentSwizzle::IDENTITY,
+            ComponentSwizzle::Zero => ash::vk::ComponentSwizzle::ZERO,
+            ComponentSwizzle::One => ash::vk::ComponentSwizzle::ONE,
+            ComponentSwizzle::R => ash::vk::ComponentSwizzle::R,
+            ComponentSwizzle::G => ash::vk::ComponentSwizzle::G,
+            ComponentSwizzle::B => ash::vk::ComponentSwizzle::B,
+            ComponentSwizzle::A => ash::vk::ComponentSwizzle::A,
+        }
+    }
+}
+
+impl AshFrom<Swizzle> for ash::vk::ComponentMapping {
+    #[inline(always)]
+    fn ash_from(swizzle: Swizzle) -> Self {
+        ash::vk::ComponentMapping {
+            r: swizzle.r.into_ash(),
+            g: swizzle.g.into_ash(),
+            b: swizzle.b.into_ash(),
+            a: swizzle.a.into_ash(),
+        }
     }
 }

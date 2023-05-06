@@ -95,9 +95,11 @@ impl Render for MainPass {
                         }),
                         color_targets: vec![nix::ColorTargetDesc {
                             format: target.format(),
-                            blend: None,
+                            blend: Some(nix::BlendDesc::default()),
                         }],
                         depth_stencil: None,
+                        front_face: nix::FrontFace::default(),
+                        culling: nix::Culling::Back,
                     }),
                     arguments: &[MainArguments::LAYOUT],
                     constants: MainConstants::SIZE,
@@ -107,7 +109,7 @@ impl Render for MainPass {
 
         let mut render = encoder.render(nix::RenderPassDesc {
             color_attachments: &[
-                nix::AttachmentDesc::new(&target).clear(nix::ClearColor(1.0, 0.5, 0.3, 1.0))
+                nix::AttachmentDesc::new(&target).clear(nix::ClearColor(1.0, 0.5, 0.3, 0.0))
             ],
             ..Default::default()
         });
@@ -171,26 +173,26 @@ fn main() {
         // Create main pass.
         // It returns target id that it renders to.
         let target = MainPass::build(&mut game.world);
+        let target = bob::egui::EguiRender::build(target, &mut game.world);
 
         // Use window's surface for the render target.
         game.render_window = Some(target);
 
-        game.fixed_scheduler
-            .get_or_insert_with(Scheduler::new)
-            .add_system(move |fps: Res<FPS>| println!("FPS: {}", fps.fps()));
+        // game.var_scheduler
+        //     .get_or_insert_with(Scheduler::new)
+        //     .add_system(move |fps: Res<FPS>| println!("FPS: {}", fps.fps()));
 
         game.var_scheduler
-            .get_or_insert_with(Scheduler::new)
-            .add_system(
-                move |mut egui: ResMut<EguiResource>, mut window: QueryRef<&Window>| {
-                    let Ok(window) = window.get_one(target) else { return; };
-                    egui.run(window, |ctx| {
-                        bob::egui::Window::new("Hello world!").show(ctx, |ui| {
-                            ui.label("Hello world!");
-                        });
+            .add_system(move |mut egui: ResMut<EguiResource>, world: &World| {
+                egui.run(target, world, |ctx| {
+                    bob::egui::Window::new("Hello world!").show(ctx, |ui| {
+                        ui.label("Hello world!");
                     });
-                },
-            );
+                    bob::egui::Window::new("Hello world2!").show(ctx, |ui| {
+                        ui.label("Hello world2!");
+                    });
+                });
+            });
 
         Ok::<_, Infallible>(game)
     });

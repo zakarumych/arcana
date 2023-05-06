@@ -4,10 +4,10 @@
 use std::sync::Arc;
 
 use blink_alloc::BlinkAlloc;
-use edict::{ActionEncoder, ChildOf, EntityId, QueryOneError, World};
+use edict::{ActionEncoder, EntityId, QueryOneError, World};
 use hashbrown::HashSet;
 
-use super::{RenderComponent, RenderContext, RenderError, RenderTarget, TargetFor};
+use super::{NextVersionOf, RenderComponent, RenderContext, RenderError, RenderTarget, TargetFor};
 
 pub trait Render: Send + 'static {
     fn render(
@@ -138,7 +138,9 @@ impl<'a> RenderBuilderContext<'a> {
                     Some(updated) => {
                         world.insert(new_target, updated).unwrap();
                         world.add_relation(new_target, TargetFor, id).unwrap();
-                        world.add_relation(new_target, ChildOf, target).unwrap();
+                        world
+                            .add_relation(new_target, NextVersionOf, target)
+                            .unwrap();
                     }
                 },
                 Err(QueryOneError::NotSatisfied) => {

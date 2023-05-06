@@ -320,6 +320,87 @@ impl PixelFormat {
             | PixelFormat::D32FloatS8Uint => true,
         }
     }
+
+    pub fn size(&self) -> usize {
+        match self {
+            PixelFormat::R8Unorm
+            | PixelFormat::R8Snorm
+            | PixelFormat::R8Uint
+            | PixelFormat::R8Sint
+            | PixelFormat::R8Srgb => 1,
+            PixelFormat::R16Unorm
+            | PixelFormat::R16Snorm
+            | PixelFormat::R16Uint
+            | PixelFormat::R16Sint
+            | PixelFormat::R16Float => 2,
+            PixelFormat::R32Unorm
+            | PixelFormat::R32Snorm
+            | PixelFormat::R32Uint
+            | PixelFormat::R32Sint
+            | PixelFormat::R32Float => 4,
+            PixelFormat::Rg8Unorm
+            | PixelFormat::Rg8Snorm
+            | PixelFormat::Rg8Uint
+            | PixelFormat::Rg8Sint
+            | PixelFormat::Rg8Srgb => 2,
+            PixelFormat::Rg16Unorm
+            | PixelFormat::Rg16Snorm
+            | PixelFormat::Rg16Uint
+            | PixelFormat::Rg16Sint
+            | PixelFormat::Rg16Float => 4,
+            PixelFormat::Rg32Unorm
+            | PixelFormat::Rg32Snorm
+            | PixelFormat::Rg32Uint
+            | PixelFormat::Rg32Sint
+            | PixelFormat::Rg32Float => 8,
+            PixelFormat::Rgb8Unorm
+            | PixelFormat::Rgb8Snorm
+            | PixelFormat::Rgb8Uint
+            | PixelFormat::Rgb8Sint
+            | PixelFormat::Rgb8Srgb => 3,
+            PixelFormat::Rgb16Unorm
+            | PixelFormat::Rgb16Snorm
+            | PixelFormat::Rgb16Uint
+            | PixelFormat::Rgb16Sint
+            | PixelFormat::Rgb16Float => 6,
+            PixelFormat::Rgb32Unorm
+            | PixelFormat::Rgb32Snorm
+            | PixelFormat::Rgb32Uint
+            | PixelFormat::Rgb32Sint
+            | PixelFormat::Rgb32Float => 12,
+            PixelFormat::Rgba8Unorm
+            | PixelFormat::Rgba8Snorm
+            | PixelFormat::Rgba8Uint
+            | PixelFormat::Rgba8Sint
+            | PixelFormat::Rgba8Srgb => 4,
+            PixelFormat::Rgba16Unorm
+            | PixelFormat::Rgba16Snorm
+            | PixelFormat::Rgba16Uint
+            | PixelFormat::Rgba16Sint
+            | PixelFormat::Rgba16Float => 8,
+            PixelFormat::Rgba32Unorm
+            | PixelFormat::Rgba32Snorm
+            | PixelFormat::Rgba32Uint
+            | PixelFormat::Rgba32Sint
+            | PixelFormat::Rgba32Float => 16,
+            PixelFormat::Bgr8Unorm
+            | PixelFormat::Bgr8Snorm
+            | PixelFormat::Bgr8Uint
+            | PixelFormat::Bgr8Sint
+            | PixelFormat::Bgr8Srgb => 3,
+            PixelFormat::Bgra8Unorm
+            | PixelFormat::Bgra8Snorm
+            | PixelFormat::Bgra8Uint
+            | PixelFormat::Bgra8Sint
+            | PixelFormat::Bgra8Srgb => 4,
+            PixelFormat::D16Unorm => 2,
+            PixelFormat::D32Float => 4,
+            PixelFormat::S8Uint => 1,
+            PixelFormat::D16UnormS8Uint => 3,
+            PixelFormat::D24UnormS8Uint => 4,
+            PixelFormat::D32FloatS8Uint => 5,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

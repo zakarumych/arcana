@@ -20,6 +20,7 @@ parking_lot = "0.12"
 codespan-reporting = "0.11"
 hashbrown = "0.13"
 bytemuck = "1.7"
+smallvec = "1.6"
 
 [target.'cfg(any(windows, all(unix, not(any(target_os = "macos", target_os = "ios")))))'.dependencies]
 ash = { version = "0.37.0", features = ["loaded"] }

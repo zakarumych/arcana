@@ -1,13 +1,24 @@
-use std::{mem::ManuallyDrop, ops::Range, sync::Arc};
+use std::{
+    mem::{size_of, ManuallyDrop},
+    sync::Arc,
+};
 
 use ash::vk;
 use gpu_alloc::MemoryBlock;
-use hashbrown::HashMap;
-use parking_lot::RwLock;
+use hashbrown::{hash_map::Entry, HashMap};
+use parking_lot::Mutex;
 
-use crate::generic::{ImageDimensions, ImageUsage, OutOfMemory, PixelFormat};
+use crate::generic::{
+    ArgumentKind, Automatic, ImageDimensions, ImageUsage, OutOfMemory, PixelFormat, Sampled,
+    Storage, Swizzle, ViewDesc,
+};
 
-use super::{device::WeakDevice, from::TryIntoAsh, handle_host_oom, unexpected_error};
+use super::{
+    arguments::ArgumentsField,
+    device::{DeviceOwned, WeakDevice},
+    refs::Refs,
+    Device,
+};
 
 enum Flavor {
     Device {
@@ -17,36 +28,104 @@ enum Flavor {
     Swapchain,
 }
 
-struct Inner {
+// Contains actual `vk::Image`
+struct ImageData {
     owner: WeakDevice,
-    dimensions: ImageDimensions,
     format: PixelFormat,
     usage: ImageUsage,
+    dimensions: ImageDimensions,
     layers: u32,
     levels: u32,
     flavor: Flavor,
-    views: RwLock<HashMap<(Range<u32>, Range<u32>), vk::ImageView>>,
+    views: Mutex<HashMap<ViewDesc, (vk::ImageView, usize)>>,
 }
 
-impl Drop for Inner {
+impl Drop for ImageData {
     fn drop(&mut self) {
+        self.owner
+            .drop_image_views(self.views.get_mut().values().map(|(_, idx)| *idx));
+
         if let Flavor::Device { block, idx } = &mut self.flavor {
             self.owner
-                .drop_buffer(*idx, unsafe { ManuallyDrop::take(block) });
+                .drop_image(*idx, unsafe { ManuallyDrop::take(block) });
         }
     }
+}
+
+struct Inner {
+    data: Arc<ImageData>,
+    desc: ViewDesc,
+    usage: ImageUsage,
+    dimensions: ImageDimensions,
+    owner: WeakDevice,
 }
 
 #[derive(Clone)]
 pub struct Image {
     handle: vk::Image,
+    view: vk::ImageView,
     inner: Arc<Inner>,
 }
 
+impl DeviceOwned for Image {
+    #[inline(always)]
+    fn owner(&self) -> &WeakDevice {
+        &self.inner.owner
+    }
+}
+
 impl Image {
+    fn build(
+        owner: WeakDevice,
+        handle: vk::Image,
+        view: vk::ImageView,
+        view_idx: usize,
+        dimensions: ImageDimensions,
+        format: PixelFormat,
+        usage: ImageUsage,
+        layers: u32,
+        levels: u32,
+        flavor: Flavor,
+    ) -> Self {
+        let desc = ViewDesc {
+            format,
+            base_layer: 0,
+            layers,
+            base_level: 0,
+            levels,
+            swizzle: Swizzle::IDENTITY,
+        };
+
+        let mut views = HashMap::new();
+        views.insert(desc, (view, view_idx));
+
+        Image {
+            handle,
+            view,
+            inner: Arc::new(Inner {
+                data: Arc::new(ImageData {
+                    owner: owner.clone(),
+                    dimensions,
+                    format,
+                    usage,
+                    layers,
+                    levels,
+                    flavor,
+                    views: Mutex::new(views),
+                }),
+                desc,
+                dimensions,
+                usage,
+                owner,
+            }),
+        }
+    }
+
     pub(super) fn new(
         owner: WeakDevice,
         handle: vk::Image,
+        view: vk::ImageView,
+        view_idx: usize,
         dimensions: ImageDimensions,
         format: PixelFormat,
         usage: ImageUsage,
@@ -55,139 +134,98 @@ impl Image {
         block: MemoryBlock<vk::DeviceMemory>,
         idx: usize,
     ) -> Self {
-        Image {
+        Image::build(
+            owner,
             handle,
-            inner: Arc::new(Inner {
-                owner,
-                dimensions,
-                format,
-                usage,
-                layers,
-                levels,
-                flavor: Flavor::Device {
-                    block: ManuallyDrop::new(block),
-                    idx,
-                },
-                views: RwLock::new(HashMap::new()),
-            }),
-        }
+            view,
+            view_idx,
+            dimensions,
+            format,
+            usage,
+            layers,
+            levels,
+            Flavor::Device {
+                block: ManuallyDrop::new(block),
+                idx,
+            },
+        )
     }
 
     pub(super) fn from_swapchain_image(
         owner: WeakDevice,
         handle: vk::Image,
+        view: vk::ImageView,
+        view_idx: usize,
         dimensions: ImageDimensions,
         format: PixelFormat,
         usage: ImageUsage,
     ) -> Self {
-        Image {
+        Image::build(
+            owner,
             handle,
-            inner: Arc::new(Inner {
-                owner,
-                dimensions,
-                format,
-                usage,
-                layers: 1,
-                levels: 1,
-                flavor: Flavor::Swapchain,
-                views: RwLock::new(HashMap::new()),
-            }),
-        }
+            view,
+            view_idx,
+            dimensions,
+            format,
+            usage,
+            1,
+            1,
+            Flavor::Swapchain,
+        )
     }
 
     #[inline(always)]
-    pub(super) fn extent_2d(&self) -> vk::Extent2D {
-        match self.inner.dimensions {
-            ImageDimensions::D1(width) => vk::Extent2D { width, height: 1 },
-            ImageDimensions::D2(width, height) => vk::Extent2D { width, height },
-            ImageDimensions::D3(width, height, _) => vk::Extent2D { width, height },
-        }
-    }
-
-    #[inline(always)]
-    pub(super) fn extent_3d(&self) -> vk::Extent3D {
-        match self.inner.dimensions {
-            ImageDimensions::D1(width) => vk::Extent3D {
-                width,
-                height: 1,
-                depth: 1,
-            },
-            ImageDimensions::D2(width, height) => vk::Extent3D {
-                width,
-                height,
-                depth: 1,
-            },
-            ImageDimensions::D3(width, height, depth) => vk::Extent3D {
-                width,
-                height,
-                depth,
-            },
-        }
-    }
-
-    #[inline(always)]
-    pub(super) fn view(
-        &self,
-        device: &ash::Device,
-        levels: Range<u32>,
-        layers: Range<u32>,
-    ) -> Result<vk::ImageView, OutOfMemory> {
-        if let Some(&view) = self
-            .inner
-            .views
-            .read()
-            .get(&(levels.clone(), layers.clone()))
-        {
-            return Ok(view);
-        }
-        self.new_view(device, levels, layers)
-    }
-
-    #[inline(never)]
-    #[cold]
-    fn new_view(
-        &self,
-        device: &ash::Device,
-        levels: Range<u32>,
-        layers: Range<u32>,
-    ) -> Result<vk::ImageView, OutOfMemory> {
-        let result = unsafe {
-            device.create_image_view(
-                &vk::ImageViewCreateInfo::builder()
-                    .image(self.handle)
-                    .view_type(match self.inner.dimensions {
-                        ImageDimensions::D1(..) => vk::ImageViewType::TYPE_1D,
-                        ImageDimensions::D2(..) => vk::ImageViewType::TYPE_2D,
-                        ImageDimensions::D3(..) => vk::ImageViewType::TYPE_3D,
-                    })
-                    .format(self.inner.format.try_into_ash().unwrap())
-                    .subresource_range(
-                        vk::ImageSubresourceRange::builder()
-                            .aspect_mask(format_aspect(self.inner.format))
-                            .base_mip_level(levels.start)
-                            .level_count(levels.end - levels.start)
-                            .base_array_layer(layers.start)
-                            .layer_count(layers.end - layers.start)
-                            .build(),
-                    ),
-                None,
-            )
+    pub(super) fn get_view(&self, device: &Device, desc: ViewDesc) -> Result<Image, OutOfMemory> {
+        let desc = ViewDesc {
+            base_layer: desc.base_layer + self.inner.desc.base_layer,
+            base_level: desc.base_level + self.inner.desc.base_level,
+            ..desc
         };
 
-        let view = result.map_err(|err| match err {
-            vk::Result::ERROR_OUT_OF_HOST_MEMORY => handle_host_oom(),
-            vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => OutOfMemory,
-            _ => unexpected_error(err),
-        })?;
+        if self.inner.desc == desc {
+            return Ok(self.clone());
+        }
 
-        let mut views = self.inner.views.write();
-        views.insert((levels, layers), view);
-        Ok(view)
+        let view = match self.inner.data.views.lock().entry(desc) {
+            Entry::Occupied(entry) => entry.get().0,
+            Entry::Vacant(entry) => {
+                let (view, idx) =
+                    device.new_image_view(self.handle, self.inner.dimensions, desc)?;
+                entry.insert((view, idx)).0
+            }
+        };
+
+        Ok(Image {
+            handle: self.handle,
+            view,
+            inner: Arc::new(Inner {
+                data: self.inner.data.clone(),
+                desc,
+                dimensions: self.inner.dimensions,
+                usage: self.inner.usage,
+                owner: self.inner.owner.clone(),
+            }),
+        })
     }
 
     #[inline(always)]
     pub(super) fn handle(&self) -> vk::Image {
         self.handle
+    }
+
+    #[inline(always)]
+    pub(super) fn view_handle(&self) -> vk::ImageView {
+        self.view
+    }
+
+    #[inline(always)]
+    pub(super) fn base_layer(&self) -> u32 {
+        self.inner.desc.base_layer
+    }
+
+    #[inline(always)]
+    pub(super) fn base_level(&self) -> u32 {
+        self.inner.desc.base_level
     }
 }
 
@@ -195,7 +233,7 @@ impl Image {
 impl crate::traits::Image for Image {
     #[inline(always)]
     fn format(&self) -> PixelFormat {
-        self.inner.format
+        self.inner.desc.format
     }
 
     #[inline(always)]
@@ -205,34 +243,91 @@ impl crate::traits::Image for Image {
 
     #[inline(always)]
     fn layers(&self) -> u32 {
-        self.inner.layers
+        self.inner.desc.layers
     }
 
     #[inline(always)]
     fn levels(&self) -> u32 {
-        self.inner.levels
+        self.inner.desc.levels
+    }
+
+    #[inline(always)]
+    fn view(&self, device: &Device, desc: ViewDesc) -> Result<Image, OutOfMemory> {
+        self.get_view(device, desc)
     }
 
     #[inline(always)]
     fn detached(&self) -> bool {
-        // If strong is 1, it cannot be changed by another thread
-        // since there are no weaks and &mut self is exclusive.
+        // If strong is 1, it cannot be changed by another thread if called owns
+        // mutable reference to self
+        // since there are no weaks.
         debug_assert_eq!(Arc::weak_count(&self.inner), 0, "No weak refs allowed");
-        Arc::strong_count(&self.inner) == 1
+        debug_assert_eq!(Arc::weak_count(&self.inner.data), 0, "No weak refs allowed");
+        Arc::strong_count(&self.inner) == 1 && Arc::strong_count(&self.inner.data) == 1
     }
 }
 
-#[inline(always)]
-fn format_aspect(format: PixelFormat) -> vk::ImageAspectFlags {
-    let mut aspect = vk::ImageAspectFlags::empty();
-    if format.is_color() {
-        aspect |= vk::ImageAspectFlags::COLOR;
+impl ArgumentsField<Automatic> for Image {
+    const KIND: ArgumentKind = <Self as ArgumentsField<Sampled>>::KIND;
+    const SIZE: usize = <Self as ArgumentsField<Sampled>>::SIZE;
+    const OFFSET: usize = <Self as ArgumentsField<Sampled>>::OFFSET;
+    const STRIDE: usize = <Self as ArgumentsField<Sampled>>::STRIDE;
+
+    type Update = <Self as ArgumentsField<Sampled>>::Update;
+
+    #[inline(always)]
+    fn update(&self) -> <Self as ArgumentsField<Sampled>>::Update {
+        <Self as ArgumentsField<Sampled>>::update(self)
     }
-    if format.is_depth() {
-        aspect |= vk::ImageAspectFlags::DEPTH;
+
+    #[inline(always)]
+    fn add_refs(&self, refs: &mut Refs) {
+        refs.add_image(self.clone());
     }
-    if format.is_stencil() {
-        aspect |= vk::ImageAspectFlags::STENCIL;
+}
+
+impl ArgumentsField<Sampled> for Image {
+    const KIND: ArgumentKind = ArgumentKind::SampledImage;
+    const SIZE: usize = 1;
+    const OFFSET: usize = 0;
+    const STRIDE: usize = size_of::<vk::DescriptorImageInfo>();
+
+    type Update = vk::DescriptorImageInfo;
+
+    #[inline(always)]
+    fn update(&self) -> vk::DescriptorImageInfo {
+        vk::DescriptorImageInfo {
+            sampler: vk::Sampler::null(),
+            image_view: self.view,
+            image_layout: vk::ImageLayout::GENERAL,
+        }
     }
-    aspect
+
+    #[inline(always)]
+    fn add_refs(&self, refs: &mut Refs) {
+        refs.add_image(self.clone());
+    }
+}
+
+impl ArgumentsField<Storage> for Image {
+    const KIND: ArgumentKind = ArgumentKind::StorageImage;
+    const SIZE: usize = 1;
+    const OFFSET: usize = 0;
+    const STRIDE: usize = size_of::<vk::DescriptorImageInfo>();
+
+    type Update = vk::DescriptorImageInfo;
+
+    #[inline(always)]
+    fn update(&self) -> vk::DescriptorImageInfo {
+        vk::DescriptorImageInfo {
+            sampler: vk::Sampler::null(),
+            image_view: self.view,
+            image_layout: vk::ImageLayout::GENERAL,
+        }
+    }
+
+    #[inline(always)]
+    fn add_refs(&self, refs: &mut Refs) {
+        refs.add_image(self.clone());
+    }
 }

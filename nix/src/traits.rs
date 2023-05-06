@@ -7,6 +7,7 @@ use crate::generic::{
     CreateLibraryError, CreatePipelineError, DeviceDesc, Extent2, Extent3, ImageDesc,
     ImageDimensions, ImageError, LibraryDesc, Offset2, Offset3, OutOfMemory, PipelineStages,
     PixelFormat, QueueError, RenderPassDesc, RenderPipelineDesc, SamplerDesc, SurfaceError,
+    ViewDesc,
 };
 
 pub trait Instance {
@@ -106,8 +107,43 @@ pub trait CopyCommandEncoder {
     /// are finished.
     fn barrier(&mut self, after: PipelineStages, before: PipelineStages);
 
+    #[inline(always)]
+    fn init_image(
+        &mut self,
+        after: PipelineStages,
+        before: PipelineStages,
+        image: &crate::backend::Image,
+    );
+
     /// Writes data to the buffer.
-    fn write_buffer(&mut self, buffer: &crate::backend::Buffer, offset: u64, data: &[u8]);
+    fn write_buffer(&mut self, buffer: &crate::backend::Buffer, offset: usize, data: &[u8]);
+
+    /// Copies pixels from src image to dst image.
+    fn copy_buffer_to_image(
+        &mut self,
+        src: &crate::backend::Buffer,
+        start: usize,
+        bytes_per_line: usize,
+        bytes_per_plane: usize,
+        dst: &crate::backend::Image,
+        offset: Offset3<u32>,
+        extent: Extent3<u32>,
+        layers: Range<u32>,
+        level: u32,
+    );
+
+    /// Copies pixels from src image to dst image.
+    fn copy_image_region(
+        &mut self,
+        src: &crate::backend::Image,
+        src_offset: Offset3<u32>,
+        src_base_layer: u32,
+        dst: &crate::backend::Image,
+        dst_offset: Offset3<u32>,
+        dst_base_layer: u32,
+        extent: Extent3<u32>,
+        layers: u32,
+    );
 }
 
 pub trait RenderCommandEncoder {
@@ -124,8 +160,17 @@ pub trait RenderCommandEncoder {
     /// Sets constants for the current pipeline.
     fn with_constants(&mut self, constants: &impl Constants);
 
+    /// Bind vertex buffer to the current pipeline.
+    fn bind_vertex_buffers(&mut self, start: u32, buffers: &[(&crate::backend::Buffer, usize)]);
+
+    /// Bind index buffer to the current pipeline.
+    fn bind_index_buffer(&mut self, buffer: &crate::backend::Buffer, offset: usize);
+
     /// Draws primitives.
     fn draw(&mut self, vertices: Range<u32>, instances: Range<u32>);
+
+    /// Draws primitives with indices.
+    fn draw_indexed(&mut self, vertex_offset: i32, indices: Range<u32>, instances: Range<u32>);
 }
 
 pub trait Surface {
@@ -153,6 +198,13 @@ pub trait Image {
 
     /// Returns the number of mip levels in the image.
     fn levels(&self) -> u32;
+
+    /// Returns new image that is a view into this image.
+    fn view(
+        &self,
+        device: &crate::backend::Device,
+        desc: ViewDesc,
+    ) -> Result<crate::backend::Image, OutOfMemory>;
 
     /// Returns `true` if the buffer is not shared,
     /// meaning that there are no other references to the buffer
@@ -190,5 +242,5 @@ pub trait Buffer {
     ///
     /// Use [`CommandEncoder::write_buffer`] to update
     /// buffer in safer way.
-    unsafe fn write_unchecked(&mut self, offset: u64, data: &[u8]);
+    unsafe fn write_unchecked(&mut self, offset: usize, data: &[u8]);
 }

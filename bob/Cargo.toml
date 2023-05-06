@@ -75,5 +75,8 @@ gilrs = { version = "0.10", optional = true }
 hashbrown = { workspace = true }
 
 # GUI
-egui = { version = "0.21", optional = true }
+egui = { version = "0.21", optional = true, features = ["bytemuck"] }
 egui-winit = { version = "0.21", optional = true } 
+
+# Fun with bytes
+bytemuck = { version = "1.7", features = ["derive"] }
