@@ -73,6 +73,27 @@ struct PC {
 
 var<push_constant> pc: PC;
 
+// 0-1 linear  from  0-1 sRGB gamma
+fn linear_from_srgb(srgb: vec3<f32>) -> vec3<f32> {
+    let cutoff = srgb < vec3<f32>(0.04045);
+    let lower = srgb / vec3<f32>(12.92);
+    let higher = pow((srgb + vec3<f32>(0.055)) / vec3<f32>(1.055), vec3<f32>(2.4));
+    return select(higher, lower, cutoff);
+}
+
+// 0-1 sRGB gamma  from  0-1 linear
+fn srgb_from_linear_rgb(rgb: vec3<f32>) -> vec3<f32> {
+    let cutoff = rgb < vec3<f32>(0.0031308);
+    let lower = rgb * vec3<f32>(12.92);
+    let higher = vec3<f32>(1.055) * pow(rgb, vec3<f32>(1.0 / 2.4)) - vec3<f32>(0.055);
+    return select(higher, lower, cutoff);
+}
+
+// 0-1 sRGBA gamma  from  0-1 linear
+fn srgb_from_linear_rgba(linear_rgba: vec4<f32>) -> vec4<f32> {
+    return vec4<f32>(srgb_from_linear_rgb(linear_rgba.rgb), linear_rgba.a);
+}
+
 @vertex
 fn vs_main(input: VertInput) -> VertOutput {
     var output: VertOutput;
@@ -85,8 +106,17 @@ fn vs_main(input: VertInput) -> VertOutput {
 }
 
 @fragment
-fn fs_main(input: FragInput) -> @location(0) vec4<f32> {
-    var color = input.color;
-    color *= textureSample(t, s, input.uv);
-    return color;
+fn fs_main_linear(in: FragInput) -> @location(0) vec4<f32> {
+    let tex = textureSample(t, s, in.uv);
+    let tex_gamma = srgb_from_linear_rgba(tex);
+    let out_color_gamma = in.color * tex_gamma;
+    return vec4<f32>(linear_from_srgb(out_color_gamma.rgb), out_color_gamma.a);
+}
+
+@fragment
+fn fs_main_srgb(in: FragInput) -> @location(0) vec4<f32> {
+    let tex = textureSample(t, s, in.uv);
+    let tex_gamma = srgb_from_linear_rgba(tex);
+    let out_color_gamma = in.color * tex_gamma;
+    return out_color_gamma;
 }

@@ -411,7 +411,7 @@ impl crate::traits::Frame for Frame {
 
 fn pick_format(formats: &[vk::SurfaceFormatKHR]) -> vk::SurfaceFormatKHR {
     for &format in formats {
-        if format.format == vk::Format::R8G8B8A8_UNORM {
+        if format.format == vk::Format::B8G8R8A8_SRGB {
             return format;
         }
     }
@@ -421,12 +421,12 @@ fn pick_format(formats: &[vk::SurfaceFormatKHR]) -> vk::SurfaceFormatKHR {
         }
     }
     for &format in formats {
-        if format.format == vk::Format::B8G8R8A8_UNORM {
+        if format.format == vk::Format::R8G8B8A8_UNORM {
             return format;
         }
     }
     for &format in formats {
-        if format.format == vk::Format::B8G8R8A8_SRGB {
+        if format.format == vk::Format::B8G8R8A8_UNORM {
             return format;
         }
     }

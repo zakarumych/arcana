@@ -111,7 +111,8 @@ pub struct EguiRender {
     target: EntityId,
     window: Option<WindowId>,
     samplers: Option<[nix::Sampler; 4]>,
-    pipeline: Option<nix::RenderPipeline>,
+    linear_pipeline: Option<nix::RenderPipeline>,
+    srgb_pipeline: Option<nix::RenderPipeline>,
 
     vertex_buffer: Option<nix::Buffer>,
     index_buffer: Option<nix::Buffer>,
@@ -123,7 +124,8 @@ impl EguiRender {
             target,
             window: None,
             samplers: None,
-            pipeline: None,
+            linear_pipeline: None,
+            srgb_pipeline: None,
             vertex_buffer: None,
             index_buffer: None,
         }
@@ -174,21 +176,25 @@ impl Render for EguiRender {
                 let sampler_nn = ctx.device().new_sampler(nix::SamplerDesc {
                     min_filter: nix::Filter::Nearest,
                     mag_filter: nix::Filter::Nearest,
+                    address_mode: [nix::AddressMode::ClampToEdge; 3],
                     ..nix::SamplerDesc::new()
                 })?;
                 let sampler_nl = ctx.device().new_sampler(nix::SamplerDesc {
                     min_filter: nix::Filter::Nearest,
                     mag_filter: nix::Filter::Linear,
+                    address_mode: [nix::AddressMode::ClampToEdge; 3],
                     ..nix::SamplerDesc::new()
                 })?;
                 let sampler_ln = ctx.device().new_sampler(nix::SamplerDesc {
                     min_filter: nix::Filter::Linear,
                     mag_filter: nix::Filter::Nearest,
+                    address_mode: [nix::AddressMode::ClampToEdge; 3],
                     ..nix::SamplerDesc::new()
                 })?;
                 let sampler_ll = ctx.device().new_sampler(nix::SamplerDesc {
                     min_filter: nix::Filter::Linear,
                     mag_filter: nix::Filter::Linear,
+                    address_mode: [nix::AddressMode::ClampToEdge; 3],
                     ..nix::SamplerDesc::new()
                 })?;
                 none.get_or_insert([sampler_nn, sampler_nl, sampler_ln, sampler_ll])
@@ -448,64 +454,125 @@ impl Render for EguiRender {
 
                 drop(copy_encoder);
 
-                let pipeline = self.pipeline.get_or_insert_with(|| {
-                    let library = ctx
-                        .device()
-                        .new_shader_library(nix::LibraryDesc {
-                            name: "egui",
-                            input: nix::include_library!(
-                                "shaders/egui.wgsl" as nix::ShaderLanguage::Wgsl
-                            ),
-                        })
-                        .unwrap();
+                let pipeline = if target.format().is_srgb() {
+                    self.srgb_pipeline.get_or_insert_with(|| {
+                        let library = ctx
+                            .device()
+                            .new_shader_library(nix::LibraryDesc {
+                                name: "egui",
+                                input: nix::include_library!(
+                                    "shaders/egui.wgsl" as nix::ShaderLanguage::Wgsl
+                                ),
+                            })
+                            .unwrap();
 
-                    ctx.device()
-                        .new_render_pipeline(nix::RenderPipelineDesc {
-                            name: "egui",
-                            vertex_shader: nix::Shader {
-                                library: library.clone(),
-                                entry: "vs_main".into(),
-                            },
-                            vertex_attributes: vec![
-                                nix::VertexAttributeDesc {
-                                    format: nix::VertexFormat::Float32x2,
-                                    offset: 0,
-                                    buffer_index: 0,
+                        ctx.device()
+                            .new_render_pipeline(nix::RenderPipelineDesc {
+                                name: "egui",
+                                vertex_shader: nix::Shader {
+                                    library: library.clone(),
+                                    entry: "vs_main".into(),
                                 },
-                                nix::VertexAttributeDesc {
-                                    format: nix::VertexFormat::Float32x2,
-                                    offset: 8,
-                                    buffer_index: 0,
-                                },
-                                nix::VertexAttributeDesc {
-                                    format: nix::VertexFormat::Unorm8x4,
-                                    offset: 16,
-                                    buffer_index: 0,
-                                },
-                            ],
-                            vertex_layouts: vec![nix::VertexLayoutDesc {
-                                stride: std::mem::size_of::<Vertex>() as u32,
-                                step_mode: nix::VertexStepMode::Vertex,
-                            }],
-                            primitive_topology: nix::PrimitiveTopology::Triangle,
-                            raster: Some(nix::RasterDesc {
-                                fragment_shader: Some(nix::Shader {
-                                    library: library,
-                                    entry: "fs_main".into(),
-                                }),
-                                color_targets: vec![nix::ColorTargetDesc {
-                                    format: target.format(),
-                                    blend: Some(nix::BlendDesc::default()),
+                                vertex_attributes: vec![
+                                    nix::VertexAttributeDesc {
+                                        format: nix::VertexFormat::Float32x2,
+                                        offset: offset_of!(Vertex.pos) as u32,
+                                        buffer_index: 0,
+                                    },
+                                    nix::VertexAttributeDesc {
+                                        format: nix::VertexFormat::Float32x2,
+                                        offset: offset_of!(Vertex.uv) as u32,
+                                        buffer_index: 0,
+                                    },
+                                    nix::VertexAttributeDesc {
+                                        format: nix::VertexFormat::Unorm8x4,
+                                        offset: offset_of!(Vertex.color) as u32,
+                                        buffer_index: 0,
+                                    },
+                                ],
+                                vertex_layouts: vec![nix::VertexLayoutDesc {
+                                    stride: std::mem::size_of::<Vertex>() as u32,
+                                    step_mode: nix::VertexStepMode::Vertex,
                                 }],
-                                depth_stencil: None,
-                                front_face: nix::FrontFace::default(),
-                                culling: nix::Culling::None,
-                            }),
-                            arguments: &[EguiArguments::LAYOUT],
-                            constants: EguiConstants::SIZE,
-                        })
-                        .unwrap()
-                });
+                                primitive_topology: nix::PrimitiveTopology::Triangle,
+                                raster: Some(nix::RasterDesc {
+                                    fragment_shader: Some(nix::Shader {
+                                        library: library,
+                                        entry: "fs_main_srgb".into(),
+                                    }),
+                                    color_targets: vec![nix::ColorTargetDesc {
+                                        format: target.format(),
+                                        blend: Some(nix::BlendDesc::default()),
+                                    }],
+                                    depth_stencil: None,
+                                    front_face: nix::FrontFace::default(),
+                                    culling: nix::Culling::None,
+                                }),
+                                arguments: &[EguiArguments::LAYOUT],
+                                constants: EguiConstants::SIZE,
+                            })
+                            .unwrap()
+                    })
+                } else {
+                    self.linear_pipeline.get_or_insert_with(|| {
+                        let library = ctx
+                            .device()
+                            .new_shader_library(nix::LibraryDesc {
+                                name: "egui",
+                                input: nix::include_library!(
+                                    "shaders/egui.wgsl" as nix::ShaderLanguage::Wgsl
+                                ),
+                            })
+                            .unwrap();
+
+                        ctx.device()
+                            .new_render_pipeline(nix::RenderPipelineDesc {
+                                name: "egui",
+                                vertex_shader: nix::Shader {
+                                    library: library.clone(),
+                                    entry: "vs_main".into(),
+                                },
+                                vertex_attributes: vec![
+                                    nix::VertexAttributeDesc {
+                                        format: nix::VertexFormat::Float32x2,
+                                        offset: offset_of!(Vertex.pos) as u32,
+                                        buffer_index: 0,
+                                    },
+                                    nix::VertexAttributeDesc {
+                                        format: nix::VertexFormat::Float32x2,
+                                        offset: offset_of!(Vertex.uv) as u32,
+                                        buffer_index: 0,
+                                    },
+                                    nix::VertexAttributeDesc {
+                                        format: nix::VertexFormat::Unorm8x4,
+                                        offset: offset_of!(Vertex.color) as u32,
+                                        buffer_index: 0,
+                                    },
+                                ],
+                                vertex_layouts: vec![nix::VertexLayoutDesc {
+                                    stride: std::mem::size_of::<Vertex>() as u32,
+                                    step_mode: nix::VertexStepMode::Vertex,
+                                }],
+                                primitive_topology: nix::PrimitiveTopology::Triangle,
+                                raster: Some(nix::RasterDesc {
+                                    fragment_shader: Some(nix::Shader {
+                                        library: library,
+                                        entry: "fs_main_linear".into(),
+                                    }),
+                                    color_targets: vec![nix::ColorTargetDesc {
+                                        format: target.format(),
+                                        blend: Some(nix::BlendDesc::default()),
+                                    }],
+                                    depth_stencil: None,
+                                    front_face: nix::FrontFace::default(),
+                                    culling: nix::Culling::None,
+                                }),
+                                arguments: &[EguiArguments::LAYOUT],
+                                constants: EguiConstants::SIZE,
+                            })
+                            .unwrap()
+                    })
+                };
 
                 let dims = target.dimensions().to_2d();
 

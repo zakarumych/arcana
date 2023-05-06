@@ -79,6 +79,7 @@ pub enum PixelFormat {
 }
 
 impl PixelFormat {
+    #[inline(always)]
     pub fn is_color(&self) -> bool {
         match self {
             PixelFormat::R8Unorm
@@ -160,6 +161,7 @@ impl PixelFormat {
         }
     }
 
+    #[inline(always)]
     pub fn is_depth(&self) -> bool {
         match self {
             PixelFormat::R8Unorm
@@ -241,6 +243,7 @@ impl PixelFormat {
         }
     }
 
+    #[inline(always)]
     pub fn is_stencil(&self) -> bool {
         match self {
             PixelFormat::R8Unorm
@@ -321,6 +324,7 @@ impl PixelFormat {
         }
     }
 
+    #[inline(always)]
     pub fn size(&self) -> usize {
         match self {
             PixelFormat::R8Unorm
@@ -399,6 +403,19 @@ impl PixelFormat {
             PixelFormat::D16UnormS8Uint => 3,
             PixelFormat::D24UnormS8Uint => 4,
             PixelFormat::D32FloatS8Uint => 5,
+        }
+    }
+
+    #[inline(always)]
+    pub fn is_srgb(&self) -> bool {
+        match self {
+            PixelFormat::R8Srgb
+            | PixelFormat::Rg8Srgb
+            | PixelFormat::Rgb8Srgb
+            | PixelFormat::Rgba8Srgb
+            | PixelFormat::Bgr8Srgb
+            | PixelFormat::Bgra8Srgb => true,
+            _ => false,
         }
     }
 }
