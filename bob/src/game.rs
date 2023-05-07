@@ -298,9 +298,9 @@ where
                 let step = now - last_fixed;
                 *world.expect_resource_mut::<ClockStep>() = ClockStep { now, step };
                 if cfg!(debug_assertions) {
-                    fixed_scheduler.run_sequential(&mut world)
+                    fixed_scheduler.run_sequential(&mut world);
                 } else {
-                    fixed_scheduler.run_rayon(&mut world)
+                    fixed_scheduler.run_rayon(&mut world);
                 }
                 last_fixed = now;
                 blink.reset();
@@ -316,9 +316,9 @@ where
                 world.expect_resource_mut::<FPS>().add(clock_step.now);
 
                 if cfg!(debug_assertions) {
-                    var_scheduler.run_sequential(&mut world)
+                    var_scheduler.run_sequential(&mut world);
                 } else {
-                    var_scheduler.run_rayon(&mut world)
+                    var_scheduler.run_rayon(&mut world);
                 }
                 blink.reset();
             }

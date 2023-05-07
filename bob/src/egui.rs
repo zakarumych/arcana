@@ -1,4 +1,4 @@
-use std::mem::size_of_val;
+use std::{marker::PhantomData, mem::size_of_val, rc::Rc};
 
 pub use ::egui::*;
 
@@ -44,12 +44,14 @@ struct EguiInstance {
 
 pub struct EguiResource {
     instances: HashMap<WindowId, EguiInstance>,
+    _local: PhantomData<Rc<u32>>,
 }
 
 impl EguiResource {
     pub fn new() -> Self {
         EguiResource {
             instances: HashMap::new(),
+            _local: PhantomData,
         }
     }
 
@@ -146,7 +148,10 @@ impl Render for EguiRender {
         world: &World,
         _blink: &BlinkAlloc,
     ) -> Result<(), RenderError> {
-        let Some(mut egui) = world.get_resource_mut::<EguiResource>() else { return Ok(()); };
+        // Safety:
+        // This code does not touch thread-local parts of the resource.
+        let egui = unsafe { world.get_local_resource_mut::<EguiResource>() };
+        let Some(mut egui) = egui else { return Ok(()); };
 
         let window = match self.window {
             None => {
@@ -649,6 +654,7 @@ pub struct EguiFilter;
 
 impl Filter for EguiFilter {
     fn filter(&mut self, _blink: &Blink, world: &mut World, event: Event) -> Option<Event> {
+        let world = world.local();
         let egui = &mut *world.expect_resource_mut::<EguiResource>();
 
         if let Event::WindowEvent { window_id, event } = &event {

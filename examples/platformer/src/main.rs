@@ -7,7 +7,7 @@ use std::convert::Infallible;
 
 use bob::{
     blink_alloc::BlinkAlloc,
-    edict::{EntityId, QueryRef, Res, ResMut, Scheduler, World},
+    edict::{EntityId, QueryRef, Res, ResMut, ResMutNoSend, Scheduler, World},
     egui::EguiResource,
     game::{run_game, FPS},
     gametime::ClockStep,
@@ -178,12 +178,11 @@ fn main() {
         // Use window's surface for the render target.
         game.render_window = Some(target);
 
-        // game.var_scheduler
-        //     .get_or_insert_with(Scheduler::new)
-        //     .add_system(move |fps: Res<FPS>| println!("FPS: {}", fps.fps()));
+        game.fixed_scheduler
+            .add_system(move |fps: Res<FPS>| println!("FPS: {}", fps.fps()));
 
-        game.var_scheduler
-            .add_system(move |mut egui: ResMut<EguiResource>, world: &World| {
+        game.var_scheduler.add_system(
+            move |mut egui: ResMutNoSend<EguiResource>, world: &World| {
                 egui.run(target, world, |ctx| {
                     bob::egui::Window::new("Hello world!").show(ctx, |ui| {
                         ui.label("Hello world!");
@@ -192,7 +191,8 @@ fn main() {
                         ui.label("Hello world2!");
                     });
                 });
-            });
+            },
+        );
 
         Ok::<_, Infallible>(game)
     });
