@@ -155,7 +155,7 @@ impl Render for EguiRender {
 
         let wid = match self.window {
             None => {
-                let windows = unsafe { world.expect_resource::<Windows>() };
+                let windows = world.expect_resource::<Windows>();
                 let Some(window) = windows.windows.iter().find(|w| w.target() == self.target) else { return Ok(()); };
                 let wid = window.id();
                 self.window = Some(wid);

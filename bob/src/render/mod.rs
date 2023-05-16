@@ -206,14 +206,16 @@ pub fn render_system(world: &mut World, mut state: State<RenderState>) {
     let mut queue = world.expect_resource_mut::<nix::Queue>();
 
     let mut graph = world.expect_resource_mut::<RenderGraph>();
-    let mut update_targets = world.expect_resource_mut::<UpdateTargets>();
+    let mut update_targets = world.get_resource_mut::<UpdateTargets>();
     let mut windows = world.expect_resource_mut::<Windows>();
 
     // Collect all targets that needs to be updated.
     // If target is bound to surface, fetch next frame.
     let mut render_targets_to_update = Vec::new_in(&state.blink);
 
-    render_targets_to_update.extend(update_targets.update.drain());
+    if let Some(update_targets) = update_targets.as_deref_mut() {
+        render_targets_to_update.extend(update_targets.update.drain());
+    }
 
     // Maps render target ids to image resources.
     let mut images = HashMap::new_in(&state.blink);
@@ -244,6 +246,7 @@ pub fn render_system(world: &mut World, mut state: State<RenderState>) {
 
         render_targets_to_update.push(tid);
     }
+    drop(windows);
 
     // Find all renders to activate.
     let mut activate_renders = HashSet::new_in(&state.blink);
