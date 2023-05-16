@@ -1,7 +1,8 @@
-use std::ops::Range;
+use std::{error::Error, fmt, ops::Range};
 
 use super::{format::PixelFormat, Extent1, Extent2, Extent3, OutOfMemory};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ImageError {
     OutOfMemory,
     InvalidFormat,
@@ -13,6 +14,17 @@ impl From<OutOfMemory> for ImageError {
         ImageError::OutOfMemory
     }
 }
+
+impl fmt::Display for ImageError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ImageError::OutOfMemory => fmt::Display::fmt(&OutOfMemory, f),
+            ImageError::InvalidFormat => write!(f, "invalid format"),
+        }
+    }
+}
+
+impl Error for ImageError {}
 
 /// Image component swizzle
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

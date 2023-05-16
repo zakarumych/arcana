@@ -46,4 +46,24 @@ pub mod render;
 #[cfg(feature = "derive")]
 pub use bob_proc::*;
 
+#[cfg(feature = "graphics")]
 pub mod egui;
+
+#[cfg(feature = "graphics")]
+pub mod texture;
+
+pub mod assets;
+pub mod bundle;
+
+/// Installs default tracing subscriber.
+pub fn install_tracing_subscriber() {
+    use tracing_subscriber::layer::SubscriberExt as _;
+    if let Err(err) = tracing::subscriber::set_global_default(
+        tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .finish()
+            .with(tracing_error::ErrorLayer::default()),
+    ) {
+        panic!("Failed to install tracing subscriber: {}", err);
+    }
+}

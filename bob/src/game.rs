@@ -1,7 +1,7 @@
 use std::{collections::VecDeque, error::Error, sync::Arc};
 
 use blink_alloc::Blink;
-use edict::{world::WorldBuilder, Component, Entities, EntityId, Scheduler, World};
+use edict::{world::WorldBuilder, Component, Entities, Scheduler, World};
 use futures::Future;
 use gametime::{
     Clock, ClockStep, FrequencyNumExt, FrequencyTicker, TimeSpan, TimeSpanNumExt, TimeStamp,
@@ -15,10 +15,8 @@ use crate::{
     egui::{EguiFilter, EguiResource},
     events::{Event, EventLoop, EventLoopBuilder},
     funnel::{Filter, Funnel},
-    render::{
-        render_system, RenderTarget, RenderTargetAlwaysUpdate, RenderTargetCounter,
-        RenderTargetUpdate,
-    },
+    render::{render_system, RenderGraph, TargetId},
+    window::{BobWindow, Windows},
 };
 
 /// Configuration for the game.
@@ -42,7 +40,7 @@ pub struct Game {
     /// of the render graph.
     /// If set to some, the engine will spawn a window
     /// and attach it to this render target.
-    pub render_window: Option<EntityId>,
+    pub render_window: Option<TargetId>,
 }
 
 /// Marker resource.
@@ -60,7 +58,7 @@ pub struct WindowsFilter;
 /// If handler is not present, the window will be destroyed.
 /// If the handler returns true, the window will be destroyed.
 /// Otherwise, the window will not be destroyed.
-/// User-code may destroy window at any time by removeing it from the world and dropping.
+/// User-code may destroy window at any time by removing it from the world and dropping.
 #[derive(Clone, Component)]
 pub struct WindowCloseHandler(Arc<dyn Fn(&World) -> bool + Send + Sync>);
 
@@ -169,15 +167,12 @@ where
     Fut: Future<Output = Result<Game, E>>,
     E: Error + 'static,
 {
+    crate::install_tracing_subscriber();
+
     // Build the world.
     // Register external resources.
     let mut world_builder = WorldBuilder::new();
-    world_builder.register_external::<winit::window::Window>();
     world_builder.register_external::<FrequencyTicker>();
-    world_builder.register_external::<nix::Surface>();
-    world_builder.register_component::<RenderTarget>();
-    world_builder.register_component::<RenderTargetAlwaysUpdate>();
-    world_builder.register_component::<RenderTargetUpdate>();
 
     let mut world = world_builder.build();
 
@@ -202,7 +197,10 @@ where
         let (device, queue) = init_graphics();
         world.insert_resource(device);
         world.insert_resource(queue);
-        world.insert_resource(RenderTargetCounter::new());
+        world.insert_resource(RenderGraph::new());
+        world.insert_resource(Windows {
+            windows: Vec::new(),
+        });
         world.insert_resource(EguiResource::new());
 
         // Setup the funnel
@@ -231,7 +229,7 @@ where
         var_scheduler.add_system(render_system);
 
         if let Some(render_window) = render_window {
-            let mut world = world.local();
+            let world = world.local();
             let events = world.get_resource::<EventLoop>().unwrap();
 
             // Create main window.
@@ -249,11 +247,13 @@ where
                 .get_resource_mut::<EguiResource>()
                 .unwrap()
                 .add_window(window.id(), &events);
+
             drop(events);
 
             world
-                .insert_external_bundle(render_window, (surface, window, RenderTargetAlwaysUpdate))
-                .unwrap();
+                .expect_resource_mut::<Windows>()
+                .windows
+                .push(BobWindow::new(window, surface, render_window));
         }
 
         let mut blink = Blink::new();

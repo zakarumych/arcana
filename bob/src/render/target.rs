@@ -1,129 +1,64 @@
-use std::sync::Arc;
+use super::render::RenderId;
 
-use edict::{Component, Relation, World};
-
-pub enum RenderAccess {
-    Read,
-    Write,
-}
-
-#[repr(transparent)]
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
-pub struct TargetId(u64);
-
-/// Render target component.
-#[derive(Component)]
-pub struct RenderTarget {
-    id: u64,
-    name: Arc<str>,
-    version: u32,
-    access: Option<RenderAccess>,
+struct RenderTargetVersion {
+    target_for: RenderId,
     waits: nix::PipelineStages,
     writes: nix::PipelineStages,
     reads: nix::PipelineStages,
 }
 
+pub struct RenderTarget {
+    name: Box<str>,
+    versions: Vec<RenderTargetVersion>,
+}
+
 impl RenderTarget {
-    pub fn new(name: Arc<str>, world: &World, stages: nix::PipelineStages) -> Self {
-        let id = world.expect_resource_mut::<RenderTargetCounter>().next();
+    pub fn new(name: Box<str>, target_for: RenderId, stages: nix::PipelineStages) -> Self {
         RenderTarget {
-            id,
             name,
-            version: 1,
-            access: None,
+            versions: vec![RenderTargetVersion {
+                waits: nix::PipelineStages::empty(),
+                writes: stages,
+                reads: nix::PipelineStages::empty(),
+                target_for,
+            }],
+        }
+    }
+
+    pub fn versions(&self) -> usize {
+        self.versions.len()
+    }
+
+    pub fn read(&mut self, version: usize, stages: nix::PipelineStages) {
+        assert_eq!(self.versions.len(), version + 1);
+        let last = self.versions.last_mut().unwrap();
+        last.reads |= stages;
+    }
+
+    pub fn write(&mut self, version: usize, target_for: RenderId, stages: nix::PipelineStages) {
+        assert_eq!(self.versions.len(), version + 1);
+        assert!(self.versions.last().unwrap().reads.is_empty());
+        self.versions.push(RenderTargetVersion {
             waits: nix::PipelineStages::empty(),
             writes: stages,
             reads: nix::PipelineStages::empty(),
-        }
+            target_for,
+        });
     }
 
-    pub fn id(&self) -> TargetId {
-        TargetId(self.id)
+    pub fn waits(&self, version: usize) -> nix::PipelineStages {
+        self.versions[version].waits
     }
 
-    pub fn read(&mut self, stages: nix::PipelineStages) -> bool {
-        match self.access {
-            Some(RenderAccess::Write) => false,
-            _ => {
-                self.access = Some(RenderAccess::Read);
-                self.reads |= stages;
-                true
-            }
-        }
+    pub fn writes(&self, version: usize) -> nix::PipelineStages {
+        self.versions[version].writes
     }
 
-    pub fn write(&mut self, stages: nix::PipelineStages) -> Option<RenderTarget> {
-        match self.access {
-            Some(_) => None,
-            None => {
-                self.access = Some(RenderAccess::Write);
-                debug_assert_eq!(self.reads, nix::PipelineStages::empty());
-                self.reads = stages;
-                Some(RenderTarget {
-                    id: self.id,
-                    name: self.name.clone(),
-                    version: self.version + 1,
-                    access: None,
-                    waits: self.writes,
-                    writes: stages,
-                    reads: nix::PipelineStages::empty(),
-                })
-            }
-        }
+    pub fn reads(&self, version: usize) -> nix::PipelineStages {
+        self.versions[version].reads
     }
 
-    pub(super) fn waits(&self) -> nix::PipelineStages {
-        self.waits
-    }
-
-    pub(super) fn writes(&self) -> nix::PipelineStages {
-        self.writes
-    }
-
-    pub(super) fn reads(&self) -> nix::PipelineStages {
-        self.reads
-    }
-}
-
-/// Component that indicates that the render target needs to be updated.
-/// Indication is done by touching this component mutably.
-#[derive(Component)]
-pub struct RenderTargetUpdate;
-
-/// Component that indicates that the render target needs to be updated
-/// every frame.
-#[derive(Component)]
-pub struct RenderTargetAlwaysUpdate;
-
-/// RenderTarget -> RenderNode relation.
-#[derive(Clone, Copy)]
-pub struct TargetFor;
-
-impl Relation for TargetFor {
-    const EXCLUSIVE: bool = true;
-    const SYMMETRIC: bool = false;
-    const OWNED: bool = true;
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct NextVersionOf;
-
-impl Relation for NextVersionOf {
-    const EXCLUSIVE: bool = true;
-    const SYMMETRIC: bool = false;
-    const OWNED: bool = true;
-}
-
-#[derive(Default)]
-pub(crate) struct RenderTargetCounter(u64);
-
-impl RenderTargetCounter {
-    pub fn new() -> Self {
-        RenderTargetCounter(0)
-    }
-
-    pub fn next(&mut self) -> u64 {
-        self.0 += 1;
-        self.0
+    pub fn target_for(&self, version: usize) -> RenderId {
+        self.versions[version].target_for
     }
 }

@@ -50,7 +50,7 @@ pub use self::{
 pub(super) use self::arguments::ArgumentsSealed;
 
 /// Error that can happen when device's memory is exhausted.
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct OutOfMemory;
 
 impl fmt::Display for OutOfMemory {

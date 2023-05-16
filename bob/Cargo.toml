@@ -6,8 +6,8 @@ readme.workspace = true
 license.workspace = true
 version.workspace = true
 
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+# crate-type = ["dylib"]
 
 [features]
 derive = ["bob-proc"]
@@ -34,6 +34,9 @@ gamepad = ["gilrs", "input"]
 # Procedural macros
 bob-proc = { path = "proc", optional = true }
 
+# Asset importers
+bob-importers = { path = "importers", optional = true }
+
 # Instance
 nix = { path = "../nix", optional = true }
 
@@ -41,17 +44,18 @@ nix = { path = "../nix", optional = true }
 # joke = { path = "../joke" }
 
 # Memory allocator
-blink-alloc = { version = "0.2.5", features = ["nightly"] }
+blink-alloc = { version = "0.3.0", features = ["nightly"] }
 
 # ECS
-edict = { version = "0.4.0-rc.5", features = ["rayon"] }
+edict = { version = "0.5.0", features = ["rayon"] }
 
 # Time
 gametime = "0.1.6"
 
 # Logging
 tracing = { workspace = true } 
-tracing-error = "0.2.0"
+tracing-error = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Math
 na = { package = "nalgebra", version = "0.32" }
@@ -80,3 +84,9 @@ egui-winit = { version = "0.21", optional = true }
 
 # Fun with bytes
 bytemuck = { version = "1.7", features = ["derive"] }
+
+# asset loading
+argosy = { path = "../../argosy" }
+argosy-store = { path = "../../argosy/store" }
+
+rapid-qoi = "0.6.0"

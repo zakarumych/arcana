@@ -5,7 +5,6 @@ use std::{
     time::Instant,
 };
 
-use gametime::{Clock, FrequencyTicker};
 use parking_lot::Mutex;
 
 use winit::{

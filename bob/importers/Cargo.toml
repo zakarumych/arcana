@@ -1,0 +1,12 @@
+[package]
+name = "bob-importers"
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+argosy-import = { path = "../../../argosy/import" }
+asefile = "0.3.5"
+rapid-qoi = "0.6.0"

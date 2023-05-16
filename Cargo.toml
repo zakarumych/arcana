@@ -1,5 +1,5 @@
 [workspace]
-members = ["bob", "examples/platformer"]
+members = ["bob", "ed", "examples/platformer"]
 
 [workspace.package]
 edition = "2021"

@@ -3,8 +3,8 @@ use std::{marker::PhantomData, mem::size_of_val, rc::Rc};
 pub use ::egui::*;
 
 use blink_alloc::{Blink, BlinkAlloc};
-use edict::{EntityId, World};
-use egui::epaint::{Primitive, Vertex};
+use edict::World;
+use egui::epaint::{textures::TexturesDelta, ClippedShape, Primitive, Vertex};
 use hashbrown::{hash_map::Entry, HashMap};
 use nix::{Arguments as _, Constants as _};
 use winit::{event::WindowEvent, event_loop::EventLoopWindowTarget, window::WindowId};
@@ -12,7 +12,8 @@ use winit::{event::WindowEvent, event_loop::EventLoopWindowTarget, window::Windo
 use crate::{
     events::Event,
     funnel::Filter,
-    render::{NextVersionOf, Render, RenderBuilderContext, RenderContext, RenderError},
+    render::{Render, RenderBuilderContext, RenderContext, RenderError, RenderGraph, TargetId},
+    window::{BobWindow, Windows},
 };
 
 #[derive(Clone, Copy)]
@@ -37,8 +38,8 @@ impl Sampler {
 struct EguiInstance {
     ctx: Context,
     state: egui_winit::State,
-    textures_delta: epaint::textures::TexturesDelta,
-    shapes: Vec<epaint::ClippedShape>,
+    textures_delta: TexturesDelta,
+    shapes: Vec<ClippedShape>,
     textures: HashMap<TextureId, (nix::Image, Sampler)>,
 }
 
@@ -68,27 +69,19 @@ impl EguiResource {
         );
     }
 
-    pub fn run(&mut self, target: EntityId, world: &World, run_ui: impl FnOnce(&Context)) {
-        let mut target = target;
-
-        while let Ok(next_versions) = world.new_query().related::<NextVersionOf>().get_one(target) {
-            debug_assert_eq!(next_versions.len(), 1);
-            target = next_versions[0];
-        }
-
-        let mut window_query = world.query::<&winit::window::Window>();
-        let Ok(window) = window_query.get_one(target) else { return; };
-
+    pub fn run(&mut self, window: &BobWindow, run_ui: impl FnOnce(&Context)) {
         let Some(instance) = self.instances.get_mut(&window.id()) else { return; };
 
-        let raw_input = instance.state.take_egui_input(window);
+        let raw_input = instance.state.take_egui_input(window.winit());
         instance.ctx.begin_frame(raw_input);
         run_ui(&instance.ctx);
         let output = instance.ctx.end_frame();
 
-        instance
-            .state
-            .handle_platform_output(window, &instance.ctx, output.platform_output);
+        instance.state.handle_platform_output(
+            window.winit(),
+            &instance.ctx,
+            output.platform_output,
+        );
 
         instance.textures_delta.append(output.textures_delta);
         instance.shapes = output.shapes;
@@ -110,7 +103,7 @@ struct EguiConstants {
 }
 
 pub struct EguiRender {
-    target: EntityId,
+    target: TargetId,
     window: Option<WindowId>,
     samplers: Option<[nix::Sampler; 4]>,
     linear_pipeline: Option<nix::RenderPipeline>,
@@ -121,7 +114,7 @@ pub struct EguiRender {
 }
 
 impl EguiRender {
-    fn new(target: EntityId) -> Self {
+    fn new(target: TargetId) -> Self {
         EguiRender {
             target,
             window: None,
@@ -133,9 +126,16 @@ impl EguiRender {
         }
     }
 
-    pub fn build(target: EntityId, world: &mut World) -> EntityId {
-        let mut builder = RenderBuilderContext::new("egui", world);
-        let new_target = builder.update_target(target, nix::PipelineStages::COLOR_OUTPUT);
+    pub fn build_overlay(target: TargetId, graph: &mut RenderGraph) -> TargetId {
+        let mut builder = RenderBuilderContext::new("egui", graph);
+        let new_target = builder.write_target(target, nix::PipelineStages::COLOR_OUTPUT);
+        builder.build(EguiRender::new(new_target));
+        new_target
+    }
+
+    pub fn build(graph: &mut RenderGraph) -> TargetId {
+        let mut builder = RenderBuilderContext::new("egui", graph);
+        let new_target = builder.create_target("egui-surface", nix::PipelineStages::COLOR_OUTPUT);
         builder.build(EguiRender::new(new_target));
         new_target
     }
@@ -153,27 +153,18 @@ impl Render for EguiRender {
         let egui = unsafe { world.get_local_resource_mut::<EguiResource>() };
         let Some(mut egui) = egui else { return Ok(()); };
 
-        let window = match self.window {
+        let wid = match self.window {
             None => {
-                let mut target = self.target;
-                while let Ok(next_versions) =
-                    world.new_query().related::<NextVersionOf>().get_one(target)
-                {
-                    debug_assert_eq!(next_versions.len(), 1);
-                    target = next_versions[0];
-                }
-
-                let mut window_query = world.query::<&winit::window::Window>();
-                let Ok(window) = window_query.get_one(target) else { return Ok(()); };
-
-                let id = window.id();
-                self.window = Some(id);
-                id
+                let windows = unsafe { world.expect_resource::<Windows>() };
+                let Some(window) = windows.windows.iter().find(|w| w.target() == self.target) else { return Ok(()); };
+                let wid = window.id();
+                self.window = Some(wid);
+                wid
             }
             Some(id) => id,
         };
 
-        let Some(instance) = egui.instances.get_mut(&window) else { return Ok(()); };
+        let Some(instance) = egui.instances.get_mut(&wid) else { return Ok(()); };
 
         let samplers = match &mut self.samplers {
             Some(samplers) => &*samplers,

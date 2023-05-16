@@ -1,28 +1,54 @@
 //! Defines rendering for the Airy engine.
 
-mod build;
+mod render;
 mod target;
 
-use std::{collections::VecDeque, fmt, ops::Range};
+use std::{collections::VecDeque, fmt, num::NonZeroU64, ops::Range};
 
 use blink_alloc::BlinkAlloc;
-use edict::{
-    epoch::EpochId,
-    query::{Or2, With},
-    Component, Entities, EntityId, Modified, State, World,
-};
+use edict::{State, World};
 use hashbrown::{hash_map::DefaultHashBuilder, HashMap, HashSet};
 
-use self::target::TargetId;
+use crate::window::Windows;
 
-pub(crate) use self::target::RenderTargetCounter;
+use self::{render::RenderId, target::RenderTarget};
 
-pub use self::{
-    build::{Render, RenderBuilderContext},
-    target::{
-        NextVersionOf, RenderTarget, RenderTargetAlwaysUpdate, RenderTargetUpdate, TargetFor,
-    },
-};
+pub use self::render::{Render, RenderBuilderContext, TargetId};
+
+pub struct RenderGraph {
+    renders: HashMap<RenderId, RenderNode>,
+    targets: HashMap<NonZeroU64, RenderTarget>,
+
+    next_id: u64,
+}
+
+impl RenderGraph {
+    pub fn new() -> Self {
+        RenderGraph {
+            renders: HashMap::new(),
+            targets: HashMap::new(),
+            next_id: 1,
+        }
+    }
+
+    fn new_id(&mut self) -> NonZeroU64 {
+        let id = self.next_id;
+        self.next_id += 1;
+        NonZeroU64::new(id).unwrap()
+    }
+}
+
+pub struct UpdateTargets {
+    update: HashSet<TargetId>,
+}
+
+impl UpdateTargets {
+    pub fn new() -> Self {
+        UpdateTargets {
+            update: HashSet::new(),
+        }
+    }
+}
 
 type BlinkHashMap<'a, K, V> = HashMap<K, V, DefaultHashBuilder, &'a BlinkAlloc>;
 
@@ -51,11 +77,11 @@ pub struct RenderContext<'a, 'b> {
     queue: &'a mut nix::Queue,
 
     // Maps render target ids to image resources.
-    images: &'a mut BlinkHashMap<'b, TargetId, nix::Image>,
+    images: &'a mut BlinkHashMap<'b, NonZeroU64, nix::Image>,
 
     // Maps render target to pipeline stages that need to be waited for.
-    write_barriers: &'a mut BlinkHashMap<'b, EntityId, Range<nix::PipelineStages>>,
-    read_barriers: &'a mut BlinkHashMap<'b, EntityId, Range<nix::PipelineStages>>,
+    write_barriers: &'a mut BlinkHashMap<'b, TargetId, Range<nix::PipelineStages>>,
+    read_barriers: &'a mut BlinkHashMap<'b, TargetId, Range<nix::PipelineStages>>,
 
     cbufs: &'a mut Vec<nix::CommandBuffer, &'b BlinkAlloc>,
     world: &'a World,
@@ -79,14 +105,9 @@ impl<'a> RenderContext<'a, '_> {
     /// Returns render target image and pipeline stages that need to be waited for.
     pub fn write_target_sync(
         &mut self,
-        id: EntityId,
+        id: TargetId,
     ) -> (&nix::Image, Option<Range<nix::PipelineStages>>) {
-        let tid = self
-            .world
-            .for_one::<&RenderTarget, _, _>(id, |target| target.id())
-            .unwrap();
-
-        let image = &self.images[&tid];
+        let image = &self.images[&id.0];
         let barrier = self.write_barriers.remove(&id);
         (image, barrier)
     }
@@ -94,21 +115,16 @@ impl<'a> RenderContext<'a, '_> {
     /// Returns render target image and pipeline stages that need to be waited for.
     pub fn read_target_sync(
         &mut self,
-        id: EntityId,
+        id: TargetId,
     ) -> (&nix::Image, Option<Range<nix::PipelineStages>>) {
-        let tid = self
-            .world
-            .for_one::<&RenderTarget, _, _>(id, |target| target.id())
-            .unwrap();
-
-        let image = &self.images[&tid];
+        let image = &self.images[&id.0];
         let barrier = self.read_barriers.remove(&id);
         (image, barrier)
     }
 
     /// Returns render target image
     /// and inserts pipeline barrier if needed.
-    pub fn write_target(&mut self, id: EntityId, encoder: &mut nix::CommandEncoder) -> &nix::Image {
+    pub fn write_target(&mut self, id: TargetId, encoder: &mut nix::CommandEncoder) -> &nix::Image {
         let (image, barrier) = self.write_target_sync(id);
         if let Some(barrier) = barrier {
             if barrier.start.is_empty() {
@@ -122,7 +138,7 @@ impl<'a> RenderContext<'a, '_> {
 
     /// Returns render target image
     /// and inserts pipeline barrier if needed.
-    pub fn read_target(&mut self, id: EntityId, encoder: &mut nix::CommandEncoder) -> &nix::Image {
+    pub fn read_target(&mut self, id: TargetId, encoder: &mut nix::CommandEncoder) -> &nix::Image {
         let (image, barrier) = self.read_target_sync(id);
         if let Some(barrier) = barrier {
             encoder.barrier(barrier.start, barrier.end);
@@ -131,14 +147,14 @@ impl<'a> RenderContext<'a, '_> {
     }
 }
 
-#[derive(Component)]
-struct RenderComponent {
+struct RenderNode {
     name: Box<str>,
     render: Box<dyn Render>,
-    depends_on: HashSet<EntityId>,
+    depends_on: HashSet<TargetId>,
+    renders_to: HashSet<TargetId>,
 }
 
-impl RenderComponent {
+impl RenderNode {
     fn name(&self) -> &str {
         &self.name
     }
@@ -148,9 +164,9 @@ impl RenderComponent {
         device: &'a nix::Device,
         queue: &'a mut nix::Queue,
         world: &'a World,
-        images: &'a mut BlinkHashMap<'b, TargetId, nix::Image>,
-        write_barriers: &'a mut BlinkHashMap<'b, EntityId, Range<nix::PipelineStages>>,
-        read_barriers: &'a mut BlinkHashMap<'b, EntityId, Range<nix::PipelineStages>>,
+        images: &'a mut BlinkHashMap<'b, NonZeroU64, nix::Image>,
+        write_barriers: &'a mut BlinkHashMap<'b, TargetId, Range<nix::PipelineStages>>,
+        read_barriers: &'a mut BlinkHashMap<'b, TargetId, Range<nix::PipelineStages>>,
         cbufs: &'a mut Vec<nix::CommandBuffer, &'b BlinkAlloc>,
         blink: &'b BlinkAlloc,
     ) -> Result<(), RenderError> {
@@ -169,25 +185,35 @@ impl RenderComponent {
         )
     }
 
-    fn depends_on(&self) -> impl Iterator<Item = EntityId> + '_ {
+    fn depends_on(&self) -> impl Iterator<Item = TargetId> + '_ {
         self.depends_on.iter().copied()
     }
 }
 
 #[derive(Default)]
 pub struct RenderState {
-    last_epoch: EpochId,
     blink: BlinkAlloc,
 }
 
 /// Render system.
 /// Traverses render-targets that needs to be updated and collects all
 /// render nodes that needs to run.
-pub fn render_system(world: &World, mut state: State<RenderState>) {
+pub fn render_system(world: &mut World, mut state: State<RenderState>) {
     let state = &mut *state;
+    let world = world.local();
 
-    let device = world.expect_resource_mut::<nix::Device>();
+    let device = world.expect_resource::<nix::Device>();
     let mut queue = world.expect_resource_mut::<nix::Queue>();
+
+    let mut graph = world.expect_resource_mut::<RenderGraph>();
+    let mut update_targets = world.expect_resource_mut::<UpdateTargets>();
+    let mut windows = world.expect_resource_mut::<Windows>();
+
+    // Collect all targets that needs to be updated.
+    // If target is bound to surface, fetch next frame.
+    let mut render_targets_to_update = Vec::new_in(&state.blink);
+
+    render_targets_to_update.extend(update_targets.update.drain());
 
     // Maps render target ids to image resources.
     let mut images = HashMap::new_in(&state.blink);
@@ -199,81 +225,50 @@ pub fn render_system(world: &World, mut state: State<RenderState>) {
     let mut drop_surfaces = Vec::new_in(&state.blink);
     let mut frames = Vec::new_in(&state.blink);
 
-    // Collect all targets that needs to be updated.
-    // If target is bound to surface, fetch next frame.
-    let mut render_targets_to_update = Vec::new_in(&state.blink);
-    world
-        .query::<(Entities, &RenderTarget, Option<&mut nix::Surface>)>()
-        .filter(Or2::new(
-            <With<RenderTargetAlwaysUpdate>>::query(),
-            <Modified<With<RenderTargetUpdate>>>::new(state.last_epoch),
-        ))
-        .for_each(|(tid, rt, surface_opt)| {
-            if let Some(surface) = surface_opt {
-                let mut prev_tid = tid;
-                while let Ok((NextVersionOf, parent)) = world
-                    .new_query()
-                    .relates_exclusive::<&NextVersionOf>()
-                    .get_one(prev_tid)
-                {
-                    prev_tid = parent;
-                }
+    for window in windows.windows.iter_mut() {
+        let tid = window.target();
+        let rt = &graph.targets[&tid.0];
 
-                let writes = world
-                    .query::<&RenderTarget>()
-                    .get_one(prev_tid)
-                    .unwrap()
-                    .writes();
-
-                match surface.next_frame(&mut *queue, writes) {
-                    Err(err) => {
-                        tracing::error!(err = ?err);
-                        drop_surfaces.push(tid);
-                        return;
-                    }
-                    Ok(frame) => {
-                        let image = frame.image();
-                        images.insert(rt.id(), image.clone());
-                        frames.push((frame, rt.writes() | rt.reads()));
-                    }
-                }
+        match window.surface_mut().next_frame(&mut *queue, rt.writes(0)) {
+            Err(err) => {
+                tracing::error!(err = ?err);
+                drop_surfaces.push(tid);
+                return;
             }
+            Ok(frame) => {
+                let image = frame.image();
+                images.insert(tid.0, image.clone());
+                frames.push((frame, rt.writes(tid.1) | rt.reads(tid.1)));
+            }
+        }
 
-            // All ancestors of the render target needs to be updated.
-            render_targets_to_update.push(tid);
-        });
-
-    // Save the epoch.
-    state.last_epoch = world.epoch();
+        render_targets_to_update.push(tid);
+    }
 
     // Find all renders to activate.
-    let mut target_for_query = world.new_query().relates_exclusive::<&TargetFor>();
     let mut activate_renders = HashSet::new_in(&state.blink);
     let mut render_queue = VecDeque::new_in(&state.blink);
-    let mut render_query = world.query::<&mut RenderComponent>();
-    let mut next_version_query = world.new_query().relates_exclusive::<&NextVersionOf>();
-    let mut render_target_query = world.query::<&RenderTarget>();
 
     // For all targets that needs to be updated.
     while let Some(tid) = render_targets_to_update.pop() {
-        let rt = render_target_query.get_one(tid).unwrap();
+        let rt = &graph.targets[&tid.0];
 
-        write_barriers.insert(tid, rt.waits()..rt.writes());
-        if !rt.reads().is_empty() {
-            read_barriers.insert(tid, rt.writes()..rt.reads());
+        write_barriers.insert(tid, rt.waits(tid.1)..rt.writes(tid.1));
+        if !rt.reads(tid.1).is_empty() {
+            read_barriers.insert(tid, rt.writes(tid.1)..rt.reads(tid.1));
         }
 
         // Activate render node attached to the target.
-        if let Ok((TargetFor, rid)) = target_for_query.get_one(tid) {
-            // Mark as activated.
-            if activate_renders.insert(rid) {
-                // Push to queue.
-                render_queue.push_back(rid);
+        let rid = rt.target_for(tid.1);
 
-                // Update dependencies.
-                let render = render_query.get_one(rid).unwrap();
-                render_targets_to_update.extend(render.depends_on());
-            }
+        // Mark as activated.
+        if activate_renders.insert(rid) {
+            // Push to queue.
+            render_queue.push_back(rid);
+
+            // Update dependencies.
+            let render = &graph.renders[&rid];
+            render_targets_to_update.extend(render.depends_on());
         }
     }
 
@@ -281,11 +276,9 @@ pub fn render_system(world: &World, mut state: State<RenderState>) {
     let mut render_schedule = Vec::new_in(&state.blink);
     let mut target_scheduled = HashSet::new_in(&state.blink);
 
-    let mut targets_of_query = world.new_query().related::<TargetFor>();
-
     // Quadratic algorithm, but it's ok for now.
     while let Some(rid) = render_queue.pop_front() {
-        let render = render_query.get_one(rid).unwrap();
+        let render = &graph.renders[&rid];
 
         let ready = render
             .depends_on()
@@ -296,11 +289,9 @@ pub fn render_system(world: &World, mut state: State<RenderState>) {
             debug_assert!(!render_schedule.contains(&rid), "Render already scheduled");
             render_schedule.push(rid);
 
-            if let Ok(targets) = targets_of_query.get_one(rid) {
-                for &tid in targets {
-                    let inserted = target_scheduled.insert(tid);
-                    debug_assert!(inserted, "Target already scheduled");
-                }
+            for &tid in &render.renders_to {
+                let inserted = target_scheduled.insert(tid);
+                debug_assert!(inserted, "Target already scheduled");
             }
         } else {
             // Push back to queue.
@@ -312,13 +303,13 @@ pub fn render_system(world: &World, mut state: State<RenderState>) {
 
     // Walk render schedule and run renders in opposite order.
     while let Some(rid) = render_schedule.pop() {
-        let render = render_query.get_one(rid).unwrap();
+        let render = graph.renders.get_mut(&rid).unwrap();
 
         let cbufs_pre = cbufs.len();
         let result = render.run(
             &device,
             &mut queue,
-            world,
+            &*world,
             &mut images,
             &mut write_barriers,
             &mut read_barriers,

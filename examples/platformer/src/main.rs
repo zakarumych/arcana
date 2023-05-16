@@ -1,19 +1,14 @@
-// use nothing::{
-//     gametime::{Clock, FrequencyNumExt, FrequencyTicker},
-//     winit, Event, EventLoop, EventLoopBuilder,
-// };
-
 use std::convert::Infallible;
 
 use bob::{
     blink_alloc::BlinkAlloc,
-    edict::{EntityId, QueryRef, Res, ResMut, ResMutNoSend, Scheduler, World},
+    edict::{Res, ResMutNoSend, World},
     egui::EguiResource,
     game::{run_game, FPS},
     gametime::ClockStep,
     nix::{self, Arguments, Constants},
-    render::{Render, RenderBuilderContext, RenderContext, RenderError},
-    winit::window::Window,
+    render::{Render, RenderBuilderContext, RenderContext, RenderError, RenderGraph, TargetId},
+    window::Windows,
 };
 
 #[derive(nix::Arguments)]
@@ -30,16 +25,16 @@ pub struct MainConstants {
 }
 
 pub struct MainPass {
-    target: EntityId,
+    target: TargetId,
     pipeline: Option<nix::RenderPipeline>,
     arguments: Option<MainArguments>,
     constants: MainConstants,
 }
 
 impl MainPass {
-    fn build(world: &mut World) -> EntityId {
+    fn build(graph: &mut RenderGraph) -> TargetId {
         // Start building render.
-        let mut builder = RenderBuilderContext::new("main_pass", world);
+        let mut builder = RenderBuilderContext::new("main_pass", graph);
 
         // This render defines a single render target.
         let target = builder.create_target("main", nix::PipelineStages::COLOR_OUTPUT);
@@ -170,10 +165,12 @@ impl Render for MainPass {
 
 fn main() {
     run_game(|mut game| async move {
+        let mut graph = game.world.expect_resource_mut::<RenderGraph>();
+
         // Create main pass.
         // It returns target id that it renders to.
-        let target = MainPass::build(&mut game.world);
-        let target = bob::egui::EguiRender::build(target, &mut game.world);
+        let target = MainPass::build(&mut graph);
+        let target = bob::egui::EguiRender::build_overlay(target, &mut graph);
 
         // Use window's surface for the render target.
         game.render_window = Some(target);
@@ -182,8 +179,10 @@ fn main() {
             .add_system(move |fps: Res<FPS>| println!("FPS: {}", fps.fps()));
 
         game.var_scheduler.add_system(
-            move |mut egui: ResMutNoSend<EguiResource>, world: &World| {
-                egui.run(target, world, |ctx| {
+            move |mut egui: ResMutNoSend<EguiResource>, windows: Res<Windows>| {
+                let Some(window) = windows.windows.iter().find(|w| w.target() == target) else { return };
+
+                egui.run(window, |ctx| {
                     bob::egui::Window::new("Hello world!").show(ctx, |ui| {
                         ui.label("Hello world!");
                     });
@@ -193,6 +192,7 @@ fn main() {
                 });
             },
         );
+        drop(graph);
 
         Ok::<_, Infallible>(game)
     });
