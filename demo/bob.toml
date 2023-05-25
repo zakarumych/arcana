@@ -1,0 +1,7 @@
+name = "demo"
+
+[plugin-libs.triangle]
+path = 'C:\Users\zaqde\code\nothing\examples\triangle'
+
+[ed-api]
+path = "../crates/ed-api"

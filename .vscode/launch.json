@@ -26,6 +26,25 @@
         {
             "type": "lldb",
             "request": "launch",
+            "name": "Debug unit tests in library 'bob-importers'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=bob-importers"
+                ],
+                "filter": {
+                    "name": "bob-importers",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
             "name": "Debug unit tests in library 'nix'",
             "cargo": {
                 "args": [
@@ -45,54 +64,92 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug executable 'platformer'",
-            "cargo": {
-                "args": [
-                    "build",
-                    "--bin=platformer",
-                    "--package=platformer"
-                ],
-                "filter": {
-                    "name": "platformer",
-                    "kind": "bin"
-                }
-            },
-            "args": [],
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
-            "name": "Debug executable 'platformer' release",
-            "cargo": {
-                "args": [
-                    "build",
-                    "--release",
-                    "--bin=platformer",
-                    "--package=platformer"
-                ],
-                "filter": {
-                    "name": "platformer",
-                    "kind": "bin"
-                }
-            },
-            "args": [],
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
-            "name": "Debug unit tests in executable 'platformer'",
+            "name": "Debug unit tests in library 'bob'",
             "cargo": {
                 "args": [
                     "test",
                     "--no-run",
-                    "--bin=platformer",
-                    "--package=platformer"
+                    "--lib",
+                    "--package=bob-shim"
                 ],
                 "filter": {
-                    "name": "platformer",
+                    "name": "bob",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'bob-dyn'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=bob-dyn"
+                ],
+                "filter": {
+                    "name": "bob-dyn",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'ed'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=ed",
+                    "--package=ed"
+                ],
+                "filter": {
+                    "name": "ed",
                     "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'ed'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=ed",
+                    "--package=ed"
+                ],
+                "filter": {
+                    "name": "ed",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'ed-api'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=ed-api"
+                ],
+                "filter": {
+                    "name": "ed-api",
+                    "kind": "lib"
                 }
             },
             "args": [],

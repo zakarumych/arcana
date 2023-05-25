@@ -1,0 +1,35 @@
+[package]
+name = "nix"
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+license.workspace = true
+version.workspace = true
+
+[features]
+handle-device-lost = [] # Enable to handle device lost errors.
+
+[dependencies]
+nix-proc = { path = "proc" }
+hidden-trait = "0.1"
+bitflags = "2.0"
+slab = "0.4"
+raw-window-handle = "0.5"
+tracing = "0.1"
+parking_lot = "0.12"
+codespan-reporting = "0.11"
+hashbrown = "0.13"
+bytemuck = "1.7"
+smallvec = "1.6"
+
+[target.'cfg(any(windows, all(unix, not(any(target_os = "macos", target_os = "ios")))))'.dependencies]
+ash = { version = "0.37.0", features = ["loaded"] }
+gpu-alloc = { version = "0.5" }
+naga = { version = "0.11", features = ["spv-in", "wgsl-in", "glsl-in", "spv-out"] }
+
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+metal = { version = "0.24.0" }
+objc = { version = "0.2" }
+core-graphics-types = { version = "0.1" }
+foreign-types = { version = "0.3.2" }
+naga = { version = "0.11", features = ["spv-in", "wgsl-in", "glsl-in", "msl-out"] }
