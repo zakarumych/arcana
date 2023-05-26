@@ -136,7 +136,7 @@ impl Render for MainPass {
         });
 
         self.constants = MainConstants {
-            angle: -world
+            angle: world
                 .expect_resource::<ClockStep>()
                 .now
                 .elapsed_since_start()
@@ -189,12 +189,12 @@ impl BobPlugin for GamePlugin {
         scheduler.add_system(
             move |mut egui: ResMutNoSend<EguiResource>, window: Res<Window>| {
                 egui.run(&window, |ctx| {
-                    bob::egui::Window::new("Hello world!").show(ctx, |ui| {
-                        ui.label("Hello world!");
-                    });
-                    bob::egui::Window::new("Hello world2!").show(ctx, |ui| {
-                        ui.label("Hello world2!");
-                    });
+                    bob::egui::Window::new("Hello triangle!")
+                        .resizable(false)
+                        .collapsible(true)
+                        .show(ctx, |ui| {
+                            ui.label("Hello triangle!");
+                        });
                 });
             },
         );

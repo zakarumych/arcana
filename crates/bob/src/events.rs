@@ -181,6 +181,9 @@ impl EventLoop {
         #[cfg(target_os = "windows")]
         el.with_dpi_aware(true);
 
+        #[cfg(target_os = "windows")]
+        el.with_any_thread(true);
+
         let el = el.build();
 
         let (event_tx, event_rx) = flume::unbounded();

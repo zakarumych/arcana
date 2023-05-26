@@ -69,7 +69,6 @@ impl EguiResource {
         state.set_pixels_per_point(default_scale());
 
         let cx = Context::default();
-        // cx.set_pixels_per_point(default_scale());
 
         self.instances.insert(
             window.id(),
@@ -108,16 +107,6 @@ impl EguiResource {
 
     pub fn handle_event(&mut self, window_id: WindowId, event: &WindowEvent) -> bool {
         let Some(instance) = self.instances.get_mut(&window_id) else { return false; };
-
-        // if let WindowEvent::ScaleFactorChanged { scale_factor, .. } = event {
-        //     let pixels_per_point = *scale_factor as f32;
-        //     instance.state.set_pixels_per_point(pixels_per_point);
-        //     instance
-        //         .cx
-        //         .set_pixels_per_point(pixels_per_point * instance.scale);
-
-        //     return true;
-        // }
 
         let response = instance.state.on_event(&instance.cx, event);
 

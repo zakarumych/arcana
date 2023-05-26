@@ -103,7 +103,10 @@ impl Game {
         device: nix::Device,
         queue: Arc<Mutex<nix::Queue>>,
     ) -> Self {
-        let window = Window::new(events).unwrap();
+        let window = WindowBuilder::new()
+            .with_title("game")
+            .build(events)
+            .unwrap();
 
         // Build the world.
         // Register external resources.
@@ -133,6 +136,10 @@ impl Game {
         world.insert_resource(queue);
 
         let main_window_id = window.id();
+
+        let mut egui = EguiResource::new();
+        egui.add_window(&window, events);
+        world.insert_resource(egui);
         world.insert_resource(window);
 
         // Setup the funnel
