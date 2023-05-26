@@ -136,7 +136,7 @@ impl Render for MainPass {
         });
 
         self.constants = MainConstants {
-            angle: world
+            angle: -world
                 .expect_resource::<ClockStep>()
                 .now
                 .elapsed_since_start()

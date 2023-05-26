@@ -1,0 +1,13 @@
+
+[package]
+name = "demo"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+ed = { path = "../crates/ed" }
+triangle = { path = "C:\\Users\\zaqde\\code\\nothing\\examples\\triangle" }

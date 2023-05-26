@@ -1,3 +1,5 @@
+use std::fmt;
+
 use edict::{Scheduler, World};
 use hashbrown::HashMap;
 
@@ -84,23 +86,35 @@ macro_rules! export_bob_plugins {
 }
 
 struct PluginLib {
-    plugins: &'static [&'static dyn BobPlugin],
+    plugins: Vec<&'static dyn BobPlugin>,
+}
+
+impl fmt::Debug for PluginLib {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut list = f.debug_list();
+        for plugin in &self.plugins {
+            list.entry(&plugin.name());
+        }
+        list.finish()
+    }
 }
 
 impl PluginLib {
     pub fn init(&self, name: &str, world: &mut World, scheduler: &mut Scheduler) {
-        for plugin in self.plugins {
+        for plugin in &self.plugins {
             if plugin.name() == name {
                 plugin.init(world, scheduler);
                 return;
             }
         }
+        panic!("Plugin not found");
     }
 }
 
 /// Collection of plugin libraries.
+#[derive(Debug)]
 pub struct PluginHub {
-    libs: HashMap<&'static str, PluginLib>,
+    libs: HashMap<String, PluginLib>,
 }
 
 impl PluginHub {
@@ -110,24 +124,30 @@ impl PluginHub {
         }
     }
 
-    pub fn add_plugins(&mut self, lib: &'static str, plugins: &'static [&'static dyn BobPlugin]) {
-        self.libs.insert(lib, PluginLib { plugins });
+    pub fn add_plugins(&mut self, lib: &str, plugins: &[&'static dyn BobPlugin]) {
+        self.libs.insert(
+            lib.to_owned(),
+            PluginLib {
+                plugins: plugins.to_owned(),
+            },
+        );
     }
 
     pub fn init(&self, lib: &str, name: &str, world: &mut World, scheduler: &mut Scheduler) {
-        if let Some(lib) = self.libs.get(lib) {
-            lib.init(name, world, scheduler);
-        }
+        self.libs
+            .get(lib)
+            .expect("Plugin library not found")
+            .init(name, world, scheduler);
     }
 
     pub fn list(&self) -> Vec<(String, Vec<String>)> {
         let mut list = Vec::new();
-        for (&lib, lib_plugins) in &self.libs {
+        for (lib_name, plugins_lib) in &self.libs {
             let mut names = Vec::new();
-            for plugin in lib_plugins.plugins {
+            for plugin in &plugins_lib.plugins {
                 names.push(plugin.name().to_owned());
             }
-            list.push((lib.to_owned(), names));
+            list.push((lib_name.clone(), names));
         }
         list
     }

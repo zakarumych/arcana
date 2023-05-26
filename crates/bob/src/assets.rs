@@ -51,7 +51,7 @@ impl Assets {
                 temp: Some(Path::new("target/temp").to_owned()),
                 importers: vec![Path::new("target/debug/bob_importers").to_owned()],
             };
-            info.write(dbg!(&store_path)).unwrap();
+            info.write(&store_path).unwrap();
         }
 
         let store = argosy_store::Store::find(&store_path).unwrap();

@@ -99,7 +99,7 @@ impl Game {
     pub fn launch(
         events: &EventLoop,
         plugins: &PluginHub,
-        enable: &[(String, String)],
+        enable: &[(impl AsRef<str>, impl AsRef<str>)],
         device: nix::Device,
         queue: Arc<Mutex<nix::Queue>>,
     ) -> Self {
@@ -150,7 +150,12 @@ impl Game {
         let last_fixed = TimeStamp::start();
 
         for (lib, plugin) in enable {
-            plugins.init(lib, plugin, &mut world, &mut var_scheduler);
+            plugins.init(
+                lib.as_ref(),
+                plugin.as_ref(),
+                &mut world,
+                &mut var_scheduler,
+            );
         }
 
         Game {

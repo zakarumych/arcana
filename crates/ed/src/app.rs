@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::sync::Arc;
 
 use bob::{
     blink_alloc::BlinkAlloc,
@@ -14,6 +14,7 @@ use bob::{
 };
 use egui::{Context, Ui};
 use hashbrown::HashMap;
+use parking_lot::Mutex;
 
 use crate::project::{Project, ProjectInstance};
 
@@ -27,7 +28,7 @@ enum LastStatus {
 /// Contains state of the editor.
 pub struct App {
     /// Loaded project.
-    project: Option<Project>,
+    project: Project,
 
     // Running project instance.
     instance: Option<ProjectInstance>,
@@ -44,7 +45,7 @@ pub struct App {
     graph: RenderGraph,
     resources: RenderResources,
     device: nix::Device,
-    queue: nix::Queue,
+    queue: Arc<Mutex<nix::Queue>>,
 
     blink: BlinkAlloc,
 
@@ -127,11 +128,11 @@ fn status_panel(cx: &Context, last_status: &LastStatus) {
 }
 
 impl App {
-    pub fn new(events: &EventLoop) -> miette::Result<Self> {
+    pub fn new(events: &EventLoop, project: Project) -> miette::Result<Self> {
         let window = WindowBuilder::new()
             .with_title("Ed")
             .build(events)
-            .map_err(|err| miette::miette!("Failed to Ed window: {}", err))?;
+            .map_err(|err| miette::miette!("Failed to Ed window: {err}"))?;
 
         let (device, queue) = init_nix();
         let mut world = World::new();
@@ -148,7 +149,7 @@ impl App {
         graph.present(target, window.id());
 
         Ok(App {
-            project: None,
+            project,
             instance: None,
             windows: vec![window],
             views: HashMap::new(),
@@ -156,19 +157,23 @@ impl App {
             graph,
             resources: RenderResources::default(),
             device,
-            queue,
+            queue: Arc::new(Mutex::new(queue)),
             blink: BlinkAlloc::new(),
             last_status: LastStatus::None,
         })
     }
 
-    pub fn open_project(&mut self, path: &Path) -> miette::Result<()> {
-        let project = Project::open(path)?;
-        self.project = Some(project);
-        Ok(())
-    }
+    // pub fn open_project(&mut self, path: &Path) -> miette::Result<()> {
+    //     let project = Project::open(path)?;
+    //     self.project = Some(project);
+    //     Ok(())
+    // }
 
-    pub fn on_event(&mut self, event: Event) {
+    pub fn on_event(&mut self, mut event: Event) -> Option<Event> {
+        if let Some(instance) = &mut self.instance {
+            event = instance.on_event(event)?;
+        }
+
         match event {
             Event::WindowEvent { window_id, event } => {
                 let local = self.world.local();
@@ -178,18 +183,20 @@ impl App {
                 match event {
                     WindowEvent::CloseRequested => {
                         self.views.remove(&window_id);
-                        if let Some(idx) = self.windows.iter().position(|w| w.id() == window_id) {
-                            self.windows.swap_remove(idx);
-                        }
+                        let Some(idx) = self.windows.iter().position(|w| w.id() == window_id) else {
+                            return Some(Event::WindowEvent { window_id, event });
+                        };
+                        self.windows.swap_remove(idx);
+                        None
                     }
-                    _ => {}
+                    _ => Some(Event::WindowEvent { window_id, event }),
                 }
             }
-            _ => {}
+            _ => Some(event),
         }
     }
 
-    pub fn tick(&mut self) {
+    pub fn tick(&mut self, events: &EventLoop) {
         if let Some(instance) = &mut self.instance {
             instance.tick();
         }
@@ -201,115 +208,114 @@ impl App {
         let world = self.world.local();
         let mut egui = world.expect_resource_mut::<EguiResource>();
 
-        match &mut self.project {
-            None => {
-                let window = &self.windows[0];
-                if let Some(Some(project)) = egui.run(window, |cx| {
-                    status_panel(cx, &self.last_status);
-                    no_project_view(cx, &mut self.last_status)
-                }) {
-                    self.project = Some(project);
-                }
-            }
-            Some(project) => {
-                let mut quit = false;
-                for window in &self.windows {
-                    let mut dummy = Vec::new();
-                    let views = self.views.get_mut(&window.id()).unwrap_or(&mut dummy);
-                    egui.run(window, |cx| {
-                        status_panel(cx, &self.last_status);
+        // match &mut self.project {
+        //     None => {
+        //         let window = &self.windows[0];
+        //         if let Some(Some(project)) = egui.run(window, |cx| {
+        //             status_panel(cx, &self.last_status);
+        //             no_project_view(cx, &mut self.last_status)
+        //         }) {
+        //             self.project = Some(project);
+        //         }
+        //     }
+        //     Some(project) => {
+        let mut quit = false;
+        for window in &self.windows {
+            let mut dummy = Vec::new();
+            let views = self.views.get_mut(&window.id()).unwrap_or(&mut dummy);
+            egui.run(window, |cx| {
+                status_panel(cx, &self.last_status);
 
-                        egui::TopBottomPanel::top("top").show(cx, |ui| {
-                            ui.horizontal(|ui| {
-                                ui.menu_button("File", |ui| {
-                                    if ui.button("Quit").clicked() {
-                                        quit = true;
-                                        ui.close_menu();
-                                    }
-                                });
+                egui::TopBottomPanel::top("top").show(cx, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.menu_button("File", |ui| {
+                            if ui.button("Quit").clicked() {
+                                quit = true;
+                                ui.close_menu();
+                            }
+                        });
 
-                                ui.menu_button("Edit", |ui| {
-                                    ui.menu_button("Add plugin library", |ui| {
-                                        if ui.button("Path").clicked() {
-                                            let picked = rfd::FileDialog::new()
-                                                .set_directory(std::env::current_dir().unwrap())
-                                                .pick_folder();
+                        ui.menu_button("Edit", |ui| {
+                            ui.menu_button("Add plugin library", |ui| {
+                                if ui.button("Path").clicked() {
+                                    let picked = rfd::FileDialog::new()
+                                        .set_directory(std::env::current_dir().unwrap())
+                                        .pick_folder();
 
-                                            if let Some(folder) = picked {
-                                                match project.add_library_path(&folder) {
-                                                    Ok(()) => {
-                                                        self.last_status =
-                                                            LastStatus::Info(format!(
-                                                                "Added library: {}",
-                                                                folder.display()
-                                                            ));
-                                                    }
-                                                    Err(err) => {
-                                                        self.last_status =
-                                                            LastStatus::Error(format!(
-                                                                "Failed to add library: {}",
-                                                                err
-                                                            ));
-                                                    }
-                                                }
+                                    if let Some(folder) = picked {
+                                        match self.project.add_library_path(&folder) {
+                                            Ok(()) => {
+                                                self.last_status = LastStatus::Info(format!(
+                                                    "Added library: {}",
+                                                    folder.display()
+                                                ));
                                             }
-                                            ui.close_menu();
+                                            Err(err) => {
+                                                self.last_status = LastStatus::Error(format!(
+                                                    "Failed to add library: {}",
+                                                    err
+                                                ));
+                                            }
                                         }
-                                    });
-                                });
+                                    }
+                                    ui.close_menu();
+                                }
                             });
                         });
-
-                        egui::SidePanel::left("plugins").show(cx, |ui| {
-                            let mut build_clicked = false;
-                            let mut launch_clicked = false;
-
-                            if let Some(library) = &mut self.instance {
-                                ui.horizontal(|ui| {
-                                    build_clicked = ui.button("Rebuild").clicked();
-                                    launch_clicked = ui.button("Launch").clicked();
-                                });
-                                ui.separator();
-                                ui.heading("Plugins");
-                                for (lib, plugins) in library.plugins_enabled_mut() {
-                                    ui.separator();
-                                    ui.heading(lib);
-                                    for (plugin, enabled) in plugins {
-                                        ui.checkbox(enabled, plugin);
-                                    }
-                                }
-                            } else {
-                                build_clicked = ui.button("Build").clicked();
-                            };
-
-                            if build_clicked {
-                                match project.build(&mut self.instance) {
-                                    Err(err) => {
-                                        self.last_status = LastStatus::Error(format!(
-                                            "Failed to build project: {}",
-                                            err
-                                        ));
-                                    }
-                                    Ok(()) => {
-                                        self.last_status =
-                                            LastStatus::Info("Project build succeeded".into());
-                                    }
-                                }
-                            }
-
-                            if launch_clicked {
-                                self.instance.as_mut().unwrap().launch();
-                            }
-                        });
-
-                        egui::CentralPanel::default().show(cx, |ui| {
-                            for view in views {
-                                (view.render)(&world, ui);
-                            }
-                        });
                     });
-                }
-            }
+                });
+
+                egui::SidePanel::left("plugins").show(cx, |ui| {
+                    let mut build_clicked = false;
+                    let mut launch_clicked = false;
+
+                    if let Some(library) = &mut self.instance {
+                        ui.horizontal(|ui| {
+                            build_clicked = ui.button("Rebuild").clicked();
+                            launch_clicked = ui.button("Launch").clicked();
+                        });
+                        ui.separator();
+                        ui.heading("Plugins");
+                        for (lib, plugins) in library.plugins_enabled_mut() {
+                            ui.separator();
+                            ui.heading(lib);
+                            for (plugin, enabled) in plugins {
+                                ui.checkbox(enabled, plugin);
+                            }
+                        }
+                    } else {
+                        build_clicked = ui.button("Build").clicked();
+                    };
+
+                    if build_clicked {
+                        match self.project.build(&mut self.instance) {
+                            Err(err) => {
+                                self.last_status =
+                                    LastStatus::Error(format!("Failed to build project: {}", err));
+                            }
+                            Ok(()) => {
+                                self.last_status =
+                                    LastStatus::Info("Project build succeeded".into());
+                            }
+                        }
+                    }
+
+                    if launch_clicked {
+                        self.instance
+                            .as_mut()
+                            .unwrap()
+                            .launch(events, &self.device, &self.queue);
+                    }
+                });
+
+                egui::CentralPanel::default().show(cx, |ui| {
+                    for view in views {
+                        (view.render)(&world, ui);
+                    }
+                });
+            });
+            //     }
+            // }
         }
     }
 
@@ -321,7 +327,7 @@ impl App {
         render(
             &mut self.graph,
             &self.device,
-            &mut self.queue,
+            &mut self.queue.lock(),
             &self.blink,
             None,
             self.windows.iter(),

@@ -21,15 +21,19 @@
 use std::{
     fmt,
     fs::File,
-    io::{BufRead, BufReader, Read, Seek, SeekFrom, Write},
-    net::{Ipv4Addr, TcpStream},
+    io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
-use bob::events::{Event, EventLoop};
-use ed_api::ProjectBinary;
+use bob::{
+    events::{Event, EventLoop},
+    nix,
+};
 use hashbrown::HashMap;
-use rand::Rng;
+use parking_lot::Mutex;
+
+use crate::api::{version, ProjectLibrary};
 
 /// Project dependency.
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -45,24 +49,19 @@ enum Dependency {
     Path { path: String },
 }
 
-impl Dependency {
-    fn to_string(&self, root: &Path) -> String {
+impl fmt::Display for Dependency {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Dependency::Crates(version) => format!("\"{}\"", version),
+            Dependency::Crates(version) => write!(f, "\"{}\"", version),
             Dependency::Git { git, branch } => {
                 if let Some(branch) = branch {
-                    format!("{{ git = \"{git}\", branch = \"{branch}\" }}")
+                    write!(f, "{{ git = \"{git}\", branch = \"{branch}\" }}")
                 } else {
-                    format!("{{ git = \"{git}\" }}")
+                    write!(f, "{{ git = \"{git}\" }}")
                 }
             }
             Dependency::Path { path } => {
-                let path = root.join(path);
-
-                format!(
-                    "{{ path = \"{}\" }}",
-                    path.to_string_lossy().escape_default()
-                )
+                write!(f, "{{ path = \"{}\" }}", path.escape_default())
             }
         }
     }
@@ -79,22 +78,22 @@ struct ProjectManifest {
     #[serde(skip_serializing_if = "HashMap::is_empty", default)]
     plugin_libs: HashMap<String, Dependency>,
 
-    /// How to fetch ed_api dependency.
+    /// How to fetch ed dependency.
     /// If `None` defaults to
     #[serde(
-        skip_serializing_if = "is_default_ed_api_dependency",
-        default = "default_ed_api_dependency"
+        skip_serializing_if = "is_default_ed_dependency",
+        default = "default_ed_dependency"
     )]
-    ed_api: Dependency,
+    ed: Dependency,
 }
 
-fn default_ed_api_dependency() -> Dependency {
-    Dependency::Crates(ed_api::version().to_owned())
+fn default_ed_dependency() -> Dependency {
+    Dependency::Crates(version().to_owned())
 }
 
-fn is_default_ed_api_dependency(dep: &Dependency) -> bool {
+fn is_default_ed_dependency(dep: &Dependency) -> bool {
     match dep {
-        Dependency::Crates(version) => version == ed_api::version(),
+        Dependency::Crates(v) => v == version(),
         _ => false,
     }
 }
@@ -132,9 +131,8 @@ impl Project {
             Err(_) => {
                 std::fs::create_dir_all(&path).map_err(|err| {
                     miette::miette!(
-                        "Cannot create project at {}, failed to create directory: {}",
-                        path.display(),
-                        err
+                        "Cannot create project at {}, failed to create directory: {err}",
+                        path.display()
                     )
                 })?;
             }
@@ -160,14 +158,13 @@ impl Project {
         let manifest = ProjectManifest {
             name,
             plugin_libs: HashMap::new(),
-            ed_api: default_ed_api_dependency(),
+            ed: default_ed_dependency(),
         };
 
         let file = std::fs::File::create(path.join("bob.toml")).map_err(|err| {
             miette::miette!(
-                "Cannot create project at {}, failed to create \"bob.toml\": {}",
-                path.display(),
-                err
+                "Cannot create project at {}, failed to create \"bob.toml\": {err}",
+                path.display()
             )
         })?;
 
@@ -212,26 +209,21 @@ impl Project {
             .open(path.join("bob.toml"))
             .map_err(|err| {
                 miette::miette!(
-                    "Cannot open project at {}, failed to open \"bob.toml\": {}",
-                    path.display(),
-                    err
+                    "Cannot open project at {}, failed to open \"bob.toml\": {err}",
+                    path.display()
                 )
             })?;
 
         let mut bob_toml = String::new();
         file.read_to_string(&mut bob_toml).map_err(|err| {
             miette::miette!(
-                "Cannot read project manifest from \"{}\\bob.toml\": {}",
-                path.display(),
-                err
+                "Cannot read project manifest from \"{}\\bob.toml\": {err}",
+                path.display()
             )
         })?;
 
         let manifest: ProjectManifest = toml::from_str(&bob_toml).map_err(|err| {
-            miette::miette!(
-                "Cannot deserialize project manifest from \"bob.toml\": {}",
-                err
-            )
+            miette::miette!("Cannot deserialize project manifest from \"bob.toml\": {err}")
         })?;
 
         let project = Project {
@@ -259,17 +251,15 @@ impl Project {
 
         let cargo_toml = std::fs::read_to_string(&cargo_toml_path).map_err(|err| {
             miette::miette!(
-                "Cannot read Cargo.toml from \"{}\": {}",
-                cargo_toml_path.display(),
-                err
+                "Cannot read Cargo.toml from \"{}\": {err}",
+                cargo_toml_path.display()
             )
         })?;
 
         let manifest = cargo_toml::Manifest::from_str(&cargo_toml).map_err(|err| {
             miette::miette!(
-                "Cannot read Cargo.toml from \"{}\": {}",
-                cargo_toml_path.display(),
-                err
+                "Cannot read Cargo.toml from \"{}\": {err}",
+                cargo_toml_path.display()
             )
         })?;
 
@@ -291,14 +281,13 @@ impl Project {
 
     fn sync(&mut self) -> miette::Result<()> {
         let content = toml::to_string_pretty(&self.manifest).map_err(|err| {
-            miette::miette!("Cannot serialize project manifest to \"bob.toml\": {}", err)
+            miette::miette!("Cannot serialize project manifest to \"bob.toml\": {err}")
         })?;
 
         self.write_to_file(&content).map_err(|err| {
             miette::miette!(
-                "Cannot write project manifest to \"{}\\bob.toml\": {}",
-                self.path.display(),
-                err
+                "Cannot write project manifest to \"{}\\bob.toml\": {err}",
+                self.path.display()
             )
         })?;
 
@@ -313,8 +302,6 @@ impl Project {
 
     /// Returns content for `Cargo.toml` file.
     fn cargo_toml(&self) -> String {
-        let ed_api = self.manifest.ed_api.to_string(&self.path);
-
         let mut cargo_toml = format!(
             r#"
 [package]
@@ -322,21 +309,26 @@ name = "{name}"
 version = "0.0.0"
 edition = "2021"
 publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
 [dependencies]
-ed-api = {ed_api}
+ed = {ed}
 "#,
             name = self.manifest.name.escape_default(),
+            ed = self.manifest.ed,
         );
 
         for (name, dep) in &self.manifest.plugin_libs {
-            cargo_toml.push_str(&format!("{} = {}\n", name, dep.to_string(&self.path)));
+            cargo_toml.push_str(&format!("{} = {}\n", name, dep));
         }
 
         cargo_toml
     }
 
-    fn main_rs(&self) -> String {
-        let mut lib_rs = "ed_api::ed_main![".to_owned();
+    fn lib_rs(&self) -> String {
+        let mut lib_rs = "ed::ed_lib![".to_owned();
         for lib in &self.manifest.plugin_libs {
             lib_rs.push_str(&lib.0.replace('-', "_"));
             lib_rs.push(',');
@@ -346,53 +338,38 @@ ed-api = {ed_api}
     }
 
     fn init_package(&self) -> miette::Result<()> {
-        let build_path = self.path.join("build");
-
-        if !build_path.exists() {
-            std::fs::create_dir_all(&build_path).map_err(|err| {
+        if !self.path.exists() {
+            std::fs::create_dir_all(&self.path).map_err(|err| {
                 miette::miette!(
-                    "Failed to create build directory at {}: {}",
-                    build_path.display(),
-                    err
+                    "Failed to create build directory at {}: {err}",
+                    self.path.display()
                 )
             })?;
         }
 
-        let gitignore_path = build_path.join(".gitignore");
-        std::fs::write(&gitignore_path, "*").map_err(|err| {
-            miette::miette!(
-                "Failed to write .gitignore to {}: {}",
-                gitignore_path.display(),
-                err
-            )
-        })?;
-
-        let cargo_toml_path = build_path.join("Cargo.toml");
+        let cargo_toml_path = self.path.join("Cargo.toml");
         std::fs::write(&cargo_toml_path, self.cargo_toml()).map_err(|err| {
             miette::miette!(
-                "Failed to write Cargo.toml to {}: {}",
-                cargo_toml_path.display(),
-                err
+                "Failed to write Cargo.toml to {}: {err}",
+                cargo_toml_path.display()
             )
         })?;
 
-        let src_path = build_path.join("src");
+        let src_path = self.path.join("src");
         if !src_path.exists() {
             std::fs::create_dir_all(&src_path).map_err(|err| {
                 miette::miette!(
-                    "Failed to create src directory at {}: {}",
-                    src_path.display(),
-                    err
+                    "Failed to create src directory at {}: {err}",
+                    src_path.display()
                 )
             })?;
         }
 
-        let src_main_rs_path = src_path.join("main.rs");
-        std::fs::write(&src_main_rs_path, self.main_rs()).map_err(|err| {
+        let src_lib_rs_path = src_path.join("lib.rs");
+        std::fs::write(&src_lib_rs_path, self.lib_rs()).map_err(|err| {
             miette::miette!(
-                "Failed to write src/main.rs to {}: {}",
-                src_main_rs_path.display(),
-                err
+                "Failed to write src/lib.rs to {}: {err}",
+                src_lib_rs_path.display()
             )
         })?;
 
@@ -402,11 +379,11 @@ ed-api = {ed_api}
     pub fn build(&self, instance: &mut Option<ProjectInstance>) -> miette::Result<()> {
         self.init_package()?;
 
-        let build_path = self.path.join("build");
-
         let result = std::process::Command::new("cargo")
             .arg("build")
+            .arg("--lib")
             .arg(format!("--package={}", self.manifest.name))
+            .current_dir(&self.path)
             .status();
 
         match result {
@@ -422,21 +399,10 @@ ed-api = {ed_api}
             Ok(_) => {}
         }
 
-        let workspace = find_workspace_target(&build_path);
+        let workspace = find_workspace_target(&self.path);
         let target_path = workspace.join("target").join("debug");
-        let bin_name = format!("{}{}", &self.manifest.name, std::env::consts::EXE_SUFFIX);
-        let bin_path = target_path.join(&bin_name);
 
-        let bin_path = tmp_bin_path(&bin_path).map_err(|err| {
-            miette::miette!(
-                "Failed to copy library from {} to {}: {}",
-                bin_path.display(),
-                self.path.display(),
-                err
-            )
-        })?;
-
-        let mut bin = ProjectBinary::new(&bin_path);
+        let mut bin = ProjectLibrary::new(&self.manifest.name, &target_path)?;
 
         let mut new_plugins = HashMap::new();
 
@@ -461,7 +427,6 @@ ed-api = {ed_api}
         }
 
         *instance = Some(ProjectInstance {
-            path: bin_path,
             plugins: new_plugins,
             bin,
         });
@@ -471,23 +436,8 @@ ed-api = {ed_api}
 }
 
 pub struct ProjectInstance {
-    path: PathBuf,
     plugins: HashMap<String, HashMap<String, bool>>,
-    bin: ProjectBinary,
-}
-
-impl Drop for ProjectInstance {
-    fn drop(&mut self) {
-        self.bin.exit();
-
-        if let Err(err) = std::fs::remove_file(&self.path) {
-            tracing::error!(
-                "Failed to remove library at {}: {}",
-                self.path.display(),
-                err
-            );
-        }
-    }
+    bin: ProjectLibrary,
 }
 
 impl ProjectInstance {
@@ -508,9 +458,17 @@ impl ProjectInstance {
         })
     }
 
-    pub fn launch(&mut self) {
-        self.bin
-            .launch(self.plugins.iter().flat_map(|(lib, plugins)| {
+    pub fn launch(
+        &mut self,
+        events: &EventLoop,
+        device: &nix::Device,
+        queue: &Arc<Mutex<nix::Queue>>,
+    ) {
+        self.bin.launch(
+            events,
+            device,
+            queue,
+            self.plugins.iter().flat_map(|(lib, plugins)| {
                 plugins.iter().filter_map(move |(plugin, enabled)| {
                     if *enabled {
                         Some((&**lib, &**plugin))
@@ -518,7 +476,12 @@ impl ProjectInstance {
                         None
                     }
                 })
-            }));
+            }),
+        );
+    }
+
+    pub fn on_event(&mut self, event: Event) -> Option<Event> {
+        self.bin.on_event(event)
     }
 
     pub fn tick(&mut self) {
@@ -538,33 +501,4 @@ fn find_workspace_target(path: &Path) -> &Path {
     }
 
     candidate
-}
-
-fn tmp_bin_path(path: &Path) -> miette::Result<PathBuf> {
-    let mut rng = rand::thread_rng();
-    let dir = std::env::temp_dir();
-    let filename = path
-        .file_name()
-        .ok_or_else(|| miette::miette!("Failed to get filename from path: {}", path.display()))?;
-    let filename = filename.to_string_lossy();
-    loop {
-        let r: u128 = rng.gen();
-        let filename = format!("{filename}_{r:0X}");
-
-        let tmp_path = dir.join(&filename);
-        if tmp_path.exists() {
-            continue;
-        }
-
-        std::fs::copy(path, &tmp_path).map_err(|err| {
-            miette::miette!(
-                "Failed to copy library from {} to {}: {}",
-                path.display(),
-                tmp_path.display(),
-                err
-            )
-        })?;
-
-        return Ok(tmp_path);
-    }
 }

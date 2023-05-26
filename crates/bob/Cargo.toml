@@ -6,6 +6,9 @@ readme.workspace = true
 license.workspace = true
 version.workspace = true
 
+[lib]
+crate-type = ["dylib"]
+
 [features]
 derive = ["dep:bob-proc"]
 
