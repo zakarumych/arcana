@@ -1,4 +1,0 @@
-artifacts = "target/artifacts"
-external = "target/external"
-temp = "target/temp"
-importers = ["target/debug/bob_importers"]

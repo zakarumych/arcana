@@ -1,5 +1,5 @@
 [workspace]
-members = ["bob", "ed"]
+members = ["arcana", "mev", "cli"]
 
 [workspace.package]
 edition = "2021"
@@ -9,10 +9,50 @@ license = "MIT OR Apache-2.0"
 version = "0.1.0"
 
 [workspace.dependencies]
-tokio = { version = "1.0", features = ["rt", "time", "net", "io-util"], default-features = false }
-serde = "1.0"
+alkahest = { version = "0.3", features = ["derive"] }
+argosy = { path = "../../argosy" }
+argosy-store = { path = "../../argosy/store" }
+ash = { version = "0.37.0", features = ["loaded"] }
+base64 = "0.21"
+bitflags = "2.0"
+blink-alloc = { version = "0.3.0", features = ["nightly"] }
+bytemuck = { version = "1.7", features = ["derive"] }
+cargo_toml = "0.15"
+clap = { version = "4.3", features = ["derive"] }
+codespan-reporting = "0.11"
+core-graphics-types = { version = "0.1" }
+dunce = "1.0"
+edict = { version = "0.5.0", features = ["rayon"] }
+egui = { version = "0.22", features = ["bytemuck"] }
+egui-winit = { version = "0.22" }
+foreign-types = { version = "0.3.2" }
 futures = "0.3"
 flume = "0.10"
-parking_lot = "0.12"
+gametime = "0.1.6"
+gilrs = { version = "0.10" }
+gpu-alloc = { version = "0.5" }
 hashbrown = { version = "0.13", features = ["nightly"] }
+hidden-trait = "0.1"
+libloading = "0.8"
+metal = { version = "0.24.0" }
+miette = "5.9"
+na = { package = "nalgebra", version = "0.32" }
+naga = { version = "0.11", features = ["spv-in", "wgsl-in", "glsl-in"] }
+objc = { version = "0.2" }
+parking_lot = "0.12"
+rand = "0.8"
+rapid-qoi = "0.6"
+raw-window-handle = "0.5"
+rfd = "0.11"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0" }
+sha2 = "0.10"
+slab = "0.4"
+smallvec = "1.6"
+thiserror = "1.0"
+tokio = { version = "1.0", features = ["rt", "time", "net", "io-util"], default-features = false }
+toml = "0.7"
 tracing = "0.1"
+tracing-error = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+winit = { version = "0.28" }

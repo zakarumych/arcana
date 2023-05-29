@@ -1,0 +1,20 @@
+[package]
+name = "arcana-cli"
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+license.workspace = true
+version.workspace = true
+description = "CLI tool for Arcana Engine"
+
+[[bin]]
+name = "arcana"
+path = "src/main.rs"
+
+[dependencies]
+arcana-project = { path = "../project" }
+clap = { workspace = true }
+dunce = { workspace = true }
+miette = { workspace = true, features = ["fancy"] }
+serde = { workspace = true }
+toml = { workspace = true }

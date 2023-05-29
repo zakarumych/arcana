@@ -1,0 +1,52 @@
+[package]
+name = "arcana"
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+license.workspace = true
+version.workspace = true
+description = "Arcana Engine"
+
+[lib]
+crate-type = ["dylib"]
+
+[features]
+derive = ["dep:arcana-proc"]
+
+# Enables multi-threaded runtime for tokio.
+multi-thread = ["tokio/rt-multi-thread"]
+
+# Adds game client modules
+client = ["dep:winit", "dep:mev", "dep:egui", "dep:egui-winit", "dep:gilrs"]
+
+dev = ["dep:arcana-importers", "dep:argosy-store"]
+
+[dependencies]
+arcana-proc = { path = "proc", optional = true }
+arcana-importers = { path = "../importers", optional = true }
+mev = { path = "../mev", optional = true }
+
+argosy = { workspace = true }
+argosy-store = { workspace = true, optional = true }
+base64 = { workspace = true }
+blink-alloc = { workspace = true }
+bytemuck = { workspace = true }
+edict = { workspace = true  }
+egui = { workspace = true, optional = true }
+egui-winit = { workspace = true, optional = true } 
+flume = { workspace = true }
+futures = { workspace = true }
+gametime = { workspace = true  }
+gilrs = { workspace = true, optional = true }
+hashbrown = { workspace = true, features = ["serde"] }
+libloading = { workspace = true }
+na = { workspace = true }
+parking_lot = { workspace = true }
+rapid-qoi = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true } 
+tracing-error = { workspace = true  }
+tracing-subscriber = { workspace = true  }
+winit = { workspace = true, optional = true }

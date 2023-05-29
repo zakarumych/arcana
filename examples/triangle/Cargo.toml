@@ -4,4 +4,4 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-bob = { path = "../../crates/bob", features = ["client"] }
+arcana = { path = "../../crates/arcana", features = ["client"] }
