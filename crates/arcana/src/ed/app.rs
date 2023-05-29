@@ -1,22 +1,21 @@
 use std::sync::Arc;
 
-use arcana::{
-    blink_alloc::BlinkAlloc,
-    edict::World,
-    egui::{EguiRender, EguiResource},
-    events::{Event, EventLoop},
-    init_nix, mev,
-    render::{render, RenderGraph, RenderResources},
-    winit::{
-        event::WindowEvent,
-        window::{Window, WindowBuilder, WindowId},
-    },
-};
+use arcana_project::Project;
+use blink_alloc::BlinkAlloc;
+use edict::World;
 use egui::{Context, Ui};
 use hashbrown::HashMap;
 use parking_lot::Mutex;
+use winit::{
+    event::WindowEvent,
+    window::{Window, WindowBuilder, WindowId},
+};
 
-use crate::project::{Project, ProjectInstance};
+use crate::{
+    egui::{EguiRender, EguiResource},
+    events::{Event, EventLoop},
+    render::{render, RenderGraph, RenderResources},
+};
 
 enum LastStatus {
     None,

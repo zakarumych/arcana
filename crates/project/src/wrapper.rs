@@ -63,10 +63,9 @@ macro_rules! make_workspace_ed_rs {
 
 // Runs Arcana Ed.
 fn main() {{
-    arcana::ed::run({name}, env!("CARGO_MANIFEST_DIR"));
+    arcana::ed::run(env!("CARGO_MANIFEST_DIR"));
 }}
-"#,
-            name = stringify!($name),
+"#
         )
     };
 }

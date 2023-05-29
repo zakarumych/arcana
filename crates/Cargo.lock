@@ -177,6 +177,7 @@ version = "0.1.0"
 dependencies = [
  "arcana-importers",
  "arcana-proc",
+ "arcana-project",
  "argosy",
  "argosy-store",
  "base64",
@@ -192,6 +193,7 @@ dependencies = [
  "hashbrown 0.13.2",
  "libloading 0.8.0",
  "mev",
+ "miette",
  "nalgebra",
  "parking_lot",
  "rapid-qoi",

@@ -19,10 +19,11 @@ multi-thread = ["tokio/rt-multi-thread"]
 # Adds game client modules
 client = ["dep:winit", "dep:mev", "dep:egui", "dep:egui-winit", "dep:gilrs"]
 
-dev = ["dep:arcana-importers", "dep:argosy-store"]
+dev = ["dep:arcana-project", "dep:arcana-importers", "dep:argosy-store", "dep:miette"]
 
 [dependencies]
 arcana-proc = { path = "proc", optional = true }
+arcana-project = { path = "../project", optional = true }
 arcana-importers = { path = "../importers", optional = true }
 mev = { path = "../mev", optional = true }
 
@@ -40,6 +41,7 @@ gametime = { workspace = true  }
 gilrs = { workspace = true, optional = true }
 hashbrown = { workspace = true, features = ["serde"] }
 libloading = { workspace = true }
+miette = { workspace = true, features = ["fancy"], optional = true }
 na = { workspace = true }
 parking_lot = { workspace = true }
 rapid-qoi = { workspace = true }

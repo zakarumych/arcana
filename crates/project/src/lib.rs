@@ -51,24 +51,18 @@ impl fmt::Display for Dependency {
 pub struct ProjectManifest {
     pub name: String,
 
-    /// List of plugin libraries this project depends on.
-    #[serde(skip_serializing_if = "HashMap::is_empty", default)]
-    pub plugin_libs: HashMap<String, Dependency>,
-
     /// How to fetch arcana dependency.
     /// Defaults to `Dependency::Crates(version())`.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub arcana: Option<Dependency>,
-}
 
-impl ProjectManifest {
-    pub fn new(name: String) -> Self {
-        ProjectManifest {
-            name,
-            plugin_libs: HashMap::new(),
-            arcana: None,
-        }
-    }
+    /// List of plugin libraries this project depends on.
+    #[serde(skip_serializing_if = "HashMap::is_empty", default)]
+    pub plugin_libs: HashMap<String, Dependency>,
+
+    /// Enabled plugins.
+    #[serde(skip_serializing_if = "HashMap::is_empty", default)]
+    pub enabled: HashMap<String, Vec<String>>,
 }
 
 // pub fn default_arcana_dependency() -> Dependency {
@@ -182,8 +176,9 @@ impl Project {
 
         let manifest = ProjectManifest {
             name: name.to_owned(),
-            plugin_libs: HashMap::new(),
             arcana,
+            plugin_libs: HashMap::new(),
+            enabled: HashMap::new(),
         };
 
         let manifest_str = match toml::to_string(&manifest) {
@@ -330,6 +325,8 @@ impl Project {
     }
 
     fn sync(&mut self) -> miette::Result<()> {
+        self.manifest.enabled.retain(|_, v| !v.is_empty());
+
         let content = toml::to_string_pretty(&self.manifest).map_err(|err| {
             miette::miette!("Cannot serialize project manifest to \"Arcana.toml\": {err}")
         })?;

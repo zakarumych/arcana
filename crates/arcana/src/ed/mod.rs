@@ -1,27 +1,27 @@
 use std::path::Path;
 
-use arcana::{
+use arcana_project::Project;
+
+use crate::{
     events::EventLoop,
     gametime::{Clock, FrequencyNumExt, FrequencyTicker},
 };
-use project::Project;
 
-#[doc(hidden)]
-pub mod api;
 mod app;
-pub mod project;
+mod game;
+mod plugins;
 
 /// Runs the editor application
-pub fn run(path: &Path) -> miette::Result<()> {
-    arcana::install_tracing_subscriber();
+pub fn run(path: &impl AsRef<Path>) {
+    if let Err(err) = _run(path.as_ref()) {
+        eprintln!("Error: {}", err);
+    }
+}
 
-    let project = match Project::open(path) {
-        Ok(project) => project,
-        Err(err) => {
-            miette::bail!("Failed to open project: {err}");
-        }
-    };
+fn _run(path: &Path) -> miette::Result<()> {
+    let project = Project::open(path)?;
 
+    crate::install_tracing_subscriber();
     let mut clock = Clock::new();
     let mut limiter = FrequencyTicker::new(30u64.hz(), clock.now());
 

@@ -4,7 +4,9 @@ use std::{
 };
 pub use std::{stringify, sync::Arc, vec::Vec};
 
-pub use arcana::{
+use rand::Rng;
+
+pub use crate::{
     events::{Event, EventLoop},
     game::Game,
     gametime::{Clock, FrequencyNumExt},
@@ -14,7 +16,6 @@ pub use arcana::{
     plugin::{BobPlugin, PluginHub},
     winit::window::WindowId,
 };
-use rand::Rng;
 
 #[macro_export]
 macro_rules! ed_lib {

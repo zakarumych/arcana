@@ -15,7 +15,7 @@ use hashbrown::HashMap;
 /// returns a slice of static references to plugin objects.
 ///
 /// The easiest way to do this is to use [`export_arcana_plugins!`](`export_arcana_plugins`) macro.
-pub trait BobPlugin {
+pub trait ArcanaPlugin {
     /// Name of the plugin.
     fn name(&self) -> &'static str;
     fn init(&self, world: &mut World, scheduler: &mut Scheduler);
@@ -30,11 +30,11 @@ pub trait BobPlugin {
 ///
 ///
 /// ```
-/// # use arcana::{export_arcana_plugins, plugin::BobPlugin, edict::{World, Scheduler, Res}};
+/// # use arcana::{export_arcana_plugins, plugin::ArcanaPlugin, edict::{World, Scheduler, Res}};
 /// // Define a plugin.
 /// struct MyBobPlugin;
 ///
-/// impl BobPlugin for MyBobPlugin {
+/// impl ArcanaPlugin for MyBobPlugin {
 ///   fn name(&self) -> &'static str {
 ///     "my_plugin"
 ///   }
@@ -50,7 +50,7 @@ pub trait BobPlugin {
 /// ```
 ///
 /// ```
-/// # use arcana::{export_arcana_plugins, plugin::BobPlugin, edict::{World, Scheduler, Res}};
+/// # use arcana::{export_arcana_plugins, plugin::ArcanaPlugin, edict::{World, Scheduler, Res}};
 /// // Export implicitly define plugin.
 /// export_arcana_plugins!(MyBobPlugin {
 ///   resources: ["world".to_string()],
@@ -67,7 +67,7 @@ macro_rules! export_arcana_plugins {
             #[allow(non_camel_case)]
             struct $plugin;
 
-            impl $crate::plugin::BobPlugin for $plugin {
+            impl $crate::plugin::ArcanaPlugin for $plugin {
                 fn name(&self) -> &'static str {
                     stringify!($plugin)
                 }
@@ -79,14 +79,14 @@ macro_rules! export_arcana_plugins {
             }
         )?)*
 
-        pub fn arcana_plugins() -> &'static [&'static dyn $crate::plugin::BobPlugin] {
+        pub fn arcana_plugins() -> &'static [&'static dyn $crate::plugin::ArcanaPlugin] {
             &[$(&$plugin,)*]
         }
     };
 }
 
 struct PluginLib {
-    plugins: Vec<&'static dyn BobPlugin>,
+    plugins: Vec<&'static dyn ArcanaPlugin>,
 }
 
 impl fmt::Debug for PluginLib {
@@ -124,7 +124,7 @@ impl PluginHub {
         }
     }
 
-    pub fn add_plugins(&mut self, lib: &str, plugins: &[&'static dyn BobPlugin]) {
+    pub fn add_plugins(&mut self, lib: &str, plugins: &[&'static dyn ArcanaPlugin]) {
         self.libs.insert(
             lib.to_owned(),
             PluginLib {
