@@ -48,32 +48,19 @@ pub mod egui;
 #[cfg(feature = "client")]
 pub mod texture;
 
-#[cfg(feature = "dev")]
+#[cfg(feature = "ed")]
 pub mod ed;
 
 pub mod assets;
 pub mod bundle;
 pub mod plugin;
 
-/// Installs default tracing subscriber.
-pub fn install_tracing_subscriber() {
-    use tracing_subscriber::layer::SubscriberExt as _;
-    if let Err(err) = tracing::subscriber::set_global_default(
-        tracing_subscriber::fmt()
-            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-            .finish()
-            .with(tracing_error::ErrorLayer::default()),
-    ) {
-        panic!("Failed to install tracing subscriber: {}", err);
-    }
-}
-
 pub fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
 #[cfg(feature = "client")]
-pub fn init_nix() -> (mev::Device, mev::Queue) {
+pub fn init_mev() -> (mev::Device, mev::Queue) {
     let instance = mev::Instance::load().expect("Failed to init graphics");
 
     let (device, mut queues) = instance

@@ -632,12 +632,14 @@ impl Render for EguiRender {
                         Primitive::Mesh(mesh) => {
                             render.with_scissor(
                                 mev::Offset2::new(
-                                    (primitive.clip_rect.left() * instance.scale) as i32,
-                                    (primitive.clip_rect.top() * instance.scale) as i32,
+                                    ((primitive.clip_rect.left() * instance.scale) as i32).max(0),
+                                    ((primitive.clip_rect.top() * instance.scale) as i32).max(0),
                                 ),
                                 mev::Extent2::new(
-                                    (primitive.clip_rect.width() * instance.scale) as u32,
-                                    (primitive.clip_rect.height() * instance.scale) as u32,
+                                    ((primitive.clip_rect.width() * instance.scale) as u32)
+                                        .min(dims.width()),
+                                    ((primitive.clip_rect.height() * instance.scale) as u32)
+                                        .min(dims.height()),
                                 ),
                             );
 

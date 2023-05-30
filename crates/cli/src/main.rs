@@ -23,38 +23,63 @@ impl FromStr for ArcanaArg {
 
 #[derive(Debug, Args)]
 struct InitArgs {
+    /// Name of the project.
+    /// If not specified, the name of the project will be inferred from the directory name.
     #[arg(long = "name", value_name = "name")]
     name: Option<String>,
 
-    #[arg(long = "arcana", value_name = "ARCANA_DEPENDENCY")]
+    /// Arcana dependency.
+    /// If not specified, the version of this CLI crate will be used.
+    /// If specified this must be a string with valid toml syntax for a dependency.
+    #[arg(long = "arcana", value_name = "arcana-dependency")]
     arcana: Option<ArcanaArg>,
 }
 
 #[derive(Debug, Subcommand)]
 #[command(rename_all = "kebab-case")]
 enum Command {
+    /// Initializes new project in an existing directory.
     Init {
+        /// Path to the project directory.
+        /// It may be either absolute or relative to the current directory.
+        /// The directory may or may not exist.
+        /// If it does exist, it must not already contain an Arcana Project.
+        /// If it does not exist, it will be created.
+        /// The directory must not be part of the cargo workspace.
         #[arg(value_name = "path", default_value = ".")]
         path: PathBuf,
 
         #[command(flatten)]
         args: InitArgs,
     },
+    /// Creates new project.
     New {
+        /// Path to the project directory.
+        /// It may be either absolute or relative to the current directory.
+        /// The directory must not exist, it will be created.
+        /// The directory must not be part of the cargo workspace.
         #[arg(value_name = "path")]
         path: PathBuf,
 
         #[command(flatten)]
         args: InitArgs,
     },
+    /// Initializes cargo workspace for an existing project.
     InitWorkspace {
+        /// Path to the project directory.
+        #[arg(value_name = "path", default_value = ".")]
+        path: PathBuf,
+    },
+    /// Run Arcana Ed with the project.
+    Ed {
+        /// Path to the project directory.
         #[arg(value_name = "path", default_value = ".")]
         path: PathBuf,
     },
 }
 
 #[derive(Debug, Parser)]
-#[command(name = "arcana")]
+#[command(name = "arcn")]
 #[command(about = "Arcana game engine CLI")]
 #[command(rename_all = "kebab-case")]
 struct Cli {
@@ -76,6 +101,11 @@ fn main() -> miette::Result<()> {
             let project = Project::find(&path)?;
             project.init_workspace()?;
         }
+        Command::Ed { path } => {
+            let project = Project::find(&path)?;
+            project.init_workspace()?;
+            project.run_editor(&path)?;
+        }
     }
 
     Ok(())
@@ -94,7 +124,7 @@ fn map_arcana(arg: Option<ArcanaArg>) -> miette::Result<Option<Dependency>> {
 }
 
 fn realpath_utf8(path: &Path) -> miette::Result<String> {
-    let realpath = dunce::realpath(path).into_diagnostic()?;
+    let realpath = dunce::canonicalize(path).into_diagnostic()?;
     let string = realpath
         .to_str()
         .ok_or_else(|| miette::miette!("Failed to convert path to string: '{}'", path.display()))?;

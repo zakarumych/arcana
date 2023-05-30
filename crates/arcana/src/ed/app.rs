@@ -4,6 +4,7 @@ use arcana_project::Project;
 use blink_alloc::BlinkAlloc;
 use edict::World;
 use egui::{Context, Ui};
+use egui_dock::{TabViewer, Tree};
 use hashbrown::HashMap;
 use parking_lot::Mutex;
 use winit::{
@@ -14,32 +15,24 @@ use winit::{
 use crate::{
     egui::{EguiRender, EguiResource},
     events::{Event, EventLoop},
+    game::Quit,
+    init_mev,
     render::{render, RenderGraph, RenderResources},
 };
 
-enum LastStatus {
-    None,
-    Error(String),
-    Info(String),
-}
+use super::{console::Console, game::Games, plugins::Plugins, AppTab};
 
 /// Editor app instance.
 /// Contains state of the editor.
 pub struct App {
-    /// Loaded project.
-    project: Project,
-
-    // Running project instance.
-    instance: Option<ProjectInstance>,
-
     /// Windows opened in the editor.
     windows: Vec<Window>,
 
-    /// Views opened in the editor.
-    views: HashMap<WindowId, Vec<View>>,
+    /// Tabs opened in the editor.
+    tabs: HashMap<WindowId, Tree<Tab>>,
 
-    /// Contains various resources.
-    world: World,
+    /// Model of the App.
+    model: AppModel,
 
     graph: RenderGraph,
     resources: RenderResources,
@@ -47,34 +40,57 @@ pub struct App {
     queue: Arc<Mutex<mev::Queue>>,
 
     blink: BlinkAlloc,
+}
 
-    last_status: LastStatus,
+#[repr(transparent)]
+struct AppModel {
+    world: World,
 }
 
 /// Editor view correspond to the open views.
-/// View belong to a window.
+/// Tab belong to a window.
 /// Each view knows what to render.
-struct View {
-    render: Box<dyn FnMut(&World, &mut Ui)>,
-}
+struct Tab(Box<dyn AppTab>);
 
-fn status_panel(cx: &Context, last_status: &LastStatus) {
-    egui::TopBottomPanel::bottom("status").show(cx, |ui| match last_status {
-        LastStatus::None => ui.label("..."),
-        LastStatus::Error(err) => ui.colored_label(egui::Color32::RED, err),
-        LastStatus::Info(info) => ui.label(info),
-    });
+impl TabViewer for AppModel {
+    type Tab = Tab;
+
+    fn ui(&mut self, ui: &mut Ui, tab: &mut Tab) {
+        tab.0.show(&mut self.world, ui);
+    }
+
+    fn title(&mut self, tab: &mut Tab) -> egui::WidgetText {
+        tab.0.title().into()
+    }
 }
 
 impl App {
     pub fn new(events: &EventLoop, project: Project) -> miette::Result<Self> {
+        let event_collector = egui_tracing::EventCollector::default();
+
+        use tracing_subscriber::layer::SubscriberExt as _;
+
+        if let Err(err) = tracing::subscriber::set_global_default(
+            tracing_subscriber::fmt()
+                .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+                .finish()
+                .with(tracing_error::ErrorLayer::default())
+                .with(event_collector.clone()),
+        ) {
+            panic!("Failed to install tracing subscriber: {}", err);
+        }
+
         let window = WindowBuilder::new()
             .with_title("Ed")
             .build(events)
             .map_err(|err| miette::miette!("Failed to Ed window: {err}"))?;
 
-        let (device, queue) = init_nix();
+        let (device, queue) = init_mev();
         let mut world = World::new();
+        world.insert_resource(project);
+        world.insert_resource(Plugins::new());
+        world.insert_resource(Games::new());
+        world.insert_resource(Console::new(event_collector));
 
         let mut egui = EguiResource::new();
         egui.add_window(&window, events);
@@ -88,40 +104,27 @@ impl App {
         graph.present(target, window.id());
 
         Ok(App {
-            project,
-            instance: None,
             windows: vec![window],
-            views: HashMap::new(),
-            world,
+            tabs: HashMap::new(),
+            model: AppModel { world },
             graph,
             resources: RenderResources::default(),
             device,
             queue: Arc::new(Mutex::new(queue)),
             blink: BlinkAlloc::new(),
-            last_status: LastStatus::None,
         })
     }
 
-    // pub fn open_project(&mut self, path: &Path) -> miette::Result<()> {
-    //     let project = Project::open(path)?;
-    //     self.project = Some(project);
-    //     Ok(())
-    // }
-
-    pub fn on_event(&mut self, mut event: Event) -> Option<Event> {
-        if let Some(instance) = &mut self.instance {
-            event = instance.on_event(event)?;
-        }
-
+    pub fn on_event(&mut self, event: Event) -> Option<Event> {
         match event {
             Event::WindowEvent { window_id, event } => {
-                let local = self.world.local();
-                let mut egui = local.expect_resource_mut::<EguiResource>();
+                let world = self.model.world.local();
+                let mut egui = world.expect_resource_mut::<EguiResource>();
                 egui.handle_event(window_id, &event);
 
                 match event {
                     WindowEvent::CloseRequested => {
-                        self.views.remove(&window_id);
+                        self.tabs.remove(&window_id);
                         let Some(idx) = self.windows.iter().position(|w| w.id() == window_id) else {
                             return Some(Event::WindowEvent { window_id, event });
                         };
@@ -136,125 +139,33 @@ impl App {
     }
 
     pub fn tick(&mut self, events: &EventLoop) {
-        if let Some(instance) = &mut self.instance {
-            instance.tick();
-        }
-
         if self.windows.is_empty() {
             return;
         }
 
-        let world = self.world.local();
-        let mut egui = world.expect_resource_mut::<EguiResource>();
+        Plugins::tick(&mut self.model.world);
 
-        // match &mut self.project {
-        //     None => {
-        //         let window = &self.windows[0];
-        //         if let Some(Some(project)) = egui.run(window, |cx| {
-        //             status_panel(cx, &self.last_status);
-        //             no_project_view(cx, &mut self.last_status)
-        //         }) {
-        //             self.project = Some(project);
-        //         }
-        //     }
-        //     Some(project) => {
-        let mut quit = false;
+        let mut egui = self
+            .model
+            .world
+            .remove_resource::<EguiResource>()
+            .expect("EguiResource must be present");
+
         for window in &self.windows {
-            let mut dummy = Vec::new();
-            let views = self.views.get_mut(&window.id()).unwrap_or(&mut dummy);
+            let tabs = self
+                .tabs
+                .entry(window.id())
+                .or_insert_with(|| Tree::new(vec![]));
             egui.run(window, |cx| {
-                status_panel(cx, &self.last_status);
-
-                egui::TopBottomPanel::top("top").show(cx, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.menu_button("File", |ui| {
-                            if ui.button("Quit").clicked() {
-                                quit = true;
-                                ui.close_menu();
-                            }
-                        });
-
-                        ui.menu_button("Edit", |ui| {
-                            ui.menu_button("Add plugin library", |ui| {
-                                if ui.button("Path").clicked() {
-                                    let picked = rfd::FileDialog::new()
-                                        .set_directory(std::env::current_dir().unwrap())
-                                        .pick_folder();
-
-                                    if let Some(folder) = picked {
-                                        match self.project.add_library_path(&folder) {
-                                            Ok(()) => {
-                                                self.last_status = LastStatus::Info(format!(
-                                                    "Added library: {}",
-                                                    folder.display()
-                                                ));
-                                            }
-                                            Err(err) => {
-                                                self.last_status = LastStatus::Error(format!(
-                                                    "Failed to add library: {}",
-                                                    err
-                                                ));
-                                            }
-                                        }
-                                    }
-                                    ui.close_menu();
-                                }
-                            });
-                        });
-                    });
-                });
-
-                egui::SidePanel::left("plugins").show(cx, |ui| {
-                    let mut build_clicked = false;
-                    let mut launch_clicked = false;
-
-                    if let Some(library) = &mut self.instance {
-                        ui.horizontal(|ui| {
-                            build_clicked = ui.button("Rebuild").clicked();
-                            launch_clicked = ui.button("Launch").clicked();
-                        });
-                        ui.separator();
-                        ui.heading("Plugins");
-                        for (lib, plugins) in library.plugins_enabled_mut() {
-                            ui.separator();
-                            ui.heading(lib);
-                            for (plugin, enabled) in plugins {
-                                ui.checkbox(enabled, plugin);
-                            }
-                        }
-                    } else {
-                        build_clicked = ui.button("Build").clicked();
-                    };
-
-                    if build_clicked {
-                        match self.project.build(&mut self.instance) {
-                            Err(err) => {
-                                self.last_status =
-                                    LastStatus::Error(format!("Failed to build project: {}", err));
-                            }
-                            Ok(()) => {
-                                self.last_status =
-                                    LastStatus::Info("Project build succeeded".into());
-                            }
-                        }
-                    }
-
-                    if launch_clicked {
-                        self.instance
-                            .as_mut()
-                            .unwrap()
-                            .launch(events, &self.device, &self.queue);
-                    }
-                });
-
-                egui::CentralPanel::default().show(cx, |ui| {
-                    for view in views {
-                        (view.render)(&world, ui);
-                    }
-                });
+                Menu.show(tabs, &mut self.model.world, cx);
+                egui_dock::DockArea::new(tabs).show(cx, &mut self.model)
             });
-            //     }
-            // }
+        }
+
+        self.model.world.insert_resource(egui);
+
+        if self.model.world.get_resource::<Quit>().is_some() {
+            self.windows.clear();
         }
     }
 
@@ -270,12 +181,39 @@ impl App {
             &self.blink,
             None,
             self.windows.iter(),
-            &self.world,
+            &self.model.world,
             &mut self.resources,
         );
     }
 
     pub fn should_quit(&self) -> bool {
         self.windows.is_empty()
+    }
+}
+
+pub struct Menu;
+
+impl Menu {
+    fn show(&mut self, tabs: &mut Tree<Tab>, world: &mut World, cx: &Context) {
+        egui::panel::TopBottomPanel::top("Menu").show(cx, |ui| {
+            ui.horizontal(|ui| {
+                ui.menu_button("File", |ui| {
+                    if ui.button("Exit").clicked() {
+                        world.insert_resource(Quit);
+                        ui.close_menu();
+                    }
+                });
+                ui.menu_button("View", |ui| {
+                    if ui.button("Plugins").clicked() {
+                        tabs.push_to_first_leaf(Tab(Plugins::tab()));
+                        ui.close_menu();
+                    }
+                    if ui.button("Console").clicked() {
+                        tabs.push_to_first_leaf(Tab(Console::tab()));
+                        ui.close_menu();
+                    }
+                });
+            });
+        });
     }
 }

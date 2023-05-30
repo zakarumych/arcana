@@ -15,7 +15,7 @@ use crate::{
     egui::{EguiFilter, EguiResource},
     events::{Event, EventLoop},
     funnel::{Filter, Funnel},
-    plugin::PluginHub,
+    plugin::ArcanaPlugin,
     render::{render_system, RenderGraph},
 };
 
@@ -96,10 +96,9 @@ pub struct Game {
 }
 
 impl Game {
-    pub fn launch(
+    pub fn launch<'a>(
         events: &EventLoop,
-        plugins: &PluginHub,
-        enable: &[(impl AsRef<str>, impl AsRef<str>)],
+        plugins: impl IntoIterator<Item = &'a dyn ArcanaPlugin>,
         device: mev::Device,
         queue: Arc<Mutex<mev::Queue>>,
     ) -> Self {
@@ -156,13 +155,8 @@ impl Game {
         let blink = Blink::new();
         let last_fixed = TimeStamp::start();
 
-        for (lib, plugin) in enable {
-            plugins.init(
-                lib.as_ref(),
-                plugin.as_ref(),
-                &mut world,
-                &mut var_scheduler,
-            );
+        for plugin in plugins {
+            plugin.init(&mut world, &mut var_scheduler);
         }
 
         Game {

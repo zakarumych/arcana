@@ -1,21 +1,21 @@
-use bob::{
+use arcana::{
     blink_alloc::BlinkAlloc,
     edict::{Res, ResMutNoSend, Scheduler, World},
     egui::{EguiRender, EguiResource},
     gametime::ClockStep,
-    nix::{self, Arguments, Constants},
-    plugin::BobPlugin,
+    mev::{self, Arguments, Constants},
+    plugin::ArcanaPlugin,
     render::{Render, RenderBuilderContext, RenderContext, RenderError, RenderGraph, TargetId},
     winit::window::Window,
 };
 
-#[derive(nix::Arguments)]
+#[derive(mev::Arguments)]
 pub struct MainArguments {
-    #[nix(vertex)]
-    pub colors: nix::Buffer,
+    #[mev(vertex)]
+    pub colors: mev::Buffer,
 }
 
-#[derive(nix::Constants)]
+#[derive(mev::Constants)]
 pub struct MainConstants {
     pub angle: f32,
     pub width: u32,
@@ -23,19 +23,19 @@ pub struct MainConstants {
 }
 
 pub struct MainPass {
-    target: TargetId<nix::Image>,
-    pipeline: Option<nix::RenderPipeline>,
+    target: TargetId<mev::Image>,
+    pipeline: Option<mev::RenderPipeline>,
     arguments: Option<MainArguments>,
     constants: MainConstants,
 }
 
 impl MainPass {
-    fn build(graph: &mut RenderGraph) -> TargetId<nix::Image> {
+    fn build(graph: &mut RenderGraph) -> TargetId<mev::Image> {
         // Start building render.
         let mut builder = RenderBuilderContext::new("main_pass", graph);
 
         // This render defines a single render target.
-        let target = builder.create_target("main", nix::PipelineStages::COLOR_OUTPUT);
+        let target = builder.create_target("main", mev::PipelineStages::COLOR_OUTPUT);
 
         // Build the render with MainPass as `Render` impl.
         // `MainPass::render` will be called every frame to encode commands for this render.
@@ -65,34 +65,34 @@ impl Render for MainPass {
         let pipeline = self.pipeline.get_or_insert_with(|| {
             let main_library = ctx
                 .device()
-                .new_shader_library(nix::LibraryDesc {
+                .new_shader_library(mev::LibraryDesc {
                     name: "main",
-                    input: nix::include_library!("shaders/main.wgsl" as nix::ShaderLanguage::Wgsl),
+                    input: mev::include_library!("shaders/main.wgsl" as mev::ShaderLanguage::Wgsl),
                 })
                 .unwrap();
 
             ctx.device()
-                .new_render_pipeline(nix::RenderPipelineDesc {
+                .new_render_pipeline(mev::RenderPipelineDesc {
                     name: "main",
-                    vertex_shader: nix::Shader {
+                    vertex_shader: mev::Shader {
                         library: main_library.clone(),
                         entry: "vs_main".into(),
                     },
                     vertex_attributes: vec![],
                     vertex_layouts: vec![],
-                    primitive_topology: nix::PrimitiveTopology::Triangle,
-                    raster: Some(nix::RasterDesc {
-                        fragment_shader: Some(nix::Shader {
+                    primitive_topology: mev::PrimitiveTopology::Triangle,
+                    raster: Some(mev::RasterDesc {
+                        fragment_shader: Some(mev::Shader {
                             library: main_library,
                             entry: "fs_main".into(),
                         }),
-                        color_targets: vec![nix::ColorTargetDesc {
+                        color_targets: vec![mev::ColorTargetDesc {
                             format: target.format(),
-                            blend: Some(nix::BlendDesc::default()),
+                            blend: Some(mev::BlendDesc::default()),
                         }],
                         depth_stencil: None,
-                        front_face: nix::FrontFace::default(),
-                        culling: nix::Culling::Back,
+                        front_face: mev::FrontFace::default(),
+                        culling: mev::Culling::Back,
                     }),
                     arguments: &[MainArguments::LAYOUT],
                     constants: MainConstants::SIZE,
@@ -100,9 +100,9 @@ impl Render for MainPass {
                 .unwrap()
         });
 
-        let mut render = encoder.render(nix::RenderPassDesc {
+        let mut render = encoder.render(mev::RenderPassDesc {
             color_attachments: &[
-                nix::AttachmentDesc::new(&target).clear(nix::ClearColor(1.0, 0.5, 0.3, 0.0))
+                mev::AttachmentDesc::new(&target).clear(mev::ClearColor(1.0, 0.5, 0.3, 0.0))
             ],
             ..Default::default()
         });
@@ -112,8 +112,8 @@ impl Render for MainPass {
         let arguments = self.arguments.get_or_insert_with(|| {
             let colors = ctx
                 .device()
-                .new_buffer_init(nix::BufferInitDesc {
-                    data: bob::bytemuck::cast_slice(&[
+                .new_buffer_init(mev::BufferInitDesc {
+                    data: arcana::bytemuck::cast_slice(&[
                         1.0,
                         1.0,
                         0.0,
@@ -128,8 +128,8 @@ impl Render for MainPass {
                         f32::NAN,
                     ]),
                     name: "colors",
-                    usage: nix::BufferUsage::UNIFORM,
-                    memory: nix::Memory::Shared,
+                    usage: mev::BufferUsage::UNIFORM,
+                    memory: mev::Memory::Shared,
                 })
                 .unwrap();
             MainArguments { colors }
@@ -150,10 +150,10 @@ impl Render for MainPass {
         render.with_constants(&self.constants);
 
         render.with_viewport(
-            nix::Offset3::ZERO,
-            nix::Extent3::new(dims.width() as f32, dims.height() as f32, 1.0),
+            mev::Offset3::ZERO,
+            mev::Extent3::new(dims.width() as f32, dims.height() as f32, 1.0),
         );
-        render.with_scissor(nix::Offset2::ZERO, dims);
+        render.with_scissor(mev::Offset2::ZERO, dims);
         render.draw(0..3, 0..1);
         drop(render);
         ctx.commit(encoder.finish()?);
@@ -163,7 +163,7 @@ impl Render for MainPass {
 
 pub struct GamePlugin;
 
-impl BobPlugin for GamePlugin {
+impl ArcanaPlugin for GamePlugin {
     fn name(&self) -> &'static str {
         "triangle"
     }
@@ -189,7 +189,7 @@ impl BobPlugin for GamePlugin {
         scheduler.add_system(
             move |mut egui: ResMutNoSend<EguiResource>, window: Res<Window>| {
                 egui.run(&window, |ctx| {
-                    bob::egui::Window::new("Hello triangle!")
+                    arcana::egui::Window::new("Hello triangle!")
                         .resizable(false)
                         .collapsible(true)
                         .show(ctx, |ui| {
@@ -201,4 +201,4 @@ impl BobPlugin for GamePlugin {
     }
 }
 
-bob::export_bob_plugins![GamePlugin];
+arcana::export_arcana_plugins![GamePlugin];

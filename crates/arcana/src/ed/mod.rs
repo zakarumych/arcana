@@ -1,27 +1,71 @@
-use std::path::Path;
+use std::{fmt::Display, path::Path};
 
 use arcana_project::Project;
+use edict::World;
+use egui::Ui;
 
 use crate::{
     events::EventLoop,
     gametime::{Clock, FrequencyNumExt, FrequencyTicker},
 };
 
+macro_rules! try_log_err {
+    ($res:expr $(; $ret:expr)?) => {
+        match {$res} {
+            Ok(ok) => ok,
+            Err(err) => {
+                tracing::error!("{err}");
+                return $($ret)?;
+            }
+        }
+    };
+}
+
 mod app;
+mod console;
 mod game;
 mod plugins;
 
+trait ResultExt {
+    fn log_err(self);
+}
+
+impl<E> ResultExt for Result<(), E>
+where
+    E: Display,
+{
+    fn log_err(self) {
+        if let Err(err) = self {
+            tracing::error!("{err}");
+        }
+    }
+}
+
+trait AppTab {
+    fn title(&self) -> &str;
+    fn show(&mut self, world: &mut World, ui: &mut Ui);
+}
+
 /// Runs the editor application
-pub fn run(path: &impl AsRef<Path>) {
-    if let Err(err) = _run(path.as_ref()) {
+pub fn run(path: &Path) {
+    if let Err(err) = _run(path) {
         eprintln!("Error: {}", err);
     }
 }
 
 fn _run(path: &Path) -> miette::Result<()> {
-    let project = Project::open(path)?;
+    let mut path = dunce::canonicalize(path).map_err(|err| {
+        miette::miette!(
+            "Failed to canonicalize path '{path}'. {err}",
+            path = path.display()
+        )
+    })?;
 
-    crate::install_tracing_subscriber();
+    assert!(path.pop());
+    path.push("Arcana.toml");
+
+    let project = Project::open(&path)?;
+
     let mut clock = Clock::new();
     let mut limiter = FrequencyTicker::new(30u64.hz(), clock.now());
 

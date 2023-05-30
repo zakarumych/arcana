@@ -1,7 +1,4 @@
-use std::fmt;
-
 use edict::{Scheduler, World};
-use hashbrown::HashMap;
 
 /// Plugin protocol for Bob engine.
 /// It allows bundling systems and resources together into a single unit
@@ -18,7 +15,47 @@ use hashbrown::HashMap;
 pub trait ArcanaPlugin {
     /// Name of the plugin.
     fn name(&self) -> &'static str;
+
+    /// Initializes world and scheduler.
+    /// This method should install all necessary systems and resources.
+    /// Avoid adding entities here, because this method can be called again.
     fn init(&self, world: &mut World, scheduler: &mut Scheduler);
+
+    /// De-initializes world and scheduler.
+    /// Removes systems and resources that belongs to this plugin.
+    /// This method is called when game instance is closed,
+    /// plugin is disabled or replaced with another version.
+    fn deinit(&self, world: &mut World, scheduler: &mut Scheduler) {}
+
+    /// Returns true if this plugin can be replaced with the `updated` plugin.
+    /// The updated plugin should typically be a newer version of the same plugin.
+    ///
+    /// They may be incompatible if binary dump schema changes.
+    /// If new version is not compatible with the old one,
+    /// the editor will not reload the plugin until all game instances
+    /// that use this plugin are closed.
+    ///
+    /// Plugins may conservatively return `false` here.
+    /// And then they may not implement `dump` and `load` methods.
+    #[cfg(feature = "ed")]
+    fn compatible(&self, updated: &dyn ArcanaPlugin) -> bool {
+        false
+    }
+
+    /// Dump state of the world known to this plugin.
+    /// This method is called when the plugin is reloaded with updated code
+    /// before `deinit` method.
+    /// New version will load the state from the dump.
+    #[cfg(feature = "ed")]
+    fn dump(&self, world: &World, scratch: &mut [u8]) -> usize {
+        unimplemented!()
+    }
+
+    /// Load state of the world known to this plugin dumped by previous version.
+    #[cfg(feature = "ed")]
+    fn load(&self, world: &mut World, scratch: &[u8]) {
+        unimplemented!()
+    }
 }
 
 /// Exports plugins from a crate.
@@ -79,76 +116,8 @@ macro_rules! export_arcana_plugins {
             }
         )?)*
 
-        pub fn arcana_plugins() -> &'static [&'static dyn $crate::plugin::ArcanaPlugin] {
+        pub fn __arcana_plugins() -> &'static [&'static dyn $crate::plugin::ArcanaPlugin] {
             &[$(&$plugin,)*]
         }
     };
-}
-
-struct PluginLib {
-    plugins: Vec<&'static dyn ArcanaPlugin>,
-}
-
-impl fmt::Debug for PluginLib {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut list = f.debug_list();
-        for plugin in &self.plugins {
-            list.entry(&plugin.name());
-        }
-        list.finish()
-    }
-}
-
-impl PluginLib {
-    pub fn init(&self, name: &str, world: &mut World, scheduler: &mut Scheduler) {
-        for plugin in &self.plugins {
-            if plugin.name() == name {
-                plugin.init(world, scheduler);
-                return;
-            }
-        }
-        panic!("Plugin not found");
-    }
-}
-
-/// Collection of plugin libraries.
-#[derive(Debug)]
-pub struct PluginHub {
-    libs: HashMap<String, PluginLib>,
-}
-
-impl PluginHub {
-    pub fn new() -> Self {
-        PluginHub {
-            libs: HashMap::new(),
-        }
-    }
-
-    pub fn add_plugins(&mut self, lib: &str, plugins: &[&'static dyn ArcanaPlugin]) {
-        self.libs.insert(
-            lib.to_owned(),
-            PluginLib {
-                plugins: plugins.to_owned(),
-            },
-        );
-    }
-
-    pub fn init(&self, lib: &str, name: &str, world: &mut World, scheduler: &mut Scheduler) {
-        self.libs
-            .get(lib)
-            .expect("Plugin library not found")
-            .init(name, world, scheduler);
-    }
-
-    pub fn list(&self) -> Vec<(String, Vec<String>)> {
-        let mut list = Vec::new();
-        for (lib_name, plugins_lib) in &self.libs {
-            let mut names = Vec::new();
-            for plugin in &plugins_lib.plugins {
-                names.push(plugin.name().to_owned());
-            }
-            list.push((lib_name.clone(), names));
-        }
-        list
-    }
 }
