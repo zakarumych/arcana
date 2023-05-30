@@ -7,7 +7,7 @@ use hashbrown::{hash_map::RawEntryMut, HashMap, HashSet};
 
 use crate::plugin::ArcanaPlugin;
 
-use super::{game::Games, AppTab, ResultExt};
+use super::{game::Games, ResultExt, Tab};
 
 struct PluginLibrary {
     /// Linked library
@@ -212,19 +212,7 @@ impl Plugins {
         }
     }
 
-    pub fn tab() -> Box<dyn AppTab> {
-        struct PluginsTab;
-
-        impl AppTab for PluginsTab {
-            fn title(&self) -> &'static str {
-                "Plugins"
-            }
-
-            fn show(&mut self, world: &mut World, ui: &mut Ui) {
-                Plugins::show(world, ui);
-            }
-        }
-
-        Box::new(PluginsTab)
+    pub fn tab() -> Tab {
+        Tab::Plugins
     }
 }

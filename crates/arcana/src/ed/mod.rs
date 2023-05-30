@@ -41,9 +41,11 @@ where
     }
 }
 
-trait AppTab {
-    fn title(&self) -> &str;
-    fn show(&mut self, world: &mut World, ui: &mut Ui);
+/// Editor tab.
+#[derive(serde::Serialize, serde::Deserialize)]
+enum Tab {
+    Plugins,
+    Console,
 }
 
 /// Runs the editor application

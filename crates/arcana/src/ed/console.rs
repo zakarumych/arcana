@@ -3,7 +3,7 @@ use std::io;
 use edict::World;
 use egui::Ui;
 
-use crate::ed::AppTab;
+use super::Tab;
 
 pub(super) struct Console {
     collector: egui_tracing::EventCollector,
@@ -19,19 +19,7 @@ impl Console {
         ui.add(egui_tracing::Logs::new(console.collector.clone()));
     }
 
-    pub fn tab() -> Box<dyn AppTab> {
-        struct ConsoleTab;
-
-        impl AppTab for ConsoleTab {
-            fn title(&self) -> &'static str {
-                "Console"
-            }
-
-            fn show(&mut self, world: &mut World, ui: &mut Ui) {
-                Console::show(world, ui);
-            }
-        }
-
-        Box::new(ConsoleTab)
+    pub fn tab() -> Tab {
+        Tab::Console
     }
 }

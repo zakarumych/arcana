@@ -20,7 +20,7 @@ use crate::{
     render::{render, RenderGraph, RenderResources},
 };
 
-use super::{console::Console, game::Games, plugins::Plugins, AppTab};
+use super::{console::Console, game::Games, plugins::Plugins, Tab};
 
 /// Editor app instance.
 /// Contains state of the editor.
@@ -42,25 +42,65 @@ pub struct App {
     blink: BlinkAlloc,
 }
 
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+struct AppWindowState {
+    pos: winit::dpi::LogicalPosition<f64>,
+    size: winit::dpi::LogicalSize<f64>,
+    tree: Tree<Tab>,
+}
+
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+struct AppState {
+    windows: Vec<AppWindowState>,
+}
+
 #[repr(transparent)]
 struct AppModel {
     world: World,
 }
 
-/// Editor view correspond to the open views.
-/// Tab belong to a window.
-/// Each view knows what to render.
-struct Tab(Box<dyn AppTab>);
-
 impl TabViewer for AppModel {
     type Tab = Tab;
 
     fn ui(&mut self, ui: &mut Ui, tab: &mut Tab) {
-        tab.0.show(&mut self.world, ui);
+        match tab {
+            Tab::Plugins => {
+                Plugins::show(&mut self.world, ui);
+            }
+            Tab::Console => {
+                Console::show(&mut self.world, ui);
+            }
+        }
     }
 
     fn title(&mut self, tab: &mut Tab) -> egui::WidgetText {
-        tab.0.title().into()
+        match tab {
+            Tab::Plugins => "Plugins".into(),
+            Tab::Console => "Console".into(),
+        }
+    }
+}
+
+impl Drop for App {
+    fn drop(&mut self) {
+        let state = AppState {
+            windows: self
+                .windows
+                .iter()
+                .map(|window| {
+                    let scale_factor = window.scale_factor();
+                    AppWindowState {
+                        pos: window
+                            .inner_position()
+                            .unwrap_or_default()
+                            .to_logical(scale_factor),
+                        size: window.inner_size().to_logical(scale_factor),
+                        tree: self.tabs.remove(&window.id()).unwrap_or_default(),
+                    }
+                })
+                .collect(),
+        };
+        let _ = save_app_state(&state);
     }
 }
 
@@ -80,11 +120,6 @@ impl App {
             panic!("Failed to install tracing subscriber: {}", err);
         }
 
-        let window = WindowBuilder::new()
-            .with_title("Ed")
-            .build(events)
-            .map_err(|err| miette::miette!("Failed to Ed window: {err}"))?;
-
         let (device, queue) = init_mev();
         let mut world = World::new();
         world.insert_resource(project);
@@ -93,19 +128,44 @@ impl App {
         world.insert_resource(Console::new(event_collector));
 
         let mut egui = EguiResource::new();
-        egui.add_window(&window, events);
+        let mut graph = RenderGraph::new();
+
+        let state = load_app_state().unwrap_or_default();
+
+        let mut windows = Vec::new();
+        let mut tabs = HashMap::new();
+        for w in state.windows {
+            let window = WindowBuilder::new()
+                .with_title("Ed")
+                .with_position(w.pos)
+                .with_inner_size(w.size)
+                .build(events)
+                .map_err(|err| miette::miette!("Failed to Ed window: {err}"))?;
+            egui.add_window(&window, events);
+            let target =
+                EguiRender::build(&mut graph, window.id(), mev::ClearColor(0.2, 0.2, 0.2, 1.0));
+            graph.present(target, window.id());
+            tabs.insert(window.id(), w.tree);
+            windows.push(window);
+        }
+
+        if windows.is_empty() {
+            let window = WindowBuilder::new()
+                .with_title("Ed")
+                .build(events)
+                .map_err(|err| miette::miette!("Failed to Ed window: {err}"))?;
+            egui.add_window(&window, events);
+            let target =
+                EguiRender::build(&mut graph, window.id(), mev::ClearColor(0.2, 0.2, 0.2, 1.0));
+            graph.present(target, window.id());
+            windows.push(window);
+        }
 
         world.insert_resource(egui);
 
-        let mut graph = RenderGraph::new();
-
-        let target =
-            EguiRender::build(&mut graph, window.id(), mev::ClearColor(0.2, 0.2, 0.2, 1.0));
-        graph.present(target, window.id());
-
         Ok(App {
-            windows: vec![window],
-            tabs: HashMap::new(),
+            windows,
+            tabs,
             model: AppModel { world },
             graph,
             resources: RenderResources::default(),
@@ -118,17 +178,22 @@ impl App {
     pub fn on_event(&mut self, event: Event) -> Option<Event> {
         match event {
             Event::WindowEvent { window_id, event } => {
-                let world = self.model.world.local();
-                let mut egui = world.expect_resource_mut::<EguiResource>();
-                egui.handle_event(window_id, &event);
+                let mut world = self.model.world.local();
+                world
+                    .expect_resource_mut::<EguiResource>()
+                    .handle_event(window_id, &event);
 
                 match event {
                     WindowEvent::CloseRequested => {
-                        self.tabs.remove(&window_id);
                         let Some(idx) = self.windows.iter().position(|w| w.id() == window_id) else {
                             return Some(Event::WindowEvent { window_id, event });
                         };
-                        self.windows.swap_remove(idx);
+                        if self.windows.len() == 1 {
+                            world.insert_resource(Quit);
+                        } else {
+                            self.tabs.remove(&window_id);
+                            self.windows.swap_remove(idx);
+                        }
                         None
                     }
                     _ => Some(Event::WindowEvent { window_id, event }),
@@ -163,10 +228,6 @@ impl App {
         }
 
         self.model.world.insert_resource(egui);
-
-        if self.model.world.get_resource::<Quit>().is_some() {
-            self.windows.clear();
-        }
     }
 
     pub fn render(&mut self) {
@@ -187,7 +248,7 @@ impl App {
     }
 
     pub fn should_quit(&self) -> bool {
-        self.windows.is_empty()
+        self.model.world.get_resource::<Quit>().is_some()
     }
 }
 
@@ -205,15 +266,32 @@ impl Menu {
                 });
                 ui.menu_button("View", |ui| {
                     if ui.button("Plugins").clicked() {
-                        tabs.push_to_first_leaf(Tab(Plugins::tab()));
+                        tabs.push_to_first_leaf(Plugins::tab());
                         ui.close_menu();
                     }
                     if ui.button("Console").clicked() {
-                        tabs.push_to_first_leaf(Tab(Console::tab()));
+                        tabs.push_to_first_leaf(Console::tab());
                         ui.close_menu();
                     }
                 });
             });
         });
     }
+}
+
+fn load_app_state() -> Option<AppState> {
+    let mut path = std::env::current_exe().ok()?;
+    path.pop();
+    path.push("app_state.json");
+    let mut file = std::fs::File::open(path).ok()?;
+
+    serde_json::from_reader(&mut file).ok()
+}
+
+fn save_app_state(state: &AppState) -> Option<()> {
+    let mut path = std::env::current_exe().ok()?;
+    path.pop();
+    path.push("app_state.json");
+    let mut file = std::fs::File::create(path).ok()?;
+    serde_json::to_writer(&mut file, state).ok()
 }
