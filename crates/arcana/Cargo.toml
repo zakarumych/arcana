@@ -8,7 +8,7 @@ version.workspace = true
 description = "Arcana Engine"
 
 [lib]
-crate-type = ["dylib"]
+crate-type = ["rlib", "dylib"]
 
 [features]
 derive = ["dep:arcana-proc"]

@@ -56,13 +56,7 @@ pub fn run(path: &Path) {
 }
 
 fn _run(path: &Path) -> miette::Result<()> {
-    let mut path = dunce::canonicalize(path).map_err(|err| {
-        miette::miette!(
-            "Failed to canonicalize path '{path}'. {err}",
-            path = path.display()
-        )
-    })?;
-
+    let mut path = path.to_owned();
     assert!(path.pop());
     path.push("Arcana.toml");
 

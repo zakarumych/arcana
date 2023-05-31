@@ -17,6 +17,7 @@ base64 = "0.21"
 bitflags = "2.0"
 blink-alloc = { version = "0.3.0", features = ["nightly"] }
 bytemuck = { version = "1.7", features = ["derive"] }
+camino = "1.1"
 cargo_toml = "0.15"
 clap = { version = "4.3", features = ["derive"] }
 codespan-reporting = "0.11"

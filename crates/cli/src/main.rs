@@ -3,7 +3,11 @@ use std::{
     str::FromStr,
 };
 
-use arcana_project::{Dependency, Project};
+use arcana_project::{
+    path::{make_relative, real_path, RealPath},
+    Dependency, Project,
+};
+use camino::Utf8PathBuf;
 use clap::{Args, Parser, Subcommand};
 use miette::IntoDiagnostic;
 
@@ -16,7 +20,7 @@ impl FromStr for ArcanaArg {
     type Err = toml::de::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let arg = toml::from_str(s)?;
+        let arg = toml::from_str(&format!("arcana = {s}"))?;
         Ok(arg)
     }
 }
@@ -88,14 +92,21 @@ struct Cli {
 }
 
 fn main() -> miette::Result<()> {
+    install_tracing_subscriber();
+
     let cli = Cli::parse();
 
     match cli.command {
         Command::Init { path, args } => {
-            Project::new(path, args.name, map_arcana(args.arcana)?, false)?;
+            let path = real_path(&path).into_diagnostic()?;
+            let arcana = map_arcana(args.arcana, &path)?;
+
+            Project::new(path, args.name, arcana, false)?;
         }
         Command::New { path, args } => {
-            Project::new(path, args.name, map_arcana(args.arcana)?, true)?;
+            let path = real_path(&path).into_diagnostic()?;
+            let arcana = map_arcana(args.arcana, &path)?;
+            Project::new(path, args.name, arcana, true)?;
         }
         Command::InitWorkspace { path } => {
             let project = Project::find(&path)?;
@@ -104,29 +115,40 @@ fn main() -> miette::Result<()> {
         Command::Ed { path } => {
             let project = Project::find(&path)?;
             project.init_workspace()?;
-            project.run_editor(&path)?;
+            project.run_editor()?;
         }
     }
 
     Ok(())
 }
 
-fn map_arcana(arg: Option<ArcanaArg>) -> miette::Result<Option<Dependency>> {
+fn map_arcana(arg: Option<ArcanaArg>, base: &RealPath) -> miette::Result<Option<Dependency>> {
     match arg {
         Some(ArcanaArg {
             arcana: Dependency::Path { path },
         }) => Ok(Some(Dependency::Path {
-            path: realpath_utf8(path.as_ref())?,
+            path: rebase_dep_path(path.as_ref(), base)?,
         })),
         Some(arg) => Ok(Some(arg.arcana)),
         None => Ok(None),
     }
 }
 
-fn realpath_utf8(path: &Path) -> miette::Result<String> {
-    let realpath = dunce::canonicalize(path).into_diagnostic()?;
-    let string = realpath
-        .to_str()
-        .ok_or_else(|| miette::miette!("Failed to convert path to string: '{}'", path.display()))?;
-    Ok(string.to_owned())
+fn rebase_dep_path(path: &Path, base: &RealPath) -> miette::Result<Utf8PathBuf> {
+    let path = real_path(path).into_diagnostic()?;
+    let path = make_relative(&path, &base);
+    let path = Utf8PathBuf::try_from(path).into_diagnostic()?;
+    Ok(path)
+}
+
+fn install_tracing_subscriber() {
+    use tracing_subscriber::layer::SubscriberExt as _;
+    if let Err(err) = tracing::subscriber::set_global_default(
+        tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .finish()
+            .with(tracing_error::ErrorLayer::default()),
+    ) {
+        panic!("Failed to install tracing subscriber: {}", err);
+    }
 }

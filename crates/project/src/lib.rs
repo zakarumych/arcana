@@ -4,15 +4,20 @@ use std::{
     fmt,
     fs::File,
     io::{Read, Seek, SeekFrom, Write},
-    path::{Path, PathBuf},
-    process::Command,
+    path::Path,
 };
 
+use camino::Utf8PathBuf;
 use hashbrown::{HashMap, HashSet};
 
+pub mod path;
 mod wrapper;
 
+use miette::IntoDiagnostic;
+use path::{real_path, RealPath, RealPathBuf};
 pub use wrapper::PluginBuild;
+
+use crate::path::make_relative;
 
 /// Project dependency.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -25,7 +30,7 @@ pub enum Dependency {
     Git { git: String, branch: Option<String> },
 
     // Fetch from the local path
-    Path { path: String },
+    Path { path: Utf8PathBuf },
 }
 
 impl fmt::Display for Dependency {
@@ -40,7 +45,7 @@ impl fmt::Display for Dependency {
                 }
             }
             Dependency::Path { path } => {
-                write!(f, "{{ path = \"{}\" }}", path.escape_default())
+                write!(f, "{{ path = \"{}\" }}", path.as_str().escape_default())
             }
         }
     }
@@ -68,17 +73,12 @@ pub struct ProjectManifest {
     pub enabled: HashMap<String, HashSet<String>>,
 }
 
-// pub fn default_arcana_dependency() -> Dependency {
-//     // Use arcana engine with matching version by default.
-//     Dependency::Crates(env!("CARGO_PKG_VERSION").to_owned())
-// }
-
 /// Open project object.
 ///
 /// Locks corresponding "Arcana.toml" file.
 /// Syncs changes to the manifest.
 pub struct Project {
-    path: PathBuf,
+    path: RealPathBuf,
     file: File,
     manifest: ProjectManifest,
 }
@@ -91,39 +91,33 @@ impl fmt::Debug for Project {
 
 impl Project {
     pub fn new(
-        path: PathBuf,
+        path: RealPathBuf,
         name: Option<String>,
         arcana: Option<Dependency>,
         new: bool,
     ) -> miette::Result<Self> {
-        let Ok(cd) = std::env::current_dir() else {
-            miette::bail!("Failed to get current directory");
-        };
-
-        let project_path = cd.join(&*path);
-
-        let project_toml_path = project_path.join("Arcana.toml");
-        let project_path_meta = project_path.metadata();
+        let arcana_toml_path = path.join("Arcana.toml");
+        let path_meta = path.metadata();
         if new {
-            if project_path_meta.is_ok() {
+            if path_meta.is_ok() {
                 miette::bail!("Destination '{}' already exists", path.display());
             }
-            if is_in_cargo_workspace(&project_path)? {
+            if is_in_cargo_workspace(path.as_ref()) {
                 miette::bail!("Project cannot be created inside a cargo workspace");
             }
-            if let Err(err) = std::fs::create_dir_all(&project_path) {
+            if let Err(err) = std::fs::create_dir_all(&path) {
                 miette::bail!(
                     "Failed to create project directory '{}'. {err}",
                     path.display()
                 );
             };
         } else {
-            match project_path_meta {
+            match path_meta {
                 Err(_) => {
-                    if is_in_cargo_workspace(&project_path)? {
+                    if is_in_cargo_workspace(&path) {
                         miette::bail!("Project cannot be created inside a cargo workspace");
                     }
-                    if let Err(err) = std::fs::create_dir_all(&project_path) {
+                    if let Err(err) = std::fs::create_dir_all(&path) {
                         miette::bail!(
                             "Failed to create project directory '{}'. {err}",
                             path.display()
@@ -134,10 +128,10 @@ impl Project {
                     if !meta.is_dir() {
                         miette::bail!("Destination '{}' is not a directory", path.display());
                     }
-                    if project_toml_path.exists() {
+                    if arcana_toml_path.exists() {
                         miette::bail!("Project already initialized");
                     }
-                    if is_in_cargo_workspace(&project_path)? {
+                    if is_in_cargo_workspace(&path) {
                         miette::bail!("Project cannot be created inside a cargo workspace");
                     }
                 }
@@ -146,7 +140,7 @@ impl Project {
 
         let name = match &name {
             None => {
-                let Some(file_name) = project_path.file_name() else {
+                let Some(file_name) = path.file_name() else {
                     miette::bail!("Failed to get project name destination path");
                 };
 
@@ -172,13 +166,6 @@ impl Project {
             miette::bail!("Project name must contain only alphanumeric characters and underscores");
         }
 
-        let project_path = dunce::canonicalize(&project_path).map_err(|err| {
-            miette::miette!(
-                "Failed to canonicalize project path '{}'. {err}",
-                project_path.display()
-            )
-        })?;
-
         let manifest = ProjectManifest {
             name: name.to_owned(),
             arcana,
@@ -197,13 +184,13 @@ impl Project {
             .create_new(true)
             .read(true)
             .write(true)
-            .open(&project_toml_path)
+            .open(&arcana_toml_path)
         {
             Ok(f) => f,
             Err(err) => {
                 miette::bail!(
                     "Failed to create project manifest at '{}'. {err}",
-                    project_toml_path.display()
+                    arcana_toml_path.display()
                 );
             }
         };
@@ -211,24 +198,41 @@ impl Project {
         if let Err(err) = project_file.write_all(manifest_str.as_bytes()) {
             miette::bail!(
                 "Failed to write project manifest to '{}'. {err}",
-                project_toml_path.display()
+                arcana_toml_path.display()
             );
         };
 
+        if let Some(Dependency::Path { path: arcana_path }) = &manifest.arcana {
+            let check = || -> miette::Result<()> {
+                let cargo_toml_path = path.join(arcana_path).join("Cargo.toml");
+                let manifest =
+                    cargo_toml::Manifest::from_path(cargo_toml_path).into_diagnostic()?;
+                let package = manifest
+                    .package
+                    .as_ref()
+                    .ok_or_else(|| miette::miette!("not a package"))?;
+                if package.name != "arcana" {
+                    miette::bail!("not an arcana package");
+                }
+                Ok(())
+            };
+
+            if let Err(err) = check() {
+                tracing::warn!("'arcana' path dependency is '{arcana_path}' broken: {err}");
+            }
+        }
+
+        tracing::info!("Created project {name} at '{}'", path.display());
+
         Ok(Project {
-            path: project_path,
+            path,
             file: project_file,
             manifest,
         })
     }
 
     pub fn find(path: &Path) -> miette::Result<Self> {
-        let Ok(cd) = std::env::current_dir() else {
-            miette::bail!("Failed to get current directory");
-        };
-
-        let mut candidate = dunce::canonicalize(cd.join(path))
-            .map_err(|err| miette::miette!("Failed to canonicalize {}: {err}", path.display()))?;
+        let mut candidate = real_path(path).into_diagnostic()?.into_path();
 
         loop {
             candidate.push("Arcana.toml");
@@ -250,10 +254,12 @@ impl Project {
     }
 
     pub fn open(path: &Path) -> miette::Result<Self> {
+        let path = real_path(path).into_diagnostic()?;
+
         let mut file = std::fs::File::options()
             .read(true)
             .write(true)
-            .open(path)
+            .open(&path)
             .map_err(|err| {
                 miette::miette!(
                     "Cannot open project at {}, failed to open \"Arcana.toml\": {err}",
@@ -273,11 +279,11 @@ impl Project {
             miette::miette!("Cannot deserialize project manifest from \"Arcana.toml\": {err}")
         })?;
 
-        let file_path = dunce::canonicalize(path).expect("existing path");
-        let project_path = file_path.parent().expect("parent path");
+        let mut path = path;
+        path.pop();
 
         let project = Project {
-            path: project_path.to_owned(),
+            path,
             file,
             manifest,
         };
@@ -313,20 +319,20 @@ impl Project {
     }
 
     pub fn add_library_path(&mut self, path: &Path, init: bool) -> miette::Result<String> {
-        let canon_path = dunce::canonicalize(path).map_err(|err| {
-            miette::miette!("Cannot add library path \"{}\": {err}", path.display())
-        })?;
+        let canon_path = real_path(path).into_diagnostic()?;
 
-        let lib_path;
+        let lib_path: &RealPath;
         let cargo_toml_path;
 
         if path.file_name() == Some("Cargo.toml".as_ref()) {
-            cargo_toml_path = canon_path;
-            lib_path = cargo_toml_path.parent().unwrap();
+            cargo_toml_path = canon_path.into_path();
+            lib_path = RealPath::wrap(cargo_toml_path.parent().unwrap());
         } else {
             cargo_toml_path = canon_path.join("Cargo.toml");
-            lib_path = &canon_path;
+            lib_path = canon_path.as_ref();
         }
+
+        let lib_path = make_relative(&lib_path, &self.path);
 
         let lib_path_str = lib_path.to_str().ok_or_else(|| {
             miette::miette!(
@@ -354,7 +360,7 @@ impl Project {
         })?;
 
         let dep = Dependency::Path {
-            path: lib_path_str.to_owned(),
+            path: lib_path_str.into(),
         };
 
         if self.manifest.plugin_libs.contains_key(&package.name) {
@@ -384,7 +390,7 @@ impl Project {
         )?;
 
         for (name, dep) in &self.manifest.plugin_libs {
-            wrapper::init_plugin(name, dep, self.manifest.arcana.as_ref(), &self.path)?;
+            wrapper::init_plugin(name, dep, &self.path)?;
         }
 
         Ok(())
@@ -402,8 +408,13 @@ impl Project {
         &mut self.manifest
     }
 
-    pub fn run_editor(self, path: &Path) -> miette::Result<()> {
-        let Project { file, manifest, .. } = self;
+    pub fn run_editor(self) -> miette::Result<()> {
+        let Project {
+            file,
+            manifest,
+            path,
+        } = self;
+
         drop(file);
 
         let status = wrapper::run_editor(&manifest.name, &path)
@@ -422,28 +433,23 @@ fn invalid_name_character(c: char) -> bool {
     !c.is_alphanumeric() && c != '_'
 }
 
-fn is_in_cargo_workspace(path: &Path) -> miette::Result<bool> {
+fn is_in_cargo_workspace(path: &RealPath) -> bool {
     for a in path.ancestors() {
         if a.exists() {
-            let mut candidate = dunce::canonicalize(a).map_err(|err| {
-                miette::miette!(
-                    "Cannot check if \"{}\" is in a Cargo workspace: {err}",
-                    path.display()
-                )
-            })?;
+            let mut candidate = a.as_path().to_owned();
 
             loop {
                 candidate.push("Cargo.toml");
                 if candidate.exists() {
-                    return Ok(true);
+                    return true;
                 }
                 assert!(candidate.pop());
                 if !candidate.pop() {
                     break;
                 }
             }
-            return Ok(false);
+            return false;
         }
     }
-    Ok(false)
+    false
 }

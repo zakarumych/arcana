@@ -1,4 +1,7 @@
 name = "demo"
 
 [arcana]
-path = 'C:\Users\zaqde\code\nothing\crates\arcana'
+path = '..\crates\arcana'
+
+[plugin-libs.triangle]
+path = '..\examples\triangle'
