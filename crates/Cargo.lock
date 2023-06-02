@@ -206,7 +206,7 @@ dependencies = [
  "arcana-project",
  "argosy",
  "argosy-store",
- "base64",
+ "base64 0.21.2",
  "blink-alloc",
  "bytemuck",
  "dunce",
@@ -248,7 +248,7 @@ dependencies = [
  "dunce",
  "miette",
  "serde",
- "toml",
+ "toml 0.7.4",
  "tracing",
  "tracing-error",
  "tracing-subscriber",
@@ -282,7 +282,7 @@ dependencies = [
  "hashbrown 0.13.2",
  "miette",
  "serde",
- "toml",
+ "toml 0.7.4",
  "tracing",
 ]
 
@@ -337,21 +337,30 @@ dependencies = [
 name = "argosy-store"
 version = "0.1.0"
 dependencies = [
- "argosy",
  "argosy-id",
  "argosy-import",
- "base64",
+ "base64 0.20.0",
+ "bytemuck",
  "dunce",
- "futures",
+ "envy",
+ "eyre",
+ "futures-util",
  "hashbrown 0.13.2",
- "libloading 0.8.0",
+ "libloading 0.7.4",
  "parking_lot",
+ "pin-project",
  "rand",
  "serde",
+ "serde_bytes",
  "sha2",
+ "smallvec",
  "thiserror",
- "toml",
+ "tinyvec",
+ "tokio",
+ "toml 0.5.11",
  "tracing",
+ "tracing-error",
+ "tracing-subscriber",
  "url",
 ]
 
@@ -472,6 +481,12 @@ checksum = "537beee3be4a18fb023b570f80e3ae28003db9167a751266b259926e25539d50"
 dependencies = [
  "backtrace",
 ]
+
+[[package]]
+name = "base64"
+version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0ea22880d78093b0cbe17c89f64a7d457941e65759157ec6cb31a31d652b05e5"
 
 [[package]]
 name = "base64"
@@ -635,7 +650,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f83bc2e401ed041b7057345ebc488c005efa0341d5541ce7004d30458d0090b"
 dependencies = [
  "serde",
- "toml",
+ "toml 0.7.4",
 ]
 
 [[package]]
@@ -1069,6 +1084,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "envy"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f47e0157f2cb54f5ae1bd371b30a2ae4311e1c028f575cd4e81de7353215965"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "epaint"
 version = "0.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1122,6 +1146,16 @@ name = "event-listener"
 version = "2.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0206175f82b8d6bf6652ff7d71a1e27fd2e4efde587fd368662814d6ec1d9ce0"
+
+[[package]]
+name = "eyre"
+version = "0.6.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c2b6b5a29c02cdc822728b7d7b8ae1bab3e3b05d44522770ddd49722eeac7eb"
+dependencies = [
+ "indenter",
+ "once_cell",
+]
 
 [[package]]
 name = "fastrand"
@@ -1595,6 +1629,12 @@ dependencies = [
  "num-rational 0.3.2",
  "num-traits",
 ]
+
+[[package]]
+name = "indenter"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ce23b50ad8242c51a442f3ff322d56b02f08852c77e4c0b4d3fd684abc89c683"
 
 [[package]]
 name = "indexmap"
@@ -2753,6 +2793,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_bytes"
+version = "0.11.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "416bda436f9aab92e02c8e10d49a15ddd339cea90b6e340fe51ed97abb548294"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "serde_derive"
 version = "1.0.163"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2845,6 +2894,9 @@ name = "smallvec"
 version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a507befe795404456341dfab10cef66ead4c041f62b8b11bbb92bffe5d0953e0"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "smawk"
@@ -2993,7 +3045,7 @@ dependencies = [
  "cfg-expr",
  "heck",
  "pkg-config",
- "toml",
+ "toml 0.7.4",
  "version-compare",
 ]
 
@@ -3123,7 +3175,28 @@ dependencies = [
  "parking_lot",
  "pin-project-lite",
  "socket2",
+ "tokio-macros",
  "windows-sys 0.48.0",
+]
+
+[[package]]
+name = "tokio-macros"
+version = "2.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "630bdcf245f78637c13ec01ffae6187cca34625e8c63150d424b59e55af2675e"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.18",
+]
+
+[[package]]
+name = "toml"
+version = "0.5.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f4f7f0dd8d50a853a531c426359045b1998f04219d88799810762cd4ad314234"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

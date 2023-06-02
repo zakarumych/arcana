@@ -60,16 +60,11 @@ impl crate::traits::Instance for Instance {
             .ok_or(CreateError(CreateErrorKind::FailedToCreateDevice))?;
 
         assert!(
-            info.queue_infos.len() <= 1,
+            info.queues.iter().all(|&f| f == 0),
             "Only one queue family is supported"
         );
 
-        let queue_count = info.queue_infos.first().map_or(0, |info| {
-            assert_eq!(info.family, 0, "Only one queue family is supported");
-            info.queue_count
-        });
-
-        let queues = (0..queue_count)
+        let queues = (0..info.queues.len())
             .map(|_| Queue::new(device.clone(), device.new_command_queue()))
             .collect();
 

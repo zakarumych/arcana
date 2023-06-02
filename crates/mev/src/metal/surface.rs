@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::generic::SurfaceError;
+use crate::generic::{PipelineStages, SurfaceError};
 
 use super::{Image, Queue};
 
@@ -18,7 +18,11 @@ impl Surface {
 
 #[hidden_trait::expose]
 impl crate::traits::Surface for Surface {
-    fn next_frame(&mut self, _queue: &mut Queue) -> Result<Frame, SurfaceError> {
+    fn next_frame(
+        &mut self,
+        _queue: &mut Queue,
+        _before: PipelineStages,
+    ) -> Result<Frame, SurfaceError> {
         let drawable = self
             .layer
             .next_drawable()

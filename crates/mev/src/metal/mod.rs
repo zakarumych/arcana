@@ -13,15 +13,15 @@ mod shader;
 mod surface;
 
 pub use self::{
-    buffer::{Buffer, BufferId},
+    buffer::Buffer,
     command::{CommandBuffer, CommandEncoder, CopyCommandEncoder, RenderCommandEncoder},
     compute_pipeline::ComputePipeline,
     device::Device,
-    image::{Image, ImageId},
+    image::Image,
     instance::Instance,
     queue::Queue,
     render_pipeline::RenderPipeline,
-    sampler::{Sampler, SamplerId},
+    sampler::Sampler,
     shader::Library,
     surface::{Frame, Surface},
 };
@@ -39,3 +39,5 @@ pub(crate) use self::{
 fn out_of_bounds() -> ! {
     panic!("offset + data.len() > buffer.length()");
 }
+
+pub mod for_macro {}

@@ -1,7 +1,0 @@
-name = "demo"
-
-[arcana]
-path = '..\crates\arcana'
-
-[plugin-libs.triangle]
-path = '..\examples\triangle'

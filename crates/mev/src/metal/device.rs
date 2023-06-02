@@ -1,6 +1,6 @@
 use core_graphics_types::{base::CGFloat, geometry::CGRect};
 use foreign_types::ForeignType;
-use metal::CAMetalLayer;
+use metal::{CAMetalLayer, NSUInteger, SamplerDescriptor};
 use objc::{
     class, msg_send,
     runtime::{Object, BOOL, YES},
@@ -14,13 +14,14 @@ use raw_window_handle::{
 use crate::generic::{
     compile_shader, BufferDesc, BufferInitDesc, CreateLibraryError, CreatePipelineError, ImageDesc,
     ImageDimensions, ImageError, LibraryDesc, LibraryInput, Memory, OutOfMemory,
-    RenderPipelineDesc, ShaderCompileError, ShaderLanguage, SurfaceError, VertexStepMode,
+    RenderPipelineDesc, SamplerDesc, ShaderCompileError, ShaderLanguage, SurfaceError,
+    VertexStepMode,
 };
 
 use super::{
     from::{IntoMetal, TryIntoMetal},
     Buffer, CreateLibraryErrorKind, CreatePipelineErrorKind, Image, Library, RenderPipeline,
-    Surface,
+    Sampler, Surface,
 };
 
 #[derive(Clone)]
@@ -63,7 +64,7 @@ impl Device {
     // }
 }
 
-#[hidden_trait::expose]
+// #[hidden_trait::expose]
 impl crate::traits::Device for Device {
     fn new_shader_library(&self, desc: LibraryDesc) -> Result<Library, CreateLibraryError> {
         match desc.input {
@@ -266,6 +267,24 @@ impl crate::traits::Device for Device {
 
         let texture = self.device.new_texture(&texture_descriptor);
         Ok(Image::new(texture))
+    }
+
+    fn new_sampler(&self, desc: SamplerDesc) -> Result<Sampler, OutOfMemory> {
+        let sdesc = SamplerDescriptor::new();
+        sdesc.set_min_filter(desc.min_filter.into_metal());
+        sdesc.set_mag_filter(desc.mag_filter.into_metal());
+        sdesc.set_mip_filter(desc.mip_map_mode.into_metal());
+        sdesc.set_address_mode_s(desc.address_mode[0].into_metal());
+        sdesc.set_address_mode_t(desc.address_mode[1].into_metal());
+        sdesc.set_address_mode_r(desc.address_mode[2].into_metal());
+        if let Some(anisotropy) = desc.anisotropy {
+            sdesc.set_max_anisotropy((anisotropy as NSUInteger).clamp(1, 16));
+        }
+        sdesc.set_lod_min_clamp(desc.min_lod);
+        sdesc.set_lod_max_clamp(desc.max_lod);
+        sdesc.set_normalized_coordinates(desc.normalized);
+        let state = self.device.new_sampler(&sdesc);
+        Ok(Sampler::new(state))
     }
 
     fn new_surface(

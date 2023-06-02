@@ -4,6 +4,7 @@ use proc_macro::TokenStream;
     any(windows, all(unix, not(any(target_os = "macos", target_os = "ios")))),
     path = "vulkan/mod.rs"
 )]
+#[cfg_attr(any(target_os = "macos", target_os = "ios"), path = "metal/mod.rs")]
 mod backend;
 
 #[proc_macro_derive(Arguments, attributes(mev))]

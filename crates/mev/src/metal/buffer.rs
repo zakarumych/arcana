@@ -19,15 +19,28 @@ unsafe impl Send for Buffer {}
 
 #[hidden_trait::expose]
 impl crate::traits::Buffer for Buffer {
+    fn size(&self) -> usize {
+        self.buffer.length() as usize
+    }
+
+    fn detached(&self) -> bool {
+        use foreign_types::ForeignType;
+        use metal::NSUInteger;
+        use objc::*;
+
+        let count: NSUInteger = unsafe { msg_send![(self.buffer.as_ptr()), retainCount] };
+        count == 1
+    }
+
     #[inline(always)]
-    unsafe fn write_unchecked(&self, offset: u64, data: &[u8]) {
+    unsafe fn write_unchecked(&mut self, offset: usize, data: &[u8]) {
         let length = self.buffer.length();
-        let fits = match u64::try_from(data.len()) {
-            Ok(len) => match offset.checked_add(len) {
+        let fits = match (u64::try_from(offset), u64::try_from(data.len())) {
+            (Ok(off), Ok(len)) => match off.checked_add(len) {
                 Some(end) => end <= length,
                 None => false,
             },
-            Err(_) => false,
+            _ => false,
         };
         if !fits {
             out_of_bounds();
@@ -42,24 +55,4 @@ impl crate::traits::Buffer for Buffer {
             })
         }
     }
-}
-
-/// Buffer device id.
-/// In shader code it can be used to access buffer's contents.
-#[repr(transparent)]
-pub struct BufferId(u64);
-
-impl crate::private::Sealed for BufferId {}
-impl crate::traits::Argument for BufferId {
-    const KIND: crate::generic::ArgumentKind = crate::generic::ArgumentKind::Buffer;
-}
-
-impl<const N: usize> crate::private::Sealed for [BufferId; N] {}
-impl<const N: usize> crate::traits::Argument for [BufferId; N] {
-    const KIND: crate::generic::ArgumentKind = crate::generic::ArgumentKind::Buffer;
-}
-
-impl crate::private::Sealed for [BufferId] {}
-impl crate::traits::Argument for [BufferId] {
-    const KIND: crate::generic::ArgumentKind = crate::generic::ArgumentKind::Buffer;
 }

@@ -1,6 +1,8 @@
+use metal::{MTLSamplerAddressMode, MTLSamplerMinMagFilter, MTLSamplerMipFilter};
+
 use crate::generic::{
-    BlendFactor, BlendOp, CompareFunction, ImageUsage, PixelFormat, PrimitiveTopology,
-    VertexFormat, WriteMask,
+    AddressMode, BlendFactor, BlendOp, CompareFunction, Filter, ImageUsage, MipMapMode,
+    PixelFormat, PrimitiveTopology, VertexFormat, WriteMask,
 };
 
 pub trait FromMetal<T> {
@@ -41,20 +43,19 @@ where
 
 pub trait TryFromMetal<T>: Sized {
     fn try_from_metal(t: T) -> Option<Self>;
+
+    #[inline(always)]
+    fn expect_from_metal(t: T) -> Self {
+        Self::try_from_metal(t).expect("Failed to convert from metal")
+    }
 }
 
-pub trait TryMetalInto<T> {
+pub trait TryMetalInto<T>: Sized {
     fn try_metal_into(self) -> Option<T>;
 
-    fn expect_metal_into(self) -> T
-    where
-        Self: Sized + Copy + std::fmt::Debug,
-    {
-        self.try_metal_into().expect(&format!(
-            "Failed to convert {:?} to {:?}",
-            self,
-            std::any::type_name::<T>()
-        ))
+    #[inline(always)]
+    fn expect_metal_into(self) -> T {
+        self.try_metal_into().expect("Failed to convert from metal")
     }
 }
 
@@ -66,14 +67,29 @@ where
     fn try_metal_into(self) -> Option<U> {
         U::try_from_metal(self)
     }
+
+    #[inline(always)]
+    fn expect_metal_into(self) -> U {
+        U::expect_from_metal(self)
+    }
 }
 
 pub trait TryMetalFrom<T>: Sized {
     fn try_metal_from(t: T) -> Option<Self>;
+
+    #[inline(always)]
+    fn expect_metal_from(t: T) -> Self {
+        Self::try_metal_from(t).expect("Failed to convert to metal")
+    }
 }
 
-pub trait TryIntoMetal<T> {
+pub trait TryIntoMetal<T>: Sized {
     fn try_into_metal(self) -> Option<T>;
+
+    #[inline(always)]
+    fn expect_into_metal(self) -> T {
+        self.try_into_metal().expect("Failed to convert to metal")
+    }
 }
 
 impl<T, U> TryIntoMetal<U> for T
@@ -83,6 +99,11 @@ where
     #[inline(always)]
     fn try_into_metal(self) -> Option<U> {
         U::try_metal_from(self)
+    }
+
+    #[inline(always)]
+    fn expect_into_metal(self) -> U {
+        U::expect_metal_from(self)
     }
 }
 
@@ -454,3 +475,34 @@ impl MetalFrom<ImageUsage> for metal::MTLTextureUsage {
 //         mask
 //     }
 // }
+
+impl MetalFrom<Filter> for MTLSamplerMinMagFilter {
+    #[inline(always)]
+    fn metal_from(filter: Filter) -> Self {
+        match filter {
+            Filter::Nearest => MTLSamplerMinMagFilter::Nearest,
+            Filter::Linear => MTLSamplerMinMagFilter::Linear,
+        }
+    }
+}
+
+impl MetalFrom<MipMapMode> for MTLSamplerMipFilter {
+    #[inline(always)]
+    fn metal_from(mode: MipMapMode) -> Self {
+        match mode {
+            MipMapMode::Nearest => MTLSamplerMipFilter::Nearest,
+            MipMapMode::Linear => MTLSamplerMipFilter::Linear,
+        }
+    }
+}
+
+impl MetalFrom<AddressMode> for MTLSamplerAddressMode {
+    #[inline(always)]
+    fn metal_from(mode: AddressMode) -> Self {
+        match mode {
+            AddressMode::ClampToEdge => MTLSamplerAddressMode::ClampToEdge,
+            AddressMode::Repeat => MTLSamplerAddressMode::Repeat,
+            AddressMode::MirrorRepeat => MTLSamplerAddressMode::MirrorRepeat,
+        }
+    }
+}

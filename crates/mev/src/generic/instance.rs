@@ -57,8 +57,8 @@ pub struct DeviceDesc<'a> {
     /// Index of the device.
     pub idx: usize,
 
-    /// List of queue infos.
-    pub queue_infos: &'a [u32],
+    /// List of families to request queues from.
+    pub queues: &'a [u32],
 
     /// List of features that should be enabled.
     pub features: Features,

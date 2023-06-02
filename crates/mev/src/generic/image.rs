@@ -1,4 +1,8 @@
-use std::{error::Error, fmt, ops::Range};
+use std::{
+    error::Error,
+    fmt,
+    ops::{Mul, Range},
+};
 
 use super::{format::PixelFormat, Extent1, Extent2, Extent3, OutOfMemory};
 
@@ -74,6 +78,32 @@ impl Swizzle {
         b: ComponentSwizzle::One,
         a: ComponentSwizzle::R,
     };
+}
+
+impl Mul for Swizzle {
+    type Output = Self;
+
+    #[inline(always)]
+    fn mul(self, rhs: Self) -> Self {
+        use ComponentSwizzle::*;
+
+        let mul = |rhs: ComponentSwizzle, i| match rhs {
+            Identity => i,
+            Zero => Zero,
+            One => One,
+            R => self.r,
+            G => self.g,
+            B => self.b,
+            A => self.a,
+        };
+
+        let r = mul(rhs.r, self.r);
+        let g = mul(rhs.g, self.g);
+        let b = mul(rhs.b, self.b);
+        let a = mul(rhs.a, self.a);
+
+        Swizzle { r, g, b, a }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

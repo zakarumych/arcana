@@ -429,10 +429,10 @@ impl crate::traits::Instance for Instance {
 
         // Collect queue create infos
         // Pre-allocate queue priorities array of enough size
-        let mut priorities = vec![1.0; desc.queue_infos.len()];
+        let mut priorities = vec![1.0; desc.queues.len()];
         let mut queue_create_infos = Vec::<vk::DeviceQueueCreateInfo>::new();
 
-        for &family in desc.queue_infos {
+        for &family in desc.queues {
             match queue_create_infos
                 .iter_mut()
                 .find(|info| info.queue_family_index == family)
@@ -568,7 +568,7 @@ impl crate::traits::Instance for Instance {
         let push_descriptor = ash::extensions::khr::PushDescriptor::new(&self.instance, &device);
 
         let epochs = std::iter::repeat_with(PendingEpochs::new)
-            .take(desc.queue_infos.len())
+            .take(desc.queues.len())
             .collect::<Vec<_>>();
 
         let device = Device::new(
@@ -598,7 +598,7 @@ impl crate::traits::Instance for Instance {
         let mut queues = Vec::new();
         let mut family_counters = HashMap::new();
 
-        for (&family, epochs) in desc.queue_infos.iter().zip(epochs) {
+        for (&family, epochs) in desc.queues.iter().zip(epochs) {
             let counter = family_counters.entry(family).or_insert(0);
 
             let family_caps = &device_caps.families[family as usize];

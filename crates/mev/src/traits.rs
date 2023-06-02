@@ -205,11 +205,11 @@ pub trait Image {
         desc: ViewDesc,
     ) -> Result<crate::backend::Image, OutOfMemory>;
 
-    /// Returns `true` if the buffer is not shared,
-    /// meaning that there are no other references to the buffer
-    /// including references that tracks that GPU may be using the buffer.
+    /// Returns `true` if the image is not shared,
+    /// meaning that there are no other references to the image
+    /// including references that tracks that GPU may be using the image.
     ///
-    /// If this method returns `true` then it is safe to write to the buffer
+    /// If this method returns `true` then it is safe to write to the image
     /// from host and use in any way.
     ///
     /// If old content is not needed then no synchronization is required.

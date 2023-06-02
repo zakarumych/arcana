@@ -29,7 +29,7 @@ impl crate::traits::Queue for Queue {
         ))
     }
 
-    fn submit<I>(&mut self, command_buffers: I) -> Result<(), QueueError>
+    fn submit<I>(&mut self, command_buffers: I, _check_point: bool) -> Result<(), QueueError>
     where
         I: IntoIterator<Item = CommandBuffer>,
     {
