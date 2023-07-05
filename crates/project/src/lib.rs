@@ -8,7 +8,7 @@ use std::{
 };
 
 use camino::Utf8PathBuf;
-use hashbrown::{HashMap, HashSet};
+use hashbrown::HashMap;
 
 pub mod path;
 mod wrapper;
@@ -68,9 +68,9 @@ pub struct ProjectManifest {
     #[serde(skip_serializing_if = "HashMap::is_empty", default)]
     pub plugin_libs: HashMap<String, Dependency>,
 
-    /// Enabled plugins.
-    #[serde(skip_serializing_if = "HashMap::is_empty", default)]
-    pub enabled: HashMap<String, HashSet<String>>,
+    /// List of enabled plugins in order of initialization.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub enabled: Vec<(String, String)>,
 }
 
 /// Open project object.
@@ -170,7 +170,7 @@ impl Project {
             name: name.to_owned(),
             arcana,
             plugin_libs: HashMap::new(),
-            enabled: HashMap::new(),
+            enabled: Vec::new(),
         };
 
         let manifest_str = match toml::to_string(&manifest) {
@@ -296,8 +296,6 @@ impl Project {
     }
 
     pub fn sync(&mut self) -> miette::Result<()> {
-        self.manifest.enabled.retain(|_, v| !v.is_empty());
-
         let content = toml::to_string_pretty(&self.manifest).map_err(|err| {
             miette::miette!("Cannot serialize project manifest to \"Arcana.toml\": {err}")
         })?;

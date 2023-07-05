@@ -2,7 +2,7 @@ use std::path::Path;
 
 use arcana_project::{PluginBuild, Project};
 use edict::World;
-use egui::Ui;
+use egui::{Ui, WidgetText};
 use hashbrown::{hash_map::RawEntryMut, HashMap, HashSet};
 
 use crate::plugin::ArcanaPlugin;
@@ -157,52 +157,69 @@ impl Plugins {
         });
 
         let mut sync_project = false;
-        let manifest = project.manifest_mut();
         for (name, lib) in &mut plugins.libs {
-            ui.separator();
-            ui.heading(name);
+            let mut heading = WidgetText::from(name);
 
-            if plugins.builds.contains_key(name) {
-                ui.horizontal(|ui| {
-                    ui.label("Building...");
-                    ui.spinner();
-                });
-            } else if plugins.pending.contains_key(name) {
-                ui.horizontal(|ui| {
-                    ui.label("Pending...");
-                    ui.spinner();
-                });
+            if plugins.pending.contains_key(name) || plugins.builds.contains_key(name) {
+                heading = heading.color(egui::Color32::KHAKI);
+            } else {
+                heading = heading.color(egui::Color32::GREEN);
             }
 
-            for plugin in &*lib.plugins {
-                match manifest.enabled.raw_entry_mut().from_key(name) {
-                    RawEntryMut::Occupied(mut entry) => {
-                        let was_enabled = entry.get_mut().contains(plugin.name());
-                        let mut enabled = was_enabled;
+            egui::CollapsingHeader::new(heading)
+                .default_open(true)
+                .show_unindented(ui, |ui| {
+                    if plugins.builds.contains_key(name) {
+                        ui.horizontal(|ui| {
+                            ui.label("Building...");
+                            ui.spinner();
+                        });
+                    } else if ui.button("Rebuild").clicked() {
+                        (|builds: &mut HashMap<_, _>| {
+                            let build = try_log_err!(project.build_plugin_library(name));
+                            builds.insert(name.clone(), build);
+                        })(&mut plugins.builds);
+                    }
+
+                    let manifest = project.manifest_mut();
+                    for plugin in &*lib.plugins {
+                        let position = manifest
+                            .enabled
+                            .iter()
+                            .position(|(l, p)| l == name && p == plugin.name());
+
+                        let mut enabled = position.is_some();
                         ui.checkbox(&mut enabled, plugin.name());
-                        match (was_enabled, enabled) {
-                            (false, true) => {
-                                entry.get_mut().insert(plugin.name().to_owned());
+
+                        match (position, enabled) {
+                            (Some(pos), false) => {
+                                manifest.enabled.remove(pos);
                                 sync_project = true;
                             }
-                            (true, false) => {
-                                entry.get_mut().remove(plugin.name());
+                            (None, true) => {
+                                manifest
+                                    .enabled
+                                    .push((name.clone(), plugin.name().to_owned()));
                                 sync_project = true;
                             }
                             _ => {}
                         }
                     }
-                    RawEntryMut::Vacant(entry) => {
-                        let mut enabled = false;
-                        ui.checkbox(&mut enabled, plugin.name());
-                        if enabled {
-                            let (_, s) = entry.insert(name.clone(), HashSet::new());
-                            s.insert(plugin.name().to_owned());
-                            sync_project = true;
-                        }
-                    }
-                }
+                });
+        }
+
+        for name in plugins.builds.keys() {
+            if plugins.libs.contains_key(name) {
+                continue;
             }
+
+            let heading = WidgetText::from(name).color(egui::Color32::YELLOW);
+            egui::CollapsingHeader::new(heading)
+                .default_open(true)
+                .show_unindented(ui, |ui| {
+                    ui.label("Building...");
+                    ui.spinner();
+                });
         }
 
         if sync_project {
