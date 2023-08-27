@@ -10,7 +10,7 @@ pub use crate::{
     events::{Event, EventLoop},
     game::Game,
     gametime::{Clock, FrequencyNumExt},
-    init_nix,
+    init_mev,
     mev::{Device, Queue},
     parking_lot::Mutex,
     plugin::{BobPlugin, PluginHub},

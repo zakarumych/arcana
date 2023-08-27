@@ -24,6 +24,8 @@ pub struct ArgumentGroupLayout<'a> {
     pub arguments: &'a [ArgumentLayout],
 }
 
+/// This is not a part of public API.
+/// It is only public because it is used in the `mev` macro.
 #[doc(hidden)]
 pub trait ArgumentsSealed {}
 

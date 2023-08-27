@@ -1,19 +1,18 @@
 use std::{marker::PhantomData, mem::size_of_val, rc::Rc};
 
-pub use ::egui::*;
-
 use blink_alloc::{Blink, BlinkAlloc};
 use edict::World;
-use egui::epaint::{textures::TexturesDelta, ClippedShape, Primitive, Vertex};
+use egui::epaint::{ClippedShape, Primitive, Vertex};
 use hashbrown::{hash_map::Entry, HashMap};
 use mev::{Arguments as _, ClearColor, Constants as _};
 use winit::{event::WindowEvent, event_loop::EventLoopWindowTarget, window::WindowId};
 
 use crate::{
-    events::Event,
     funnel::Filter,
     render::{Render, RenderBuilderContext, RenderContext, RenderError, RenderGraph, TargetId},
 };
+
+pub use egui::*;
 
 #[derive(Clone, Copy)]
 enum Sampler {
@@ -44,7 +43,7 @@ struct EguiInstance {
     textures_delta: TexturesDelta,
     shapes: Vec<ClippedShape>,
     textures: HashMap<TextureId, (mev::Image, Sampler)>,
-    scale: f32,
+    // scale: f32,
 }
 
 pub struct EguiResource {
@@ -66,7 +65,7 @@ impl EguiResource {
         event_loop: &EventLoopWindowTarget<T>,
     ) {
         let mut state = egui_winit::State::new(event_loop);
-        state.set_pixels_per_point(default_scale());
+        state.set_pixels_per_point(window.scale_factor() as f32);
 
         let cx = Context::default();
 
@@ -75,10 +74,10 @@ impl EguiResource {
             EguiInstance {
                 cx,
                 state,
-                textures_delta: epaint::textures::TexturesDelta::default(),
+                textures_delta: TexturesDelta::default(),
                 shapes: Vec::new(),
                 textures: HashMap::new(),
-                scale: default_scale(),
+                // scale: default_scale(),
             },
         );
     }
@@ -239,107 +238,63 @@ impl Render for EguiRender {
 
         let target = cx.write_target(self.target, &mut encoder).clone();
 
-        let mut copy_encoder = encoder.copy();
+        {
+            let mut copy_encoder = encoder.copy();
 
-        copy_encoder.barrier(
-            mev::PipelineStages::VERTEX_INPUT | mev::PipelineStages::FRAGMENT_SHADER,
-            mev::PipelineStages::TRANSFER,
-        );
+            copy_encoder.barrier(
+                mev::PipelineStages::VERTEX_INPUT | mev::PipelineStages::FRAGMENT_SHADER,
+                mev::PipelineStages::TRANSFER,
+            );
 
-        if !instance.textures_delta.set.is_empty() {
-            let delta_size = instance
-                .textures_delta
-                .set
-                .iter()
-                .fold(0, |acc, (_, delta)| {
-                    acc + match &delta.image {
-                        ImageData::Color(color) => std::mem::size_of_val(&color.pixels[..]),
-                        ImageData::Font(font) => std::mem::size_of_val(&font.pixels[..]),
-                    }
-                });
-
-            let mut upload_buffer = cx.device().new_buffer(mev::BufferDesc {
-                size: delta_size,
-                usage: mev::BufferUsage::TRANSFER_SRC,
-                memory: mev::Memory::Upload,
-                name: "texture-delta-upload",
-            })?;
-
-            let mut offset = 0usize;
-            for (_, delta) in instance.textures_delta.set.iter() {
-                match &delta.image {
-                    ImageData::Color(color) => unsafe {
-                        upload_buffer
-                            .write_unchecked(offset, bytemuck::cast_slice(&color.pixels[..]));
-                        offset += std::mem::size_of_val(&color.pixels[..]);
-                    },
-                    ImageData::Font(font) => unsafe {
-                        upload_buffer
-                            .write_unchecked(offset, bytemuck::cast_slice(&font.pixels[..]));
-                        offset += std::mem::size_of_val(&font.pixels[..]);
-                    },
-                }
-            }
-
-            let mut offset = 0usize;
-            for (id, delta) in instance.textures_delta.set.iter() {
-                let region = delta.image.size();
-                let pos = delta.pos.unwrap_or([0; 2]);
-                let size = [pos[0] + region[0], pos[1] + region[1]];
-
-                let format = match &delta.image {
-                    ImageData::Color(_) => mev::PixelFormat::Rgba8Srgb,
-                    ImageData::Font(_) => mev::PixelFormat::R32Float,
-                };
-
-                let mut image: mev::Image;
-                match instance.textures.entry(*id) {
-                    Entry::Vacant(entry) => {
-                        let mut new_image = cx
-                            .device()
-                            .new_image(mev::ImageDesc {
-                                dimensions: mev::ImageDimensions::D2(
-                                    size[0] as u32,
-                                    size[1] as u32,
-                                ),
-                                format,
-                                usage: mev::ImageUsage::SAMPLED | mev::ImageUsage::TRANSFER_DST,
-                                layers: 1,
-                                levels: 1,
-                                name: &format!("egui-texture-{id:?}"),
-                            })
-                            .map_err(|err| match err {
-                                mev::ImageError::InvalidFormat => unimplemented!(),
-                                mev::ImageError::OutOfMemory => {
-                                    RenderError::OutOfMemory(mev::OutOfMemory)
-                                }
-                            })?;
-
-                        copy_encoder.init_image(
-                            mev::PipelineStages::empty(),
-                            mev::PipelineStages::TRANSFER,
-                            &new_image,
-                        );
-
-                        if let ImageData::Font(_) = &delta.image {
-                            new_image = new_image.view(
-                                cx.device(),
-                                mev::ViewDesc::new(format).swizzle(mev::Swizzle::RRRR),
-                            )?;
+            if !instance.textures_delta.set.is_empty() {
+                let delta_size = instance
+                    .textures_delta
+                    .set
+                    .iter()
+                    .fold(0, |acc, (_, delta)| {
+                        acc + match &delta.image {
+                            ImageData::Color(color) => std::mem::size_of_val(&color.pixels[..]),
+                            ImageData::Font(font) => std::mem::size_of_val(&font.pixels[..]),
                         }
+                    });
 
-                        image = entry
-                            .insert((new_image, Sampler::from_options(delta.options)))
-                            .0
-                            .clone();
+                let mut upload_buffer = cx.device().new_buffer(mev::BufferDesc {
+                    size: delta_size,
+                    usage: mev::BufferUsage::TRANSFER_SRC,
+                    memory: mev::Memory::Upload,
+                    name: "texture-delta-upload",
+                })?;
+
+                let mut offset = 0usize;
+                for (_, delta) in instance.textures_delta.set.iter() {
+                    match &delta.image {
+                        ImageData::Color(color) => unsafe {
+                            upload_buffer
+                                .write_unchecked(offset, bytemuck::cast_slice(&color.pixels[..]));
+                            offset += std::mem::size_of_val(&color.pixels[..]);
+                        },
+                        ImageData::Font(font) => unsafe {
+                            upload_buffer
+                                .write_unchecked(offset, bytemuck::cast_slice(&font.pixels[..]));
+                            offset += std::mem::size_of_val(&font.pixels[..]);
+                        },
                     }
-                    Entry::Occupied(mut entry) => {
-                        entry.get_mut().1 = Sampler::from_options(delta.options);
-                        image = entry.get().0.clone();
-                        let extent = image.dimensions().to_2d();
-                        if (extent.width() as usize) < size[0]
-                            || (extent.height() as usize) < size[1]
-                        {
+                }
+
+                let mut offset = 0usize;
+                for (id, delta) in instance.textures_delta.set.iter() {
+                    let region = delta.image.size();
+                    let pos = delta.pos.unwrap_or([0; 2]);
+                    let size = [pos[0] + region[0], pos[1] + region[1]];
+
+                    let format = match &delta.image {
+                        ImageData::Color(_) => mev::PixelFormat::Rgba8Srgb,
+                        ImageData::Font(_) => mev::PixelFormat::R32Float,
+                    };
+
+                    let mut image: mev::Image;
+                    match instance.textures.entry(*id) {
+                        Entry::Vacant(entry) => {
                             let mut new_image = cx
                                 .device()
                                 .new_image(mev::ImageDesc {
@@ -360,6 +315,12 @@ impl Render for EguiRender {
                                     }
                                 })?;
 
+                            copy_encoder.init_image(
+                                mev::PipelineStages::empty(),
+                                mev::PipelineStages::TRANSFER,
+                                &new_image,
+                            );
+
                             if let ImageData::Font(_) = &delta.image {
                                 new_image = new_image.view(
                                     cx.device(),
@@ -367,303 +328,360 @@ impl Render for EguiRender {
                                 )?;
                             }
 
-                            copy_encoder.copy_image_region(
-                                &image,
-                                mev::Offset3::ZERO,
-                                0,
-                                &new_image,
-                                mev::Offset3::ZERO,
-                                0,
-                                image.dimensions().to_3d(),
-                                1,
-                            );
+                            image = entry
+                                .insert((new_image, Sampler::from_options(delta.options)))
+                                .0
+                                .clone();
+                        }
+                        Entry::Occupied(mut entry) => {
+                            entry.get_mut().1 = Sampler::from_options(delta.options);
+                            image = entry.get().0.clone();
+                            let extent = image.dimensions().to_2d();
+                            if (extent.width() as usize) < size[0]
+                                || (extent.height() as usize) < size[1]
+                            {
+                                let mut new_image = cx
+                                    .device()
+                                    .new_image(mev::ImageDesc {
+                                        dimensions: mev::ImageDimensions::D2(
+                                            size[0] as u32,
+                                            size[1] as u32,
+                                        ),
+                                        format,
+                                        usage: mev::ImageUsage::SAMPLED
+                                            | mev::ImageUsage::TRANSFER_DST,
+                                        layers: 1,
+                                        levels: 1,
+                                        name: &format!("egui-texture-{id:?}"),
+                                    })
+                                    .map_err(|err| match err {
+                                        mev::ImageError::InvalidFormat => unimplemented!(),
+                                        mev::ImageError::OutOfMemory => {
+                                            RenderError::OutOfMemory(mev::OutOfMemory)
+                                        }
+                                    })?;
 
-                            entry.get_mut().0 = new_image.clone();
-                            image = new_image;
+                                if let ImageData::Font(_) = &delta.image {
+                                    new_image = new_image.view(
+                                        cx.device(),
+                                        mev::ViewDesc::new(format).swizzle(mev::Swizzle::RRRR),
+                                    )?;
+                                }
+
+                                copy_encoder.copy_image_region(
+                                    &image,
+                                    mev::Offset3::ZERO,
+                                    0,
+                                    &new_image,
+                                    mev::Offset3::ZERO,
+                                    0,
+                                    image.dimensions().to_3d(),
+                                    1,
+                                );
+
+                                entry.get_mut().0 = new_image.clone();
+                                image = new_image;
+                            }
+                        }
+                    }
+
+                    copy_encoder.copy_buffer_to_image(
+                        &upload_buffer,
+                        offset,
+                        4 * region[0],
+                        0,
+                        &image,
+                        mev::Offset3::new(pos[0] as u32, pos[1] as u32, 0),
+                        mev::Extent3::new(region[0] as u32, region[1] as u32, 1),
+                        0..1,
+                        0,
+                    );
+
+                    match &delta.image {
+                        ImageData::Color(color) => {
+                            offset += std::mem::size_of_val(&color.pixels[..]);
+                        }
+                        ImageData::Font(font) => {
+                            offset += std::mem::size_of_val(&font.pixels[..]);
                         }
                     }
                 }
 
-                copy_encoder.copy_buffer_to_image(
-                    &upload_buffer,
-                    offset,
-                    4 * region[0],
-                    0,
-                    &image,
-                    mev::Offset3::new(pos[0] as u32, pos[1] as u32, 0),
-                    mev::Extent3::new(region[0] as u32, region[1] as u32, 1),
-                    0..1,
-                    0,
-                );
-
-                match &delta.image {
-                    ImageData::Color(color) => {
-                        offset += std::mem::size_of_val(&color.pixels[..]);
-                    }
-                    ImageData::Font(font) => {
-                        offset += std::mem::size_of_val(&font.pixels[..]);
-                    }
-                }
+                instance.textures_delta.set.clear();
             }
 
-            instance.textures_delta.set.clear();
-        }
+            if !instance.shapes.is_empty() {
+                let primitives = instance.cx.tessellate(std::mem::take(&mut instance.shapes));
 
-        if !instance.shapes.is_empty() {
-            let primitives = instance.cx.tessellate(std::mem::take(&mut instance.shapes));
+                if !primitives.is_empty() {
+                    let mut total_vertex_size = 0;
+                    let mut total_index_size = 0;
 
-            if !primitives.is_empty() {
-                let mut total_vertex_size = 0;
-                let mut total_index_size = 0;
-
-                for primitive in &primitives {
-                    match &primitive.primitive {
-                        Primitive::Mesh(mesh) => {
-                            total_vertex_size += size_of_val(&mesh.vertices[..]);
-                            total_vertex_size = (total_vertex_size + 31) & !31;
-                            total_index_size += size_of_val(&mesh.indices[..]);
-                            total_index_size = (total_index_size + 31) & !31;
+                    for primitive in &primitives {
+                        match &primitive.primitive {
+                            Primitive::Mesh(mesh) => {
+                                total_vertex_size += size_of_val(&mesh.vertices[..]);
+                                total_vertex_size = (total_vertex_size + 31) & !31;
+                                total_index_size += size_of_val(&mesh.indices[..]);
+                                total_index_size = (total_index_size + 31) & !31;
+                            }
+                            Primitive::Callback(_) => todo!(),
                         }
-                        Primitive::Callback(_) => todo!(),
                     }
-                }
 
-                let vertex_buffer = match &mut self.vertex_buffer {
-                    Some(buffer) if buffer.size() >= total_vertex_size => buffer,
-                    slot => {
-                        *slot = None;
-                        slot.get_or_insert(cx.device().new_buffer(mev::BufferDesc {
-                            size: total_vertex_size,
-                            usage: mev::BufferUsage::VERTEX | mev::BufferUsage::TRANSFER_DST,
-                            memory: mev::Memory::Device,
-                            name: "egui-vertex-buffer",
-                        })?)
-                    }
-                };
-
-                let index_buffer = match &mut self.index_buffer {
-                    Some(buffer) if buffer.size() >= total_index_size => buffer,
-                    slot => {
-                        *slot = None;
-                        slot.get_or_insert(cx.device().new_buffer(mev::BufferDesc {
-                            size: total_index_size,
-                            usage: mev::BufferUsage::INDEX | mev::BufferUsage::TRANSFER_DST,
-                            memory: mev::Memory::Device,
-                            name: "egui-index-buffer",
-                        })?)
-                    }
-                };
-
-                let mut vertex_buffer_offset = 0;
-                let mut index_buffer_offset = 0;
-
-                for primitive in &primitives {
-                    match &primitive.primitive {
-                        Primitive::Mesh(mesh) => {
-                            copy_encoder.write_buffer(
-                                &vertex_buffer,
-                                vertex_buffer_offset,
-                                bytemuck::cast_slice(&mesh.vertices[..]),
-                            );
-                            copy_encoder.write_buffer(
-                                &index_buffer,
-                                index_buffer_offset,
-                                bytemuck::cast_slice(&mesh.indices[..]),
-                            );
-                            vertex_buffer_offset += size_of_val(&mesh.vertices[..]);
-                            vertex_buffer_offset = (vertex_buffer_offset + 31) & !31;
-                            index_buffer_offset += size_of_val(&mesh.indices[..]);
-                            index_buffer_offset = (index_buffer_offset + 31) & !31;
+                    let vertex_buffer = match &mut self.vertex_buffer {
+                        Some(buffer) if buffer.size() >= total_vertex_size => buffer,
+                        slot => {
+                            *slot = None;
+                            slot.get_or_insert(cx.device().new_buffer(mev::BufferDesc {
+                                size: total_vertex_size,
+                                usage: mev::BufferUsage::VERTEX | mev::BufferUsage::TRANSFER_DST,
+                                memory: mev::Memory::Device,
+                                name: "egui-vertex-buffer",
+                            })?)
                         }
-                        Primitive::Callback(_) => todo!(),
+                    };
+
+                    let index_buffer = match &mut self.index_buffer {
+                        Some(buffer) if buffer.size() >= total_index_size => buffer,
+                        slot => {
+                            *slot = None;
+                            slot.get_or_insert(cx.device().new_buffer(mev::BufferDesc {
+                                size: total_index_size,
+                                usage: mev::BufferUsage::INDEX | mev::BufferUsage::TRANSFER_DST,
+                                memory: mev::Memory::Device,
+                                name: "egui-index-buffer",
+                            })?)
+                        }
+                    };
+
+                    let mut vertex_buffer_offset = 0;
+                    let mut index_buffer_offset = 0;
+
+                    for primitive in &primitives {
+                        match &primitive.primitive {
+                            Primitive::Mesh(mesh) => {
+                                copy_encoder.write_buffer(
+                                    &vertex_buffer,
+                                    vertex_buffer_offset,
+                                    bytemuck::cast_slice(&mesh.vertices[..]),
+                                );
+                                copy_encoder.write_buffer(
+                                    &index_buffer,
+                                    index_buffer_offset,
+                                    bytemuck::cast_slice(&mesh.indices[..]),
+                                );
+                                vertex_buffer_offset += size_of_val(&mesh.vertices[..]);
+                                vertex_buffer_offset = (vertex_buffer_offset + 31) & !31;
+                                index_buffer_offset += size_of_val(&mesh.indices[..]);
+                                index_buffer_offset = (index_buffer_offset + 31) & !31;
+                            }
+                            Primitive::Callback(_) => todo!(),
+                        }
                     }
-                }
 
-                copy_encoder.barrier(
-                    mev::PipelineStages::TRANSFER,
-                    mev::PipelineStages::VERTEX_INPUT | mev::PipelineStages::FRAGMENT_SHADER,
-                );
+                    copy_encoder.barrier(
+                        mev::PipelineStages::TRANSFER,
+                        mev::PipelineStages::VERTEX_INPUT | mev::PipelineStages::FRAGMENT_SHADER,
+                    );
 
-                drop(copy_encoder);
+                    let pipeline = if target.format().is_srgb() {
+                        self.srgb_pipeline.get_or_insert_with(|| {
+                            let library = cx
+                                .device()
+                                .new_shader_library(mev::LibraryDesc {
+                                    name: "egui",
+                                    input: mev::include_library!(
+                                        "shaders/egui.wgsl" as mev::ShaderLanguage::Wgsl
+                                    ),
+                                })
+                                .unwrap();
 
-                let pipeline = if target.format().is_srgb() {
-                    self.srgb_pipeline.get_or_insert_with(|| {
-                        let library = cx
-                            .device()
-                            .new_shader_library(mev::LibraryDesc {
-                                name: "egui",
-                                input: mev::include_library!(
-                                    "shaders/egui.wgsl" as mev::ShaderLanguage::Wgsl
-                                ),
-                            })
-                            .unwrap();
-
-                        cx.device()
-                            .new_render_pipeline(mev::RenderPipelineDesc {
-                                name: "egui",
-                                vertex_shader: mev::Shader {
-                                    library: library.clone(),
-                                    entry: "vs_main".into(),
-                                },
-                                vertex_attributes: vec![
-                                    mev::VertexAttributeDesc {
-                                        format: mev::VertexFormat::Float32x2,
-                                        offset: offset_of!(Vertex.pos) as u32,
-                                        buffer_index: 0,
+                            cx.device()
+                                .new_render_pipeline(mev::RenderPipelineDesc {
+                                    name: "egui",
+                                    vertex_shader: mev::Shader {
+                                        library: library.clone(),
+                                        entry: "vs_main".into(),
                                     },
-                                    mev::VertexAttributeDesc {
-                                        format: mev::VertexFormat::Float32x2,
-                                        offset: offset_of!(Vertex.uv) as u32,
-                                        buffer_index: 0,
-                                    },
-                                    mev::VertexAttributeDesc {
-                                        format: mev::VertexFormat::Unorm8x4,
-                                        offset: offset_of!(Vertex.color) as u32,
-                                        buffer_index: 0,
-                                    },
-                                ],
-                                vertex_layouts: vec![mev::VertexLayoutDesc {
-                                    stride: std::mem::size_of::<Vertex>() as u32,
-                                    step_mode: mev::VertexStepMode::Vertex,
-                                }],
-                                primitive_topology: mev::PrimitiveTopology::Triangle,
-                                raster: Some(mev::RasterDesc {
-                                    fragment_shader: Some(mev::Shader {
-                                        library: library,
-                                        entry: "fs_main_srgb".into(),
-                                    }),
-                                    color_targets: vec![mev::ColorTargetDesc {
-                                        format: target.format(),
-                                        blend: Some(mev::BlendDesc::default()),
+                                    vertex_attributes: vec![
+                                        mev::VertexAttributeDesc {
+                                            format: mev::VertexFormat::Float32x2,
+                                            offset: offset_of!(Vertex.pos) as u32,
+                                            buffer_index: 0,
+                                        },
+                                        mev::VertexAttributeDesc {
+                                            format: mev::VertexFormat::Float32x2,
+                                            offset: offset_of!(Vertex.uv) as u32,
+                                            buffer_index: 0,
+                                        },
+                                        mev::VertexAttributeDesc {
+                                            format: mev::VertexFormat::Unorm8x4,
+                                            offset: offset_of!(Vertex.color) as u32,
+                                            buffer_index: 0,
+                                        },
+                                    ],
+                                    vertex_layouts: vec![mev::VertexLayoutDesc {
+                                        stride: std::mem::size_of::<Vertex>() as u32,
+                                        step_mode: mev::VertexStepMode::Vertex,
                                     }],
-                                    depth_stencil: None,
-                                    front_face: mev::FrontFace::default(),
-                                    culling: mev::Culling::None,
-                                }),
-                                arguments: &[EguiArguments::LAYOUT],
-                                constants: EguiConstants::SIZE,
-                            })
-                            .unwrap()
-                    })
-                } else {
-                    self.linear_pipeline.get_or_insert_with(|| {
-                        let library = cx
-                            .device()
-                            .new_shader_library(mev::LibraryDesc {
-                                name: "egui",
-                                input: mev::include_library!(
-                                    "shaders/egui.wgsl" as mev::ShaderLanguage::Wgsl
-                                ),
-                            })
-                            .unwrap();
-
-                        cx.device()
-                            .new_render_pipeline(mev::RenderPipelineDesc {
-                                name: "egui",
-                                vertex_shader: mev::Shader {
-                                    library: library.clone(),
-                                    entry: "vs_main".into(),
-                                },
-                                vertex_attributes: vec![
-                                    mev::VertexAttributeDesc {
-                                        format: mev::VertexFormat::Float32x2,
-                                        offset: offset_of!(Vertex.pos) as u32,
-                                        buffer_index: 0,
-                                    },
-                                    mev::VertexAttributeDesc {
-                                        format: mev::VertexFormat::Float32x2,
-                                        offset: offset_of!(Vertex.uv) as u32,
-                                        buffer_index: 0,
-                                    },
-                                    mev::VertexAttributeDesc {
-                                        format: mev::VertexFormat::Unorm8x4,
-                                        offset: offset_of!(Vertex.color) as u32,
-                                        buffer_index: 0,
-                                    },
-                                ],
-                                vertex_layouts: vec![mev::VertexLayoutDesc {
-                                    stride: std::mem::size_of::<Vertex>() as u32,
-                                    step_mode: mev::VertexStepMode::Vertex,
-                                }],
-                                primitive_topology: mev::PrimitiveTopology::Triangle,
-                                raster: Some(mev::RasterDesc {
-                                    fragment_shader: Some(mev::Shader {
-                                        library: library,
-                                        entry: "fs_main_linear".into(),
+                                    primitive_topology: mev::PrimitiveTopology::Triangle,
+                                    raster: Some(mev::RasterDesc {
+                                        fragment_shader: Some(mev::Shader {
+                                            library: library,
+                                            entry: "fs_main_srgb".into(),
+                                        }),
+                                        color_targets: vec![mev::ColorTargetDesc {
+                                            format: target.format(),
+                                            blend: Some(mev::BlendDesc::default()),
+                                        }],
+                                        depth_stencil: None,
+                                        front_face: mev::FrontFace::default(),
+                                        culling: mev::Culling::None,
                                     }),
-                                    color_targets: vec![mev::ColorTargetDesc {
-                                        format: target.format(),
-                                        blend: Some(mev::BlendDesc::default()),
+                                    arguments: &[EguiArguments::LAYOUT],
+                                    constants: EguiConstants::SIZE,
+                                })
+                                .unwrap()
+                        })
+                    } else {
+                        self.linear_pipeline.get_or_insert_with(|| {
+                            let library = cx
+                                .device()
+                                .new_shader_library(mev::LibraryDesc {
+                                    name: "egui",
+                                    input: mev::include_library!(
+                                        "shaders/egui.wgsl" as mev::ShaderLanguage::Wgsl
+                                    ),
+                                })
+                                .unwrap();
+
+                            cx.device()
+                                .new_render_pipeline(mev::RenderPipelineDesc {
+                                    name: "egui",
+                                    vertex_shader: mev::Shader {
+                                        library: library.clone(),
+                                        entry: "vs_main".into(),
+                                    },
+                                    vertex_attributes: vec![
+                                        mev::VertexAttributeDesc {
+                                            format: mev::VertexFormat::Float32x2,
+                                            offset: offset_of!(Vertex.pos) as u32,
+                                            buffer_index: 0,
+                                        },
+                                        mev::VertexAttributeDesc {
+                                            format: mev::VertexFormat::Float32x2,
+                                            offset: offset_of!(Vertex.uv) as u32,
+                                            buffer_index: 0,
+                                        },
+                                        mev::VertexAttributeDesc {
+                                            format: mev::VertexFormat::Unorm8x4,
+                                            offset: offset_of!(Vertex.color) as u32,
+                                            buffer_index: 0,
+                                        },
+                                    ],
+                                    vertex_layouts: vec![mev::VertexLayoutDesc {
+                                        stride: std::mem::size_of::<Vertex>() as u32,
+                                        step_mode: mev::VertexStepMode::Vertex,
                                     }],
-                                    depth_stencil: None,
-                                    front_face: mev::FrontFace::default(),
-                                    culling: mev::Culling::None,
-                                }),
-                                arguments: &[EguiArguments::LAYOUT],
-                                constants: EguiConstants::SIZE,
-                            })
-                            .unwrap()
-                    })
-                };
+                                    primitive_topology: mev::PrimitiveTopology::Triangle,
+                                    raster: Some(mev::RasterDesc {
+                                        fragment_shader: Some(mev::Shader {
+                                            library: library,
+                                            entry: "fs_main_linear".into(),
+                                        }),
+                                        color_targets: vec![mev::ColorTargetDesc {
+                                            format: target.format(),
+                                            blend: Some(mev::BlendDesc::default()),
+                                        }],
+                                        depth_stencil: None,
+                                        front_face: mev::FrontFace::default(),
+                                        culling: mev::Culling::None,
+                                    }),
+                                    arguments: &[EguiArguments::LAYOUT],
+                                    constants: EguiConstants::SIZE,
+                                })
+                                .unwrap()
+                        })
+                    };
 
-                let dims = target.dimensions().to_2d();
+                    drop(copy_encoder);
 
-                let mut render = encoder.render(mev::RenderPassDesc {
-                    color_attachments: &[mev::AttachmentDesc::new(&target).load_op(self.load_op)],
-                    ..Default::default()
-                });
+                    let dims = target.dimensions().to_2d();
 
-                render.with_pipeline(pipeline);
-                render.with_viewport(
-                    mev::Offset3::ZERO,
-                    mev::Extent3::new(dims.width() as f32, dims.height() as f32, 1.0),
-                );
-                render.with_constants(&EguiConstants {
-                    width: dims.width(),
-                    height: dims.height(),
-                    scale: instance.cx.pixels_per_point(),
-                });
+                    let mut render = encoder.render(mev::RenderPassDesc {
+                        color_attachments: &[
+                            mev::AttachmentDesc::new(&target).load_op(self.load_op)
+                        ],
+                        ..Default::default()
+                    });
 
-                let mut vertex_buffer_offset = 0;
-                let mut index_buffer_offset = 0;
+                    render.with_pipeline(pipeline);
+                    render.with_viewport(
+                        mev::Offset3::ZERO,
+                        mev::Extent3::new(dims.width() as f32, dims.height() as f32, 1.0),
+                    );
+                    render.with_constants(&EguiConstants {
+                        width: dims.width(),
+                        height: dims.height(),
+                        scale: instance.cx.pixels_per_point(),
+                    });
 
-                for primitive in primitives {
-                    match primitive.primitive {
-                        Primitive::Mesh(mesh) => {
-                            render.with_scissor(
-                                mev::Offset2::new(
-                                    ((primitive.clip_rect.left() * instance.scale) as i32).max(0),
-                                    ((primitive.clip_rect.top() * instance.scale) as i32).max(0),
-                                ),
-                                mev::Extent2::new(
-                                    ((primitive.clip_rect.width() * instance.scale) as u32)
-                                        .min(dims.width()),
-                                    ((primitive.clip_rect.height() * instance.scale) as u32)
-                                        .min(dims.height()),
-                                ),
-                            );
+                    let mut vertex_buffer_offset = 0;
+                    let mut index_buffer_offset = 0;
 
-                            let (ref image, sampler) = instance.textures[&mesh.texture_id];
+                    for primitive in primitives {
+                        match primitive.primitive {
+                            Primitive::Mesh(mesh) => {
+                                let offset =
+                                    mev::Offset2::new(
+                                        ((primitive.clip_rect.left()
+                                            * instance.state.pixels_per_point())
+                                            as i32)
+                                            .min(dims.width() as i32)
+                                            .max(0),
+                                        ((primitive.clip_rect.top()
+                                            * instance.state.pixels_per_point())
+                                            as i32)
+                                            .min(dims.height() as i32)
+                                            .max(0),
+                                    );
+                                let extent = mev::Extent2::new(
+                                    ((primitive.clip_rect.width()
+                                        * instance.state.pixels_per_point())
+                                        as u32)
+                                        .min(dims.width() as u32 - offset.x() as u32),
+                                    ((primitive.clip_rect.height()
+                                        * instance.state.pixels_per_point())
+                                        as u32)
+                                        .min(dims.height() as u32 - offset.y() as u32),
+                                );
+                                // render.with_scissor(offset, extent);
 
-                            render.with_arguments(
-                                0,
-                                &EguiArguments {
-                                    sampler: samplers[sampler as usize].clone(),
-                                    texture: image.clone(),
-                                },
-                            );
+                                let (ref image, sampler) = instance.textures[&mesh.texture_id];
 
-                            render
-                                .bind_vertex_buffers(0, &[(&vertex_buffer, vertex_buffer_offset)]);
-                            render.bind_index_buffer(&index_buffer, index_buffer_offset);
-                            render.draw_indexed(0, 0..mesh.indices.len() as u32, 0..1);
+                                render.with_arguments(
+                                    0,
+                                    &EguiArguments {
+                                        sampler: samplers[sampler as usize].clone(),
+                                        texture: image.clone(),
+                                    },
+                                );
 
-                            vertex_buffer_offset += size_of_val(&mesh.vertices[..]);
-                            vertex_buffer_offset = (vertex_buffer_offset + 31) & !31;
-                            index_buffer_offset += size_of_val(&mesh.indices[..]);
-                            index_buffer_offset = (index_buffer_offset + 31) & !31;
+                                render.bind_vertex_buffers(
+                                    0,
+                                    &[(&vertex_buffer, vertex_buffer_offset)],
+                                );
+                                render.bind_index_buffer(&index_buffer, index_buffer_offset);
+                                render.draw_indexed(0, 0..mesh.indices.len() as u32, 0..1);
+
+                                vertex_buffer_offset += size_of_val(&mesh.vertices[..]);
+                                vertex_buffer_offset = (vertex_buffer_offset + 31) & !31;
+                                index_buffer_offset += size_of_val(&mesh.indices[..]);
+                                index_buffer_offset = (index_buffer_offset + 31) & !31;
+                            }
+                            Primitive::Callback(_) => todo!(),
                         }
-                        Primitive::Callback(_) => todo!(),
                     }
                 }
             }
@@ -683,11 +701,16 @@ impl Render for EguiRender {
 pub struct EguiFilter;
 
 impl Filter for EguiFilter {
-    fn filter(&mut self, _blink: &Blink, world: &mut World, event: Event) -> Option<Event> {
+    fn filter(
+        &mut self,
+        _blink: &Blink,
+        world: &mut World,
+        event: crate::events::Event,
+    ) -> Option<crate::events::Event> {
         let world = world.local();
         let egui = &mut *world.expect_resource_mut::<EguiResource>();
 
-        if let Event::WindowEvent { window_id, event } = &event {
+        if let crate::events::Event::WindowEvent { window_id, event } = &event {
             if egui.handle_event(*window_id, event) {
                 return None;
             }

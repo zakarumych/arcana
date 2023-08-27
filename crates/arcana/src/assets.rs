@@ -1,5 +1,3 @@
-use std::path::Path;
-
 pub use argosy::{
     proc::{Asset, AssetField},
     AssetId,
@@ -87,13 +85,16 @@ impl Assets {
         }
 
         let mut encoder = queue.new_command_encoder()?;
-        let mut builder = BobBuilder {
-            device,
-            encoder: encoder.copy(),
-        };
 
-        for loaded in self.build_queue.drain(..) {
-            loaded.build(&mut builder);
+        {
+            let mut builder = BobBuilder {
+                device,
+                encoder: encoder.copy(),
+            };
+
+            for loaded in self.build_queue.drain(..) {
+                loaded.build(&mut builder);
+            }
         }
 
         queue.submit(Some(encoder.finish()?), false)?;

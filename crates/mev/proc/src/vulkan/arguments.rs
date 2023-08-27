@@ -3,36 +3,14 @@ use proc_macro::TokenStream;
 use quote::{quote, quote_spanned};
 use syn;
 
+use crate::args::*;
+
 pub fn derive(input: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(input as syn::DeriveInput);
 
     match derive_impl(input) {
         Ok(tokens) => tokens.into(),
         Err(err) => err.to_compile_error().into(),
-    }
-}
-
-proc_easy::easy_flags! {
-    Kind(kind) {
-        // Constant(constant),
-        Uniform(uniform),
-        Sampled(sampled),
-        Storage(storage),
-    }
-}
-
-proc_easy::easy_flags! {
-    Shader(shader) | Shaders(shaders) {
-        Vertex(vertex),
-        Fragment(fragment),
-    }
-}
-
-proc_easy::easy_attributes! {
-    @(mev)
-    struct FieldAttributes {
-        kind: Option<Kind>,
-        shaders: Shaders,
     }
 }
 
@@ -125,7 +103,7 @@ fn derive_impl(input: syn::DeriveInput) -> syn::Result<proc_macro2::TokenStream>
     let field_bindings = (0..data.fields.len() as u32).collect::<Vec<_>>();
     let fields_count = data.fields.len();
 
-    let update_name = quote::format_ident!("NixGenerated{}Update", name);
+    let update_name = quote::format_ident!("MevGenerated{}Update", name);
 
     match &data.fields {
         syn::Fields::Unit => {
@@ -136,7 +114,7 @@ fn derive_impl(input: syn::DeriveInput) -> syn::Result<proc_macro2::TokenStream>
         }
         syn::Fields::Unnamed(_) => todo!(),
         syn::Fields::Named(fields) => {
-            let fields_name = fields
+            let field_names = fields
                 .named
                 .iter()
                 .map(|field| field.ident.as_ref().unwrap())
@@ -145,11 +123,11 @@ fn derive_impl(input: syn::DeriveInput) -> syn::Result<proc_macro2::TokenStream>
                 #[doc(hidden)]
                 #[derive(Clone, Copy)]
                 #vis struct #update_name {
-                    #(#fields_name: #field_argument_impls::Update,)*
+                    #(#field_names: #field_argument_impls::Update,)*
                 }
 
                 impl #name {
-                    const fn nix_generated_template_entries() -> [mev::for_macro::DescriptorUpdateTemplateEntry; #fields_count] {
+                    const fn mev_generated_template_entries() -> [mev::for_macro::DescriptorUpdateTemplateEntry; #fields_count] {
                         let update = mev::for_macro::MaybeUninit::<#update_name>::uninit();
                         let ptr = update.as_ptr();
                         [
@@ -164,7 +142,7 @@ fn derive_impl(input: syn::DeriveInput) -> syn::Result<proc_macro2::TokenStream>
                                         #field_argument_impls::SIZE as u32
                                     },
                                     descriptor_type: mev::for_macro::descriptor_type(#field_argument_impls::KIND),
-                                    offset: unsafe { mev::for_macro::addr_of!((*ptr).#fields_name).cast::<u8>().offset_from(ptr.cast::<u8>()) as usize },
+                                    offset: unsafe { mev::for_macro::addr_of!((*ptr).#field_names).cast::<u8>().offset_from(ptr.cast::<u8>()) as usize },
                                     stride: #field_argument_impls::STRIDE,
                                 },
                             )*
@@ -185,20 +163,20 @@ fn derive_impl(input: syn::DeriveInput) -> syn::Result<proc_macro2::TokenStream>
 
                     #[inline(always)]
                     fn template_entries() -> &'static [mev::for_macro::DescriptorUpdateTemplateEntry] {
-                        static ENTRIES: [mev::for_macro::DescriptorUpdateTemplateEntry; #fields_count] = #name::nix_generated_template_entries();
+                        static ENTRIES: [mev::for_macro::DescriptorUpdateTemplateEntry; #fields_count] = #name::mev_generated_template_entries();
                         &ENTRIES
                     }
 
                     #[inline(always)]
                     fn update(&self) -> #update_name {
                         #update_name {
-                            #(#fields_name: #field_argument_impls::update(&self.#fields_name),)*
+                            #(#field_names: #field_argument_impls::update(&self.#field_names),)*
                         }
                     }
 
                     #[inline(always)]
                     fn add_refs(&self, refs: &mut mev::for_macro::Refs) {
-                        #(#field_argument_impls::add_refs(&self.#fields_name, refs);)*
+                        #(#field_argument_impls::add_refs(&self.#field_names, refs);)*
                     }
                 }
             })

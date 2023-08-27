@@ -1,14 +1,16 @@
-use std::{marker::PhantomData, mem::size_of, ops::Range};
+use std::{marker::PhantomData, ops::Range, sync::Arc};
 
 use metal::NSUInteger;
 use smallvec::SmallVec;
 
 use crate::generic::{
     Arguments, ClearColor, ClearDepthStencil, Constants, Extent2, Extent3, LoadOp, Offset2,
-    Offset3, OutOfMemory, PipelineStages, RenderPassDesc, ShaderStage, ShaderStages, StoreOp,
+    Offset3, OutOfMemory, PipelineStages, RenderPassDesc, StoreOp,
 };
 
-use super::{out_of_bounds, Buffer, Frame, Image, RenderPipeline};
+use super::{
+    out_of_bounds, shader::Bindings, Buffer, Frame, Image, RenderPipeline, MAX_VERTEX_BUFFERS,
+};
 
 pub struct CommandBuffer {
     buffer: metal::CommandBuffer,
@@ -31,7 +33,7 @@ impl CommandEncoder {
     }
 }
 
-// #[hidden_trait::expose]
+#[hidden_trait::expose]
 impl crate::traits::CommandEncoder for CommandEncoder {
     fn barrier(&mut self, _after: PipelineStages, _before: PipelineStages) {}
 
@@ -125,6 +127,9 @@ impl crate::traits::CommandEncoder for CommandEncoder {
             primitive: metal::MTLPrimitiveType::Triangle,
             index_buffer: None,
             index_buffer_offset: 0,
+            vertex_bindings: None,
+            fragment_bindings: None,
+            vertex_buffers_count: 0,
             _marker: PhantomData,
         }
     }
@@ -148,7 +153,14 @@ pub struct CopyCommandEncoder<'a> {
     _marker: PhantomData<&'a mut CommandBuffer>,
 }
 
-// #[hidden_trait::expose]
+impl Drop for CopyCommandEncoder<'_> {
+    #[inline]
+    fn drop(&mut self) {
+        self.encoder.end_encoding();
+    }
+}
+
+#[hidden_trait::expose]
 impl crate::traits::CopyCommandEncoder for CopyCommandEncoder<'_> {
     fn barrier(&mut self, _after: PipelineStages, _before: PipelineStages) {}
 
@@ -249,7 +261,7 @@ impl crate::traits::CopyCommandEncoder for CopyCommandEncoder<'_> {
         let staged = self.device.new_buffer_with_data(
             data.as_ptr().cast(),
             data_len,
-            metal::MTLResourceOptions::StorageModePrivate,
+            metal::MTLResourceOptions::StorageModeShared,
         );
 
         self.encoder
@@ -262,20 +274,44 @@ pub struct RenderCommandEncoder<'a> {
     primitive: metal::MTLPrimitiveType,
     index_buffer: Option<metal::Buffer>,
     index_buffer_offset: NSUInteger,
+    vertex_bindings: Option<Arc<Bindings>>,
+    fragment_bindings: Option<Arc<Bindings>>,
+    vertex_buffers_count: u32,
     _marker: PhantomData<&'a mut CommandBuffer>,
 }
 
+impl RenderCommandEncoder<'_> {
+    #[doc(hidden)]
+    pub fn vertex_bindings(&self) -> Option<&Bindings> {
+        self.vertex_bindings.as_deref()
+    }
+
+    #[doc(hidden)]
+    pub fn fragment_bindings(&self) -> Option<&Bindings> {
+        self.fragment_bindings.as_deref()
+    }
+
+    #[doc(hidden)]
+    pub fn metal(&self) -> &metal::RenderCommandEncoderRef {
+        &self.encoder
+    }
+}
+
 impl Drop for RenderCommandEncoder<'_> {
+    #[inline]
     fn drop(&mut self) {
         self.encoder.end_encoding();
     }
 }
 
-// #[hidden_trait::expose]
+#[hidden_trait::expose]
 impl crate::traits::RenderCommandEncoder for RenderCommandEncoder<'_> {
     fn with_pipeline(&mut self, pipeline: &RenderPipeline) {
         self.encoder.set_render_pipeline_state(pipeline.metal());
         self.primitive = pipeline.primitive();
+        self.vertex_bindings = pipeline.vertex_bindings();
+        self.fragment_bindings = pipeline.fragment_bindings();
+        self.vertex_buffers_count = pipeline.vertex_buffers_count();
     }
 
     fn with_viewport(&mut self, offset: Offset3<f32>, extent: Extent3<f32>) {
@@ -305,12 +341,33 @@ impl crate::traits::RenderCommandEncoder for RenderCommandEncoder<'_> {
 
     /// Sets arguments group for the current pipeline.
     fn with_arguments(&mut self, group: u32, arguments: &impl Arguments) {
-        todo!();
+        arguments.bind_render(group, self);
     }
 
     /// Sets constants for the current pipeline.
     fn with_constants(&mut self, constants: &impl Constants) {
-        todo!();
+        let data = constants.as_pod();
+        let data_bytes = bytemuck::bytes_of(&data);
+
+        if let Some(vb) = &self.vertex_bindings {
+            if let Some(slot) = vb.push_constants {
+                self.encoder.set_vertex_bytes(
+                    slot as u64,
+                    data_bytes.len() as u64,
+                    data_bytes.as_ptr() as _,
+                );
+            }
+        }
+
+        if let Some(fb) = &self.fragment_bindings {
+            if let Some(slot) = fb.push_constants {
+                self.encoder.set_fragment_bytes(
+                    slot as u64,
+                    data_bytes.len() as u64,
+                    data_bytes.as_ptr() as _,
+                );
+            }
+        }
     }
 
     /// Bind vertex buffer to the current pipeline.
@@ -319,18 +376,21 @@ impl crate::traits::RenderCommandEncoder for RenderCommandEncoder<'_> {
             .iter()
             .map(|(_, o)| *o as NSUInteger)
             .collect::<SmallVec<[_; 8]>>();
+
+        let first = self.vertex_buffers_count + start;
+
         let buffers = buffers
             .iter()
-            .map(|(b, _)| Some(&**b.metal()))
+            .map(|(b, _)| Some(b.metal()))
             .collect::<SmallVec<[_; 8]>>();
 
         self.encoder
-            .set_vertex_buffers(start as NSUInteger, &buffers, &offsets);
+            .set_vertex_buffers(first as NSUInteger, &buffers, &offsets);
     }
 
     /// Bind index buffer to the current pipeline.
     fn bind_index_buffer(&mut self, buffer: &crate::backend::Buffer, offset: usize) {
-        self.index_buffer = Some(buffer.metal().clone());
+        self.index_buffer = Some(buffer.metal().to_owned());
         self.index_buffer_offset = offset as NSUInteger;
     }
 
@@ -374,6 +434,8 @@ impl crate::traits::RenderCommandEncoder for RenderCommandEncoder<'_> {
     fn draw_indexed(&mut self, vertex_offset: i32, indices: Range<u32>, instances: Range<u32>) {
         debug_assert!(vertex_offset >= 0);
 
+        let index_buffer = self.index_buffer.as_deref().unwrap();
+
         if indices.end <= indices.start {
             // Rendering no indices is a no-op
             return;
@@ -389,7 +451,7 @@ impl crate::traits::RenderCommandEncoder for RenderCommandEncoder<'_> {
                 self.primitive,
                 (indices.end - indices.start).into(),
                 metal::MTLIndexType::UInt32,
-                self.index_buffer.as_ref().unwrap(),
+                index_buffer,
                 (self.index_buffer_offset + (indices.start as NSUInteger * 4)).into(),
             );
         } else if instances.start == 0 && vertex_offset == 0 {
@@ -398,7 +460,7 @@ impl crate::traits::RenderCommandEncoder for RenderCommandEncoder<'_> {
                 self.primitive,
                 (indices.end - indices.start).into(),
                 metal::MTLIndexType::UInt32,
-                self.index_buffer.as_ref().unwrap(),
+                index_buffer,
                 (self.index_buffer_offset + (indices.start as NSUInteger * 4)).into(),
                 instances.end.into(),
             );

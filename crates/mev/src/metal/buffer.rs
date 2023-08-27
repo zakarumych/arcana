@@ -1,4 +1,6 @@
-use super::out_of_bounds;
+use crate::generic::{ArgumentKind, Automatic, Storage, Uniform};
+
+use super::{arguments::ArgumentsField, out_of_bounds};
 
 #[derive(Clone)]
 pub struct Buffer {
@@ -10,7 +12,7 @@ impl Buffer {
         Buffer { buffer }
     }
 
-    pub(super) fn metal(&self) -> &metal::Buffer {
+    pub(super) fn metal(&self) -> &metal::BufferRef {
         &self.buffer
     }
 }
@@ -54,5 +56,50 @@ impl crate::traits::Buffer for Buffer {
                 length: data.len() as _,
             })
         }
+    }
+}
+
+impl ArgumentsField<Automatic> for Buffer {
+    const KIND: ArgumentKind = ArgumentKind::UniformBuffer;
+    const SIZE: usize = 1;
+
+    #[inline(always)]
+    fn bind_vertex(&self, slot: u32, encoder: &metal::RenderCommandEncoderRef) {
+        encoder.set_vertex_buffer(slot.into(), Some(&self.buffer), 0)
+    }
+
+    #[inline(always)]
+    fn bind_fragment(&self, slot: u32, encoder: &metal::RenderCommandEncoderRef) {
+        encoder.set_fragment_buffer(slot.into(), Some(&self.buffer), 0)
+    }
+}
+
+impl ArgumentsField<Uniform> for Buffer {
+    const KIND: ArgumentKind = ArgumentKind::UniformBuffer;
+    const SIZE: usize = 1;
+
+    #[inline(always)]
+    fn bind_vertex(&self, slot: u32, encoder: &metal::RenderCommandEncoderRef) {
+        encoder.set_vertex_buffer(slot.into(), Some(&self.buffer), 0)
+    }
+
+    #[inline(always)]
+    fn bind_fragment(&self, slot: u32, encoder: &metal::RenderCommandEncoderRef) {
+        encoder.set_fragment_buffer(slot.into(), Some(&self.buffer), 0)
+    }
+}
+
+impl ArgumentsField<Storage> for Buffer {
+    const KIND: ArgumentKind = ArgumentKind::StorageBuffer;
+    const SIZE: usize = 1;
+
+    #[inline(always)]
+    fn bind_vertex(&self, slot: u32, encoder: &metal::RenderCommandEncoderRef) {
+        encoder.set_vertex_buffer(slot.into(), Some(&self.buffer), 0)
+    }
+
+    #[inline(always)]
+    fn bind_fragment(&self, slot: u32, encoder: &metal::RenderCommandEncoderRef) {
+        encoder.set_fragment_buffer(slot.into(), Some(&self.buffer), 0)
     }
 }

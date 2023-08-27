@@ -1,5 +1,8 @@
+use std::sync::Arc;
+
 use core_graphics_types::{base::CGFloat, geometry::CGRect};
 use foreign_types::ForeignType;
+use hashbrown::HashMap;
 use metal::{CAMetalLayer, NSUInteger, SamplerDescriptor};
 use objc::{
     class, msg_send,
@@ -11,17 +14,21 @@ use raw_window_handle::{
     HasRawDisplayHandle, HasRawWindowHandle, RawDisplayHandle, RawWindowHandle,
 };
 
-use crate::generic::{
-    compile_shader, BufferDesc, BufferInitDesc, CreateLibraryError, CreatePipelineError, ImageDesc,
-    ImageDimensions, ImageError, LibraryDesc, LibraryInput, Memory, OutOfMemory,
-    RenderPipelineDesc, SamplerDesc, ShaderCompileError, ShaderLanguage, SurfaceError,
-    VertexStepMode,
+use crate::{
+    generic::{
+        parse_shader, BufferDesc, BufferInitDesc, CreateLibraryError, CreatePipelineError,
+        ImageDesc, ImageDimensions, ImageError, LibraryDesc, LibraryInput, Memory, OutOfMemory,
+        RenderPipelineDesc, SamplerDesc, ShaderCompileError, ShaderLanguage, SurfaceError,
+        VertexStepMode,
+    },
+    ArgumentKind,
 };
 
 use super::{
     from::{IntoMetal, TryIntoMetal},
+    shader::Bindings,
     Buffer, CreateLibraryErrorKind, CreatePipelineErrorKind, Image, Library, RenderPipeline,
-    Sampler, Surface,
+    Sampler, Surface, MAX_VERTEX_BUFFERS,
 };
 
 #[derive(Clone)]
@@ -32,66 +39,53 @@ pub struct Device {
 unsafe impl Sync for Device {}
 unsafe impl Send for Device {}
 
-// pub(super) struct WeakDevice {
-//     inner: Weak<DeviceInner>,
-// }
-
-// pub(super) trait DeviceOwned {
-//     fn owner(&self) -> &WeakDevice;
-// }
-
 impl Device {
     pub(super) fn new(device: metal::Device) -> Self {
         Device { device }
     }
-
-    // pub(super) fn metal(&self) -> &metal::Device {
-    //     &self.device
-    // }
-
-    // pub(super) fn is(&self, weak: &WeakDevice) -> bool {
-    //     Arc::as_ptr(&self) == Weak::as_ptr(&weak.inner)
-    // }
-
-    // pub(super) fn is_owner(&self, owned: &impl DeviceOwned) -> bool {
-    //     self.is(owned.owner())
-    // }
-
-    // pub(super) fn weak(&self) -> WeakDevice {
-    //     WeakDevice {
-    //         inner: Arc::downgrade(&self),
-    //     }
-    // }
 }
 
-// #[hidden_trait::expose]
+#[hidden_trait::expose]
 impl crate::traits::Device for Device {
     fn new_shader_library(&self, desc: LibraryDesc) -> Result<Library, CreateLibraryError> {
         match desc.input {
             LibraryInput::Source(source) => {
-                let transpiled_source: String;
-                let source = match source.language {
-                    ShaderLanguage::Msl => std::str::from_utf8(&*source.code).map_err(|err| {
-                        CreateLibraryError(CreateLibraryErrorKind::CompileError(
-                            ShaderCompileError::NonUtf8(err),
-                        ))
-                    })?,
+                let options = metal::CompileOptions::new();
+                options.set_language_version(metal::MTLLanguageVersion::V2_2);
+
+                match source.language {
+                    ShaderLanguage::Msl => {
+                        let source = std::str::from_utf8(&*source.code).map_err(|err| {
+                            CreateLibraryError(CreateLibraryErrorKind::CompileError(
+                                ShaderCompileError::NonUtf8(err),
+                            ))
+                        })?;
+
+                        let library = self
+                            .device
+                            .new_library_with_source(&source, &options)
+                            .unwrap();
+
+                        Ok(Library::new(library))
+                    }
+
                     src => {
-                        transpiled_source = compile_shader(&source.code, source.filename, src)
-                            .map_err(|err| {
+                        let compiled =
+                            compile_shader(&source.code, source.filename, src).map_err(|err| {
                                 CreateLibraryError(CreateLibraryErrorKind::CompileError(err))
                             })?;
-                        &transpiled_source
-                    }
-                };
-                let options = metal::CompileOptions::new();
-                options.set_language_version(metal::MTLLanguageVersion::V2_4);
-                let library = self
-                    .device
-                    .new_library_with_source(&source, &options)
-                    .unwrap();
 
-                Ok(Library::new(library))
+                        let library = self
+                            .device
+                            .new_library_with_source(&compiled.code, &options)
+                            .unwrap();
+
+                        Ok(Library::with_per_entry_point_bindings(
+                            library,
+                            compiled.per_entry_point_bindings,
+                        ))
+                    }
+                }
             }
         }
     }
@@ -109,6 +103,36 @@ impl crate::traits::Device for Device {
             .ok_or_else(|| CreatePipelineError(CreatePipelineErrorKind::InvalidShaderEntry))?;
 
         mdesc.set_vertex_function(Some(&vertex_function));
+
+        let vertex_bindings = desc
+            .vertex_shader
+            .library
+            .get_bindings(&desc.vertex_shader.entry);
+
+        let vertex_buffers_count = desc
+            .arguments
+            .iter()
+            .map(|g| {
+                g.arguments
+                    .iter()
+                    .filter(|a| {
+                        matches!(
+                            a.kind,
+                            ArgumentKind::UniformBuffer | ArgumentKind::StorageBuffer
+                        )
+                    })
+                    .count()
+            })
+            .sum::<usize>()
+            + vertex_bindings
+                .as_ref()
+                .map_or(0, |b| b.push_constants.is_some() as usize);
+
+        if vertex_buffers_count > MAX_VERTEX_BUFFERS as _ {
+            panic!("Too many buffer arguments and attribute buffers");
+        }
+
+        let mut fragment_bindings = None;
 
         let vertex_desc = metal::VertexDescriptor::new();
 
@@ -128,7 +152,7 @@ impl crate::traits::Device for Device {
                     layout_desc.set_step_function(metal::MTLVertexStepFunction::Constant)
                 }
             }
-            layouts.set_object_at(idx as _, Some(&layout_desc));
+            layouts.set_object_at((vertex_buffers_count + idx) as _, Some(&layout_desc));
         }
 
         let attributes = vertex_desc.attributes();
@@ -136,7 +160,9 @@ impl crate::traits::Device for Device {
             let attribute_desc = metal::VertexAttributeDescriptor::new();
             attribute_desc.set_format(vertex_attribute.format.try_into_metal().unwrap());
             attribute_desc.set_offset(vertex_attribute.offset as _);
-            attribute_desc.set_buffer_index(vertex_attribute.buffer_index as _);
+            attribute_desc.set_buffer_index(
+                (vertex_buffers_count as u32 + vertex_attribute.buffer_index) as _,
+            );
             attributes.set_object_at(idx as _, Some(&attribute_desc));
         }
 
@@ -153,6 +179,8 @@ impl crate::traits::Device for Device {
                     })?;
 
                 mdesc.set_fragment_function(Some(&fragment_function));
+
+                fragment_bindings = fragment_shader.library.get_bindings(&fragment_shader.entry);
             }
 
             let color_attachments = mdesc.color_attachments();
@@ -189,13 +217,19 @@ impl crate::traits::Device for Device {
             }
         }
 
+        let pipeline = self
+            .device
+            .new_render_pipeline_state(&mdesc)
+            .map_err(|err| {
+                CreatePipelineError(CreatePipelineErrorKind::FailedToBuildPipeline(err))
+            })?;
+
         Ok(RenderPipeline::new(
-            self.device
-                .new_render_pipeline_state(&mdesc)
-                .map_err(|err| {
-                    CreatePipelineError(CreatePipelineErrorKind::FailedToBuildPipeline(err))
-                })?,
+            pipeline,
             desc.primitive_topology.into_metal(),
+            vertex_bindings,
+            fragment_bindings,
+            vertex_buffers_count as u32,
         ))
     }
 
@@ -351,4 +385,145 @@ unsafe fn layer_from_view(view: *mut Object) -> metal::MetalLayer {
 extern "C" {
     #[allow(non_upper_case_globals)]
     static kCAGravityTopLeft: *mut Object;
+}
+
+struct CompiledMetalShader {
+    code: String,
+    per_entry_point_bindings: HashMap<String, Arc<Bindings>>,
+}
+
+fn compile_shader(
+    code: &[u8],
+    filename: Option<&str>,
+    lang: ShaderLanguage,
+) -> Result<CompiledMetalShader, ShaderCompileError> {
+    let (module, info) = parse_shader(code, filename, lang)?;
+
+    let mut options = naga::back::msl::Options {
+        lang_version: (2, 4),
+        per_entry_point_map: Default::default(),
+        inline_samplers: Vec::new(),
+        spirv_cross_compatibility: false,
+        fake_missing_bindings: false,
+        bounds_check_policies: Default::default(),
+        zero_initialize_workgroup_memory: false,
+    };
+
+    let mut per_entry_point_bindings = HashMap::new();
+    for (i, entry) in module.entry_points.iter().enumerate() {
+        let mut bindings = Bindings::new();
+        let mut map = naga::back::msl::EntryPointResources::default();
+        let mut next_buffer_slot = 0u8;
+        let mut next_texture_slot = 0u8;
+        let mut next_sampler_slot = 0u8;
+
+        for (global_handle, global_variable) in module.global_variables.iter() {
+            let function_info = info.get_entry_point(i);
+            let usage = function_info[global_handle];
+            if usage.is_empty() {
+                continue;
+            }
+
+            if let naga::AddressSpace::PushConstant = global_variable.space {
+                map.push_constant_buffer = Some(next_buffer_slot);
+                bindings.set_push_constants(next_buffer_slot);
+                next_buffer_slot += 1;
+                continue;
+            }
+
+            if let Some(binding) = global_variable.binding.clone() {
+                match global_variable.space {
+                    naga::AddressSpace::PushConstant => unreachable!(),
+                    naga::AddressSpace::Uniform => {
+                        map.resources.insert(
+                            binding.clone(),
+                            naga::back::msl::BindTarget {
+                                buffer: Some(next_buffer_slot),
+                                texture: None,
+                                sampler: None,
+                                binding_array_size: None,
+                                mutable: false,
+                            },
+                        );
+                        bindings.insert(binding, next_buffer_slot);
+                        next_buffer_slot += 1;
+                    }
+                    naga::AddressSpace::Storage { access } => {
+                        map.resources.insert(
+                            binding.clone(),
+                            naga::back::msl::BindTarget {
+                                buffer: Some(next_buffer_slot),
+                                texture: None,
+                                sampler: None,
+                                binding_array_size: None,
+                                mutable: access.contains(naga::StorageAccess::STORE),
+                            },
+                        );
+                        bindings.insert(binding, next_buffer_slot);
+                        next_buffer_slot += 1;
+                    }
+                    naga::AddressSpace::Handle => {
+                        let ty = &module.types[global_variable.ty];
+                        match ty.inner {
+                            naga::TypeInner::Sampler { .. } => {
+                                map.resources.insert(
+                                    binding.clone(),
+                                    naga::back::msl::BindTarget {
+                                        buffer: None,
+                                        texture: None,
+                                        sampler: Some(
+                                            naga::back::msl::BindSamplerTarget::Resource(
+                                                next_sampler_slot,
+                                            ),
+                                        ),
+                                        binding_array_size: None,
+                                        mutable: false,
+                                    },
+                                );
+                                bindings.insert(binding, next_sampler_slot);
+                                next_sampler_slot += 1;
+                            }
+                            naga::TypeInner::Image { class, .. } => {
+                                map.resources.insert(
+                                    binding.clone(),
+                                    naga::back::msl::BindTarget {
+                                        buffer: None,
+                                        texture: Some(next_texture_slot),
+                                        sampler: None,
+                                        binding_array_size: None,
+                                        mutable: matches!(class, naga::ImageClass::Storage { .. }),
+                                    },
+                                );
+                                bindings.insert(binding, next_texture_slot);
+                                next_texture_slot += 1;
+                            }
+                            _ => {}
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        per_entry_point_bindings.insert(entry.name.clone(), Arc::new(bindings));
+        options.per_entry_point_map.insert(entry.name.clone(), map);
+    }
+
+    let (code, translation) = naga::back::msl::write_string(
+        &module,
+        &info,
+        &options,
+        &naga::back::msl::PipelineOptions {
+            allow_and_force_point_size: false,
+        },
+    )
+    .map_err(ShaderCompileError::GenMsl)?;
+
+    eprintln!("{}", code);
+    eprintln!("{:?}", translation.entry_point_names);
+
+    Ok(CompiledMetalShader {
+        code,
+        per_entry_point_bindings,
+    })
 }

@@ -28,19 +28,19 @@ egui = { version = "0.22", features = ["bytemuck"] }
 egui_dock = { version = "0.6.0" }
 egui_tracing = { git = "https://github.com/zakarumych/egui_tracing.git" }
 egui-winit = { version = "0.22" }
-foreign-types = { version = "0.3.2" }
+foreign-types = { version = "0.5.0" }
 futures = "0.3"
-flume = "0.10"
+flume = "0.11"
 gametime = "0.1.6"
 gilrs = { version = "0.10" }
-gpu-alloc = { version = "0.5" }
-hashbrown = { version = "0.13", features = ["nightly"] }
+gpu-alloc = { version = "0.6" }
+hashbrown = { version = "0.14", features = ["nightly"] }
 hidden-trait = "0.1"
 libloading = "0.8"
-metal = { version = "0.24.0" }
+metal = { version = "0.26.0" }
 miette = "5.9"
 na = { package = "nalgebra", version = "0.32" }
-naga = { version = "0.11", features = ["spv-in", "wgsl-in", "glsl-in"] }
+naga = { version = "0.13", features = ["spv-in", "wgsl-in", "glsl-in"] }
 objc = { version = "0.2" }
 parking_lot = "0.12"
 proc-macro2 = "1.0"
@@ -56,7 +56,12 @@ slab = "0.4"
 smallvec = "1.6"
 syn = "2.0"
 thiserror = "1.0"
-tokio = { version = "1.0", features = ["rt", "time", "net", "io-util"], default-features = false }
+tokio = { version = "1.0", features = [
+    "rt",
+    "time",
+    "net",
+    "io-util",
+], default-features = false }
 toml = "0.7"
 tracing = "0.1"
 tracing-error = "0.2"

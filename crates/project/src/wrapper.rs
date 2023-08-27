@@ -196,7 +196,18 @@ where
 
     std::fs::write(workspace.join("Cargo.toml"), cargo_toml).map_err(|err| {
         miette::miette!(
-            "Failed to write workspace Cargo.toml file '{}'. {err}",
+            "Failed to write workspace Cargo.toml file to '{}'. {err}",
+            workspace.display()
+        )
+    })?;
+
+    std::fs::write(
+        workspace.join("rust-toolchain.toml"),
+        "[toolchain]\nchannel = \"nightly\"",
+    )
+    .map_err(|err| {
+        miette::miette!(
+            "Failed to write workspace rust-toolchain.toml file to '{}'. {err}",
             workspace.display()
         )
     })?;
@@ -204,7 +215,7 @@ where
     let main_rs = make_workspace_main_rs!(name);
     std::fs::write(src_dir.join("main.rs"), main_rs).map_err(|err| {
         miette::miette!(
-            "Failed to write workspace main.rs file '{}'. {err}",
+            "Failed to write workspace main.rs file to '{}'. {err}",
             src_dir.display()
         )
     })?;
@@ -212,7 +223,7 @@ where
     let ed_rs = make_workspace_ed_rs!(name);
     std::fs::write(src_dir.join("ed.rs"), ed_rs).map_err(|err| {
         miette::miette!(
-            "Failed to write workspace ed.rs file '{}'. {err}",
+            "Failed to write workspace ed.rs file to '{}'. {err}",
             src_dir.display()
         )
     })?;

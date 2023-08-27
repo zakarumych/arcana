@@ -66,7 +66,7 @@ pub fn init_mev() -> (mev::Device, mev::Queue) {
     let (device, mut queues) = instance
         .create(mev::DeviceDesc {
             idx: 0,
-            queue_infos: &[0],
+            queues: &[0],
             features: mev::Features::SURFACE,
         })
         .unwrap();

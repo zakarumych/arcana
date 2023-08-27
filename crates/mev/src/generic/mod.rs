@@ -47,7 +47,10 @@ pub use self::{
     surface::SurfaceError,
 };
 
-pub(super) use self::arguments::ArgumentsSealed;
+pub(crate) use self::{
+    arguments::ArgumentsSealed,
+    shader::{parse_shader, ShaderCompileError},
+};
 
 /// Error that can happen when device's memory is exhausted.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -289,5 +292,3 @@ impl<T: Copy> Extent3<T> {
         Extent2::new(width, height)
     }
 }
-
-pub(crate) use self::shader::{compile_shader, ShaderCompileError};

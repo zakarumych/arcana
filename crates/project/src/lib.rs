@@ -98,6 +98,36 @@ impl Project {
     ) -> miette::Result<Self> {
         let arcana_toml_path = path.join("Arcana.toml");
         let path_meta = path.metadata();
+
+        let name = match &name {
+            None => {
+                let Some(file_name) = path.file_name() else {
+                    miette::bail!("Failed to get project name destination path");
+                };
+
+                if file_name.is_empty() || file_name == "." || file_name == ".." {
+                    miette::bail!("Failed to get project name destination path");
+                }
+
+                let Some(file_name) = file_name.to_str() else {
+                    miette::bail!("Failed to get project name destination path");
+                };
+
+                file_name
+            }
+            Some(name) => name,
+        };
+
+        if name.is_empty() {
+            miette::bail!("Project name cannot be empty");
+        }
+        if !name.chars().next().unwrap().is_alphabetic() {
+            miette::bail!("Project name must start with a letter");
+        }
+        if name.contains(invalid_name_character) {
+            miette::bail!("Project name must contain only alphanumeric characters and underscores");
+        }
+
         if new {
             if path_meta.is_ok() {
                 miette::bail!("Destination '{}' already exists", path.display());
@@ -136,34 +166,6 @@ impl Project {
                     }
                 }
             }
-        }
-
-        let name = match &name {
-            None => {
-                let Some(file_name) = path.file_name() else {
-                    miette::bail!("Failed to get project name destination path");
-                };
-
-                if file_name.is_empty() || file_name == "." || file_name == ".." {
-                    miette::bail!("Failed to get project name destination path");
-                }
-
-                let Some(file_name) = file_name.to_str() else {
-                    miette::bail!("Failed to get project name destination path");
-                };
-
-                file_name
-            }
-            Some(name) => name,
-        };
-        if name.is_empty() {
-            miette::bail!("Project name cannot be empty");
-        }
-        if !name.chars().next().unwrap().is_alphabetic() {
-            miette::bail!("Project name must start with a letter");
-        }
-        if name.contains(invalid_name_character) {
-            miette::bail!("Project name must contain only alphanumeric characters and underscores");
         }
 
         let manifest = ProjectManifest {
@@ -428,7 +430,7 @@ impl Project {
 }
 
 fn invalid_name_character(c: char) -> bool {
-    !c.is_alphanumeric() && c != '_'
+    !c.is_alphanumeric() && c != '_' && c != '-'
 }
 
 fn is_in_cargo_workspace(path: &RealPath) -> bool {

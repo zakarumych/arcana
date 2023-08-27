@@ -3,10 +3,12 @@ use std::ops::Mul;
 use metal::MTLTextureType;
 
 use crate::generic::{
-    ComponentSwizzle, ImageDimensions, OutOfMemory, PixelFormat, Swizzle, ViewDesc,
+    ArgumentKind, Automatic, ComponentSwizzle, ImageDimensions, OutOfMemory, PixelFormat, Sampled,
+    Storage, Swizzle, ViewDesc,
 };
 
 use super::{
+    arguments::ArgumentsField,
     from::{TryIntoMetal, TryMetalInto},
     Device,
 };
@@ -23,7 +25,7 @@ impl Image {
         Image { texture }
     }
 
-    pub(super) fn metal(&self) -> &metal::Texture {
+    pub(super) fn metal(&self) -> &metal::TextureRef {
         &self.texture
     }
 }
@@ -46,6 +48,7 @@ impl crate::traits::Image for Image {
                 ImageDimensions::D2(width as u32, height as u32)
             }
             MTLTextureType::D2Multisample => unimplemented!(),
+            MTLTextureType::D2MultisampleArray => unimplemented!(),
             MTLTextureType::Cube => unimplemented!(),
             MTLTextureType::CubeArray => unimplemented!(),
             MTLTextureType::D3 => {
@@ -90,7 +93,7 @@ impl crate::traits::Image for Image {
             }
         } else {
             let base_layer = self.texture.parent_relative_slice() as u32 + desc.base_layer;
-            let base_level = self.texture.mipmap_level_count() as u32 + desc.base_level;
+            let base_level = self.texture.parent_relative_level() as u32 + desc.base_level;
             let swizzle: MTLTextureSwizzleChannels =
                 unsafe { msg_send![self.texture.as_ptr(), swizzle] };
 
@@ -165,5 +168,50 @@ impl Mul<Swizzle> for MTLTextureSwizzleChannels {
         let a = mul(rhs.a, self.a);
 
         MTLTextureSwizzleChannels { r, g, b, a }
+    }
+}
+
+impl ArgumentsField<Automatic> for Image {
+    const KIND: ArgumentKind = ArgumentKind::SampledImage;
+    const SIZE: usize = 1;
+
+    #[inline(always)]
+    fn bind_vertex(&self, slot: u32, encoder: &metal::RenderCommandEncoderRef) {
+        encoder.set_vertex_texture(slot.into(), Some(&self.texture));
+    }
+
+    #[inline(always)]
+    fn bind_fragment(&self, slot: u32, encoder: &metal::RenderCommandEncoderRef) {
+        encoder.set_fragment_texture(slot.into(), Some(&self.texture));
+    }
+}
+
+impl ArgumentsField<Sampled> for Image {
+    const KIND: ArgumentKind = ArgumentKind::SampledImage;
+    const SIZE: usize = 1;
+
+    #[inline(always)]
+    fn bind_vertex(&self, slot: u32, encoder: &metal::RenderCommandEncoderRef) {
+        encoder.set_vertex_texture(slot.into(), Some(&self.texture));
+    }
+
+    #[inline(always)]
+    fn bind_fragment(&self, slot: u32, encoder: &metal::RenderCommandEncoderRef) {
+        encoder.set_fragment_texture(slot.into(), Some(&self.texture));
+    }
+}
+
+impl ArgumentsField<Storage> for Image {
+    const KIND: ArgumentKind = ArgumentKind::StorageImage;
+    const SIZE: usize = 1;
+
+    #[inline(always)]
+    fn bind_vertex(&self, slot: u32, encoder: &metal::RenderCommandEncoderRef) {
+        encoder.set_vertex_texture(slot.into(), Some(&self.texture));
+    }
+
+    #[inline(always)]
+    fn bind_fragment(&self, slot: u32, encoder: &metal::RenderCommandEncoderRef) {
+        encoder.set_fragment_texture(slot.into(), Some(&self.texture));
     }
 }

@@ -4,8 +4,5 @@
         "Glsl",
         "Spir",
         "Wgsl"
-    ],
-    "rust-analyzer.linkedProjects": [
-        ".\\crates\\Cargo.toml"
     ]
 }

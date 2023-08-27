@@ -142,61 +142,6 @@ impl fmt::Display for ShaderCompileError {
     }
 }
 
-#[cfg(any(target_os = "macos", target_os = "ios"))]
-pub(crate) fn compile_shader(
-    code: &[u8],
-    filename: Option<&str>,
-    lang: ShaderLanguage,
-) -> Result<String, ShaderCompileError> {
-    let (module, info) = parse_shader(code, filename, lang)?;
-
-    let options = naga::back::msl::Options {
-        lang_version: (2, 4),
-        per_stage_map: Default::default(),
-        inline_samplers: Vec::new(),
-        spirv_cross_compatibility: false,
-        fake_missing_bindings: false,
-        bounds_check_policies: Default::default(),
-        zero_initialize_workgroup_memory: false,
-    };
-
-    let (string, _translation) = naga::back::msl::write_string(
-        &module,
-        &info,
-        &options,
-        &naga::back::msl::PipelineOptions {
-            allow_point_size: false,
-        },
-    )
-    .map_err(ShaderCompileError::GenMsl)?;
-
-    Ok(string)
-}
-
-#[cfg(any(windows, all(unix, not(any(target_os = "macos", target_os = "ios")))))]
-pub(crate) fn compile_shader(
-    code: &[u8],
-    filename: Option<&str>,
-    lang: ShaderLanguage,
-) -> Result<Box<[u32]>, ShaderCompileError> {
-    let (module, info) = parse_shader(code, filename, lang)?;
-
-    let options = naga::back::spv::Options {
-        lang_version: (1, 3),
-        flags: naga::back::spv::WriterFlags::ADJUST_COORDINATE_SPACE,
-        binding_map: naga::back::spv::BindingMap::default(),
-        capabilities: None,
-        bounds_check_policies: naga::proc::BoundsCheckPolicies::default(),
-        zero_initialize_workgroup_memory: naga::back::spv::ZeroInitializeWorkgroupMemoryMode::None,
-    };
-
-    let words = naga::back::spv::write_vec(&module, &info, &options, None)
-        .map(|vec| vec.into())
-        .map_err(ShaderCompileError::GenSpirV)?;
-
-    Ok(words)
-}
-
 pub(crate) fn parse_shader(
     code: &[u8],
     filename: Option<&str>,
@@ -216,7 +161,7 @@ pub(crate) fn parse_shader(
         }
         ShaderLanguage::Glsl { stage } => {
             let code = std::str::from_utf8(code).map_err(ShaderCompileError::NonUtf8)?;
-            naga::front::glsl::Parser::default()
+            naga::front::glsl::Frontend::default()
                 .parse(
                     &naga::front::glsl::Options {
                         defines: FastHashMap::default(),

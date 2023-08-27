@@ -33,7 +33,7 @@ fn derive_impl(input: syn::DeriveInput) -> syn::Result<proc_macro2::TokenStream>
         }
     };
 
-    let name_pod = quote::format_ident!("NixGenerated{}Pod", name);
+    let name_pod = quote::format_ident!("MevGenerated{}Pod", name);
 
     let field_types = data
         .fields
@@ -93,7 +93,7 @@ fn derive_impl(input: syn::DeriveInput) -> syn::Result<proc_macro2::TokenStream>
                         #pad_names: [u8; #field_pad_sizes],
                         #field_names: <#field_types as mev::for_macro::Constants>::Pod,
                     )*
-                    _nix_tail_pad: [u8; #tail_pad],
+                    _mev_tail_pad: [u8; #tail_pad],
                 }
 
                 unsafe impl mev::for_macro::Zeroable for #name_pod {}
@@ -108,7 +108,7 @@ fn derive_impl(input: syn::DeriveInput) -> syn::Result<proc_macro2::TokenStream>
                                 #pad_names: [0xDAu8; #field_pad_sizes],
                                 #field_names: self.#field_names.as_pod(),
                             )*
-                            _nix_tail_pad: [0xDAu8; #tail_pad],
+                            _mev_tail_pad: [0xDAu8; #tail_pad],
                         }
                     }
                 }
