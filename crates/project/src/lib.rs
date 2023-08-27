@@ -69,8 +69,50 @@ pub struct ProjectManifest {
     pub plugin_libs: HashMap<String, Dependency>,
 
     /// List of enabled plugins in order of initialization.
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    #[serde(
+        skip_serializing_if = "Vec::is_empty",
+        with = "serde_plugin_name",
+        default
+    )]
     pub enabled: Vec<(String, String)>,
+}
+
+mod serde_plugin_name {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S>(plugins: &[(String, String)], serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        for (_lib, plugin) in plugins {
+            assert!(!plugin.contains('@'));
+        }
+
+        serializer.collect_seq(
+            plugins
+                .iter()
+                .map(|(lib, plugin)| format!("{}@{}", plugin, lib)),
+        )
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<(String, String)>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let plugins = Vec::<String>::deserialize(deserializer)?;
+        let mut result = Vec::with_capacity(plugins.len());
+
+        for plugin in plugins {
+            let Some((plugin, lib)) = plugin.split_once('@') else {
+                return Err(serde::de::Error::custom(
+                    "plugin name must be in the format \"lib@plugin\"",
+                ));
+            };
+            result.push((lib.into(), plugin.into()));
+        }
+
+        Ok(result)
+    }
 }
 
 /// Open project object.
