@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use arcana_project::Project;
+use arcana_project::{Project, ProjectManifest};
 use blink_alloc::BlinkAlloc;
 use edict::World;
 use egui::{Context, Ui};
@@ -57,6 +57,13 @@ struct AppState {
 #[repr(transparent)]
 struct AppModel {
     world: World,
+}
+
+impl Drop for AppModel {
+    fn drop(&mut self) {
+        // Dirty hack to avoid crash on exit.
+        self.world.remove_resource::<Games>();
+    }
 }
 
 impl TabViewer for AppModel {
@@ -179,6 +186,11 @@ impl App {
         match event {
             Event::WindowEvent { window_id, event } => {
                 let mut world = self.model.world.local();
+
+                let event = world
+                    .expect_resource_mut::<Games>()
+                    .handle_event(window_id, event)?;
+
                 world
                     .expect_resource_mut::<EguiResource>()
                     .handle_event(window_id, &event);
@@ -208,6 +220,12 @@ impl App {
             return;
         }
 
+        {
+            let world = self.model.world.local();
+            let mut games = world.get_resource_mut::<Games>().unwrap();
+            games.tick();
+        }
+
         Plugins::tick(&mut self.model.world);
 
         let mut egui = self
@@ -222,7 +240,12 @@ impl App {
                 .entry(window.id())
                 .or_insert_with(|| Tree::new(vec![]));
             egui.run(window, |cx| {
-                Menu.show(tabs, &mut self.model.world, cx);
+                let mut menu = Menu {
+                    events,
+                    device: &self.device,
+                    queue: &self.queue,
+                };
+                menu.show(tabs, &mut self.model.world, cx);
                 egui_dock::DockArea::new(tabs).show(cx, &mut self.model)
             });
         }
@@ -252,15 +275,36 @@ impl App {
     }
 }
 
-pub struct Menu;
+pub struct Menu<'a> {
+    events: &'a EventLoop,
+    device: &'a mev::Device,
+    queue: &'a Arc<Mutex<mev::Queue>>,
+}
 
-impl Menu {
+impl Menu<'_> {
     fn show(&mut self, tabs: &mut Tree<Tab>, world: &mut World, cx: &Context) {
         egui::panel::TopBottomPanel::top("Menu").show(cx, |ui| {
             ui.horizontal(|ui| {
                 ui.menu_button("File", |ui| {
                     if ui.button("Exit").clicked() {
                         world.insert_resource(Quit);
+                        ui.close_menu();
+                    }
+                });
+                ui.menu_button("Run", |ui| {
+                    if ui.button("Launch new game").clicked() {
+                        let world = world.local();
+                        let project = world.expect_resource_mut::<Project>();
+                        let plugins = world.expect_resource_mut::<Plugins>();
+                        let mut games = world.expect_resource_mut::<Games>();
+
+                        games.launch(
+                            self.events,
+                            plugins.enabled_plugins(&project),
+                            self.device.clone(),
+                            self.queue.clone(),
+                        );
+
                         ui.close_menu();
                     }
                 });

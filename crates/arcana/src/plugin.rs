@@ -12,7 +12,7 @@ use edict::{Scheduler, World};
 /// returns a slice of static references to plugin objects.
 ///
 /// The easiest way to do this is to use [`export_arcana_plugins!`](`export_arcana_plugins`) macro.
-pub trait ArcanaPlugin {
+pub trait ArcanaPlugin: Sync {
     /// Name of the plugin.
     fn name(&self) -> &'static str;
 

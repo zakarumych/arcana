@@ -656,7 +656,7 @@ impl Render for EguiRender {
                                         as u32)
                                         .min(dims.height() as u32 - offset.y() as u32),
                                 );
-                                // render.with_scissor(offset, extent);
+                                render.with_scissor(offset, extent);
 
                                 let (ref image, sampler) = instance.textures[&mesh.texture_id];
 

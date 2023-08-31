@@ -8,9 +8,7 @@ use crate::generic::{
     Offset3, OutOfMemory, PipelineStages, RenderPassDesc, StoreOp,
 };
 
-use super::{
-    out_of_bounds, shader::Bindings, Buffer, Frame, Image, RenderPipeline, MAX_VERTEX_BUFFERS,
-};
+use super::{out_of_bounds, shader::Bindings, Buffer, Frame, Image, RenderPipeline};
 
 pub struct CommandBuffer {
     buffer: metal::CommandBuffer,

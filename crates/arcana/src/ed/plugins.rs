@@ -232,4 +232,18 @@ impl Plugins {
     pub fn tab() -> Tab {
         Tab::Plugins
     }
+
+    pub fn enabled_plugins(&self, project: &Project) -> Vec<&dyn ArcanaPlugin> {
+        let manifest = project.manifest();
+
+        manifest
+            .enabled
+            .iter()
+            .map(|(lib, plugin)| {
+                let lib = &self.libs[lib];
+                let plugin = lib.plugins.iter().find(|p| p.name() == plugin).unwrap();
+                *plugin
+            })
+            .collect()
+    }
 }

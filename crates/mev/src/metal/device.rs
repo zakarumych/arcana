@@ -328,21 +328,22 @@ impl crate::traits::Device for Device {
     ) -> Result<Surface, SurfaceError> {
         let window = window.raw_window_handle();
         let display = display.raw_display_handle();
-        let layer = match (window, display) {
+        match (window, display) {
             (RawWindowHandle::UiKit(handle), RawDisplayHandle::UiKit(_)) => unsafe {
-                layer_from_view(handle.ui_view.cast())
+                let layer = layer_from_view(handle.ui_view.cast());
+                layer.set_device(&self.device);
+                Ok(Surface::new(layer, std::ptr::null_mut()))
             },
             (RawWindowHandle::AppKit(handle), RawDisplayHandle::AppKit(_)) => unsafe {
-                layer_from_view(handle.ns_view.cast())
+                let layer = layer_from_view(handle.ns_view.cast());
+                layer.set_device(&self.device);
+                Ok(Surface::new(layer, handle.ns_view.cast()))
             },
             (RawWindowHandle::UiKit(_), _) | (RawWindowHandle::AppKit(_), _) => {
                 panic!("Mismatched window and display type")
             }
             _ => unreachable!("Unsupported window type for the metal backend"),
-        };
-
-        layer.set_device(&self.device);
-        Ok(Surface::new(layer))
+        }
     }
 }
 

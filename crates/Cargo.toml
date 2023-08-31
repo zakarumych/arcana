@@ -15,7 +15,7 @@ argosy-store = { path = "../../argosy/store" }
 ash = { version = "0.37.0", features = ["loaded"] }
 base64 = "0.21"
 bitflags = "2.0"
-blink-alloc = { version = "0.3.0", features = ["nightly"] }
+blink-alloc = { version = "0.3.1", features = ["nightly"] }
 bytemuck = { version = "1.7", features = ["derive"] }
 camino = "1.1"
 cargo_toml = "0.15"
@@ -26,7 +26,7 @@ dunce = "1.0"
 edict = { version = "0.5.0", features = ["rayon"] }
 egui = { version = "0.22", features = ["bytemuck"] }
 egui_dock = { version = "0.6.0" }
-egui_tracing = { git = "https://github.com/zakarumych/egui_tracing.git" }
+egui_tracing = { version = "0.2" }
 egui-winit = { version = "0.22" }
 foreign-types = { version = "0.5.0" }
 futures = "0.3"
