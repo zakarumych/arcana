@@ -3,16 +3,16 @@ use std::path::Path;
 use arcana_project::{PluginBuild, Project};
 use edict::World;
 use egui::{Ui, WidgetText};
-use hashbrown::{hash_map::RawEntryMut, HashMap, HashSet};
+use hashbrown::HashMap;
 
 use crate::plugin::ArcanaPlugin;
 
-use super::{game::Games, ResultExt, Tab};
+use super::{game::Games, Tab};
 
 struct PluginLibrary {
     /// Linked library
     lib: libloading::Library,
-    plugins: &'static [&'static dyn ArcanaPlugin],
+    plugin: &'static dyn ArcanaPlugin,
 }
 
 impl PluginLibrary {
@@ -26,29 +26,29 @@ impl PluginLibrary {
             )
         })?;
 
-        type ArcanaPluginsFn = fn() -> &'static [&'static dyn ArcanaPlugin];
+        type ArcanaPluginsFn = fn() -> &'static dyn ArcanaPlugin;
 
         // Safety: None
-        let res = unsafe { lib.get::<ArcanaPluginsFn>(b"arcana_plugins\0") };
-        let arcana_plugins = res.map_err(|err| {
+        let res = unsafe { lib.get::<ArcanaPluginsFn>(b"arcana_plugin_dyn\0") };
+        let arcana_plugin_dyn = res.map_err(|err| {
             miette::miette!(
                 "Failed to load plugin library '{path}'. {err}",
                 path = path.display()
             )
         })?;
-        let plugins = arcana_plugins();
+        let plugin = arcana_plugin_dyn();
 
-        Ok(PluginLibrary { lib, plugins })
+        Ok(PluginLibrary { lib, plugin })
     }
 }
 
 /// Tool to manage plugins libraries
 /// and enable/disable plugins.
 pub(super) struct Plugins {
-    // List of linked plugin libraries.
-    libs: HashMap<String, PluginLibrary>,
+    // List of linked plugins.
+    linked: HashMap<String, PluginLibrary>,
 
-    // List of ready plugin libraries, not yet linked
+    // List of ready plugins, not yet linked
     // to the instances.
     // If not instances are running then linking is no-op.
     pending: HashMap<String, PluginLibrary>,
@@ -63,7 +63,7 @@ pub(super) struct Plugins {
 impl Plugins {
     pub fn new() -> Self {
         Plugins {
-            libs: HashMap::new(),
+            linked: HashMap::new(),
             pending: HashMap::new(),
             failures: HashMap::new(),
             builds: HashMap::new(),
@@ -71,19 +71,20 @@ impl Plugins {
     }
 
     /// Adds new plugin library.
-    pub fn add_library_path(&mut self, path: &Path, project: &mut Project) {
-        let name = try_log_err!(project.add_library_path(path, true));
-        let build = try_log_err!(project.build_plugin_library(&name));
-        self.builds.insert(name.clone(), build);
+    pub fn add_plugin_with_path(&mut self, path: &Path, project: &mut Project) {
+        self.builds.clear();
+        let name = try_log_err!(project.add_plugin_with_path(path, true));
+        tracing::info!("Plugin '{name} added");
     }
 
     pub fn tick(world: &mut World) {
         let world = world.local();
         let plugins = &mut *world.expect_resource_mut::<Plugins>();
         let project = world.expect_resource_mut::<Project>();
+        let games = world.expect_resource_mut::<Games>();
 
-        for name in project.manifest().plugin_libs.keys() {
-            if plugins.libs.contains_key(name) {
+        for name in project.manifest().plugins.iter().map(|p| &*p.name) {
+            if plugins.linked.contains_key(name) {
                 continue;
             }
             if plugins.pending.contains_key(name) {
@@ -97,8 +98,26 @@ impl Plugins {
             }
 
             let build = try_log_err!(project.build_plugin_library(name));
-            plugins.builds.insert(name.clone(), build);
+            plugins.builds.insert(name.to_owned(), build);
         }
+
+        if games.is_empty() {
+            plugins
+                .linked
+                .retain(|name, _| project.manifest().plugins.iter().any(|p| p.name == *name));
+        }
+
+        plugins
+            .builds
+            .retain(|name, _| project.manifest().plugins.iter().any(|p| p.name == *name));
+
+        plugins
+            .pending
+            .retain(|name, _| project.manifest().plugins.iter().any(|p| p.name == *name));
+
+        plugins
+            .failures
+            .retain(|name, _| project.manifest().plugins.iter().any(|p| p.name == *name));
 
         plugins.builds.retain(|name, build| match build.finished() {
             Ok(false) => true,
@@ -117,24 +136,16 @@ impl Plugins {
                 false
             }
             Err(err) => {
+                tracing::error!("Failed building plugin library '{}'", name);
                 plugins.failures.insert(name.clone(), err);
                 false
             }
         });
 
-        if plugins.pending.is_empty() {
-            return;
-        }
-
-        let games = world.expect_resource_mut::<Games>();
-
-        assert!(
-            games.is_empty(),
-            "There are no game instances to link plugins to"
-        );
-
-        for (name, plugin) in plugins.pending.drain() {
-            plugins.libs.insert(name, plugin);
+        if games.is_empty() {
+            for (name, plugin) in plugins.pending.drain() {
+                plugins.linked.insert(name, plugin);
+            }
         }
     }
 
@@ -150,14 +161,18 @@ impl Plugins {
                         .set_file_name("Cargo.toml")
                         .pick_file()
                     {
-                        plugins.add_library_path(&path, &mut project);
+                        plugins.add_plugin_with_path(&path, &mut project);
                     }
                 }
             });
         });
 
         let mut sync_project = false;
-        for (name, lib) in &mut plugins.libs {
+        for name in plugins.linked.keys() {
+            if project.manifest().plugins.iter().all(|p| p.name != *name) {
+                continue;
+            };
+
             let mut heading = WidgetText::from(name);
 
             if plugins.pending.contains_key(name) || plugins.builds.contains_key(name) {
@@ -181,35 +196,24 @@ impl Plugins {
                         })(&mut plugins.builds);
                     }
 
-                    let manifest = project.manifest_mut();
-                    for plugin in &*lib.plugins {
-                        let position = manifest
-                            .enabled
-                            .iter()
-                            .position(|(l, p)| l == name && p == plugin.name());
+                    let plugin = project
+                        .manifest_mut()
+                        .plugins
+                        .iter_mut()
+                        .find(|p| p.name == *name)
+                        .unwrap();
 
-                        let mut enabled = position.is_some();
-                        ui.checkbox(&mut enabled, plugin.name());
-
-                        match (position, enabled) {
-                            (Some(pos), false) => {
-                                manifest.enabled.remove(pos);
-                                sync_project = true;
-                            }
-                            (None, true) => {
-                                manifest
-                                    .enabled
-                                    .push((name.clone(), plugin.name().to_owned()));
-                                sync_project = true;
-                            }
-                            _ => {}
-                        }
+                    let mut enabled = plugin.enabled;
+                    ui.checkbox(&mut enabled, name);
+                    if plugin.enabled != enabled {
+                        plugin.enabled = enabled;
+                        sync_project = true;
                     }
                 });
         }
 
         for name in plugins.builds.keys() {
-            if plugins.libs.contains_key(name) {
+            if plugins.linked.contains_key(name) {
                 continue;
             }
 
@@ -233,16 +237,16 @@ impl Plugins {
         Tab::Plugins
     }
 
-    pub fn enabled_plugins(&self, project: &Project) -> Vec<&dyn ArcanaPlugin> {
+    pub fn enabled_plugins(&self, project: &Project) -> Option<Vec<&dyn ArcanaPlugin>> {
         let manifest = project.manifest();
 
         manifest
-            .enabled
+            .plugins
             .iter()
-            .map(|(lib, plugin)| {
-                let lib = &self.libs[lib];
-                let plugin = lib.plugins.iter().find(|p| p.name() == plugin).unwrap();
-                *plugin
+            .filter(|p| p.enabled)
+            .map(|plugin| -> Option<&dyn ArcanaPlugin> {
+                let lib = &self.linked.get(&plugin.name)?;
+                Some(lib.plugin)
             })
             .collect()
     }

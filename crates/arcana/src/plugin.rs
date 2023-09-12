@@ -8,10 +8,10 @@ use edict::{Scheduler, World};
 /// into plugins.
 /// Ed uses this protocol to load plugins from libraries.
 ///
-/// A crate that defines plugins must export a function `arcana_plugins` that
-/// returns a slice of static references to plugin objects.
+/// A crate that defines a plugin must export a function `arcana_plugin` that
+/// returns plugin static reference to plugin instance.
 ///
-/// The easiest way to do this is to use [`export_arcana_plugins!`](`export_arcana_plugins`) macro.
+/// The easiest way to do this is to use [`export_arcana_plugin!`](`export_arcana_plugin`) macro.
 pub trait ArcanaPlugin: Sync {
     /// Name of the plugin.
     fn name(&self) -> &'static str;
@@ -67,7 +67,7 @@ pub trait ArcanaPlugin: Sync {
 ///
 ///
 /// ```
-/// # use arcana::{export_arcana_plugins, plugin::ArcanaPlugin, edict::{World, Scheduler, Res}};
+/// # use arcana::{export_arcana_plugin, plugin::ArcanaPlugin, edict::{World, Scheduler, Res}};
 /// // Define a plugin.
 /// struct MyBobPlugin;
 ///
@@ -83,24 +83,24 @@ pub trait ArcanaPlugin: Sync {
 /// }
 ///
 /// // Export it.
-/// export_arcana_plugins!(MyBobPlugin);
+/// export_arcana_plugin!(MyBobPlugin);
 /// ```
 ///
 /// ```
-/// # use arcana::{export_arcana_plugins, plugin::ArcanaPlugin, edict::{World, Scheduler, Res}};
+/// # use arcana::{export_arcana_plugin, plugin::ArcanaPlugin, edict::{World, Scheduler, Res}};
 /// // Export implicitly define plugin.
-/// export_arcana_plugins!(MyBobPlugin {
+/// export_arcana_plugin!(MyBobPlugin {
 ///   resources: ["world".to_string()],
 ///   systems: [|r: Res<String>| println!("Hello, {}!", &*r)],
 /// });
 /// ```
 #[macro_export]
-macro_rules! export_arcana_plugins {
-    ($($plugin:ident $({
+macro_rules! export_arcana_plugin {
+    ($plugin:ident $({
         $(resources: [$($rinit:expr)* $(,)?] $(,)?)?
         $(systems: [$($sinit:expr)* $(,)?] $(,)?)?
-    })?),* $(,)?) => {
-        $($(
+    })?) => {
+        $(
             #[allow(non_camel_case)]
             struct $plugin;
 
@@ -114,10 +114,10 @@ macro_rules! export_arcana_plugins {
                     $($(scheduler.add_system($sinit);)*)?
                 }
             }
-        )?)*
+        )?
 
-        pub fn __arcana_plugins() -> &'static [&'static dyn $crate::plugin::ArcanaPlugin] {
-            &[$(&$plugin,)*]
+        pub fn __arcana_plugin() -> &'static $plugin {
+            &$plugin
         }
     };
 }

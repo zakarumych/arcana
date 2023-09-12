@@ -24,7 +24,8 @@ ed = [
     "dep:arcana-project",
     "dep:arcana-importers",
     "dep:argosy-store",
-    "dep:miette", "dep:rfd",
+    "dep:miette",
+    "dep:rfd",
     "dep:egui_dock",
     "dep:egui_tracing",
     "dep:serde",
@@ -45,14 +46,14 @@ base64 = { workspace = true }
 blink-alloc = { workspace = true }
 bytemuck = { workspace = true }
 dunce = { workspace = true }
-edict = { workspace = true  }
+edict = { workspace = true }
 egui = { workspace = true, optional = true }
 egui_dock = { workspace = true, optional = true }
 egui_tracing = { workspace = true, optional = true }
-egui-winit = { workspace = true, optional = true } 
+egui-winit = { workspace = true, optional = true }
 flume = { workspace = true }
 futures = { workspace = true }
-gametime = { workspace = true  }
+gametime = { workspace = true }
 gilrs = { workspace = true, optional = true }
 hashbrown = { workspace = true, features = ["serde"] }
 libloading = { workspace = true }
@@ -66,7 +67,7 @@ serde_json = { workspace = true, optional = true }
 sha2 = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
-tracing = { workspace = true } 
-tracing-error = { workspace = true  }
-tracing-subscriber = { workspace = true  }
+tracing = { workspace = true }
+tracing-error = { workspace = true }
+tracing-subscriber = { workspace = true }
 winit = { workspace = true, optional = true }

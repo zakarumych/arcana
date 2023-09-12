@@ -8,7 +8,6 @@ use std::{
 };
 
 use camino::Utf8PathBuf;
-use hashbrown::HashMap;
 
 pub mod path;
 mod wrapper;
@@ -51,6 +50,13 @@ impl fmt::Display for Dependency {
     }
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Plugin {
+    pub name: String,
+    pub dep: Dependency,
+    pub enabled: bool,
+}
+
 /// Project manifest.
 ///
 /// Typically parsed from "Arcana.toml" file.
@@ -65,53 +71,80 @@ pub struct ProjectManifest {
     pub arcana: Option<Dependency>,
 
     /// List of plugin libraries this project depends on.
-    #[serde(skip_serializing_if = "HashMap::is_empty", default)]
-    pub plugin_libs: HashMap<String, Dependency>,
-
-    /// List of enabled plugins in order of initialization.
-    #[serde(
-        skip_serializing_if = "Vec::is_empty",
-        with = "serde_plugin_name",
-        default
-    )]
-    pub enabled: Vec<(String, String)>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default, with = "plugins_serde")]
+    pub plugins: Vec<Plugin>,
 }
 
-mod serde_plugin_name {
-    use serde::{Deserialize, Deserializer, Serializer};
+mod plugins_serde {
+    use std::fmt;
 
-    pub fn serialize<S>(plugins: &[(String, String)], serializer: S) -> Result<S::Ok, S::Error>
+    use serde::ser::{SerializeMap, Serializer};
+
+    use super::{Dependency, Plugin};
+
+    pub fn serialize<S>(plugins: &Vec<Plugin>, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        for (_lib, plugin) in plugins {
-            assert!(!plugin.contains('@'));
+        let mut serializer = serializer.serialize_map(Some(plugins.len()))?;
+
+        #[derive(serde::Serialize)]
+        struct PluginSer<'a> {
+            dep: &'a Dependency,
+            enabled: bool,
         }
-
-        serializer.collect_seq(
-            plugins
-                .iter()
-                .map(|(lib, plugin)| format!("{}@{}", plugin, lib)),
-        )
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<(String, String)>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let plugins = Vec::<String>::deserialize(deserializer)?;
-        let mut result = Vec::with_capacity(plugins.len());
 
         for plugin in plugins {
-            let Some((plugin, lib)) = plugin.split_once('@') else {
-                return Err(serde::de::Error::custom(
-                    "plugin name must be in the format \"lib@plugin\"",
-                ));
-            };
-            result.push((lib.into(), plugin.into()));
+            serializer.serialize_entry(
+                &plugin.name,
+                &PluginSer {
+                    dep: &plugin.dep,
+                    enabled: plugin.enabled,
+                },
+            )?;
         }
 
-        Ok(result)
+        serializer.end()
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<Plugin>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_map(VisitPlugins)
+    }
+
+    struct VisitPlugins;
+
+    impl<'de> serde::de::Visitor<'de> for VisitPlugins {
+        type Value = Vec<Plugin>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("map of plugins")
+        }
+
+        fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+        where
+            A: serde::de::MapAccess<'de>,
+        {
+            #[derive(serde::Deserialize)]
+            struct PluginDe {
+                dep: Dependency,
+                enabled: bool,
+            }
+
+            let mut plugins = Vec::new();
+
+            while let Some((name, plugin)) = map.next_entry::<String, PluginDe>()? {
+                plugins.push(Plugin {
+                    name,
+                    dep: plugin.dep.clone(),
+                    enabled: plugin.enabled,
+                });
+            }
+
+            Ok(plugins)
+        }
     }
 }
 
@@ -213,8 +246,7 @@ impl Project {
         let manifest = ProjectManifest {
             name: name.to_owned(),
             arcana,
-            plugin_libs: HashMap::new(),
-            enabled: Vec::new(),
+            plugins: Vec::new(),
         };
 
         let manifest_str = match toml::to_string(&manifest) {
@@ -360,7 +392,7 @@ impl Project {
         Ok(())
     }
 
-    pub fn add_library_path(&mut self, path: &Path, init: bool) -> miette::Result<String> {
+    pub fn add_plugin_with_path(&mut self, path: &Path, init: bool) -> miette::Result<String> {
         let canon_path = real_path(path).into_diagnostic()?;
 
         let lib_path: &RealPath;
@@ -401,18 +433,24 @@ impl Project {
             miette::miette!("Not a package manifest: \"{}\"", cargo_toml_path.display())
         })?;
 
-        let dep = Dependency::Path {
-            path: lib_path_str.into(),
-        };
-
-        if self.manifest.plugin_libs.contains_key(&package.name) {
+        if self.manifest.plugins.iter().any(|p| p.name == package.name) {
             miette::bail!(
                 "Library \"{}\" is already added to the project",
                 package.name
             );
         }
 
-        self.manifest.plugin_libs.insert(package.name.clone(), dep);
+        let dep = Dependency::Path {
+            path: lib_path_str.into(),
+        };
+
+        let plugin = Plugin {
+            name: package.name.clone(),
+            dep,
+            enabled: true,
+        };
+
+        self.manifest.plugins.push(plugin);
 
         if init {
             self.init_workspace()?;
@@ -427,12 +465,12 @@ impl Project {
         wrapper::init_workspace(
             &self.manifest.name,
             self.manifest.arcana.as_ref(),
-            self.manifest.plugin_libs.keys(),
+            self.manifest.plugins.iter().map(|p| &*p.name),
             &self.path,
         )?;
 
-        for (name, dep) in &self.manifest.plugin_libs {
-            wrapper::init_plugin(name, dep, &self.path)?;
+        for plugin in &self.manifest.plugins {
+            wrapper::init_plugin(&plugin.name, &plugin.dep, &self.path)?;
         }
 
         Ok(())

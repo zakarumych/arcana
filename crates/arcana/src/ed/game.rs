@@ -2,14 +2,10 @@
 //! Game Tool is responsible for managing game's plugins
 //! and run instances of the game.
 
-use std::{
-    fmt,
-    fs::File,
-    io::{Read, Seek, SeekFrom, Write},
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::sync::Arc;
 
+use arcana_project::Project;
+use edict::World;
 use hashbrown::HashMap;
 use parking_lot::Mutex;
 use winit::{event::WindowEvent, window::WindowId};
@@ -18,8 +14,9 @@ use crate::{
     events::{Event, EventLoop},
     game::Game,
     mev,
-    plugin::ArcanaPlugin,
 };
+
+use super::plugins::Plugins;
 
 /// Game instances.
 pub struct Games {
@@ -38,15 +35,23 @@ impl Games {
         self.games.is_empty()
     }
 
-    pub fn launch<'a>(
-        &mut self,
+    pub fn launch(
+        world: &mut World,
         events: &EventLoop,
-        plugins: impl IntoIterator<Item = &'a dyn ArcanaPlugin>,
-        device: mev::Device,
-        queue: Arc<Mutex<mev::Queue>>,
+        device: &mev::Device,
+        queue: &Arc<Mutex<mev::Queue>>,
     ) {
-        let game = Game::launch(events, plugins, device, queue);
-        self.games.insert(game.window_id(), game);
+        let world = world.local();
+        let project = world.expect_resource_mut::<Project>();
+        let plugins = world.expect_resource_mut::<Plugins>();
+        let mut games = world.expect_resource_mut::<Self>();
+        match plugins.enabled_plugins(&project) {
+            Some(enabled_plugins) => {
+                let game = Game::launch(events, enabled_plugins, device.clone(), queue.clone());
+                games.games.insert(game.window_id(), game);
+            }
+            None => tracing::error!("Not all enabled plugins were linked"),
+        }
     }
 
     pub fn handle_event(

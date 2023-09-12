@@ -16,3 +16,4 @@ miette = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 toml = { workspace = true }
 tracing = { workspace = true }
+prefer-dynamic = { version = "0" }

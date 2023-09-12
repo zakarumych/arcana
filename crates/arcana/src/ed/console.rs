@@ -1,5 +1,3 @@
-use std::io;
-
 use edict::World;
 use egui::Ui;
 

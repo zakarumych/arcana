@@ -88,7 +88,7 @@ enum Command {
 #[command(rename_all = "kebab-case")]
 struct Cli {
     #[command(subcommand)]
-    command: Command,
+    command: Option<Command>,
 }
 
 fn main() -> miette::Result<()> {
@@ -96,7 +96,9 @@ fn main() -> miette::Result<()> {
 
     let cli = Cli::parse();
 
-    match cli.command {
+    match cli.command.unwrap_or_else(|| Command::Ed {
+        path: PathBuf::from("."),
+    }) {
         Command::Init { path, args } => {
             let path = real_path(&path).into_diagnostic()?;
             let arcana = map_arcana(args.arcana, &path)?;

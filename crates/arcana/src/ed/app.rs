@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use arcana_project::{Project, ProjectManifest};
+use arcana_project::Project;
 use blink_alloc::BlinkAlloc;
 use edict::World;
 use egui::{Context, Ui};
@@ -293,18 +293,7 @@ impl Menu<'_> {
                 });
                 ui.menu_button("Run", |ui| {
                     if ui.button("Launch new game").clicked() {
-                        let world = world.local();
-                        let project = world.expect_resource_mut::<Project>();
-                        let plugins = world.expect_resource_mut::<Plugins>();
-                        let mut games = world.expect_resource_mut::<Games>();
-
-                        games.launch(
-                            self.events,
-                            plugins.enabled_plugins(&project),
-                            self.device.clone(),
-                            self.queue.clone(),
-                        );
-
+                        Games::launch(world, self.events, self.device, self.queue);
                         ui.close_menu();
                     }
                 });

@@ -1,8 +1,6 @@
 use std::{fmt::Display, path::Path};
 
 use arcana_project::Project;
-use edict::World;
-use egui::Ui;
 
 use crate::{
     events::EventLoop,

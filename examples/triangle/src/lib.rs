@@ -201,4 +201,4 @@ impl ArcanaPlugin for GamePlugin {
     }
 }
 
-arcana::export_arcana_plugins![GamePlugin];
+arcana::export_arcana_plugin!(GamePlugin);
