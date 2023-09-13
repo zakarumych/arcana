@@ -1,5 +1,7 @@
 [workspace]
 members = ["arcana", "mev", "cli"]
+resolver = "2"
+
 
 [workspace.package]
 edition = "2021"
@@ -43,6 +45,7 @@ na = { package = "nalgebra", version = "0.32" }
 naga = { version = "0.13", features = ["spv-in", "wgsl-in", "glsl-in"] }
 objc = { version = "0.2" }
 parking_lot = "0.12"
+percent-encoding = "2.3"
 proc-macro2 = "1.0"
 rand = "0.8"
 rapid-qoi = "0.6"

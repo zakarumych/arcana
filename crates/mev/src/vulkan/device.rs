@@ -16,12 +16,12 @@ use raw_window_handle::{
 use slab::Slab;
 use smallvec::SmallVec;
 
-use crate::generic::{
-    compile_shader, BufferDesc, BufferInitDesc, CreateLibraryError, CreatePipelineError, Features,
+use crate::{generic::{
+    BufferDesc, BufferInitDesc, CreateLibraryError, CreatePipelineError, Features,
     ImageDesc, ImageDimensions, ImageError, LibraryDesc, LibraryInput, Memory, OutOfMemory,
     PrimitiveTopology, RenderPipelineDesc, SamplerDesc, ShaderLanguage, SurfaceError, Swizzle,
     VertexStepMode, ViewDesc,
-};
+}, ShaderCompileError, parse_shader};
 
 use super::{
     arguments::descriptor_type,
@@ -1544,7 +1544,7 @@ pub(crate) fn compile_shader(
     filename: Option<&str>,
     lang: ShaderLanguage,
 ) -> Result<Box<[u32]>, ShaderCompileError> {
-    let (module, info) = parse_shader(code, filename, lang)?;
+    let (module, info, source_code) = parse_shader(code, filename, lang)?;
 
     let options = naga::back::spv::Options {
         lang_version: (1, 3),
@@ -1553,6 +1553,15 @@ pub(crate) fn compile_shader(
         capabilities: None,
         bounds_check_policies: naga::proc::BoundsCheckPolicies::default(),
         zero_initialize_workgroup_memory: naga::back::spv::ZeroInitializeWorkgroupMemoryMode::None,
+        debug_info: match source_code {
+            None => None,
+            Some(source_code) => {
+                Some(naga::back::spv::DebugInfo {
+                    source_code,
+                    file_name: filename.unwrap_or("<nofile>"),
+                })
+            }
+        },
     };
 
     let words = naga::back::spv::write_vec(&module, &info, &options, None)

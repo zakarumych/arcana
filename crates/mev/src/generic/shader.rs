@@ -142,11 +142,12 @@ impl fmt::Display for ShaderCompileError {
     }
 }
 
-pub(crate) fn parse_shader(
-    code: &[u8],
+pub(crate) fn parse_shader<'a>(
+    code: &'a [u8],
     filename: Option<&str>,
     lang: ShaderLanguage,
-) -> Result<(naga::Module, naga::valid::ModuleInfo), ShaderCompileError> {
+) -> Result<(naga::Module, naga::valid::ModuleInfo, Option<&'a str>), ShaderCompileError> {
+    let mut source_code = None;
     let module = match lang {
         ShaderLanguage::SpirV => {
             naga::front::spv::parse_u8_slice(code, &naga::front::spv::Options::default())
@@ -157,10 +158,12 @@ pub(crate) fn parse_shader(
         }
         ShaderLanguage::Wgsl => {
             let code = std::str::from_utf8(code).map_err(ShaderCompileError::NonUtf8)?;
+            source_code = Some(code);
             naga::front::wgsl::parse_str(code).map_err(ShaderCompileError::ParseWgsl)?
         }
         ShaderLanguage::Glsl { stage } => {
             let code = std::str::from_utf8(code).map_err(ShaderCompileError::NonUtf8)?;
+            source_code = Some(code);
             naga::front::glsl::Frontend::default()
                 .parse(
                     &naga::front::glsl::Options {
@@ -193,7 +196,7 @@ pub(crate) fn parse_shader(
             ShaderCompileError::ValidationFailed
         })?;
 
-    Ok((module, info))
+    Ok((module, info, source_code))
 }
 
 fn emit_annotated_error<E: std::error::Error>(

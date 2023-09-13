@@ -14,7 +14,7 @@ mod wrapper;
 
 use miette::IntoDiagnostic;
 use path::{real_path, RealPath, RealPathBuf};
-pub use wrapper::PluginBuild;
+pub use wrapper::BuildProcess;
 
 use crate::path::make_relative;
 
@@ -465,19 +465,13 @@ impl Project {
         wrapper::init_workspace(
             &self.manifest.name,
             self.manifest.arcana.as_ref(),
-            self.manifest.plugins.iter().map(|p| &*p.name),
             &self.path,
-        )?;
-
-        for plugin in &self.manifest.plugins {
-            wrapper::init_plugin(&plugin.name, &plugin.dep, &self.path)?;
-        }
-
-        Ok(())
+            &self.manifest.plugins,
+        )
     }
 
-    pub fn build_plugin_library(&self, name: &str) -> miette::Result<PluginBuild> {
-        wrapper::build_plugin(name, &self.path)
+    pub fn build_plugins_library(&self) -> miette::Result<BuildProcess> {
+        wrapper::build_plugins(&self.path)
     }
 
     pub fn manifest(&self) -> &ProjectManifest {
@@ -489,15 +483,11 @@ impl Project {
     }
 
     pub fn run_editor(self) -> miette::Result<()> {
-        let Project {
-            file,
-            manifest,
-            path,
-        } = self;
+        let Project { file, path, .. } = self;
 
         drop(file);
 
-        let status = wrapper::run_editor(&manifest.name, &path)
+        let status = wrapper::run_editor(&path)
             .status()
             .map_err(|err| miette::miette!("Cannot run \"ed\" on \"{}\": {err}", path.display()))?;
 
