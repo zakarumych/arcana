@@ -111,7 +111,8 @@ fn fs_main_linear(in: FragInput) -> @location(0) vec4<f32> {
     let tex = textureSample(t, s, in.uv);
     let tex_gamma = tex;
     let out_color_gamma = in.color * tex_gamma;
-    return vec4<f32>(linear_from_srgb(out_color_gamma.rgb), out_color_gamma.a);
+    return out_color_gamma;
+    // return vec4<f32>(linear_from_srgb(out_color_gamma.rgb), out_color_gamma.a);
 }
 
 @fragment
@@ -119,5 +120,6 @@ fn fs_main_srgb(in: FragInput) -> @location(0) vec4<f32> {
     let tex = textureSample(t, s, in.uv);
     let tex_gamma = tex;
     let out_color_gamma = in.color * tex_gamma;
-    return out_color_gamma;
+    // return out_color_gamma;
+    return vec4<f32>(linear_from_srgb(out_color_gamma.rgb), out_color_gamma.a);
 }

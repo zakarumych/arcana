@@ -33,10 +33,6 @@ impl Sampler {
     }
 }
 
-fn default_scale() -> f32 {
-    1.5
-}
-
 struct EguiInstance {
     cx: Context,
     state: egui_winit::State,
@@ -87,7 +83,9 @@ impl EguiResource {
         window: &winit::window::Window,
         run_ui: impl FnOnce(&Context) -> R,
     ) -> Option<R> {
-        let Some(instance) = self.instances.get_mut(&window.id()) else { return None; };
+        let Some(instance) = self.instances.get_mut(&window.id()) else {
+            return None;
+        };
 
         let raw_input = instance.state.take_egui_input(window);
 
@@ -105,7 +103,9 @@ impl EguiResource {
     }
 
     pub fn handle_event(&mut self, window_id: WindowId, event: &WindowEvent) -> bool {
-        let Some(instance) = self.instances.get_mut(&window_id) else { return false; };
+        let Some(instance) = self.instances.get_mut(&window_id) else {
+            return false;
+        };
 
         let response = instance.state.on_event(&instance.cx, event);
 
@@ -136,6 +136,7 @@ pub struct EguiRender {
     target: TargetId<mev::Image>,
     window: WindowId,
     samplers: Option<[mev::Sampler; 4]>,
+    library: Option<mev::Library>,
     linear_pipeline: Option<mev::RenderPipeline>,
     srgb_pipeline: Option<mev::RenderPipeline>,
 
@@ -154,6 +155,7 @@ impl EguiRender {
             target,
             window,
             samplers: None,
+            library: None,
             linear_pipeline: None,
             srgb_pipeline: None,
             vertex_buffer: None,
@@ -199,9 +201,13 @@ impl Render for EguiRender {
         // Safety:
         // This code does not touch thread-local parts of the resource.
         let egui = unsafe { world.get_local_resource_mut::<EguiResource>() };
-        let Some(mut egui) = egui else { return Ok(()); };
+        let Some(mut egui) = egui else {
+            return Ok(());
+        };
 
-        let Some(instance) = egui.instances.get_mut(&self.window) else { return Ok(()); };
+        let Some(instance) = egui.instances.get_mut(&self.window) else {
+            return Ok(());
+        };
 
         let samplers = match &mut self.samplers {
             Some(samplers) => &*samplers,
@@ -485,18 +491,19 @@ impl Render for EguiRender {
                         mev::PipelineStages::VERTEX_INPUT | mev::PipelineStages::FRAGMENT_SHADER,
                     );
 
+                    let library = self.library.get_or_insert_with(|| {
+                        cx.device()
+                            .new_shader_library(mev::LibraryDesc {
+                                name: "egui",
+                                input: mev::include_library!(
+                                    "shaders/egui.wgsl" as mev::ShaderLanguage::Wgsl
+                                ),
+                            })
+                            .unwrap()
+                    });
+
                     let pipeline = if target.format().is_srgb() {
                         self.srgb_pipeline.get_or_insert_with(|| {
-                            let library = cx
-                                .device()
-                                .new_shader_library(mev::LibraryDesc {
-                                    name: "egui",
-                                    input: mev::include_library!(
-                                        "shaders/egui.wgsl" as mev::ShaderLanguage::Wgsl
-                                    ),
-                                })
-                                .unwrap();
-
                             cx.device()
                                 .new_render_pipeline(mev::RenderPipelineDesc {
                                     name: "egui",
@@ -528,7 +535,7 @@ impl Render for EguiRender {
                                     primitive_topology: mev::PrimitiveTopology::Triangle,
                                     raster: Some(mev::RasterDesc {
                                         fragment_shader: Some(mev::Shader {
-                                            library: library,
+                                            library: library.clone(),
                                             entry: "fs_main_srgb".into(),
                                         }),
                                         color_targets: vec![mev::ColorTargetDesc {
@@ -546,16 +553,6 @@ impl Render for EguiRender {
                         })
                     } else {
                         self.linear_pipeline.get_or_insert_with(|| {
-                            let library = cx
-                                .device()
-                                .new_shader_library(mev::LibraryDesc {
-                                    name: "egui",
-                                    input: mev::include_library!(
-                                        "shaders/egui.wgsl" as mev::ShaderLanguage::Wgsl
-                                    ),
-                                })
-                                .unwrap();
-
                             cx.device()
                                 .new_render_pipeline(mev::RenderPipelineDesc {
                                     name: "egui",
@@ -587,7 +584,7 @@ impl Render for EguiRender {
                                     primitive_topology: mev::PrimitiveTopology::Triangle,
                                     raster: Some(mev::RasterDesc {
                                         fragment_shader: Some(mev::Shader {
-                                            library: library,
+                                            library: library.clone(),
                                             entry: "fs_main_linear".into(),
                                         }),
                                         color_targets: vec![mev::ColorTargetDesc {

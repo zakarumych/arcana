@@ -162,7 +162,7 @@ publish = false
 edition = "2021"
 
 [dependencies]
-arcana-ed = {{ workspace = true, features = ["ed"] }}
+arcana = {{ workspace = true, features = ["ed"] }}
 "#,
         gh_issue = github_autogen_issue_template("ed/Cargo.toml")
     );

@@ -123,6 +123,12 @@ impl Surface {
         let preferred_format = pick_format(&formats);
         let preferred_mode = pick_mode(&modes);
 
+        tracing::info!(
+            "New surface preferred format: '{:?}' and mode: '{:?}'",
+            preferred_format,
+            preferred_mode
+        );
+
         Surface {
             device,
             surface,
@@ -452,22 +458,22 @@ impl crate::traits::Frame for Frame {
 
 fn pick_format(formats: &[vk::SurfaceFormatKHR]) -> vk::SurfaceFormatKHR {
     for &format in formats {
-        if format.format == vk::Format::B8G8R8A8_SRGB {
-            return format;
-        }
-    }
-    for &format in formats {
-        if format.format == vk::Format::R8G8B8A8_SRGB {
-            return format;
-        }
-    }
-    for &format in formats {
         if format.format == vk::Format::R8G8B8A8_UNORM {
             return format;
         }
     }
     for &format in formats {
         if format.format == vk::Format::B8G8R8A8_UNORM {
+            return format;
+        }
+    }
+    for &format in formats {
+        if format.format == vk::Format::B8G8R8A8_SRGB {
+            return format;
+        }
+    }
+    for &format in formats {
+        if format.format == vk::Format::R8G8B8A8_SRGB {
             return format;
         }
     }
