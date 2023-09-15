@@ -19,19 +19,23 @@ multi-thread = ["tokio/rt-multi-thread"]
 # Adds game client modules
 client = ["dep:winit", "dep:mev", "dep:egui", "dep:egui-winit", "dep:gilrs"]
 
-ed = [
+app = [
     "client",
+    "dep:egui_tracing",
+    "dep:miette",
+    "dep:serde",
+    "dep:serde_json",
+    "winit/serde",
+]
+
+ed = [
+    "app",
     "dep:arcana-project",
     "dep:arcana-importers",
     "dep:argosy-store",
-    "dep:miette",
-    "dep:rfd",
     "dep:egui_dock",
-    "dep:egui_tracing",
-    "dep:serde",
-    "dep:serde_json",
+    "dep:rfd",
     "egui_dock/serde",
-    "winit/serde",
 ]
 
 [dependencies]

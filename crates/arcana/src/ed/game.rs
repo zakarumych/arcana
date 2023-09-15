@@ -5,15 +5,14 @@
 use std::sync::Arc;
 
 use arcana_project::Project;
-use edict::World;
 use hashbrown::HashMap;
 use parking_lot::Mutex;
 use winit::{event::WindowEvent, window::WindowId};
 
 use crate::{
+    edict::World,
     events::{Event, EventLoop},
     game::Game,
-    mev,
 };
 
 use super::plugins::Plugins;

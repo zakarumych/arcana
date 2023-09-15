@@ -7,21 +7,13 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug unit tests in library 'bob'",
-            "cargo": {
-                "args": [
-                    "test",
-                    "--no-run",
-                    "--lib",
-                    "--package=bob"
-                ],
-                "filter": {
-                    "name": "bob",
-                    "kind": "lib"
-                }
-            },
-            "args": [],
-            "cwd": "~/code/arcn-test"
+            "name": "Debug",
+            "program": "${workspaceFolder}/crates/target/debug/arcn",
+            "args": [
+                "ed",
+                "../../blurb"
+            ],
+            "cwd": "${workspaceFolder}/crates"
         }
     ]
 }

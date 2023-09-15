@@ -5,11 +5,11 @@ use std::{
 
 use arcana_project::{
     path::{make_relative, real_path, RealPath},
-    Dependency, Project,
+    Dependency, Ident, Project,
 };
 use camino::Utf8PathBuf;
 use clap::{Args, Parser, Subcommand};
-use miette::IntoDiagnostic;
+use miette::{Context, IntoDiagnostic};
 
 #[derive(Debug, Clone, serde::Deserialize)]
 struct ArcanaArg {
@@ -102,13 +102,22 @@ fn main() -> miette::Result<()> {
         Command::Init { path, args } => {
             let path = real_path(&path).into_diagnostic()?;
             let arcana = map_arcana(args.arcana, &path)?;
-
-            Project::new(path, args.name, arcana, false)?;
+            let name = args
+                .name
+                .map(Ident::from_string)
+                .transpose()
+                .context("Invalid project name provided")?;
+            Project::new(path, name, arcana, false)?;
         }
         Command::New { path, args } => {
             let path = real_path(&path).into_diagnostic()?;
             let arcana = map_arcana(args.arcana, &path)?;
-            Project::new(path, args.name, arcana, true)?;
+            let name = args
+                .name
+                .map(Ident::from_string)
+                .transpose()
+                .context("Invalid project name provided")?;
+            Project::new(path, name, arcana, true)?;
         }
         Command::InitWorkspace { path } => {
             let project = Project::find(&path)?;

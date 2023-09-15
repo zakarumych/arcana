@@ -1,10 +1,11 @@
-use std::path::Path;
+use std::{fmt, path::Path};
 
-use arcana_project::{BuildProcess, Project};
 use edict::World;
-use egui::{Ui, WidgetText};
+use egui::{Color32, Ui, WidgetText};
 
-use crate::plugin::ArcanaPlugin;
+use arcana_project::{BuildProcess, Project, ProjectManifest};
+
+use crate::{plugin::ArcanaPlugin, try_log_err};
 
 use super::{game::Games, Tab};
 
@@ -13,6 +14,28 @@ struct PluginsLibrary {
     #[allow(unused)]
     lib: libloading::Library,
     plugins: &'static [&'static dyn ArcanaPlugin],
+}
+
+impl fmt::Display for PluginsLibrary {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if f.alternate() {
+            write!(f, "Plugins:\n")?;
+            for plugin in self.plugins {
+                write!(f, "  {}\n", plugin.name())?;
+            }
+        } else {
+            write!(f, "Plugins: [")?;
+            let mut plugins = self.plugins.iter().map(|p| p.name());
+            if let Some(name) = plugins.next() {
+                write!(f, "{}", name)?;
+                for name in plugins {
+                    write!(f, ", {}", name)?;
+                }
+            }
+            write!(f, "]")?;
+        }
+        Ok(())
+    }
 }
 
 impl PluginsLibrary {
@@ -69,6 +92,26 @@ impl Plugins {
         }
     }
 
+    fn all_plugins_linked(&self, project: &ProjectManifest) -> bool {
+        if let Some(linked) = &self.linked {
+            return project
+                .plugins
+                .iter()
+                .all(|p| linked.plugins.iter().any(|plugin| plugin.name() == p.name));
+        }
+        false
+    }
+
+    fn all_plugins_pending(&self, project: &ProjectManifest) -> bool {
+        if let Some(linked) = &self.pending {
+            return project
+                .plugins
+                .iter()
+                .all(|p| linked.plugins.iter().any(|plugin| plugin.name() == p.name));
+        }
+        false
+    }
+
     /// Adds new plugin library.
     pub fn add_plugin_with_path(&mut self, path: &Path, project: &mut Project) {
         // Stop current build if there was one.
@@ -83,6 +126,7 @@ impl Plugins {
         let world = world.local();
         let plugins = &mut *world.expect_resource_mut::<Plugins>();
         let games = world.expect_resource_mut::<Games>();
+        let project = world.expect_resource::<Project>();
 
         if let Some(mut build) = plugins.build.take() {
             match build.finished() {
@@ -92,6 +136,7 @@ impl Plugins {
                     let path = build.artifact();
                     match PluginsLibrary::load(path) {
                         Ok(lib) => {
+                            tracing::info!("New plugins lib version pending. {lib:#}");
                             plugins.pending = Some(lib);
                         }
                         Err(err) => {
@@ -109,7 +154,17 @@ impl Plugins {
 
         if games.is_empty() {
             if let Some(lib) = plugins.pending.take() {
+                tracing::info!("New plugins lib version linked");
                 plugins.linked = Some(lib);
+            }
+
+            if plugins.failure.is_none()
+                && plugins.build.is_none()
+                && !plugins.all_plugins_linked(project.manifest())
+            {
+                tracing::info!("Plugins lib is not linked. Building...");
+                let build = try_log_err!(project.build_plugins_library());
+                plugins.build = Some(build);
             }
         }
     }
@@ -142,11 +197,11 @@ impl Plugins {
             };
 
             if is_linked {
-                heading = heading.color(egui::Color32::GREEN);
+                heading = heading.color(Color32::GREEN);
             } else if plugins.pending.is_some() || plugins.build.is_some() {
-                heading = heading.color(egui::Color32::KHAKI);
+                heading = heading.color(Color32::KHAKI);
             } else {
-                heading = heading.color(egui::Color32::DARK_RED);
+                heading = heading.color(Color32::DARK_RED);
             }
 
             let mut enabled = plugin.enabled;
@@ -178,6 +233,8 @@ impl Plugins {
         Tab::Plugins
     }
 
+    // Finds all linked plugins that were enabled.
+    // If plugin is missing or plugins lib is not linked returns None.
     pub fn enabled_plugins(&self, project: &Project) -> Option<Vec<&dyn ArcanaPlugin>> {
         let linked = self.linked.as_ref()?;
 

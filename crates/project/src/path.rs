@@ -164,7 +164,7 @@ pub fn _real_path(path: &Path) -> Option<RealPathBuf> {
 
             // Base was canonicalized
             // Tail does not exist and _join normalized result.
-            Some(RealPathBuf(path))?;
+            return Some(RealPathBuf(path));
         }
     }
 

@@ -10,12 +10,12 @@ use crate::generic::{PipelineStages, SurfaceError};
 
 use super::{Image, Queue};
 
-const UPDATE_SIZE_FRAMES_WAIT: u64 = 10;
+const SUBOPTIMAL_RETIRE_COOLDOWN: u64 = 10;
 
 pub struct Surface {
     layer: metal::MetalLayer,
     view: *mut objc::runtime::Object,
-    next_update_frames_wait: u64,
+    suboptimal_retire_cooldown: u64,
 }
 
 unsafe impl Send for Surface {}
@@ -41,7 +41,7 @@ impl Surface {
         Surface {
             layer,
             view,
-            next_update_frames_wait: UPDATE_SIZE_FRAMES_WAIT,
+            suboptimal_retire_cooldown: SUBOPTIMAL_RETIRE_COOLDOWN,
         }
     }
 }
@@ -71,7 +71,7 @@ impl crate::traits::Surface for Surface {
         _queue: &mut Queue,
         _before: PipelineStages,
     ) -> Result<Frame, SurfaceError> {
-        if self.next_update_frames_wait == 0 {
+        if self.suboptimal_retire_cooldown == 0 {
             if !self.view.is_null() {
                 unsafe {
                     let draw_size = self.layer.drawable_size();
@@ -86,12 +86,12 @@ impl crate::traits::Surface for Surface {
                             width: size.width * scale,
                             height: size.height * scale,
                         });
-                        self.next_update_frames_wait = UPDATE_SIZE_FRAMES_WAIT;
+                        self.suboptimal_retire_cooldown = SUBOPTIMAL_RETIRE_COOLDOWN;
                     }
                 }
             }
         } else {
-            self.next_update_frames_wait -= 1;
+            self.suboptimal_retire_cooldown -= 1;
         }
 
         let drawable = self

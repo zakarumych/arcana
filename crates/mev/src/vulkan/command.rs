@@ -535,10 +535,32 @@ impl crate::traits::CopyCommandEncoder for CopyCommandEncoder<'_> {
     #[inline]
     fn write_buffer(&mut self, buffer: &Buffer, offset: usize, data: &[u8]) {
         self.refs.add_buffer(buffer.clone());
-        unsafe {
-            self.device
-                .ash()
-                .cmd_update_buffer(self.handle, buffer.handle(), offset as u64, data)
+
+        const CHUNK_SIZE: usize = 65536;
+
+        let full_chunks = data.len() / CHUNK_SIZE;
+
+        for i in 0..full_chunks {
+            unsafe {
+                self.device.ash().cmd_update_buffer(
+                    self.handle,
+                    buffer.handle(),
+                    (offset + i * CHUNK_SIZE) as u64,
+                    &data[i * CHUNK_SIZE..(i + 1) * CHUNK_SIZE],
+                )
+            }
+        }
+
+        let remainder = data.len() % CHUNK_SIZE;
+        if remainder > 0 {
+            unsafe {
+                self.device.ash().cmd_update_buffer(
+                    self.handle,
+                    buffer.handle(),
+                    (offset + full_chunks * CHUNK_SIZE) as u64,
+                    &data[full_chunks * CHUNK_SIZE..],
+                )
+            }
         }
     }
 }

@@ -16,6 +16,13 @@ pub trait ArcanaPlugin: Sync {
     /// Name of the plugin.
     fn name(&self) -> &'static str;
 
+    /// Returns slice with plugins this plugins depends on.
+    /// Dependencies must be initialized first and
+    /// deinitialized last.
+    fn dependencies(&self) -> &[&'static dyn ArcanaPlugin] {
+        &[]
+    }
+
     /// Initializes world and scheduler.
     /// This method should install all necessary systems and resources.
     /// Avoid adding entities here, because this method can be called again.
@@ -116,7 +123,7 @@ macro_rules! export_arcana_plugin {
             }
         )?
 
-        pub fn __arcana_plugin() -> &'static $plugin {
+        pub const fn __arcana_plugin() -> &'static $plugin {
             &$plugin
         }
     };

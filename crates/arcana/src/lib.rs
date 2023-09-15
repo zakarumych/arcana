@@ -48,6 +48,9 @@ pub mod egui;
 #[cfg(feature = "client")]
 pub mod texture;
 
+#[cfg(feature = "app")]
+pub mod app;
+
 #[cfg(feature = "ed")]
 pub mod ed;
 

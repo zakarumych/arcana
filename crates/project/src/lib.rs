@@ -4,6 +4,7 @@ use std::{
     fmt,
     fs::File,
     io::{Read, Seek, SeekFrom, Write},
+    ops::Deref,
     path::Path,
 };
 
@@ -12,7 +13,7 @@ use camino::Utf8PathBuf;
 pub mod path;
 mod wrapper;
 
-use miette::IntoDiagnostic;
+use miette::{Context, IntoDiagnostic};
 use path::{real_path, RealPath, RealPathBuf};
 pub use wrapper::BuildProcess;
 
@@ -57,13 +58,124 @@ pub struct Plugin {
     pub enabled: bool,
 }
 
+#[derive(Clone, Default)]
+#[repr(transparent)]
+pub struct Ident(String);
+
+impl Ident {
+    pub fn from_string(s: String) -> miette::Result<Self> {
+        Ident::validate(&s)?;
+        Ok(Ident(s))
+    }
+
+    fn from_str(s: &str) -> miette::Result<Self> {
+        Ident::validate(s)?;
+        Ok(Ident(s.to_owned()))
+    }
+
+    fn validate(s: &str) -> miette::Result<()> {
+        if s.is_empty() {
+            miette::bail!("Ident must not be empty");
+        }
+
+        let bad_first = |c: char| !unicode_ident::is_xid_start(c);
+
+        if s.starts_with(bad_first) {
+            miette::bail!("'{s}' is not valid Ident. First char must have XID_Start property");
+        }
+
+        let bad = |c: char| !unicode_ident::is_xid_continue(c);
+
+        match s.matches(bad).next() {
+            None => Ok(()),
+            Some(c) => {
+                miette::bail!(
+                    "'{s}' is not valid Ident. 2nd and later chars must have XID_Continue property. '{c}' doesn't"
+                );
+            }
+        }
+    }
+}
+
+impl Deref for Ident {
+    type Target = str;
+
+    #[inline]
+    fn deref(&self) -> &str {
+        &*self.0
+    }
+}
+
+impl AsRef<str> for Ident {
+    fn as_ref(&self) -> &str {
+        &*self.0
+    }
+}
+
+impl fmt::Debug for Ident {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&*self.0, f)
+    }
+}
+
+impl fmt::Display for Ident {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&*self.0, f)
+    }
+}
+
+impl serde::Serialize for Ident {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serde::Serialize::serialize(&*self.0, serializer)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Ident {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const EXPECTED_IDENT: &'static str = "Expected unicode identifier";
+
+        let s: String = serde::Deserialize::deserialize(deserializer)?;
+
+        if s.is_empty() {
+            return Err(serde::de::Error::invalid_length(1, &EXPECTED_IDENT));
+        }
+
+        let good_first = unicode_ident::is_xid_start;
+        let bad_first = |c: char| !good_first(c);
+
+        if s.starts_with(bad_first) {
+            return Err(serde::de::Error::invalid_value(
+                serde::de::Unexpected::Char(s.chars().next().unwrap()),
+                &EXPECTED_IDENT,
+            ));
+        }
+
+        let good = unicode_ident::is_xid_continue;
+        let bad = |c: char| !good(c);
+
+        match s.matches(bad).next() {
+            None => Ok(Ident(s)),
+            Some(c) => Err(serde::de::Error::invalid_value(
+                serde::de::Unexpected::Str(c),
+                &EXPECTED_IDENT,
+            )),
+        }
+    }
+}
+
 /// Project manifest.
 ///
 /// Typically parsed from "Arcana.toml" file.
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct ProjectManifest {
-    pub name: String,
+    pub name: Ident,
 
     /// How to fetch arcana dependency.
     /// Defaults to `Dependency::Crates(version())`.
@@ -167,14 +279,14 @@ impl fmt::Debug for Project {
 impl Project {
     pub fn new(
         path: RealPathBuf,
-        name: Option<String>,
+        name: Option<Ident>,
         arcana: Option<Dependency>,
         new: bool,
     ) -> miette::Result<Self> {
         let arcana_toml_path = path.join("Arcana.toml");
         let path_meta = path.metadata();
 
-        let name = match &name {
+        let name = match name {
             None => {
                 let Some(file_name) = path.file_name() else {
                     miette::bail!("Failed to get project name destination path");
@@ -188,20 +300,10 @@ impl Project {
                     miette::bail!("Failed to get project name destination path");
                 };
 
-                file_name
+                Ident::from_str(file_name).context("Failed to derive project name from path")?
             }
             Some(name) => name,
         };
-
-        if name.is_empty() {
-            miette::bail!("Project name cannot be empty");
-        }
-        if !name.chars().next().unwrap().is_alphabetic() {
-            miette::bail!("Project name must start with a letter");
-        }
-        if name.contains(invalid_name_character) {
-            miette::bail!("Project name must contain only alphanumeric characters and underscores");
-        }
 
         if new {
             if path_meta.is_ok() {
@@ -497,10 +599,6 @@ impl Project {
             None => miette::bail!("\"ed\" terminated by signal"),
         }
     }
-}
-
-fn invalid_name_character(c: char) -> bool {
-    !c.is_alphanumeric() && c != '_' && c != '-'
 }
 
 fn is_in_cargo_workspace(path: &RealPath) -> bool {

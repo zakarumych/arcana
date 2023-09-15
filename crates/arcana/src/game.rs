@@ -109,8 +109,7 @@ impl Game {
 
         // Build the world.
         // Register external resources.
-        let mut world_builder = WorldBuilder::new();
-        world_builder.register_external::<FrequencyTicker>();
+        let world_builder = WorldBuilder::new();
 
         let mut world = world_builder.build();
 
@@ -118,8 +117,8 @@ impl Game {
         // Set frequency ticker as a resource.
         // User can change frequency by changing the resource.
         let clocks = Clock::new();
-        let ticker = 1u32.hz().ticker(clocks.now());
-        world.insert_resource(ticker);
+        // let ticker = 1u32.hz().ticker(clocks.now());
+        // world.insert_resource(ticker);
         world.insert_resource(ClockStep {
             now: clocks.now(),
             step: TimeSpan::ZERO,

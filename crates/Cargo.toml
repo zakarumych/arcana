@@ -1,5 +1,5 @@
 [workspace]
-members = ["arcana", "mev", "cli"]
+members = ["arcana", "mev", "cli", "launcher"]
 resolver = "2"
 
 
@@ -20,7 +20,7 @@ bitflags = "2.0"
 blink-alloc = { version = "0.3.1", features = ["nightly"] }
 bytemuck = { version = "1.7", features = ["derive"] }
 camino = "1.1"
-cargo_toml = "0.15"
+cargo_toml = "0.16"
 clap = { version = "4.3", features = ["derive"] }
 codespan-reporting = "0.11"
 core-graphics-types = { version = "0.1" }
@@ -51,7 +51,7 @@ rand = "0.8"
 rapid-qoi = "0.6"
 quote = "1.0"
 raw-window-handle = "0.5"
-rfd = "0.11"
+rfd = "0.12"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0" }
 sha2 = "0.10"
@@ -65,8 +65,9 @@ tokio = { version = "1.0", features = [
     "net",
     "io-util",
 ], default-features = false }
-toml = "0.7"
+toml = "0.8"
 tracing = "0.1"
 tracing-error = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+unicode-ident = "1.0"
 winit = { version = "0.28" }

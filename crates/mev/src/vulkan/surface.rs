@@ -16,6 +16,8 @@ use super::{
     handle_host_oom, unexpected_error, Device, Image, Queue,
 };
 
+const SUBOPTIMAL_RETIRE_COOLDOWN: u64 = 10;
+
 #[derive(Debug)]
 pub(crate) enum SurfaceErrorKind {
     OutOfMemory,
@@ -44,6 +46,12 @@ struct Swapchain {
     next: vk::Semaphore,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SuboptimalRetire {
+    Cooldown(u64),
+    Retire,
+}
+
 pub struct Surface {
     device: Device,
     surface: vk::SurfaceKHR,
@@ -59,13 +67,8 @@ pub struct Surface {
     preferred_usage: vk::ImageUsageFlags,
     bound_queue_family: Option<u32>,
 
-    /// Time at which the swapchain should be retired
-    /// Set to near future when swapchain become suboptimal.
-    /// Reset is swapchain is optimal again.
-    ///
-    /// This ensures that we don't keep using a suboptimal swapchain
-    /// while not recreating it too often.
-    retire_deadline: Option<Instant>,
+    /// Number of frames to wait before retiring a suboptimal swapchain.
+    suboptimal_retire: SuboptimalRetire,
 
     /// Signals that surface or device was lost.
     lost: bool,
@@ -135,7 +138,7 @@ impl Surface {
             preferred_usage: vk::ImageUsageFlags::COLOR_ATTACHMENT,
             bound_queue_family: None,
 
-            retire_deadline: None,
+            suboptimal_retire: SuboptimalRetire::Cooldown(SUBOPTIMAL_RETIRE_COOLDOWN),
             lost: false,
         }
     }
@@ -148,8 +151,7 @@ impl Surface {
         if self.lost {
             return Err(SurfaceError(SurfaceErrorKind::SurfaceLost));
         }
-
-        self.retire_deadline = None;
+        self.suboptimal_retire = SuboptimalRetire::Cooldown(SUBOPTIMAL_RETIRE_COOLDOWN);
 
         let old = self.current.take();
 
@@ -336,8 +338,6 @@ impl Surface {
     }
 }
 
-const SUBOPTIMAL_WAIT: Duration = Duration::from_secs(1);
-
 #[hidden_trait::expose]
 impl crate::traits::Surface for Surface {
     fn next_frame(
@@ -347,15 +347,17 @@ impl crate::traits::Surface for Surface {
     ) -> Result<Frame, SurfaceError> {
         self.clear_retired();
 
-        let now = Instant::now();
+        match self.suboptimal_retire {
+            SuboptimalRetire::Cooldown(0) => {}
+            SuboptimalRetire::Cooldown(ref mut n) => {
+                *n -= 1;
+            }
+            SuboptimalRetire::Retire => {
+                self.init()?;
+            }
+        }
 
         loop {
-            if let Some(deadline) = self.retire_deadline {
-                if now >= deadline {
-                    self.init()?;
-                }
-            }
-
             if self.current.is_none() {
                 self.init()?;
             }
@@ -373,7 +375,9 @@ impl crate::traits::Surface for Surface {
             let idx = match result {
                 Ok((idx, false)) => idx,
                 Ok((idx, true)) => {
-                    self.retire_deadline = Some(now + SUBOPTIMAL_WAIT);
+                    if self.suboptimal_retire == SuboptimalRetire::Cooldown(0) {
+                        self.suboptimal_retire = SuboptimalRetire::Retire;
+                    }
                     idx
                 }
                 Err(vk::Result::ERROR_OUT_OF_HOST_MEMORY) => handle_host_oom(),
@@ -389,7 +393,7 @@ impl crate::traits::Surface for Surface {
                     return Err(SurfaceError(SurfaceErrorKind::SurfaceLost));
                 }
                 Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
-                    self.retire_deadline = Some(now);
+                    self.current = None;
                     continue;
                 }
                 Err(err) => unexpected_error(err),

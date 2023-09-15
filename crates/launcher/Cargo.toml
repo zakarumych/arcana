@@ -1,0 +1,11 @@
+[package]
+name = "arcana-launcher"
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+license.workspace = true
+version.workspace = true
+description = "Arcana Engine Launcher"
+
+[dependencies]
+arcana = { path = "../arcana", features = ["app"] }
