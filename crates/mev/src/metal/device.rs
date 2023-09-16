@@ -398,7 +398,7 @@ fn compile_shader(
     filename: Option<&str>,
     lang: ShaderLanguage,
 ) -> Result<CompiledMetalShader, ShaderCompileError> {
-    let (module, info) = parse_shader(code, filename, lang)?;
+    let (module, info, _source_code) = parse_shader(code, filename, lang)?;
 
     let mut options = naga::back::msl::Options {
         lang_version: (2, 4),
