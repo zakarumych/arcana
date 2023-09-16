@@ -428,6 +428,12 @@ pub struct BuildProcess {
     artifact: PathBuf,
 }
 
+impl Drop for BuildProcess {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+    }
+}
+
 impl BuildProcess {
     /// Checks if process has finished.
     /// Returns error if process exit unsuccessfully.
