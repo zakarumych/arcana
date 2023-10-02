@@ -68,7 +68,7 @@ impl Ident {
         Ok(Ident(s))
     }
 
-    fn from_str(s: &str) -> miette::Result<Self> {
+    pub fn from_str(s: &str) -> miette::Result<Self> {
         Ident::validate(s)?;
         Ok(Ident(s.to_owned()))
     }

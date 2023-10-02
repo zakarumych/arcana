@@ -1,24 +1,34 @@
 [package]
-name = "arcana-cli"
+name = "arcn"
 edition.workspace = true
 authors.workspace = true
 readme.workspace = true
 license.workspace = true
 version.workspace = true
-description = "CLI tool for Arcana Engine"
+description = "Arcana Engine boostrapper"
+
+[[bin]]
+name = "Arcana"
+path = "src/gui.rs"
+required-features = ["arcana/app"]
 
 [[bin]]
 name = "arcn"
 path = "src/main.rs"
 
 [dependencies]
+arcana = { path = "../arcana", optional = true }
 arcana-project = { path = "../project" }
 camino = { workspace = true }
 clap = { workspace = true }
+denvars = { workspace = true }
+directories = { workspace = true }
 dunce = { workspace = true }
+figa = { workspace = true, features = ["derive"] }
 miette = { workspace = true, features = ["fancy"] }
 serde = { workspace = true }
 toml = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 tracing-error = { workspace = true }
+winit = { workspace = true }

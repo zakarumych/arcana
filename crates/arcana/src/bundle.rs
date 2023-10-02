@@ -1,4 +1,4 @@
-use edict::{query::QueryItem, system::QueryArg, ActionEncoder, Component, QueryRef};
+use edict::{query::QueryItem, system::QueryArg, ActionEncoder, Component, View};
 
 pub trait Bundle: Component + Sync {
     /// Query type for the bundle.
@@ -12,11 +12,11 @@ pub trait Bundle: Component + Sync {
 }
 
 /// System that unfolds bundles.
-pub fn bundle_system<B>(mut query: QueryRef<(&B, B::Query)>, mut actions: ActionEncoder)
+pub fn bundle_system<B>(view: View<(&B, B::Query)>, mut actions: ActionEncoder)
 where
     B: Bundle,
 {
-    query.for_each(|(bundle, item)| {
+    view.into_iter().for_each(|(bundle, item)| {
         bundle.unfold(item, actions.reborrow());
     })
 }

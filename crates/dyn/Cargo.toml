@@ -1,0 +1,13 @@
+[package]
+name = "arcana-dyn"
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+license.workspace = true
+version.workspace = true
+
+[lib]
+crate-type = ["dylib"]
+
+[dependencies]
+arcana = { path = "../arcana", version = "=0.1.0", features = ["ed"] }

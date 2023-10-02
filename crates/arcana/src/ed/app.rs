@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use arcana_project::Project;
 
-use egui_dock::{TabViewer, Tree};
+use egui_dock::{DockState, TabViewer, Tree};
 use egui_tracing::EventCollector;
 use hashbrown::HashMap;
 use parking_lot::Mutex;
@@ -32,7 +32,7 @@ pub struct App {
     windows: Vec<Window>,
 
     /// Tabs opened in the editor.
-    tabs: HashMap<WindowId, Tree<Tab>>,
+    dock_states: HashMap<WindowId, DockState<Tab>>,
 
     /// Model of the App.
     model: AppModel,
@@ -68,7 +68,7 @@ impl Application for App {
                         if self.windows.len() == 1 {
                             world.insert_resource(Quit);
                         } else {
-                            self.tabs.remove(&window_id);
+                            self.dock_states.remove(&window_id);
                             self.windows.swap_remove(idx);
                         }
                         None
@@ -100,18 +100,18 @@ impl Application for App {
             .expect("EguiResource must be present");
 
         for window in &self.windows {
-            let tabs = self
-                .tabs
+            let dock_state = self
+                .dock_states
                 .entry(window.id())
-                .or_insert_with(|| Tree::new(vec![]));
+                .or_insert_with(|| DockState::new(vec![]));
             egui.run(window, |cx| {
                 let mut menu = Menu {
                     events,
                     device: &self.device,
                     queue: &self.queue,
                 };
-                menu.show(tabs, &mut self.model.world, cx);
-                egui_dock::DockArea::new(tabs).show(cx, &mut self.model)
+                menu.show(dock_state.main_surface_mut(), &mut self.model.world, cx);
+                egui_dock::DockArea::new(dock_state).show(cx, &mut self.model)
             });
         }
 
@@ -140,11 +140,11 @@ impl Application for App {
     }
 }
 
-#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize)]
 struct AppWindowState {
     pos: dpi::LogicalPosition<f64>,
     size: dpi::LogicalSize<f64>,
-    tree: Tree<Tab>,
+    dock_state: DockState<Tab>,
 }
 
 #[derive(Default, serde::Serialize, serde::Deserialize)]
@@ -200,7 +200,10 @@ impl Drop for App {
                             .unwrap_or_default()
                             .to_logical(scale_factor),
                         size: window.inner_size().to_logical(scale_factor),
-                        tree: self.tabs.remove(&window.id()).unwrap_or_default(),
+                        dock_state: self
+                            .dock_states
+                            .remove(&window.id())
+                            .unwrap_or_else(|| DockState::new(vec![])),
                     }
                 })
                 .collect(),
@@ -224,7 +227,7 @@ impl App {
         let state = load_app_state().unwrap_or_default();
 
         let mut windows = Vec::new();
-        let mut tabs = HashMap::new();
+        let mut dock_states = HashMap::new();
         for w in state.windows {
             let window = WindowBuilder::new()
                 .with_title("Ed")
@@ -237,7 +240,7 @@ impl App {
             let target =
                 EguiRender::build(&mut graph, window.id(), mev::ClearColor(0.2, 0.2, 0.2, 1.0));
             graph.present(target, window.id());
-            tabs.insert(window.id(), w.tree);
+            dock_states.insert(window.id(), w.dock_state);
             windows.push(window);
         }
 
@@ -258,7 +261,7 @@ impl App {
 
         App {
             windows,
-            tabs,
+            dock_states,
             model: AppModel { world },
             graph,
             resources: RenderResources::default(),

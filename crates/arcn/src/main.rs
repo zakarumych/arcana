@@ -1,15 +1,7 @@
-use std::{
-    path::{Path, PathBuf},
-    str::FromStr,
-};
+use std::{path::PathBuf, str::FromStr};
 
-use arcana_project::{
-    path::{make_relative, real_path, RealPath},
-    Dependency, Ident, Project,
-};
-use camino::Utf8PathBuf;
+use arcana_project::Dependency;
 use clap::{Args, Parser, Subcommand};
-use miette::{Context, IntoDiagnostic};
 
 #[derive(Debug, Clone, serde::Deserialize)]
 struct ArcanaArg {
@@ -20,7 +12,7 @@ impl FromStr for ArcanaArg {
     type Err = toml::de::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let arg = toml::from_str(&format!("arcana = {s}"))?;
+        let arg: ArcanaArg = toml::from_str(&format!("arcana = {s}"))?;
         Ok(arg)
     }
 }
@@ -95,61 +87,36 @@ fn main() -> miette::Result<()> {
     install_tracing_subscriber();
 
     let cli = Cli::parse();
+    let arcn = arcn::Arcn::new()?;
 
     match cli.command.unwrap_or_else(|| Command::Ed {
         path: PathBuf::from("."),
     }) {
         Command::Init { path, args } => {
-            let path = real_path(&path).into_diagnostic()?;
-            let arcana = map_arcana(args.arcana, &path)?;
-            let name = args
-                .name
-                .map(Ident::from_string)
-                .transpose()
-                .context("Invalid project name provided")?;
-            Project::new(path, name, arcana, false)?;
+            arcn.init(
+                &path,
+                args.name.as_deref(),
+                false,
+                args.arcana.as_ref().map(|a| &a.arcana),
+            )?;
         }
         Command::New { path, args } => {
-            let path = real_path(&path).into_diagnostic()?;
-            let arcana = map_arcana(args.arcana, &path)?;
-            let name = args
-                .name
-                .map(Ident::from_string)
-                .transpose()
-                .context("Invalid project name provided")?;
-            Project::new(path, name, arcana, true)?;
+            arcn.init(
+                &path,
+                args.name.as_deref(),
+                true,
+                args.arcana.as_ref().map(|a| &a.arcana),
+            )?;
         }
         Command::InitWorkspace { path } => {
-            let project = Project::find(&path)?;
-            project.init_workspace()?;
+            arcn.init_workspace(&path)?;
         }
         Command::Ed { path } => {
-            let project = Project::find(&path)?;
-            project.init_workspace()?;
-            project.run_editor()?;
+            arcn.run_ed(&path)?;
         }
     }
 
     Ok(())
-}
-
-fn map_arcana(arg: Option<ArcanaArg>, base: &RealPath) -> miette::Result<Option<Dependency>> {
-    match arg {
-        Some(ArcanaArg {
-            arcana: Dependency::Path { path },
-        }) => Ok(Some(Dependency::Path {
-            path: rebase_dep_path(path.as_ref(), base)?,
-        })),
-        Some(arg) => Ok(Some(arg.arcana)),
-        None => Ok(None),
-    }
-}
-
-fn rebase_dep_path(path: &Path, base: &RealPath) -> miette::Result<Utf8PathBuf> {
-    let path = real_path(path).into_diagnostic()?;
-    let path = make_relative(&path, &base);
-    let path = Utf8PathBuf::try_from(path).into_diagnostic()?;
-    Ok(path)
 }
 
 fn install_tracing_subscriber() {
