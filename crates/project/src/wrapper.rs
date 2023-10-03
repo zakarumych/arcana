@@ -29,13 +29,11 @@ fn write_file(path: impl AsRef<Path>, content: impl AsRef<[u8]>) -> std::io::Res
     std::fs::write(path, content)
 }
 
-struct ArcanaDependency<'a> {
-    arcana: Option<&'a Dependency>,
-}
+struct ArcanaDependency<'a>(Option<&'a Dependency>);
 
 impl fmt::Display for ArcanaDependency<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.arcana {
+        match self.0 {
             None => write!(f, "\"{}\"", env!("CARGO_PKG_VERSION")),
             Some(Dependency::Crates(version)) => write!(f, "\"{}\"", version),
             Some(Dependency::Git { git, branch }) => {
@@ -58,13 +56,11 @@ impl fmt::Display for ArcanaDependency<'_> {
     }
 }
 
-struct ArcanaDynDependency<'a> {
-    arcana: Option<&'a Dependency>,
-}
+struct ArcanaDynDependency<'a>(Option<&'a Dependency>);
 
 impl fmt::Display for ArcanaDynDependency<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.arcana {
+        match self.0 {
             None => write!(f, "\"{}\"", env!("CARGO_PKG_VERSION")),
             Some(Dependency::Crates(version)) => write!(f, "\"{}\"", version),
             Some(Dependency::Git { git, branch }) => {
@@ -143,7 +139,7 @@ impl fmt::Display for PluginDependency<'_> {
 /// Generates workspace.
 pub fn init_workspace(
     name: &str,
-    arcana: Option<&Dependency>,
+    engine: Option<&Dependency>,
     root: &RealPath,
     plugins: &[Plugin],
 ) -> miette::Result<()> {
@@ -170,8 +166,8 @@ arcana = {arcana}
 arcana-dyn = {arcana_dyn}
 "#,
         gh_issue = github_autogen_issue_template("workspace Cargo.toml"),
-        arcana = ArcanaDependency { arcana },
-        arcana_dyn = ArcanaDynDependency { arcana }
+        arcana = ArcanaDependency(engine),
+        arcana_dyn = ArcanaDynDependency(engine)
     );
 
     let cargo_toml_path = workspace.join("Cargo.toml");

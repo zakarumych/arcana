@@ -5,10 +5,10 @@ use std::{
     fs::File,
     io::{Read, Seek, SeekFrom, Write},
     ops::Deref,
-    path::{Path, PathBuf},
+    path::Path,
 };
 
-use camino::{Utf8Path, Utf8PathBuf};
+use camino::Utf8PathBuf;
 
 pub mod path;
 mod wrapper;
@@ -210,10 +210,10 @@ impl<'de> serde::Deserialize<'de> for Ident {
 pub struct ProjectManifest {
     pub name: Ident,
 
-    /// How to fetch arcana dependency.
+    /// How to fetch engine dependency.
     /// Defaults to `Dependency::Crates(version())`.
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub arcana: Option<Dependency>,
+    pub engine: Option<Dependency>,
 
     /// List of plugin libraries this project depends on.
     #[serde(skip_serializing_if = "Vec::is_empty", default, with = "plugins_serde")]
@@ -313,7 +313,7 @@ impl Project {
     pub fn new(
         path: RealPathBuf,
         name: Option<Ident>,
-        arcana: Option<Dependency>,
+        engine: Option<Dependency>,
         new: bool,
     ) -> miette::Result<Self> {
         let arcana_toml_path = path.join("Arcana.toml");
@@ -380,7 +380,7 @@ impl Project {
 
         let manifest = ProjectManifest {
             name: name.to_owned(),
-            arcana,
+            engine,
             plugins: Vec::new(),
         };
 
@@ -413,9 +413,9 @@ impl Project {
             );
         };
 
-        if let Some(Dependency::Path { path: arcana_path }) = &manifest.arcana {
+        if let Some(Dependency::Path { path: engine_path }) = &manifest.engine {
             let check = || -> miette::Result<()> {
-                let cargo_toml_path = path.join(arcana_path).join("Cargo.toml");
+                let cargo_toml_path = path.join(engine_path).join("Cargo.toml");
                 let manifest =
                     cargo_toml::Manifest::from_path(cargo_toml_path).into_diagnostic()?;
                 let package = manifest
@@ -429,7 +429,7 @@ impl Project {
             };
 
             if let Err(err) = check() {
-                tracing::warn!("'arcana' path dependency is '{arcana_path}' broken: {err}");
+                tracing::warn!("'arcana' path dependency is '{engine_path}' broken: {err}");
             }
         }
 
@@ -599,7 +599,7 @@ impl Project {
     pub fn init_workspace(&self) -> miette::Result<()> {
         wrapper::init_workspace(
             &self.manifest.name,
-            self.manifest.arcana.as_ref(),
+            self.manifest.engine.as_ref(),
             &self.path,
             &self.manifest.plugins,
         )

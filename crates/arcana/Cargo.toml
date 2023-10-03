@@ -46,6 +46,7 @@ argosy-store = { workspace = true, optional = true }
 base64 = { workspace = true }
 blink-alloc = { workspace = true }
 bytemuck = { workspace = true }
+dirs = { workspace = true }
 dunce = { workspace = true }
 edict = { workspace = true }
 egui = { workspace = true, optional = true }
@@ -61,6 +62,7 @@ libloading = { workspace = true }
 miette = { workspace = true, features = ["fancy"], optional = true }
 na = { workspace = true }
 parking_lot = { workspace = true }
+rand = { workspace = true }
 rapid-qoi = { workspace = true }
 rfd = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }

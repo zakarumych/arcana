@@ -40,14 +40,46 @@ impl fmt::Display for PluginsLibrary {
 
 impl PluginsLibrary {
     pub fn load(path: &Path) -> miette::Result<Self> {
+        #[cfg(windows)]
+        let path = {
+            let filename = match path.file_name() {
+                None => miette::bail!("Invalid plugins library path '{}'", path.display()),
+                Some(name) => name,
+            };
+
+            loop {
+                let r = rand::random::<u32>();
+                let mut new_filename = filename.to_owned();
+                new_filename.push(format!(".{r:0X}"));
+                let new_path = path.with_file_name(new_filename);
+                if !new_path.exists() {
+                    std::fs::copy(path, &new_path).map_err(|err| {
+                        miette::miette!(
+                            "Failed to copy plugins library '{path}' to '{new_path}'. {err}",
+                            path = path.display(),
+                            new_path = new_path.display()
+                        )
+                    })?;
+                    tracing::debug!(
+                        "Copied plugins library '{path}' to '{new_path}'",
+                        path = path.display(),
+                        new_path = new_path.display()
+                    );
+                    break new_path;
+                }
+            }
+        };
+
         // Safety: None
-        let res = unsafe { libloading::Library::new(path) };
+        let res = unsafe { libloading::Library::new(&*path) };
         let lib = res.map_err(|err| {
             miette::miette!(
-                "Failed to load plugin library '{path}'. {err}",
+                "Failed to load plugins library '{path}'. {err}",
                 path = path.display()
             )
         })?;
+
+        tracing::debug!("Loaded plugins library '{path}'", path = path.display());
 
         type ArcanaPluginsFn = fn() -> &'static [&'static dyn ArcanaPlugin];
 
@@ -55,7 +87,7 @@ impl PluginsLibrary {
         let res = unsafe { lib.get::<ArcanaPluginsFn>(b"arcana_plugins\0") };
         let arcana_plugins = res.map_err(|err| {
             miette::miette!(
-                "Failed to load plugin library '{path}'. {err}",
+                "Failed to load plugins library '{path}'. {err}",
                 path = path.display()
             )
         })?;
@@ -112,7 +144,7 @@ impl Plugins {
         false
     }
 
-    /// Adds new plugin library.
+    /// Adds new plugins library.
     pub fn add_plugin_with_path(&mut self, path: &Path, project: &mut Project) {
         // Stop current build if there was one.
         self.build = None;
@@ -132,7 +164,10 @@ impl Plugins {
             match build.finished() {
                 Ok(false) => plugins.build = Some(build),
                 Ok(true) => {
-                    tracing::info!("Finished building plugin library");
+                    tracing::info!(
+                        "Finished building plugins library {}",
+                        build.artifact().display()
+                    );
                     let path = build.artifact();
                     match PluginsLibrary::load(path) {
                         Ok(lib) => {

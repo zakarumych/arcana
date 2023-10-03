@@ -14,7 +14,7 @@ use miette::{Context, IntoDiagnostic};
 struct Config {
     // Configured arcana dependency.
     #[figa(append)]
-    dependency: Option<Dependency>,
+    engine: Option<Dependency>,
 
     // Recently created and opened projects.
     #[figa(append)]
@@ -31,13 +31,14 @@ fn update_config_from_path(config: &mut Config, path: &Path) -> miette::Result<(
     if path.extension().is_none() {
         if let Err(err) = &r {
             if err.kind() == std::io::ErrorKind::NotFound {
-                r = std::fs::read_to_string(path);
+                r = std::fs::read_to_string(path.with_extension("toml"));
             }
         }
     }
 
     if let Err(err) = &r {
         if err.kind() == std::io::ErrorKind::NotFound {
+            tracing::debug!("No config found at {}", path.display());
             return Ok(());
         }
     }
@@ -65,8 +66,8 @@ fn update_config_from_env(config: &mut Config) -> miette::Result<()> {
 impl Start {
     pub fn new() -> miette::Result<Self> {
         let mut config = Config::default();
-        if let Some(dir) = dirs::config_dir() {
-            update_config_from_path(&mut config, &dir.join("Arcana"))?;
+        if let Some(dir) = dirs::config_local_dir() {
+            update_config_from_path(&mut config, &dir.join("Arcana/config"))?;
         }
         update_config_from_env(&mut config)?;
 
@@ -78,15 +79,15 @@ impl Start {
         path: &Path,
         name: Option<&str>,
         new: bool,
-        arcana: Option<&Dependency>,
+        engine: Option<&Dependency>,
     ) -> miette::Result<Project> {
         let path = real_path(&path).into_diagnostic()?;
-        let arcana = map_arcana(arcana.or(self.config.dependency.as_ref()), &path)?;
+        let engine = map_engine_dep(engine.or(self.config.engine.as_ref()), &path)?;
         let name: Option<Ident> = name
             .map(Ident::from_str)
             .transpose()
             .context("Invalid project name provided")?;
-        Project::new(path, name, arcana, new)
+        Project::new(path, name, engine, new)
     }
 
     pub fn init_workspace(&self, path: &Path) -> miette::Result<()> {
@@ -100,7 +101,7 @@ impl Start {
     }
 }
 
-fn map_arcana(dep: Option<&Dependency>, base: &RealPath) -> miette::Result<Option<Dependency>> {
+fn map_engine_dep(dep: Option<&Dependency>, base: &RealPath) -> miette::Result<Option<Dependency>> {
     match dep {
         Some(Dependency::Path { path }) if path.is_absolute() => {
             Ok(Some(Dependency::Path { path: path.clone() }))
