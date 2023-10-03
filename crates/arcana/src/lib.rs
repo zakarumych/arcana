@@ -24,6 +24,7 @@ pub use {blink_alloc, bytemuck, edict, gametime, na, parking_lot, tokio};
 #[cfg(feature = "client")]
 pub use mev;
 
+use parking_lot::Mutex;
 #[cfg(feature = "client")]
 pub use winit;
 

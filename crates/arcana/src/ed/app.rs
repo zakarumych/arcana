@@ -116,6 +116,13 @@ impl Application for App {
         }
 
         self.model.world.insert_resource(egui);
+
+        let mut subprocesses = super::SUBPROCESSES.lock();
+        subprocesses.retain_mut(|child| match child.try_wait() {
+            Ok(Some(_)) => false,
+            Err(_) => false,
+            _ => true,
+        });
     }
 
     fn render(&mut self) {
@@ -209,6 +216,11 @@ impl Drop for App {
                 .collect(),
         };
         let _ = save_app_state(&state);
+
+        let subprocesses = std::mem::take(&mut *super::SUBPROCESSES.lock());
+        for mut child in subprocesses {
+            let _ = child.kill();
+        }
     }
 }
 

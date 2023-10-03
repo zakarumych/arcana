@@ -1,10 +1,14 @@
-use std::path::Path;
+use std::{path::Path, process::Child};
 
 use arcana_project::Project;
+use parking_lot::Mutex;
+
+use crate::plugin::GLOBAL_CHECK;
 
 mod app;
 mod console;
 mod game;
+mod ide;
 mod plugins;
 
 /// Editor tab.
@@ -22,6 +26,10 @@ pub fn run(path: &Path) {
 }
 
 fn _run(path: &Path) -> miette::Result<()> {
+    // Marks the running instance of Arcana library.
+    // This flag is checked in plugins to ensure they are linked to this arcana.
+    GLOBAL_CHECK.store(true, std::sync::atomic::Ordering::SeqCst);
+
     let mut path = path.to_owned();
     assert!(path.pop());
     assert!(path.pop());
@@ -29,3 +37,5 @@ fn _run(path: &Path) -> miette::Result<()> {
     let project = Project::open(&path)?;
     crate::app::try_run(|events, event_collector| app::App::new(events, event_collector, project))
 }
+
+static SUBPROCESSES: Mutex<Vec<Child>> = Mutex::new(Vec::new());

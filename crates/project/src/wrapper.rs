@@ -327,8 +327,8 @@ arcana-dyn = {{ workspace = true }}
 //! [{gh_issue}]
 
 #[no_mangle]
-pub fn arcana_plugins() -> &'static [&'static dyn arcana_dyn::plugin::ArcanaPlugin] {{
-    const PLUGINS: &'static [&'static dyn arcana_dyn::plugin::ArcanaPlugin] = &["#,
+pub fn arcana_plugins() -> Vec<&'static dyn arcana_dyn::plugin::ArcanaPlugin> {{
+    vec!["#,
         gh_issue = github_autogen_issue_template("plugins/src/lib.rs")
     );
 
@@ -344,8 +344,7 @@ pub fn arcana_plugins() -> &'static [&'static dyn arcana_dyn::plugin::ArcanaPlug
     }
 
     lib_rs.push_str(
-        r#"    ];
-    PLUGINS
+        r#"    ]
 }"#,
     );
 
@@ -394,7 +393,7 @@ arcana = {{ workspace = true }}
 
     for plugin in plugins {
         cargo_toml.push_str(&format!(
-            "{name} = {dependency}",
+            "{name} = {dependency}\n",
             name = &plugin.name,
             dependency = PluginDependency { dep: &plugin.dep }
         ));

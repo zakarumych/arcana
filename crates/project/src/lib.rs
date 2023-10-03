@@ -586,6 +586,7 @@ impl Project {
         };
 
         self.manifest.plugins.push(plugin);
+        tracing::info!("Plugin '{} added", package.name);
 
         if init {
             self.init_workspace()?;
@@ -593,6 +594,21 @@ impl Project {
 
         self.sync()?;
         Ok(package.name)
+    }
+
+    pub fn remove_plugin(&mut self, name: &str, init: bool) -> miette::Result<()> {
+        let mut removed = false;
+        self.manifest.plugins.retain(|p| {
+            let retain = p.name != name;
+            removed |= !retain;
+            retain
+        });
+        tracing::info!("Plugin '{name} removed");
+
+        if init && removed {
+            self.init_workspace()?;
+        }
+        Ok(())
     }
 
     /// Initializes all plugin wrapper libs and workspace.

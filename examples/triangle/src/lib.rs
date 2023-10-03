@@ -168,6 +168,10 @@ impl ArcanaPlugin for GamePlugin {
         "triangle"
     }
 
+    fn dependencies(&self) -> Vec<&'static dyn ArcanaPlugin> {
+        vec![dummy::__arcana_plugin()]
+    }
+
     fn init(&self, world: &mut World, scheduler: &mut Scheduler) {
         let world = world.local();
 

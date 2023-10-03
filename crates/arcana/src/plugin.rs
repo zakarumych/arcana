@@ -1,3 +1,5 @@
+use std::sync::atomic::AtomicBool;
+
 use edict::{Scheduler, World};
 
 /// Plugin protocol for Bob engine.
@@ -19,8 +21,8 @@ pub trait ArcanaPlugin: Sync {
     /// Returns slice with plugins this plugins depends on.
     /// Dependencies must be initialized first and
     /// deinitialized last.
-    fn dependencies(&self) -> &[&'static dyn ArcanaPlugin] {
-        &[]
+    fn dependencies(&self) -> Vec<&'static dyn ArcanaPlugin> {
+        vec![]
     }
 
     /// Initializes world and scheduler.
@@ -62,6 +64,20 @@ pub trait ArcanaPlugin: Sync {
     #[cfg(feature = "ed")]
     fn load(&self, world: &mut World, scratch: &[u8]) {
         unimplemented!()
+    }
+
+    #[doc(hidden)]
+    fn __running_arcana_instance_check(&self, check: &AtomicBool) {
+        assert!(
+            check as *const _ == &GLOBAL_CHECK as *const _
+                && GLOBAL_CHECK.load(::core::sync::atomic::Ordering::Relaxed),
+            "Wrong instance of Arcana library linked"
+        );
+    }
+
+    #[doc(hidden)]
+    fn __cmp_id(&self) -> *const () {
+        Self::init as *const ()
     }
 }
 
@@ -123,8 +139,12 @@ macro_rules! export_arcana_plugin {
             }
         )?
 
-        pub const fn __arcana_plugin() -> &'static $plugin {
-            &$plugin
+        pub fn __arcana_plugin() -> &'static $plugin {
+            static PLUGIN: $plugin = $plugin;
+            &PLUGIN
         }
     };
 }
+
+#[doc(hidden)]
+pub static GLOBAL_CHECK: AtomicBool = AtomicBool::new(false);

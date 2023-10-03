@@ -49,7 +49,7 @@ impl Games {
                 let game = Game::launch(events, enabled_plugins, device.clone(), queue.clone());
                 games.games.insert(game.window_id(), game);
             }
-            None => tracing::error!("Not all enabled plugins were linked"),
+            None => tracing::error!("Plugins list issue"),
         }
     }
 

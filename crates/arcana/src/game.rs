@@ -124,7 +124,7 @@ impl Game {
             step: TimeSpan::ZERO,
         });
 
-        world.insert_resource(Limiter(FrequencyTicker::new(60u32.khz(), clocks.now())));
+        world.insert_resource(Limiter(FrequencyTicker::new(120u32.khz(), clocks.now())));
         world.insert_resource(FixedTicker(FrequencyTicker::new(1u32.hz(), clocks.now())));
         world.insert_resource(FPS::new());
         world.insert_resource(RenderGraph::new());

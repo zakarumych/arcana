@@ -1,9 +1,9 @@
 [package]
-name = "triangle"
+name = "physics"
 version = "0.1.0"
 edition = "2021"
 publish = false
 
 [dependencies]
 arcana = { path = "../../crates/arcana", features = ["client"] }
-dummy = { path = "../../crates/plugins/dummy" }
+rapier2d = "0.17"

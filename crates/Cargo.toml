@@ -1,5 +1,5 @@
 [workspace]
-members = ["arcana", "dyn", "mev", "start"]
+members = ["arcana", "dyn", "mev", "start", "plugins/dummy"]
 resolver = "2"
 
 
