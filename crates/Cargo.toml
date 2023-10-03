@@ -1,5 +1,5 @@
 [workspace]
-members = ["arcana", "mev", "arcn", "launcher"]
+members = ["arcana", "dyn", "mev", "start"]
 resolver = "2"
 
 
@@ -24,12 +24,12 @@ cargo_toml = "0.16"
 clap = { version = "4.3", features = ["derive"] }
 codespan-reporting = "0.11"
 core-graphics-types = { version = "0.1" }
-denvars = { version = "0.1" }
-directories = { version = "5.0" }
+denvars = { version = "0.3.2" }
+dirs = { version = "5.0" }
 dunce = "1.0"
 edict = { version = "0.5.0", features = [
     "rayon",
-], git = "http://github.com/zakarumych/edict", branch = "wip" }
+], git = "http://github.com/zakarumych/edict" }
 egui = { version = "0.23", features = ["bytemuck"] }
 egui_dock = { version = "0.8.0" }
 egui_tracing = { version = "0.2", git = "http://github.com/zakarumych/egui_tracing" }

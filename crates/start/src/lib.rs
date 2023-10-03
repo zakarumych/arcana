@@ -21,7 +21,7 @@ struct Config {
     recent: Vec<PathBuf>,
 }
 
-pub struct Arcn {
+pub struct Start {
     config: Config,
 }
 
@@ -54,20 +54,23 @@ fn update_config_from_path(config: &mut Config, path: &Path) -> miette::Result<(
 
 fn update_config_from_env(config: &mut Config) -> miette::Result<()> {
     config
-        .update(denvars::Deserializer::from_prefixed_env_vars("ARCANA"))
+        .update(
+            denvars::Deserializer::from_prefixed_env_vars("ARCANA_")
+                .with_options(denvars::Options::toml()),
+        )
         .into_diagnostic()
         .context("Failed to update config from environment variables")
 }
 
-impl Arcn {
+impl Start {
     pub fn new() -> miette::Result<Self> {
         let mut config = Config::default();
-        if let Some(dirs) = directories::ProjectDirs::from_path("arcana".into()) {
-            update_config_from_path(&mut config, &dirs.config_dir().join("arcn"))?;
+        if let Some(dir) = dirs::config_dir() {
+            update_config_from_path(&mut config, &dir.join("Arcana"))?;
         }
         update_config_from_env(&mut config)?;
 
-        Ok(Arcn { config })
+        Ok(Start { config })
     }
 
     pub fn init(
@@ -99,9 +102,13 @@ impl Arcn {
 
 fn map_arcana(dep: Option<&Dependency>, base: &RealPath) -> miette::Result<Option<Dependency>> {
     match dep {
+        Some(Dependency::Path { path }) if path.is_absolute() => {
+            Ok(Some(Dependency::Path { path: path.clone() }))
+        }
         Some(Dependency::Path { path }) => Ok(Some(Dependency::Path {
             path: rebase_dep_path(path.as_ref(), base)?,
         })),
+
         Some(arcana) => Ok(Some(arcana.clone())),
         None => Ok(None),
     }

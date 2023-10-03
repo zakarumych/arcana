@@ -1,11 +1,11 @@
 [package]
-name = "arcn"
+name = "arcana-start"
 edition.workspace = true
 authors.workspace = true
 readme.workspace = true
 license.workspace = true
 version.workspace = true
-description = "Arcana Engine boostrapper"
+description = "Arcana Engine launcher"
 
 [[bin]]
 name = "Arcana"
@@ -21,8 +21,8 @@ arcana = { path = "../arcana", optional = true }
 arcana-project = { path = "../project" }
 camino = { workspace = true }
 clap = { workspace = true }
-denvars = { workspace = true }
-directories = { workspace = true }
+denvars = { workspace = true, features = ["toml"] }
+dirs = { workspace = true }
 dunce = { workspace = true }
 figa = { workspace = true, features = ["derive"] }
 miette = { workspace = true, features = ["fancy"] }

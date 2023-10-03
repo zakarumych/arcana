@@ -93,11 +93,20 @@ impl fmt::Display for ArcanaDynDependency<'_> {
                     }
                 } else {
                     // Workspace is currently hardcoded to be one directory down from the root.
-                    write!(
-                        f,
-                        "{{ path = \"../{}/../dyn\" }}",
-                        path.as_str().escape_default()
-                    )
+                    if let Some(parent) = path.parent() {
+                        write!(
+                            f,
+                            "{{ path = \"../{}/dyn\" }}",
+                            parent.as_str().escape_default()
+                        )
+                    } else {
+                        // Try like that
+                        write!(
+                            f,
+                            "{{ path = \"../{}/../dyn\" }}",
+                            path.as_str().escape_default()
+                        )
+                    }
                 }
             }
         }

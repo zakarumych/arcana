@@ -202,3 +202,33 @@ impl ArcanaPlugin for GamePlugin {
 }
 
 arcana::export_arcana_plugin!(GamePlugin);
+
+// const fn bezier<const N: usize>(t: f64) -> [f64; N + 1] {
+//     let mut weights = [0.0; N + 1];
+//     weights[0] = 1.0;
+//     for i in 1..=N {
+//         let ti = t.powi(i as i32);
+//         let tni = (1.0 - t).powi(i as i32);
+//         let mut ci = [0.0; N + 1];
+//         for j in 0..i {
+//             let mij = binomial_coefficient(i - 1, j);
+//             ci[j] = mij as f64 * tni * t.powi((i - j - 1) as i32);
+//         }
+//         weights[i] = ci
+//             .iter()
+//             .zip(weights.iter())
+//             .map(|(&c, &w)| c * w)
+//             .sum::<f64>()
+//             / ti;
+//     }
+//     weights
+// }
+
+// const fn binomial_coefficient(n: usize, k: usize) -> usize {
+//     let mut res = 1;
+//     for i in 0..k {
+//         res *= n - i;
+//         res /= i + 1;
+//     }
+//     res
+// }

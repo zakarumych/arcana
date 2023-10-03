@@ -5,16 +5,17 @@ use std::{
     fs::File,
     io::{Read, Seek, SeekFrom, Write},
     ops::Deref,
-    path::Path,
+    path::{Path, PathBuf},
 };
 
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 
 pub mod path;
 mod wrapper;
 
 use miette::{Context, IntoDiagnostic};
 use path::{real_path, RealPath, RealPathBuf};
+use serde::Deserializer;
 pub use wrapper::BuildProcess;
 
 use crate::path::make_relative;
@@ -27,10 +28,42 @@ pub enum Dependency {
     Crates(String),
 
     // Fetch from the git repository
-    Git { git: String, branch: Option<String> },
+    Git {
+        git: String,
+        branch: Option<String>,
+    },
 
     // Fetch from the local path
-    Path { path: Utf8PathBuf },
+    Path {
+        #[serde(deserialize_with = "deserialize_path_expand_home")]
+        path: Utf8PathBuf,
+    },
+}
+
+fn deserialize_path_expand_home<'de, D>(deserializer: D) -> Result<Utf8PathBuf, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let path: String = serde::Deserialize::deserialize(deserializer)?;
+    let path = Utf8PathBuf::from(path);
+
+    if let Ok(suffix) = path.strip_prefix("~") {
+        match dirs::home_dir() {
+            Some(home) => {
+                let mut home = Utf8PathBuf::from_path_buf(home).map_err(|path| {
+                    serde::de::Error::custom(format!(
+                        "Home directory is not UTF-8 \"{}\"",
+                        path.display()
+                    ))
+                })?;
+                home.push(suffix);
+                Ok(home)
+            }
+            None => Ok(path),
+        }
+    } else {
+        Ok(path)
+    }
 }
 
 impl fmt::Display for Dependency {

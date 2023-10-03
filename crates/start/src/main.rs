@@ -87,13 +87,13 @@ fn main() -> miette::Result<()> {
     install_tracing_subscriber();
 
     let cli = Cli::parse();
-    let arcn = arcn::Arcn::new()?;
+    let start = arcana_start::Start::new()?;
 
     match cli.command.unwrap_or_else(|| Command::Ed {
         path: PathBuf::from("."),
     }) {
         Command::Init { path, args } => {
-            arcn.init(
+            start.init(
                 &path,
                 args.name.as_deref(),
                 false,
@@ -101,7 +101,7 @@ fn main() -> miette::Result<()> {
             )?;
         }
         Command::New { path, args } => {
-            arcn.init(
+            start.init(
                 &path,
                 args.name.as_deref(),
                 true,
@@ -109,10 +109,10 @@ fn main() -> miette::Result<()> {
             )?;
         }
         Command::InitWorkspace { path } => {
-            arcn.init_workspace(&path)?;
+            start.init_workspace(&path)?;
         }
         Command::Ed { path } => {
-            arcn.run_ed(&path)?;
+            start.run_ed(&path)?;
         }
     }
 
