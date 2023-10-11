@@ -43,7 +43,7 @@ fn out_of_bounds() -> ! {
 const MAX_VERTEX_BUFFERS: u32 = 31;
 
 pub mod for_macro {
-    pub use crate::generic::Constants;
+    pub use crate::generic::DeviceRepr;
 
     pub use super::arguments::{Arguments, ArgumentsField};
     pub use bytemuck::{Pod, Zeroable};
@@ -52,12 +52,24 @@ pub mod for_macro {
         ptr::addr_of,
     };
 
-    pub const fn pad_for<T: Constants>(end: usize) -> usize {
-        let align = align_of::<T>();
+    pub const fn align_end(end: usize, align: usize) -> usize {
+        ((end + (align - 1)) & !(align - 1))
+    }
+
+    pub const fn repr_pad_for<T: DeviceRepr>(end: usize) -> usize {
+        let align = T::ALIGN;
         pad_align(end, align)
     }
 
     pub const fn pad_align(end: usize, align: usize) -> usize {
-        ((end + (align - 1)) & !(align - 1)) - end
+        align_end(end, align) - end
+    }
+
+    pub const fn repr_append_field<T: DeviceRepr>(end: usize) -> usize {
+        align_end(end, T::ALIGN) + T::SIZE
+    }
+
+    pub const fn repr_align_of<T: DeviceRepr>() -> usize {
+        T::ALIGN
     }
 }

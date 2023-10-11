@@ -4,11 +4,11 @@ use blink_alloc::{Blink, BlinkAlloc};
 use edict::World;
 use egui::epaint::{ClippedShape, Primitive, Vertex};
 use hashbrown::{hash_map::Entry, HashMap};
-use mev::{Arguments as _, ClearColor, Constants as _};
+use mev::{Arguments as _, ClearColor, DeviceRepr as _};
 use winit::{event::WindowEvent, event_loop::EventLoopWindowTarget, window::WindowId};
 
 use crate::{
-    funnel::Filter,
+    funnel::EventFilter,
     render::{Render, RenderBuilderContext, RenderContext, RenderError, RenderGraph, TargetId},
 };
 
@@ -44,13 +44,17 @@ struct EguiInstance {
 
 pub struct EguiResource {
     instances: HashMap<WindowId, EguiInstance>,
+    fonts: FontDefinitions,
     _local: PhantomData<Rc<u32>>,
 }
 
 impl EguiResource {
     pub fn new() -> Self {
+        let mut fonts = egui::FontDefinitions::default();
+        egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
         EguiResource {
             instances: HashMap::new(),
+            fonts,
             _local: PhantomData,
         }
     }
@@ -64,6 +68,7 @@ impl EguiResource {
         state.set_pixels_per_point(window.scale_factor() as f32);
 
         let cx = Context::default();
+        cx.set_fonts(self.fonts.clone());
 
         self.instances.insert(
             window.id(),
@@ -125,7 +130,7 @@ struct EguiArguments {
     texture: mev::Image,
 }
 
-#[derive(mev::Constants)]
+#[derive(mev::DeviceRepr)]
 struct EguiConstants {
     width: u32,
     height: u32,
@@ -467,15 +472,15 @@ impl Render for EguiRender {
                     for primitive in &primitives {
                         match &primitive.primitive {
                             Primitive::Mesh(mesh) => {
-                                copy_encoder.write_buffer(
+                                copy_encoder.write_buffer_slice(
                                     &vertex_buffer,
                                     vertex_buffer_offset,
-                                    bytemuck::cast_slice(&mesh.vertices[..]),
+                                    &mesh.vertices[..],
                                 );
-                                copy_encoder.write_buffer(
+                                copy_encoder.write_buffer_slice(
                                     &index_buffer,
                                     index_buffer_offset,
-                                    bytemuck::cast_slice(&mesh.indices[..]),
+                                    &mesh.indices[..],
                                 );
                                 vertex_buffer_offset += size_of_val(&mesh.vertices[..]);
                                 vertex_buffer_offset = (vertex_buffer_offset + 31) & !31;
@@ -697,7 +702,7 @@ impl Render for EguiRender {
 
 pub struct EguiFilter;
 
-impl Filter for EguiFilter {
+impl EventFilter for EguiFilter {
     fn filter(
         &mut self,
         _blink: &Blink,

@@ -1,9 +1,10 @@
 use std::ops::Range;
 
 use ash::vk;
+use smallvec::SmallVec;
 
 use crate::generic::{
-    Arguments, ClearColor, ClearDepthStencil, Constants, Extent2, Extent3, LoadOp, Offset2,
+    Arguments, ClearColor, ClearDepthStencil, DeviceRepr, Extent2, Extent3, LoadOp, Offset2,
     Offset3, OutOfMemory, PipelineStages, RenderPassDesc, StoreOp,
 };
 
@@ -14,30 +15,32 @@ use super::{
 };
 
 pub struct CommandBuffer {
-    handle: vk::CommandBuffer,
-    present: Vec<Frame>,
-    refs: Refs,
-}
-
-impl CommandBuffer {
-    pub(super) fn deconstruct(self) -> (vk::CommandBuffer, Vec<Frame>, Refs) {
-        (self.handle, self.present, self.refs)
-    }
+    pub(super) handle: vk::CommandBuffer,
+    pub(super) pool: vk::CommandPool,
+    pub(super) present: SmallVec<[Frame; 2]>,
+    pub(super) refs: Refs,
 }
 
 pub struct CommandEncoder {
     device: Device,
     handle: vk::CommandBuffer,
-    present: Vec<Frame>,
+    pool: vk::CommandPool,
+    present: SmallVec<[Frame; 2]>,
     refs: Refs,
 }
 
 impl CommandEncoder {
-    pub(super) fn new(device: Device, handle: vk::CommandBuffer, refs: Refs) -> Self {
+    pub(super) fn new(
+        device: Device,
+        handle: vk::CommandBuffer,
+        pool: vk::CommandPool,
+        refs: Refs,
+    ) -> Self {
         CommandEncoder {
             device,
             handle,
-            present: Vec::new(),
+            pool,
+            present: SmallVec::new(),
             refs,
         }
     }
@@ -229,6 +232,7 @@ impl crate::traits::CommandEncoder for CommandEncoder {
 
         Ok(CommandBuffer {
             handle: self.handle,
+            pool: self.pool,
             present: self.present,
             refs: self.refs,
         })
@@ -330,12 +334,12 @@ impl crate::traits::RenderCommandEncoder for RenderCommandEncoder<'_> {
     }
 
     #[inline(never)]
-    fn with_constants(&mut self, constants: &impl Constants) {
+    fn with_constants(&mut self, constants: &impl DeviceRepr) {
         let Some(layout) = self.current_layout.as_ref() else {
             panic!("Constants binding requires a pipeline to be bound to the encoder");
         };
 
-        let data = constants.as_pod();
+        let data = constants.as_repr();
 
         unsafe {
             self.device.ash().cmd_push_constants(
@@ -533,7 +537,7 @@ impl crate::traits::CopyCommandEncoder for CopyCommandEncoder<'_> {
     }
 
     #[inline]
-    fn write_buffer(&mut self, buffer: &Buffer, offset: usize, data: &[u8]) {
+    fn write_buffer_raw(&mut self, buffer: &Buffer, offset: usize, data: &[u8]) {
         self.refs.add_buffer(buffer.clone());
 
         const CHUNK_SIZE: usize = 65536;
@@ -562,6 +566,16 @@ impl crate::traits::CopyCommandEncoder for CopyCommandEncoder<'_> {
                 )
             }
         }
+    }
+
+    #[inline]
+    fn write_buffer(&mut self, buffer: &Buffer, offset: usize, data: &impl bytemuck::Pod) {
+        self.write_buffer_raw(buffer, offset, bytemuck::bytes_of(data));
+    }
+
+    #[inline]
+    fn write_buffer_slice(&mut self, buffer: &Buffer, offset: usize, data: &[impl bytemuck::Pod]) {
+        self.write_buffer_raw(buffer, offset, bytemuck::cast_slice(data));
     }
 }
 

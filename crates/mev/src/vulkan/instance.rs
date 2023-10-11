@@ -3,6 +3,7 @@ use std::{
     convert::identity,
     ffi::{c_void, CStr},
     fmt,
+    sync::Arc,
 };
 
 use ash::*;
@@ -567,10 +568,9 @@ impl crate::traits::Instance for Instance {
 
         let push_descriptor = ash::extensions::khr::PushDescriptor::new(&self.instance, &device);
 
-        let epochs = std::iter::repeat_with(PendingEpochs::new)
+        let epochs = std::iter::repeat_with(|| Arc::new(PendingEpochs::new()))
             .take(desc.queues.len())
             .collect::<Vec<_>>();
-
         let device = Device::new(
             self.version,
             self.entry.clone(),

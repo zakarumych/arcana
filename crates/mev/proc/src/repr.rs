@@ -19,7 +19,7 @@ fn derive_impl(input: syn::DeriveInput) -> syn::Result<proc_macro2::TokenStream>
     if !input.generics.params.is_empty() {
         return Err(syn::Error::new_spanned(
             input.generics,
-            "generic arguments are not supported by `#[derive(Constants)]`",
+            "generic arguments are not supported by `#[derive(DeviceRepr)]`",
         ));
     }
 
@@ -28,12 +28,12 @@ fn derive_impl(input: syn::DeriveInput) -> syn::Result<proc_macro2::TokenStream>
         _ => {
             return Err(syn::Error::new_spanned(
                 input,
-                "only structs are supported by `#[derive(Constants)]`",
+                "only structs are supported by `#[derive(DeviceRepr)]`",
             ))
         }
     };
 
-    let name_pod = quote::format_ident!("MevGenerated{}Pod", name);
+    let name_repr = quote::format_ident!("MevGenerated{}Pod", name);
 
     let field_types = data
         .fields
@@ -46,29 +46,33 @@ fn derive_impl(input: syn::DeriveInput) -> syn::Result<proc_macro2::TokenStream>
         .iter()
         .enumerate()
         .map(|(idx, field)| {
-            let end = data.fields
+            let end = data
+                .fields
                 .iter()
                 .take(idx)
                 .fold(quote! { 0 }, |acc, field| {
                     let ty = &field.ty;
-                    quote_spanned! { ty.span() => #acc + mev::for_macro::size_of::<<#ty as mev::for_macro::Constants>::Pod>() }
+                    quote_spanned! { ty.span() => mev::for_macro::repr_append_field::<#ty>(#acc) }
                 });
 
             let ty = &field.ty;
             quote::quote_spanned! {
-                ty.span() => mev::for_macro::pad_for::<#ty>(#end)
+                ty.span() => mev::for_macro::repr_pad_for::<#ty>(#end)
             }
         })
         .collect::<Vec<_>>();
 
-    let tail = data.fields
-        .iter()
-        .fold(quote! { 0 }, |acc, field| {
-            let ty = &field.ty;
-            quote_spanned! { ty.span() => #acc + mev::for_macro::size_of::<<#ty as mev::for_macro::Constants>::Pod>() }
-        });
+    let tail = data.fields.iter().fold(quote! { 0 }, |acc, field| {
+        let ty = &field.ty;
+        quote_spanned! { ty.span() => mev::for_macro::repr_append_field::<#ty>(#acc) }
+    });
 
     let tail_pad = quote::quote!(mev::for_macro::pad_align(#tail, 16));
+
+    let total_align = data.fields.iter().fold(quote! { 0 }, |acc, field| {
+        let ty = &field.ty;
+        quote_spanned! { ty.span() => #acc | (mev::for_macro::repr_align_of::<#ty>() - 1) }
+    });
 
     match data.fields {
         syn::Fields::Named(_) => {
@@ -81,36 +85,38 @@ fn derive_impl(input: syn::DeriveInput) -> syn::Result<proc_macro2::TokenStream>
             let pad_names = data
                 .fields
                 .iter()
-                .map(|field| quote::format_ident!("_pad_for{}", field.ident.as_ref().unwrap()))
+                .map(|field| quote::format_ident!("_pad_for_{}", field.ident.as_ref().unwrap()))
                 .collect::<Vec<_>>();
 
             let tokens = quote::quote! {
                 #[repr(C, align(16))]
                 #[doc(hidden)]
                 #[derive(Clone, Copy, Debug)]
-                #vis struct #name_pod {
+                #vis struct #name_repr {
                     #(
                         #pad_names: [u8; #field_pad_sizes],
-                        #field_names: <#field_types as mev::for_macro::Constants>::Pod,
+                        #field_names: <#field_types as mev::for_macro::DeviceRepr>::Repr,
                     )*
                     _mev_tail_pad: [u8; #tail_pad],
                 }
 
-                unsafe impl mev::for_macro::Zeroable for #name_pod {}
-                unsafe impl mev::for_macro::Pod for #name_pod {}
+                unsafe impl mev::for_macro::Zeroable for #name_repr {}
+                unsafe impl mev::for_macro::Pod for #name_repr {}
 
-                impl mev::for_macro::Constants for #name {
-                    type Pod = #name_pod;
+                impl mev::for_macro::DeviceRepr for #name {
+                    type Repr = #name_repr;
 
-                    fn as_pod(&self) -> #name_pod {
-                        #name_pod {
+                    fn as_repr(&self) -> #name_repr {
+                        #name_repr {
                             #(
                                 #pad_names: [0xDAu8; #field_pad_sizes],
-                                #field_names: self.#field_names.as_pod(),
+                                #field_names: mev::for_macro::DeviceRepr::as_repr(&self.#field_names),
                             )*
                             _mev_tail_pad: [0xDAu8; #tail_pad],
                         }
                     }
+
+                    const ALIGN: usize = 1 + (#total_align);
                 }
             };
 

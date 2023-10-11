@@ -1,5 +1,6 @@
 //! Tiny graphics crate made for nothing but fun.
 #![deny(unsafe_op_in_unsafe_fn)]
+#![allow(warnings)]
 
 pub mod generic;
 mod traits;
@@ -16,12 +17,12 @@ mod private {
 }
 
 pub use self::{backend::*, generic::*};
-pub use mev_proc::{Arguments, Constants};
+pub use mev_proc::{Arguments, DeviceRepr};
 
 #[doc(hidden)]
 pub mod for_macro {
     pub use crate::backend::for_macro::*;
     pub use crate::generic::{
-        Automatic, Constants, LibraryInput, Sampled, ShaderSource, Storage, Uniform,
+        Automatic, DeviceRepr, LibraryInput, Sampled, ShaderSource, Storage, Uniform,
     };
 }

@@ -14,7 +14,7 @@ use winit::{
 use crate::{
     egui::{EguiFilter, EguiResource},
     events::{Event, EventLoop},
-    funnel::{Filter, Funnel},
+    funnel::{EventFilter, EventFunnel},
     plugin::ArcanaPlugin,
     render::{render_system, RenderGraph},
 };
@@ -29,7 +29,7 @@ pub struct MainWindowFilter {
     id: WindowId,
 }
 
-impl Filter for MainWindowFilter {
+impl EventFilter for MainWindowFilter {
     #[inline]
     fn filter(&mut self, _blink: &Blink, world: &mut World, event: Event) -> Option<Event> {
         match event {
@@ -88,7 +88,7 @@ impl FPS {
 pub struct Game {
     clocks: Clock,
     world: World,
-    funnel: Funnel,
+    funnel: EventFunnel,
     blink: Blink,
     last_fixed: TimeStamp,
     fixed_scheduler: Scheduler,
@@ -141,7 +141,7 @@ impl Game {
         world.insert_resource(window);
 
         // Setup the funnel
-        let mut funnel = Funnel::new();
+        let mut funnel = EventFunnel::new();
 
         let mut var_scheduler = Scheduler::new();
         let fixed_scheduler = Scheduler::new();
@@ -156,6 +156,7 @@ impl Game {
 
         for plugin in plugins {
             plugin.init(&mut world, &mut var_scheduler);
+            plugin.init_funnel(&mut funnel);
         }
 
         Game {

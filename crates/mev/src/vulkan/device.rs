@@ -16,12 +16,15 @@ use raw_window_handle::{
 use slab::Slab;
 use smallvec::SmallVec;
 
-use crate::{generic::{
-    BufferDesc, BufferInitDesc, CreateLibraryError, CreatePipelineError, Features,
-    ImageDesc, ImageDimensions, ImageError, LibraryDesc, LibraryInput, Memory, OutOfMemory,
-    PrimitiveTopology, RenderPipelineDesc, SamplerDesc, ShaderLanguage, SurfaceError, Swizzle,
-    VertexStepMode, ViewDesc,
-}, ShaderCompileError, parse_shader};
+use crate::{
+    generic::{
+        BufferDesc, BufferInitDesc, CreateLibraryError, CreatePipelineError, Features, ImageDesc,
+        ImageDimensions, ImageError, LibraryDesc, LibraryInput, Memory, OutOfMemory,
+        PrimitiveTopology, RenderPipelineDesc, SamplerDesc, ShaderLanguage, SurfaceError, Swizzle,
+        VertexStepMode, ViewDesc,
+    },
+    parse_shader, ShaderCompileError,
+};
 
 use super::{
     arguments::descriptor_type,
@@ -255,7 +258,7 @@ pub(super) struct DeviceInner {
 
     /// Epochs of all queues.
     /// Cleared when `wait_idle` is called.
-    epochs: Vec<PendingEpochs>,
+    epochs: Vec<Arc<PendingEpochs>>,
 
     #[cfg(target_os = "windows")]
     win32_surface: Option<ash::extensions::khr::Win32Surface>,
@@ -268,12 +271,6 @@ impl Drop for DeviceInner {
     fn drop(&mut self) {
         if let Err(err) = unsafe { self.device.device_wait_idle() } {
             tracing::error!("Failed to wait for device idle: {}", err);
-        }
-
-        for memory in self.memory.get_mut().drain() {
-            unsafe {
-                self.device.free_memory(memory, None);
-            }
         }
 
         for buffer in self.buffers.get_mut().drain() {
@@ -291,6 +288,12 @@ impl Drop for DeviceInner {
         for image in self.images.get_mut().drain() {
             unsafe {
                 self.device.destroy_image(image, None);
+            }
+        }
+
+        for memory in self.memory.get_mut().drain() {
+            unsafe {
+                self.device.free_memory(memory, None);
             }
         }
 
@@ -546,7 +549,7 @@ impl Device {
         push_descriptor: ash::extensions::khr::PushDescriptor,
         surface: Option<ash::extensions::khr::Surface>,
         swapchain: Option<ash::extensions::khr::Swapchain>,
-        epochs: Vec<PendingEpochs>,
+        epochs: Vec<Arc<PendingEpochs>>,
         #[cfg(target_os = "windows")] win32_surface: Option<ash::extensions::khr::Win32Surface>,
         #[cfg(any(debug_assertions, feature = "debug"))] debug_utils: Option<
             ash::extensions::ext::DebugUtils,
@@ -651,9 +654,10 @@ impl Device {
             _ => unexpected_error(err),
         });
 
-        self.inner.epochs.iter().for_each(|epochs| {
-            epochs.clear(&self.inner.device);
-        });
+        self.inner
+            .epochs
+            .iter()
+            .for_each(|epochs| epochs.device_idle());
 
         result
     }
@@ -1555,12 +1559,10 @@ pub(crate) fn compile_shader(
         zero_initialize_workgroup_memory: naga::back::spv::ZeroInitializeWorkgroupMemoryMode::None,
         debug_info: match source_code {
             None => None,
-            Some(source_code) => {
-                Some(naga::back::spv::DebugInfo {
-                    source_code,
-                    file_name: filename.unwrap_or("<nofile>"),
-                })
-            }
+            Some(source_code) => Some(naga::back::spv::DebugInfo {
+                source_code,
+                file_name: filename.unwrap_or("<nofile>"),
+            }),
         },
     };
 

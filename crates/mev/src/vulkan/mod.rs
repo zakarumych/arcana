@@ -18,7 +18,7 @@ mod sampler;
 mod shader;
 mod surface;
 
-use crate::generic::PixelFormat;
+use crate::{generic::PixelFormat, DeviceError, OutOfMemory};
 
 pub use self::{
     buffer::Buffer,
@@ -111,8 +111,26 @@ fn format_aspect(format: PixelFormat) -> vk::ImageAspectFlags {
     aspect
 }
 
+#[track_caller]
+fn map_oom(err: vk::Result) -> OutOfMemory {
+    match err {
+        ash::vk::Result::ERROR_OUT_OF_HOST_MEMORY => handle_host_oom(),
+        ash::vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => OutOfMemory,
+        _ => unexpected_error(err),
+    }
+}
+
+fn map_device_error(err: vk::Result) -> DeviceError {
+    match err {
+        ash::vk::Result::ERROR_OUT_OF_HOST_MEMORY => handle_host_oom(),
+        ash::vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => DeviceError::OutOfMemory(()),
+        ash::vk::Result::ERROR_DEVICE_LOST => DeviceError::DeviceLost,
+        _ => unexpected_error(err),
+    }
+}
+
 pub mod for_macro {
-    pub use crate::generic::Constants;
+    pub use crate::generic::DeviceRepr;
 
     pub use super::{
         arguments::{descriptor_type, Arguments, ArgumentsField},
@@ -125,12 +143,24 @@ pub mod for_macro {
         ptr::addr_of,
     };
 
-    pub const fn pad_for<T: Constants>(end: usize) -> usize {
-        let align = align_of::<T>();
+    pub const fn align_end(end: usize, align: usize) -> usize {
+        ((end + (align - 1)) & !(align - 1))
+    }
+
+    pub const fn repr_pad_for<T: DeviceRepr>(end: usize) -> usize {
+        let align = T::ALIGN;
         pad_align(end, align)
     }
 
     pub const fn pad_align(end: usize, align: usize) -> usize {
-        ((end + (align - 1)) & !(align - 1)) - end
+        align_end(end, align) - end
+    }
+
+    pub const fn repr_append_field<T: DeviceRepr>(end: usize) -> usize {
+        align_end(end, T::ALIGN) + T::SIZE
+    }
+
+    pub const fn repr_align_of<T: DeviceRepr>() -> usize {
+        T::ALIGN
     }
 }

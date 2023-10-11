@@ -421,24 +421,10 @@ impl crate::traits::Surface for Surface {
 }
 
 pub struct Frame {
-    swapchain: vk::SwapchainKHR,
-    image: Image,
-    idx: u32,
-    present: vk::Semaphore,
-}
-
-impl Frame {
-    pub(super) fn swapchain(&self) -> vk::SwapchainKHR {
-        self.swapchain
-    }
-
-    pub(super) fn image_idx(&self) -> u32 {
-        self.idx
-    }
-
-    pub(super) fn present(&self) -> vk::Semaphore {
-        self.present
-    }
+    pub(super) swapchain: vk::SwapchainKHR,
+    pub(super) image: Image,
+    pub(super) idx: u32,
+    pub(super) present: vk::Semaphore,
 }
 
 impl Deref for Frame {

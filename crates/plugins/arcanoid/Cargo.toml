@@ -1,0 +1,13 @@
+[package]
+name = "arcanoid"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+arcana = { path = "../../arcana" }
+scene = { path = "../../plugins/scene" }
+physics = { path = "../../plugins/physics" }
+sdf = { path = "../../plugins/sdf" }
+input = { path = "../../plugins/input" }
+camera = { path = "../../plugins/camera" }

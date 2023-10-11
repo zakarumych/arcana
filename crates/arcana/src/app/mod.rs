@@ -8,6 +8,19 @@ use crate::{
 };
 
 #[macro_export]
+macro_rules! ok_log_err {
+    ($res:expr) => {
+        match { $res } {
+            Ok(ok) => Some(ok),
+            Err(err) => {
+                tracing::error!("{err}");
+                None
+            }
+        }
+    };
+}
+
+#[macro_export]
 macro_rules! try_log_err {
     ($res:expr $(; $ret:expr)?) => {
         match {$res} {

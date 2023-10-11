@@ -1,4 +1,5 @@
 #![feature(allocator_api)]
+#![allow(warnings)]
 
 macro_rules! offset_of {
     ($struct:ident . $field:ident) => {
@@ -24,9 +25,13 @@ pub use {blink_alloc, bytemuck, edict, gametime, na, parking_lot, tokio};
 #[cfg(feature = "client")]
 pub use mev;
 
-use parking_lot::Mutex;
 #[cfg(feature = "client")]
 pub use winit;
+
+#[cfg(feature = "ed")]
+pub use arcana_project as project;
+
+pub mod alloc;
 
 #[cfg(feature = "client")]
 pub mod game;
@@ -76,4 +81,92 @@ pub fn init_mev() -> (mev::Device, mev::Queue) {
         .unwrap();
     let queue = queues.pop().unwrap();
     (device, queue)
+}
+
+#[cfg(feature = "client")]
+#[macro_export]
+macro_rules! feature_client {
+    ($($tt:tt)*) => {$($tt)*};
+}
+
+#[cfg(not(feature = "client"))]
+#[macro_export]
+macro_rules! feature_client {
+    ($($tt:tt)*) => {};
+}
+
+#[cfg(feature = "server")]
+#[macro_export]
+macro_rules! feature_server {
+    ($($tt:tt)*) => {$($tt)*};
+}
+
+#[cfg(not(feature = "server"))]
+#[macro_export]
+macro_rules! feature_server {
+    ($($tt:tt)*) => {};
+}
+
+#[cfg(feature = "ed")]
+#[macro_export]
+macro_rules! feature_ed {
+    ($($tt:tt)*) => {$($tt)*};
+}
+
+#[cfg(not(feature = "ed"))]
+#[macro_export]
+macro_rules! feature_ed {
+    ($($tt:tt)*) => {};
+}
+
+#[cfg(feature = "client")]
+#[macro_export]
+macro_rules! not_feature_client {
+    ($($tt:tt)*) => {};
+}
+
+#[cfg(not(feature = "client"))]
+#[macro_export]
+macro_rules! not_feature_client {
+    ($($tt:tt)*) => {$($tt)*};
+}
+
+#[cfg(feature = "server")]
+#[macro_export]
+macro_rules! not_feature_server {
+    ($($tt:tt)*) => {};
+}
+
+#[cfg(not(feature = "server"))]
+#[macro_export]
+macro_rules! not_feature_server {
+    ($($tt:tt)*) => {$($tt)*};
+}
+
+#[cfg(feature = "ed")]
+#[macro_export]
+macro_rules! not_feature_ed {
+    ($($tt:tt)*) => {};
+}
+
+#[cfg(not(feature = "ed"))]
+#[macro_export]
+macro_rules! not_feature_ed {
+    ($($tt:tt)*) => {$($tt)*};
+}
+
+/// Conditional compilation based on features enabled in arcana crate.
+#[macro_export]
+macro_rules! feature {
+    (client => $($tt:tt)*) => { $crate::feature_client!($($tt)*) };
+    (server => $($tt:tt)*) => { $crate::feature_server!($($tt)*) };
+    (ed => $($tt:tt)*) => { $crate::feature_ed!($($tt)*) };
+
+    (!client => $($tt:tt)*) => { $crate::not_feature_client!($($tt)*) };
+    (!server => $($tt:tt)*) => { $crate::not_feature_server!($($tt)*) };
+    (!ed => $($tt:tt)*) => { $crate::not_feature_ed!($($tt)*) };
+
+    (if client { $($yes:tt)* } $(else { $($no:tt)* })?) => { $crate::feature_client!($($yes)*); $($crate::not_feature_client!($($no)*);)? };
+    (if server { $($yes:tt)* } $(else { $($no:tt)* })?) => { $crate::feature_server!($($yes)*); $($crate::not_feature_server!($($no)*);)? };
+    (if ed { $($yes:tt)* } $(else { $($no:tt)* })?) => { $crate::feature_ed!($($yes)*); $($crate::not_feature_ed!($($no)*);)? };
 }

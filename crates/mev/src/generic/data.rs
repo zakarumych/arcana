@@ -1,11 +1,34 @@
-use std::{fmt::Debug, mem::size_of};
+use std::{
+    fmt::Debug,
+    mem::{align_of, size_of, MaybeUninit},
+};
 
-pub trait Constants {
-    type Pod: bytemuck::Pod + Debug;
+use bytemuck::{Pod, Zeroable};
 
-    fn as_pod(&self) -> Self::Pod;
+const fn max_align(a: usize, b: usize) -> usize {
+    if a > b {
+        a
+    } else {
+        b
+    }
+}
 
-    const SIZE: usize = size_of::<Self::Pod>();
+/// Type represetable as a POD type with layout with GPU compatible.
+pub trait DeviceRepr {
+    type Repr: bytemuck::Pod + Debug;
+
+    fn as_repr(&self) -> Self::Repr;
+
+    fn as_bytes(repr: &Self::Repr) -> &[u8] {
+        bytemuck::bytes_of(repr)
+    }
+
+    fn as_bytes_array(repr: &[Self::Repr]) -> &[u8] {
+        bytemuck::cast_slice(repr)
+    }
+
+    const ALIGN: usize;
+    const SIZE: usize = size_of::<Self::Repr>();
 }
 
 /// Types that can be passed as arguments to shaders.
@@ -45,7 +68,7 @@ impl ScalarType {
     }
 }
 
-pub trait Scalar: crate::private::Sealed + 'static {
+pub trait Scalar: crate::private::Sealed + DeviceRepr + Debug + 'static {
     const TYPE: ScalarType;
 }
 
@@ -55,15 +78,28 @@ impl Scalar for bool {
     const TYPE: ScalarType = ScalarType::Bool;
 }
 
-impl crate::private::Sealed for i8 {}
-
-impl Constants for i8 {
-    type Pod = i8;
+impl DeviceRepr for bool {
+    type Repr = u8;
 
     #[inline(always)]
-    fn as_pod(&self) -> i8 {
+    fn as_repr(&self) -> u8 {
+        *self as u8
+    }
+
+    const ALIGN: usize = align_of::<u8>();
+}
+
+impl crate::private::Sealed for i8 {}
+
+impl DeviceRepr for i8 {
+    type Repr = i8;
+
+    #[inline(always)]
+    fn as_repr(&self) -> i8 {
         *self
     }
+
+    const ALIGN: usize = align_of::<i8>();
 }
 
 impl Scalar for i8 {
@@ -72,13 +108,15 @@ impl Scalar for i8 {
 
 impl crate::private::Sealed for u8 {}
 
-impl Constants for u8 {
-    type Pod = u8;
+impl DeviceRepr for u8 {
+    type Repr = u8;
 
     #[inline(always)]
-    fn as_pod(&self) -> u8 {
+    fn as_repr(&self) -> u8 {
         *self
     }
+
+    const ALIGN: usize = align_of::<u8>();
 }
 
 impl Scalar for u8 {
@@ -87,13 +125,15 @@ impl Scalar for u8 {
 
 impl crate::private::Sealed for i16 {}
 
-impl Constants for i16 {
-    type Pod = i16;
+impl DeviceRepr for i16 {
+    type Repr = i16;
 
     #[inline(always)]
-    fn as_pod(&self) -> i16 {
+    fn as_repr(&self) -> i16 {
         *self
     }
+
+    const ALIGN: usize = align_of::<i16>();
 }
 
 impl Scalar for i16 {
@@ -102,13 +142,15 @@ impl Scalar for i16 {
 
 impl crate::private::Sealed for u16 {}
 
-impl Constants for u16 {
-    type Pod = u16;
+impl DeviceRepr for u16 {
+    type Repr = u16;
 
     #[inline(always)]
-    fn as_pod(&self) -> u16 {
+    fn as_repr(&self) -> u16 {
         *self
     }
+
+    const ALIGN: usize = align_of::<u16>();
 }
 
 impl Scalar for u16 {
@@ -117,13 +159,15 @@ impl Scalar for u16 {
 
 impl crate::private::Sealed for i32 {}
 
-impl Constants for i32 {
-    type Pod = i32;
+impl DeviceRepr for i32 {
+    type Repr = i32;
 
     #[inline(always)]
-    fn as_pod(&self) -> i32 {
+    fn as_repr(&self) -> i32 {
         *self
     }
+
+    const ALIGN: usize = align_of::<i32>();
 }
 
 impl Scalar for i32 {
@@ -132,13 +176,15 @@ impl Scalar for i32 {
 
 impl crate::private::Sealed for u32 {}
 
-impl Constants for u32 {
-    type Pod = u32;
+impl DeviceRepr for u32 {
+    type Repr = u32;
 
     #[inline(always)]
-    fn as_pod(&self) -> u32 {
+    fn as_repr(&self) -> u32 {
         *self
     }
+
+    const ALIGN: usize = align_of::<u32>();
 }
 
 impl Scalar for u32 {
@@ -147,13 +193,15 @@ impl Scalar for u32 {
 
 impl crate::private::Sealed for i64 {}
 
-impl Constants for i64 {
-    type Pod = i64;
+impl DeviceRepr for i64 {
+    type Repr = i64;
 
     #[inline(always)]
-    fn as_pod(&self) -> i64 {
+    fn as_repr(&self) -> i64 {
         *self
     }
+
+    const ALIGN: usize = align_of::<i64>();
 }
 
 impl Scalar for i64 {
@@ -162,13 +210,15 @@ impl Scalar for i64 {
 
 impl crate::private::Sealed for u64 {}
 
-impl Constants for u64 {
-    type Pod = u64;
+impl DeviceRepr for u64 {
+    type Repr = u64;
 
     #[inline(always)]
-    fn as_pod(&self) -> u64 {
+    fn as_repr(&self) -> u64 {
         *self
     }
+
+    const ALIGN: usize = align_of::<u64>();
 }
 
 impl Scalar for u64 {
@@ -177,13 +227,15 @@ impl Scalar for u64 {
 
 impl crate::private::Sealed for f32 {}
 
-impl Constants for f32 {
-    type Pod = f32;
+impl DeviceRepr for f32 {
+    type Repr = f32;
 
     #[inline(always)]
-    fn as_pod(&self) -> f32 {
+    fn as_repr(&self) -> f32 {
         *self
     }
+
+    const ALIGN: usize = align_of::<f32>();
 }
 
 impl Scalar for f32 {
@@ -192,18 +244,52 @@ impl Scalar for f32 {
 
 impl crate::private::Sealed for f64 {}
 
-impl Constants for f64 {
-    type Pod = f64;
+impl DeviceRepr for f64 {
+    type Repr = f64;
 
     #[inline(always)]
-    fn as_pod(&self) -> f64 {
+    fn as_repr(&self) -> f64 {
         *self
     }
+
+    const ALIGN: usize = align_of::<f64>();
 }
 
 impl Scalar for f64 {
     const TYPE: ScalarType = ScalarType::Float64;
 }
+
+// #[derive(Clone, Copy, Debug)]
+// #[repr(align(16), C)]
+// pub struct Align16<T> {
+//     value: T,
+//     padding: [u8; 16 - size_of::<T>() % 16],
+// }
+
+// unsafe impl<T> Zeroable for Align16<T>
+// where
+//     T: Zeroable,
+// {
+//     fn zeroed() -> Self {
+//         Align16(T::zeroed())
+//     }
+// }
+
+// impl<T, const N: usize> DeviceRepr for [T; N]
+// where
+//     T: DeviceRepr,
+// {
+//     type Pod = [Align16<T::Pod>; N];
+
+//     #[inline(always)]
+//     fn as_pod(&self) -> Self::Pod {
+//         let mut pod = [bytemuck::Zeroable::zeroed(); N];
+//         for (i, item) in self.iter().enumerate() {
+//             pod[i] = Align16(item.as_pod());
+//         }
+//         pod
+//     }
+// }
 
 /// Supported sizes of vectors.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -240,61 +326,182 @@ where
     };
 }
 
-impl<T> crate::private::Sealed for [T; 1] where T: Data {}
-impl<T> crate::private::Sealed for [T; 2] where T: Data {}
-impl<T> crate::private::Sealed for [T; 3] where T: Data {}
-impl<T> crate::private::Sealed for [T; 4] where T: Data {}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[allow(non_camel_case_types)]
+pub struct vec<T, const N: usize>(pub [T; N]);
+
+unsafe impl<T, const N: usize> Zeroable for vec<T, N> where T: Zeroable {}
+unsafe impl<T, const N: usize> Pod for vec<T, N> where T: Pod {}
+
+impl<T, const N: usize> From<vec<T, N>> for [T; N] {
+    #[inline(always)]
+    fn from(v: vec<T, N>) -> Self {
+        v.0
+    }
+}
+
+impl<T, const N: usize> From<[T; N]> for vec<T, N> {
+    #[inline(always)]
+    fn from(v: [T; N]) -> Self {
+        vec(v)
+    }
+}
+
+impl<T, const N: usize> From<&[T; N]> for vec<T, N>
+where
+    T: Copy,
+{
+    #[inline(always)]
+    fn from(v: &[T; N]) -> Self {
+        vec(*v)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[allow(non_camel_case_types)]
+pub struct mat<T, const N: usize, const M: usize>(pub [vec<T, M>; N]);
+
+unsafe impl<T, const N: usize, const M: usize> Zeroable for mat<T, N, M> where T: Zeroable {}
+unsafe impl<T, const N: usize, const M: usize> Pod for mat<T, N, M> where T: Pod {}
+
+impl<T, const N: usize, const M: usize> From<mat<T, N, M>> for [[T; M]; N] {
+    #[inline(always)]
+    fn from(m: mat<T, N, M>) -> Self {
+        m.0.map(From::from)
+    }
+}
+
+impl<T, const N: usize, const M: usize> From<[[T; M]; N]> for mat<T, N, M> {
+    #[inline(always)]
+    fn from(m: [[T; M]; N]) -> Self {
+        mat(m.map(From::from))
+    }
+}
+
+impl<T, const N: usize, const M: usize> From<&[[T; M]; N]> for mat<T, N, M>
+where
+    T: Copy,
+{
+    #[inline(always)]
+    fn from(m: &[[T; M]; N]) -> Self {
+        mat(m.map(From::from))
+    }
+}
 
 #[allow(non_camel_case_types)]
-pub type vec<T, const N: usize> = [T; N];
+pub type vec2<T = f32> = vec<T, 2>;
+
+pub fn vec2<T>(x: T, y: T) -> vec2<T> {
+    vec([x, y])
+}
 
 #[allow(non_camel_case_types)]
-pub type mat<T, const N: usize, const M: usize> = [vec<T, M>; N];
+pub type vec3<T = f32> = vec<T, 3>;
+
+pub fn vec3<T>(x: T, y: T, z: T) -> vec3<T> {
+    vec([x, y, z])
+}
 
 #[allow(non_camel_case_types)]
-pub type vec2<T = f32> = [T; 2];
+pub type vec4<T = f32> = vec<T, 4>;
 
-#[allow(non_camel_case_types)]
-pub type vec3<T = f32> = [T; 3];
-
-#[allow(non_camel_case_types)]
-pub type vec4<T = f32> = [T; 4];
+pub fn vec4<T>(x: T, y: T, z: T, w: T) -> vec4<T> {
+    vec([x, y, z, w])
+}
 
 #[allow(non_camel_case_types)]
 pub type mat2<T = f32> = mat<T, 2, 2>;
 
+pub fn mat2<T>(x: vec2<T>, y: vec2<T>) -> mat2<T> {
+    mat([x, y])
+}
+
 #[allow(non_camel_case_types)]
 pub type mat3<T = f32> = mat<T, 3, 3>;
+
+pub fn mat3<T>(x: vec3<T>, y: vec3<T>, z: vec3<T>) -> mat3<T> {
+    mat([x, y, z])
+}
 
 #[allow(non_camel_case_types)]
 pub type mat4<T = f32> = mat<T, 4, 4>;
 
+pub fn mat4<T>(x: vec4<T>, y: vec4<T>, z: vec4<T>, w: vec4<T>) -> mat4<T> {
+    mat([x, y, z, w])
+}
+
 #[allow(non_camel_case_types)]
 pub type mat2x2<T = f32> = mat<T, 2, 2>;
+
+pub fn mat2x2<T>(x: vec2<T>, y: vec2<T>) -> mat2x2<T> {
+    mat([x, y])
+}
 
 #[allow(non_camel_case_types)]
 pub type mat2x3<T = f32> = mat<T, 2, 3>;
 
+pub fn mat2x3<T>(x: vec3<T>, y: vec3<T>) -> mat2x3<T> {
+    mat([x, y])
+}
+
 #[allow(non_camel_case_types)]
 pub type mat2x4<T = f32> = mat<T, 2, 4>;
+
+pub fn mat2x4<T>(x: vec4<T>, y: vec4<T>) -> mat2x4<T> {
+    mat([x, y])
+}
 
 #[allow(non_camel_case_types)]
 pub type mat3x2<T = f32> = mat<T, 3, 2>;
 
+pub fn mat3x2<T>(x: vec2<T>, y: vec2<T>, z: vec2<T>) -> mat3x2<T> {
+    mat([x, y, z])
+}
+
 #[allow(non_camel_case_types)]
 pub type mat3x3<T = f32> = mat<T, 3, 3>;
+
+pub fn mat3x3<T>(x: vec3<T>, y: vec3<T>, z: vec3<T>) -> mat3x3<T> {
+    mat([x, y, z])
+}
 
 #[allow(non_camel_case_types)]
 pub type mat3x4<T = f32> = mat<T, 3, 4>;
 
+pub fn mat3x4<T>(x: vec4<T>, y: vec4<T>, z: vec4<T>) -> mat3x4<T> {
+    mat([x, y, z])
+}
+
 #[allow(non_camel_case_types)]
 pub type mat4x2<T = f32> = mat<T, 4, 2>;
+
+pub fn mat4x2<T>(x: vec2<T>, y: vec2<T>, z: vec2<T>, w: vec2<T>) -> mat4x2<T> {
+    mat([x, y, z, w])
+}
 
 #[allow(non_camel_case_types)]
 pub type mat4x3<T = f32> = mat<T, 4, 3>;
 
+pub fn mat4x3<T>(x: vec3<T>, y: vec3<T>, z: vec3<T>, w: vec3<T>) -> mat4x3<T> {
+    mat([x, y, z, w])
+}
+
 #[allow(non_camel_case_types)]
 pub type mat4x4<T = f32> = mat<T, 4, 4>;
+
+pub fn mat4x4<T>(x: vec4<T>, y: vec4<T>, z: vec4<T>, w: vec4<T>) -> mat4x4<T> {
+    mat([x, y, z, w])
+}
+
+impl<T> crate::private::Sealed for vec<T, 1> where T: Scalar {}
+impl<T> crate::private::Sealed for vec<T, 2> where T: Scalar {}
+impl<T> crate::private::Sealed for vec<T, 3> where T: Scalar {}
+impl<T> crate::private::Sealed for vec<T, 4> where T: Scalar {}
+
+impl<T, const N: usize> crate::private::Sealed for mat<T, 1, N> where vec<T, N>: Data {}
+impl<T, const N: usize> crate::private::Sealed for mat<T, 2, N> where vec<T, N>: Data {}
+impl<T, const N: usize> crate::private::Sealed for mat<T, 3, N> where vec<T, N>: Data {}
+impl<T, const N: usize> crate::private::Sealed for mat<T, 4, N> where vec<T, N>: Data {}
 
 impl<T> Data for vec2<T>
 where
@@ -329,103 +536,134 @@ where
     };
 }
 
-impl<T> Data for mat2x2<T>
+impl<T, const M: usize> Data for mat<T, 2, M>
 where
-    T: Scalar,
+    vec<T, M>: Data,
 {
     const TYPE: DataType = DataType {
-        scalar: T::TYPE,
+        scalar: <vec<T, M> as Data>::TYPE.scalar,
         columns: VectorSize::Two,
-        rows: VectorSize::Two,
+        rows: <vec<T, M> as Data>::TYPE.rows,
     };
 }
 
-impl<T> Data for mat3x2<T>
+impl<T, const M: usize> Data for mat<T, 3, M>
 where
-    T: Scalar,
+    vec<T, M>: Data,
 {
     const TYPE: DataType = DataType {
-        scalar: T::TYPE,
+        scalar: <vec<T, M> as Data>::TYPE.scalar,
         columns: VectorSize::Three,
-        rows: VectorSize::Two,
+        rows: <vec<T, M> as Data>::TYPE.rows,
     };
 }
 
-impl<T> Data for mat4x2<T>
+impl<T, const M: usize> Data for mat<T, 4, M>
 where
-    T: Scalar,
+    vec<T, M>: Data,
 {
     const TYPE: DataType = DataType {
-        scalar: T::TYPE,
+        scalar: <vec<T, M> as Data>::TYPE.scalar,
         columns: VectorSize::Four,
-        rows: VectorSize::Two,
+        rows: <vec<T, M> as Data>::TYPE.rows,
     };
 }
 
-impl<T> Data for mat2x3<T>
+impl<T> DeviceRepr for vec2<T>
 where
     T: Scalar,
 {
-    const TYPE: DataType = DataType {
-        scalar: T::TYPE,
-        columns: VectorSize::Two,
-        rows: VectorSize::Three,
-    };
+    type Repr = [T::Repr; 2];
+
+    fn as_repr(&self) -> [T::Repr; 2] {
+        [self.0[0].as_repr(), self.0[1].as_repr()]
+    }
+
+    const ALIGN: usize = max_align(size_of::<[T::Repr; 2]>(), T::ALIGN);
 }
 
-impl<T> Data for mat3x3<T>
+impl<T> DeviceRepr for vec3<T>
 where
     T: Scalar,
 {
-    const TYPE: DataType = DataType {
-        scalar: T::TYPE,
-        columns: VectorSize::Three,
-        rows: VectorSize::Three,
-    };
+    type Repr = [T::Repr; 4];
+
+    fn as_repr(&self) -> [T::Repr; 4] {
+        [
+            self.0[0].as_repr(),
+            self.0[1].as_repr(),
+            self.0[2].as_repr(),
+            T::Repr::zeroed(),
+        ]
+    }
+
+    const ALIGN: usize = max_align(size_of::<[T::Repr; 4]>(), T::ALIGN);
 }
 
-impl<T> Data for mat4x3<T>
+impl<T> DeviceRepr for vec4<T>
 where
     T: Scalar,
 {
-    const TYPE: DataType = DataType {
-        scalar: T::TYPE,
-        columns: VectorSize::Four,
-        rows: VectorSize::Three,
-    };
+    type Repr = [T::Repr; 4];
+
+    fn as_repr(&self) -> [T::Repr; 4] {
+        [
+            self.0[0].as_repr(),
+            self.0[1].as_repr(),
+            self.0[2].as_repr(),
+            self.0[3].as_repr(),
+        ]
+    }
+
+    const ALIGN: usize = max_align(size_of::<[T::Repr; 4]>(), T::ALIGN);
 }
 
-impl<T> Data for mat2x4<T>
+impl<T, const M: usize> DeviceRepr for mat<T, 2, M>
 where
-    T: Scalar,
+    vec<T, M>: DeviceRepr,
 {
-    const TYPE: DataType = DataType {
-        scalar: T::TYPE,
-        columns: VectorSize::Two,
-        rows: VectorSize::Four,
-    };
+    type Repr = [<vec<T, M> as DeviceRepr>::Repr; 2];
+
+    fn as_repr(&self) -> [<vec<T, M> as DeviceRepr>::Repr; 2] {
+        [self.0[0].as_repr(), self.0[1].as_repr()]
+    }
+
+    const ALIGN: usize = <vec<T, M> as DeviceRepr>::ALIGN;
 }
 
-impl<T> Data for mat3x4<T>
+impl<T, const M: usize> DeviceRepr for mat<T, 3, M>
 where
-    T: Scalar,
+    vec<T, M>: DeviceRepr,
 {
-    const TYPE: DataType = DataType {
-        scalar: T::TYPE,
-        columns: VectorSize::Three,
-        rows: VectorSize::Four,
-    };
+    type Repr = [<vec<T, M> as DeviceRepr>::Repr; 3];
+
+    fn as_repr(&self) -> [<vec<T, M> as DeviceRepr>::Repr; 3] {
+        [
+            self.0[0].as_repr(),
+            self.0[1].as_repr(),
+            self.0[2].as_repr(),
+        ]
+    }
+
+    const ALIGN: usize = <vec<T, M> as DeviceRepr>::ALIGN;
 }
 
-impl<T> Data for mat4x4<T>
+impl<T, const M: usize> DeviceRepr for mat<T, 4, M>
 where
-    T: Scalar,
+    vec<T, M>: DeviceRepr,
 {
-    const TYPE: DataType = DataType {
-        scalar: T::TYPE,
-        columns: VectorSize::Four,
-        rows: VectorSize::Four,
-    };
+    type Repr = [<vec<T, M> as DeviceRepr>::Repr; 4];
+
+    fn as_repr(&self) -> [<vec<T, M> as DeviceRepr>::Repr; 4] {
+        [
+            self.0[0].as_repr(),
+            self.0[1].as_repr(),
+            self.0[2].as_repr(),
+            self.0[3].as_repr(),
+        ]
+    }
+
+    const ALIGN: usize = <vec<T, M> as DeviceRepr>::ALIGN;
 }
 
 #[allow(non_camel_case_types)]

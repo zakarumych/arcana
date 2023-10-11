@@ -1,7 +1,7 @@
 // mod _arguments;
 mod arguments;
 mod buffer;
-mod constants;
+mod data;
 mod feature;
 mod format;
 mod image;
@@ -22,7 +22,7 @@ pub use self::{
         /*Constant,*/ Sampled, Storage, Uniform,
     },
     buffer::{BufferDesc, BufferInitDesc, BufferUsage, Memory},
-    constants::*,
+    data::*,
     feature::Features,
     format::{PixelFormat, VertexFormat},
     image::{
@@ -31,7 +31,7 @@ pub use self::{
     instance::{
         Capabilities, CreateError, DeviceCapabilities, DeviceDesc, FamilyCapabilities, LoadError,
     },
-    queue::{QueueError, QueueFlags},
+    queue::QueueFlags,
     render::{AttachmentDesc, ClearColor, ClearDepthStencil, LoadOp, RenderPassDesc, StoreOp},
     render_pipeline::{
         Blend, BlendDesc, BlendFactor, BlendOp, ColorTargetDesc, CompareFunction,
@@ -63,6 +63,40 @@ impl fmt::Display for OutOfMemory {
 }
 
 impl Error for OutOfMemory {}
+
+pub enum DeviceError<T = ()> {
+    OutOfMemory(T),
+    DeviceLost,
+}
+
+impl From<OutOfMemory> for DeviceError {
+    #[inline]
+    fn from(_: OutOfMemory) -> Self {
+        DeviceError::OutOfMemory(())
+    }
+}
+
+impl<T> fmt::Debug for DeviceError<T> {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DeviceError::OutOfMemory(_) => write!(f, "DeviceError::OutOfMemory"),
+            DeviceError::DeviceLost => write!(f, "DeviceError::DeviceLost"),
+        }
+    }
+}
+
+impl<T> fmt::Display for DeviceError<T> {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DeviceError::OutOfMemory(_) => write!(f, "out of memory"),
+            DeviceError::DeviceLost => write!(f, "device lost"),
+        }
+    }
+}
+
+impl<T> Error for DeviceError<T> {}
 
 pub trait Zero {
     const ZERO: Self;

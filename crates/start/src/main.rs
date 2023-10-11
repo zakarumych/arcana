@@ -1,7 +1,7 @@
 use std::{path::PathBuf, str::FromStr};
 
 use arcana_project::Dependency;
-use clap::{Args, Parser, Subcommand};
+use clap::{Parser, Subcommand};
 
 #[derive(Debug, Clone, serde::Deserialize)]
 struct ArcanaArg {
@@ -15,20 +15,6 @@ impl FromStr for ArcanaArg {
         let arg: ArcanaArg = toml::from_str(&format!("arcana = {s}"))?;
         Ok(arg)
     }
-}
-
-#[derive(Debug, Args)]
-struct InitArgs {
-    /// Name of the project.
-    /// If not specified, the name of the project will be inferred from the directory name.
-    #[arg(long = "name", value_name = "name")]
-    name: Option<String>,
-
-    /// Arcana dependency.
-    /// If not specified, the version of this CLI crate will be used.
-    /// If specified this must be a string with valid toml syntax for a dependency.
-    #[arg(long = "arcana", value_name = "arcana-dependency")]
-    arcana: Option<ArcanaArg>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -45,8 +31,16 @@ enum Command {
         #[arg(value_name = "path", default_value = ".")]
         path: PathBuf,
 
-        #[command(flatten)]
-        args: InitArgs,
+        /// Name of the project.
+        /// If not specified, the name of the project will be inferred from the directory name.
+        #[arg(long = "name", value_name = "name")]
+        name: Option<String>,
+
+        /// Arcana dependency.
+        /// If not specified, the version of this CLI crate will be used.
+        /// If specified this must be a string with valid toml syntax for a dependency.
+        #[arg(long = "arcana", value_name = "arcana-dependency")]
+        arcana: Option<ArcanaArg>,
     },
     /// Creates new project.
     New {
@@ -57,8 +51,16 @@ enum Command {
         #[arg(value_name = "path")]
         path: PathBuf,
 
-        #[command(flatten)]
-        args: InitArgs,
+        /// Name of the project.
+        /// If not specified, the name of the project will be inferred from the directory name.
+        #[arg(long = "name", value_name = "name")]
+        name: Option<String>,
+
+        /// Arcana dependency.
+        /// If not specified, the version of this CLI crate will be used.
+        /// If specified this must be a string with valid toml syntax for a dependency.
+        #[arg(long = "arcana", value_name = "arcana-dependency")]
+        arcana: Option<ArcanaArg>,
     },
     /// Initializes cargo workspace for an existing project.
     InitWorkspace {
@@ -71,6 +73,23 @@ enum Command {
         /// Path to the project directory.
         #[arg(value_name = "path", default_value = ".")]
         path: PathBuf,
+    },
+    /// Creates new plugin.
+    NewPlugin {
+        /// Path to the plugin directory.
+        #[arg(value_name = "path", default_value = ".")]
+        path: PathBuf,
+
+        /// Name of the plugin.
+        /// If not specified, the name of the plugin will be inferred from the directory name.
+        #[arg(long = "name", value_name = "name")]
+        name: Option<String>,
+
+        /// Arcana dependency.
+        /// If not specified, the version of this CLI crate will be used.
+        /// If specified this must be a string with valid toml syntax for a dependency.
+        #[arg(long = "arcana", value_name = "arcana-dependency")]
+        arcana: Option<ArcanaArg>,
     },
 }
 
@@ -92,27 +111,20 @@ fn main() -> miette::Result<()> {
     match cli.command.unwrap_or_else(|| Command::Ed {
         path: PathBuf::from("."),
     }) {
-        Command::Init { path, args } => {
-            start.init(
-                &path,
-                args.name.as_deref(),
-                false,
-                args.arcana.as_ref().map(|a| &a.arcana),
-            )?;
+        Command::Init { path, name, arcana } => {
+            start.init(&path, name.as_deref(), false, arcana.map(|a| a.arcana))?;
         }
-        Command::New { path, args } => {
-            start.init(
-                &path,
-                args.name.as_deref(),
-                true,
-                args.arcana.as_ref().map(|a| &a.arcana),
-            )?;
+        Command::New { path, name, arcana } => {
+            start.init(&path, name.as_deref(), true, arcana.map(|a| a.arcana))?;
         }
         Command::InitWorkspace { path } => {
             start.init_workspace(&path)?;
         }
         Command::Ed { path } => {
             start.run_ed(&path)?;
+        }
+        Command::NewPlugin { path, name, arcana } => {
+            start.new_plugin(&path, name.as_deref(), arcana.map(|a| a.arcana))?;
         }
     }
 

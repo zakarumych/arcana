@@ -1,0 +1,10 @@
+[package]
+version = "0.0.0"
+name = "input"
+edition = "2021"
+publish = false
+
+[dependencies]
+arcana = { path = "..\\..\\arcana" }
+hashbrown = { workspace = true }
+flume = { workspace = true }

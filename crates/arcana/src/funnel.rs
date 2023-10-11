@@ -3,17 +3,17 @@ use edict::World;
 
 use crate::events::Event;
 
-pub trait Filter {
+pub trait EventFilter {
     fn filter(&mut self, blink: &Blink, world: &mut World, event: Event) -> Option<Event>;
 }
 
-pub struct Funnel {
-    pub filters: Vec<Box<dyn Filter>>,
+pub struct EventFunnel {
+    pub filters: Vec<Box<dyn EventFilter>>,
 }
 
-impl Funnel {
+impl EventFunnel {
     pub const fn new() -> Self {
-        Funnel {
+        EventFunnel {
             filters: Vec::new(),
         }
     }
@@ -21,7 +21,7 @@ impl Funnel {
     #[inline]
     pub fn add<F>(&mut self, filter: F)
     where
-        F: Filter + 'static,
+        F: EventFilter + 'static,
     {
         self.filters.push(Box::new(filter));
     }
@@ -35,7 +35,7 @@ impl Funnel {
     }
 }
 
-impl Filter for Funnel {
+impl EventFilter for EventFunnel {
     #[inline]
     fn filter(&mut self, blink: &Blink, world: &mut World, event: Event) -> Option<Event> {
         self.filter(blink, world, event)

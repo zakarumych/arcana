@@ -3,11 +3,10 @@ use std::ops::Range;
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 
 use crate::generic::{
-    Arguments, BufferDesc, BufferInitDesc, Capabilities, Constants, CreateError,
-    CreateLibraryError, CreatePipelineError, DeviceDesc, Extent2, Extent3, ImageDesc,
+    Arguments, BufferDesc, BufferInitDesc, Capabilities, CreateError, CreateLibraryError,
+    CreatePipelineError, DeviceDesc, DeviceError, DeviceRepr, Extent2, Extent3, ImageDesc,
     ImageDimensions, ImageError, LibraryDesc, Offset2, Offset3, OutOfMemory, PipelineStages,
-    PixelFormat, QueueError, RenderPassDesc, RenderPipelineDesc, SamplerDesc, SurfaceError,
-    ViewDesc,
+    PixelFormat, RenderPassDesc, RenderPipelineDesc, SamplerDesc, SurfaceError, ViewDesc,
 };
 
 pub trait Instance {
@@ -63,7 +62,16 @@ pub trait Queue {
     ///
     /// If `check_point` is `true`, inserts a checkpoint into queue and check previous checkpoints.
     /// Checkpoints are required to synchronize resource use and reclamation.
-    fn submit<I>(&mut self, command_buffers: I, check_point: bool) -> Result<(), QueueError>
+    fn submit<I>(
+        &mut self,
+        command_buffers: I,
+        check_point: bool,
+    ) -> Result<(), DeviceError<Vec<crate::backend::CommandBuffer>>>
+    where
+        I: IntoIterator<Item = crate::backend::CommandBuffer>;
+
+    /// Drop command buffers without submitting them to the queue.
+    fn drop_command_buffer<I>(&mut self, command_buffers: I)
     where
         I: IntoIterator<Item = crate::backend::CommandBuffer>;
 }
@@ -115,7 +123,23 @@ pub trait CopyCommandEncoder {
     );
 
     /// Writes data to the buffer.
-    fn write_buffer(&mut self, buffer: &crate::backend::Buffer, offset: usize, data: &[u8]);
+    fn write_buffer_raw(&mut self, buffer: &crate::backend::Buffer, offset: usize, data: &[u8]);
+
+    /// Writes data to the buffer.
+    fn write_buffer(
+        &mut self,
+        buffer: &crate::backend::Buffer,
+        offset: usize,
+        data: &impl bytemuck::Pod,
+    );
+
+    /// Writes data to the buffer.
+    fn write_buffer_slice(
+        &mut self,
+        buffer: &crate::backend::Buffer,
+        offset: usize,
+        data: &[impl bytemuck::Pod],
+    );
 
     /// Copies pixels from src image to dst image.
     fn copy_buffer_to_image(
@@ -157,7 +181,7 @@ pub trait RenderCommandEncoder {
     fn with_arguments(&mut self, group: u32, arguments: &impl Arguments);
 
     /// Sets constants for the current pipeline.
-    fn with_constants(&mut self, constants: &impl Constants);
+    fn with_constants(&mut self, constants: &impl DeviceRepr);
 
     /// Bind vertex buffer to the current pipeline.
     fn bind_vertex_buffers(&mut self, start: u32, buffers: &[(&crate::backend::Buffer, usize)]);

@@ -343,8 +343,8 @@ impl crate::traits::RenderCommandEncoder for RenderCommandEncoder<'_> {
     }
 
     /// Sets constants for the current pipeline.
-    fn with_constants(&mut self, constants: &impl Constants) {
-        let data = constants.as_pod();
+    fn with_constants(&mut self, constants: &impl DeviceRepr) {
+        let data = constants.as_repr();
         let data_bytes = bytemuck::bytes_of(&data);
 
         if let Some(vb) = &self.vertex_bindings {

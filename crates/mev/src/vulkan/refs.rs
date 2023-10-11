@@ -7,8 +7,8 @@ pub struct Refs {
     images: Vec<Image>,
     samplers: Vec<Sampler>,
     render_pipelines: Vec<RenderPipeline>,
-    cbufs: Vec<CommandBuffer>,
-    refs: Vec<Refs>,
+    // cbufs: Vec<CommandBuffer>,
+    // refs: Vec<Refs>,
 }
 
 impl Refs {
@@ -18,18 +18,18 @@ impl Refs {
             images: Vec::new(),
             samplers: Vec::new(),
             render_pipelines: Vec::new(),
-            cbufs: Vec::new(),
-            refs: Vec::new(),
+            // cbufs: Vec::new(),
+            // refs: Vec::new(),
         }
     }
 
     pub fn clear(&mut self) {
-        self.buffers.clear();
+        // self.buffers.clear();
         self.images.clear();
         self.samplers.clear();
         self.render_pipelines.clear();
-        self.cbufs.clear();
-        self.refs.clear();
+        // self.cbufs.clear();
+        // self.refs.clear();
     }
 
     pub fn add_buffer(&mut self, buffer: Buffer) {
@@ -60,11 +60,11 @@ impl Refs {
         self.render_pipelines.push(pipeline);
     }
 
-    pub fn add_cbuf(&mut self, cbuf: CommandBuffer) {
-        self.cbufs.push(cbuf);
-    }
+    // pub fn add_cbuf(&mut self, cbuf: CommandBuffer) {
+    //     self.cbufs.push(cbuf);
+    // }
 
-    pub fn add_refs(&mut self, refs: Refs) {
-        self.refs.push(refs);
-    }
+    // pub fn add_refs(&mut self, refs: Refs) {
+    //     self.refs.push(refs);
+    // }
 }

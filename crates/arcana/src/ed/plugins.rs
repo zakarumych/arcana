@@ -5,7 +5,7 @@ use egui::{Color32, Ui, WidgetText};
 
 use arcana_project::{BuildProcess, Dependency, Ident, Project, ProjectManifest};
 
-use crate::{plugin::ArcanaPlugin, try_log_err};
+use crate::{ok_log_err, plugin::ArcanaPlugin, try_log_err};
 
 use super::{game::Games, Tab};
 
@@ -13,14 +13,14 @@ struct PluginsLibrary {
     /// Linked library
     #[allow(unused)]
     lib: libloading::Library,
-    plugins: Vec<&'static dyn ArcanaPlugin>,
+    plugins: &'static [&'static dyn ArcanaPlugin],
 }
 
 impl fmt::Display for PluginsLibrary {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if f.alternate() {
             write!(f, "Plugins:\n")?;
-            for plugin in &self.plugins {
+            for plugin in self.plugins {
                 write!(f, "  {}\n", plugin.name())?;
             }
         } else {
@@ -81,7 +81,7 @@ impl PluginsLibrary {
 
         tracing::debug!("Loaded plugins library '{path}'", path = path.display());
 
-        type ArcanaPluginsFn = fn() -> Vec<&'static dyn ArcanaPlugin>;
+        type ArcanaPluginsFn = fn() -> &'static [&'static dyn ArcanaPlugin];
 
         // Safety: None
         let res = unsafe { lib.get::<ArcanaPluginsFn>(b"arcana_plugins\0") };
@@ -93,11 +93,11 @@ impl PluginsLibrary {
         })?;
         let plugins = arcana_plugins();
 
-        for plugin in &plugins {
+        for plugin in plugins {
             plugin.__running_arcana_instance_check(&crate::plugin::GLOBAL_CHECK);
         }
 
-        for plugin in &plugins {
+        for plugin in plugins {
             tracing::debug!("Loaded plugin '{name}'", name = plugin.name());
         }
 
@@ -155,17 +155,15 @@ impl Plugins {
         false
     }
 
-    /// Adds new plugins library.
-    pub fn add_plugin_with_path(&mut self, path: &Path, project: &mut Project) {
-        // Stop current build if there was one.
-        self.build = None;
-        try_log_err!(project.add_plugin_with_path(path, true));
-        let build = try_log_err!(project.build_plugins_library());
-        self.build = Some(build);
-    }
-
-    pub fn remove_plugin(&mut self, name: &str, project: &mut Project) {
-        try_log_err!(project.remove_plugin(name, true));
+    /// Adds new plugin.
+    pub fn add_plugin(&mut self, name: String, dep: Dependency, project: &mut Project) -> bool {
+        if project.add_plugin(name, dep) {
+            // Stop current build if there was one.
+            self.build = None;
+            true
+        } else {
+            false
+        }
     }
 
     pub fn tick(world: &mut World) {
@@ -221,17 +219,19 @@ impl Plugins {
 
     pub fn show(world: &mut World, ui: &mut Ui) {
         let world = world.local();
-        let plugins = &mut *world.expect_resource_mut::<Plugins>();
+        let me = &mut *world.expect_resource_mut::<Plugins>();
         let mut project = world.expect_resource_mut::<Project>();
+        let mut sync = false;
+        let mut rebuild = false;
 
-        if plugins.build.is_some() {
+        if me.build.is_some() {
             ui.horizontal(|ui| {
                 ui.label("Building...");
                 ui.spinner();
             });
         } else if ui.button("Rebuild").clicked() {
             let build = try_log_err!(project.build_plugins_library());
-            plugins.build = Some(build);
+            me.build = Some(build);
         }
 
         ui.horizontal(|ui| {
@@ -241,92 +241,139 @@ impl Plugins {
                         .set_file_name("Cargo.toml")
                         .pick_file()
                     {
-                        plugins.add_plugin_with_path(&path, &mut project);
+                        if add_plugin_with_path(&path, &mut project) {
+                            sync = true;
+                            rebuild = true;
+                        }
                         ui.close_menu();
                     }
                 }
             });
             ui.menu_button("New plugin lib", |ui| {
                 if let Some(path) = rfd::FileDialog::new().save_file() {
-                    plugins.add_plugin_with_path(&path, &mut project);
-                    ui.close_menu();
+                    if add_plugin_with_path(&path, &mut project) {
+                        sync = true;
+                        rebuild = true;
+                        ui.close_menu();
+                    }
                 }
             });
         });
 
-        let mut sync_project = false;
-        let mut remove = Vec::new();
-        for plugin_idx in 0..project.manifest().plugins.len() {
-            let plugin = &mut project.manifest_mut().plugins[plugin_idx];
+        let mut plugins_copy = project.manifest().plugins.clone();
+        let mut add_plugins = Vec::new();
+        let mut remove_plugins = Vec::new();
 
-            let mut heading = WidgetText::from(&plugin.name);
+        egui_dnd::dnd(ui, "plugins-list").show_vec(
+            &mut plugins_copy,
+            |ui, plugin, handle, state| {
+                let mut heading = WidgetText::from(&plugin.name);
 
-            let tooltip;
-            let lib_linked = match &plugins.linked {
-                None => None,
-                Some(lib) => {
-                    let linked = lib
-                        .plugins
-                        .iter()
-                        .copied()
-                        .find(|p| p.name() == plugin.name);
+                let tooltip;
+                let lib_linked = match &me.linked {
+                    None => None,
+                    Some(lib) => {
+                        let linked = lib
+                            .plugins
+                            .iter()
+                            .copied()
+                            .find(|p| p.name() == plugin.name);
 
-                    linked.map(|linked| (lib, linked))
-                }
-            };
-
-            match lib_linked {
-                None => {
-                    if plugins.pending.is_some() || plugins.build.is_some() {
-                        tooltip = Some("Pending".to_owned());
-                        heading = heading.color(Color32::KHAKI);
-                    } else {
-                        tooltip = Some("Build failed".to_owned());
-                        heading = heading.color(Color32::DARK_RED);
+                        linked.map(|linked| (lib, linked))
                     }
-                }
-                Some((lib, linked)) => {
-                    match check_dependencies(linked, plugin_idx, project.manifest(), &lib.plugins) {
-                        Ok(()) => {
-                            tooltip = None;
-                            heading = heading.color(Color32::GREEN);
-                        }
-                        Err(error) => {
-                            tooltip = Some(error);
+                };
+
+                match lib_linked {
+                    None => {
+                        if me.pending.is_some() || me.build.is_some() {
+                            tooltip = Some("Pending".to_owned());
+                            heading = heading.color(Color32::KHAKI);
+                        } else {
+                            tooltip = Some("Build failed".to_owned());
                             heading = heading.color(Color32::DARK_RED);
                         }
                     }
+                    Some((lib, linked)) => {
+                        match check_dependencies(
+                            linked,
+                            state.index,
+                            project.manifest(),
+                            &lib.plugins,
+                        ) {
+                            Ok(()) => {
+                                tooltip = None;
+                                heading = heading.color(Color32::GREEN);
+                            }
+                            Err(error) => {
+                                tooltip = Some(error);
+                                heading = heading.color(Color32::RED);
+                            }
+                        }
+                    }
                 }
-            }
 
-            let plugin = &mut project.manifest_mut().plugins[plugin_idx];
-            let mut enabled = plugin.enabled;
-            let r = ui.checkbox(&mut enabled, heading);
-            let r = r.context_menu(|ui| {
-                if ui.button("Remove").clicked() {
-                    remove.push(plugin.name.clone());
-                    sync_project = true;
-                    ui.close_menu();
-                }
-            });
-            if let Some(tooltip) = tooltip {
-                r.on_hover_text(tooltip);
-            }
+                ui.horizontal(|ui| {
+                    handle.ui(ui, |ui| {
+                        ui.label(egui_phosphor::regular::DOTS_SIX_VERTICAL);
+                    });
 
-            if plugin.enabled != enabled {
-                plugin.enabled = enabled;
-                sync_project = true;
+                    let mut enabled = plugin.enabled;
+                    let r = ui.checkbox(&mut enabled, heading);
+                    if plugin.enabled != enabled {
+                        plugin.enabled = enabled;
+                        sync = true;
+                    }
+
+                    let r = r.context_menu(|ui| {
+                        if ui.button("Remove").clicked() {
+                            remove_plugins.push(plugin.name.clone());
+                            ui.close_menu();
+                        }
+                        if let Some((_, linked)) = lib_linked {
+                            if has_missing_dependencies(linked, &project) {
+                                if ui.button("Insert missing dependencies").clicked() {
+                                    add_plugins.extend(
+                                        missing_dependencies(linked, &mut project)
+                                            .map(|(name, dep)| (name, dep, state.index)),
+                                    );
+                                    ui.close_menu();
+                                }
+                            }
+                        }
+                    });
+                    if let Some(tooltip) = tooltip {
+                        r.on_hover_text(tooltip);
+                    }
+                });
+            },
+        );
+
+        project.manifest_mut().plugins = plugins_copy;
+
+        for name in remove_plugins {
+            if project.remove_plugin(&name) {
+                sync = true;
+                rebuild = true;
             }
         }
 
-        for name in remove {
-            plugins.remove_plugin(&name, &mut project);
+        let mut offset = 0;
+        for (name, dep, index) in add_plugins {
+            if project.insert_plugin(name, dep, index + offset) {
+                sync = true;
+                rebuild = true;
+                offset += 1;
+            }
         }
 
-        if sync_project {
-            if let Err(err) = project.sync() {
-                tracing::error!("Failed to sync project: {}", err);
-            }
+        if sync {
+            try_log_err!(project.sync());
+        }
+
+        if rebuild {
+            me.build = None;
+            try_log_err!(project.init_workspace());
+            me.build = ok_log_err!(project.build_plugins_library());
         }
     }
 
@@ -364,13 +411,55 @@ impl Plugins {
     }
 }
 
+/// Adds new plugins library.
+fn add_plugin_with_path(path: &Path, project: &mut Project) -> bool {
+    let (name, dep) = try_log_err!(project.plugin_with_path(path); false);
+    project.add_plugin(name, dep)
+}
+
+fn has_missing_dependencies(plugin: &dyn ArcanaPlugin, project: &Project) -> bool {
+    for (dep, _) in plugin.dependencies() {
+        if !project
+            .manifest()
+            .plugins
+            .iter()
+            .any(|p| p.name == dep.name())
+        {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn missing_dependencies<'a>(
+    plugin: &'a dyn ArcanaPlugin,
+    project: &'a mut Project,
+) -> impl Iterator<Item = (String, Dependency)> + 'a {
+    plugin
+        .dependencies()
+        .into_iter()
+        .filter_map(|(dep, lookup)| {
+            let exists = project
+                .manifest()
+                .plugins
+                .iter()
+                .any(|p| p.name == dep.name());
+            if !exists {
+                Some((dep.name().to_owned(), lookup.clone()))
+            } else {
+                None
+            }
+        })
+}
+
 fn check_dependencies(
     plugin: &dyn ArcanaPlugin,
     plugin_idx: usize,
     project: &ProjectManifest,
     plugins: &[&dyn ArcanaPlugin],
 ) -> Result<(), String> {
-    for dep in plugin.dependencies() {
+    for (dep, _) in plugin.dependencies() {
         match project.plugins[..plugin_idx]
             .iter()
             .find(|p| p.name == dep.name())
@@ -386,16 +475,16 @@ fn check_dependencies(
                     return Err(format!("Dependency '{}' is missing", dep.name()));
                 }
             }
-            Some(dep_plugin) => {
-                if !dep_plugin.enabled {
+            Some(plugin) => {
+                if !plugin.enabled {
                     return Err(format!("Dependency '{}' is disabled", dep.name()));
                 }
                 match plugins.iter().find(|p| p.name() == dep.name()) {
                     None => return Err(format!("Dependency '{}' not linked", dep.name())),
-                    Some(dep_plugin) => {
-                        if !std::ptr::eq(dep_plugin.__cmp_id(), dep.__cmp_id()) {
+                    Some(plugin) => {
+                        if !plugin.__eq(dep) {
                             return Err(format!(
-                                "Dependency '{}' is not the same instance.",
+                                "Dependency '{}' is not the same plugin.",
                                 dep.name()
                             ));
                         }

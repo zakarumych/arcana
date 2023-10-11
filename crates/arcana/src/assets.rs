@@ -70,7 +70,7 @@ impl Assets {
         &mut self,
         device: &mev::Device,
         queue: &mut mev::Queue,
-    ) -> Result<(), mev::QueueError> {
+    ) -> Result<(), mev::DeviceError> {
         self.load_queue
             .retain_mut(|driver| match driver.poll_loaded() {
                 None => true,
@@ -97,7 +97,14 @@ impl Assets {
             }
         }
 
-        queue.submit(Some(encoder.finish()?), false)?;
+        match queue.submit(Some(encoder.finish()?), false) {
+            Ok(()) => {}
+            Err(mev::DeviceError::OutOfMemory(cbufs)) => {
+                queue.drop_command_buffer(cbufs);
+                return Err(mev::DeviceError::OutOfMemory(()));
+            }
+            Err(mev::DeviceError::DeviceLost) => return Err(mev::DeviceError::DeviceLost),
+        }
 
         Ok(())
     }

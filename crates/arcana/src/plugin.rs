@@ -1,6 +1,12 @@
-use std::sync::atomic::AtomicBool;
+use std::{any::Any, sync::atomic::AtomicBool};
+
+#[cfg(feature = "ed")]
+use arcana_project::Dependency;
 
 use edict::{Scheduler, World};
+
+#[cfg(feature = "client")]
+use crate::funnel::EventFunnel;
 
 /// Plugin protocol for Bob engine.
 /// It allows bundling systems and resources together into a single unit
@@ -14,14 +20,15 @@ use edict::{Scheduler, World};
 /// returns plugin static reference to plugin instance.
 ///
 /// The easiest way to do this is to use [`export_arcana_plugin!`](`export_arcana_plugin`) macro.
-pub trait ArcanaPlugin: Sync {
+pub trait ArcanaPlugin: Any + Sync {
     /// Name of the plugin.
     fn name(&self) -> &'static str;
 
     /// Returns slice with plugins this plugins depends on.
     /// Dependencies must be initialized first and
     /// deinitialized last.
-    fn dependencies(&self) -> Vec<&'static dyn ArcanaPlugin> {
+    #[cfg(feature = "ed")]
+    fn dependencies(&self) -> Vec<(&'static dyn ArcanaPlugin, Dependency)> {
         vec![]
     }
 
@@ -30,11 +37,18 @@ pub trait ArcanaPlugin: Sync {
     /// Avoid adding entities here, because this method can be called again.
     fn init(&self, world: &mut World, scheduler: &mut Scheduler);
 
+    #[cfg(feature = "client")]
+    fn init_funnel(&self, funnel: &mut EventFunnel) {
+        let _ = funnel;
+    }
+
     /// De-initializes world and scheduler.
     /// Removes systems and resources that belongs to this plugin.
     /// This method is called when game instance is closed,
     /// plugin is disabled or replaced with another version.
-    fn deinit(&self, world: &mut World, scheduler: &mut Scheduler) {}
+    fn deinit(&self, world: &mut World, scheduler: &mut Scheduler) {
+        unimplemented!()
+    }
 
     /// Returns true if this plugin can be replaced with the `updated` plugin.
     /// The updated plugin should typically be a newer version of the same plugin.
@@ -66,6 +80,7 @@ pub trait ArcanaPlugin: Sync {
         unimplemented!()
     }
 
+    #[cfg(feature = "ed")]
     #[doc(hidden)]
     fn __running_arcana_instance_check(&self, check: &AtomicBool) {
         assert!(
@@ -75,9 +90,10 @@ pub trait ArcanaPlugin: Sync {
         );
     }
 
+    #[cfg(feature = "ed")]
     #[doc(hidden)]
-    fn __cmp_id(&self) -> *const () {
-        Self::init as *const ()
+    fn __eq(&self, other: &dyn ArcanaPlugin) -> bool {
+        self.type_id() == other.type_id()
     }
 }
 
@@ -139,9 +155,38 @@ macro_rules! export_arcana_plugin {
             }
         )?
 
-        pub fn __arcana_plugin() -> &'static $plugin {
-            static PLUGIN: $plugin = $plugin;
-            &PLUGIN
+        pub const fn __arcana_plugin() -> &'static $plugin {
+            &$plugin
+        }
+
+        $crate::feature_ed! {
+            pub fn dependency() -> (&'static dyn $crate::plugin::ArcanaPlugin, $crate::project::Dependency) {
+                (
+                    __arcana_plugin(),
+                    $crate::project::Dependency::Crates(env!("CARGO_PKG_VERSION").to_owned())
+                )
+            }
+        }
+
+        $crate::feature_ed! {
+            pub fn git_dependency(git: &str, branch: Option<&str>) -> (&'static dyn $crate::plugin::ArcanaPlugin, $crate::project::Dependency) {
+                (
+                    __arcana_plugin(),
+                    $crate::project::Dependency::Git {
+                        git: git.to_owned(),
+                        branch: branch.map(str::to_owned),
+                    }
+                )
+            }
+        }
+
+        $crate::feature_ed! {
+            pub fn path_dependency() -> (&'static dyn $crate::plugin::ArcanaPlugin, $crate::project::Dependency) {
+                (
+                    __arcana_plugin(),
+                    $crate::project::Dependency::from_path(env!("CARGO_MANIFEST_DIR")).unwrap(),
+                )
+            }
         }
     };
 }

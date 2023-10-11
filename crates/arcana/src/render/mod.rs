@@ -407,7 +407,7 @@ impl RenderNode {
         &self.name
     }
 
-    fn run<'a, 'b>(
+    fn render<'a, 'b>(
         &mut self,
         device: &'a mev::Device,
         queue: &'a mut mev::Queue,
@@ -661,7 +661,7 @@ pub fn render<'a>(
         let render = graph.renders.get_mut(&rid).unwrap();
 
         let cbufs_pre = cbufs.len();
-        let result = render.run(
+        let result = render.render(
             device,
             queue,
             &*world,

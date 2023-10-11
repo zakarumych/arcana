@@ -3,7 +3,7 @@ use arcana::{
     edict::{Res, ResMutNoSend, Scheduler, World},
     egui::{EguiRender, EguiResource},
     gametime::ClockStep,
-    mev::{self, Arguments, Constants},
+    mev::{self, Arguments, DeviceRepr},
     plugin::ArcanaPlugin,
     render::{Render, RenderBuilderContext, RenderContext, RenderError, RenderGraph, TargetId},
     winit::window::Window,
@@ -15,7 +15,7 @@ pub struct MainArguments {
     pub colors: mev::Buffer,
 }
 
-#[derive(mev::Constants)]
+#[derive(mev::DeviceRepr)]
 pub struct MainConstants {
     pub angle: f32,
     pub width: u32,
@@ -168,8 +168,9 @@ impl ArcanaPlugin for GamePlugin {
         "triangle"
     }
 
-    fn dependencies(&self) -> Vec<&'static dyn ArcanaPlugin> {
-        vec![dummy::__arcana_plugin()]
+    #[cfg(arcana_ed)]
+    fn dependencies(&self) -> Vec<(&'static dyn ArcanaPlugin, Dependency)> {
+        vec![dummy::path_dependency("../../crates/plugins/dummy")]
     }
 
     fn init(&self, world: &mut World, scheduler: &mut Scheduler) {

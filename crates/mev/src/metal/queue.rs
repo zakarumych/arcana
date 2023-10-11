@@ -1,4 +1,4 @@
-use crate::generic::{OutOfMemory, QueueError};
+use crate::generic::{DeviceError, OutOfMemory};
 
 use super::{CommandBuffer, CommandEncoder};
 
@@ -29,7 +29,7 @@ impl crate::traits::Queue for Queue {
         ))
     }
 
-    fn submit<I>(&mut self, command_buffers: I, _check_point: bool) -> Result<(), QueueError>
+    fn submit<I>(&mut self, command_buffers: I, _check_point: bool) -> Result<(), DeviceError>
     where
         I: IntoIterator<Item = CommandBuffer>,
     {

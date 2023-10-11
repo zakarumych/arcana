@@ -1,27 +1,26 @@
 //! Definitions to work with Arcana projects.
+#![allow(warnings)]
 
 use std::{
     fmt,
     fs::File,
     io::{Read, Seek, SeekFrom, Write},
     ops::Deref,
-    path::Path,
+    path::{Path, PathBuf},
 };
 
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 
 pub mod path;
 mod wrapper;
 
 use miette::{Context, IntoDiagnostic};
-use path::{real_path, RealPath, RealPathBuf};
+use path::{make_relative, normalizing_join, real_path};
 use serde::Deserializer;
 pub use wrapper::BuildProcess;
 
-use crate::path::make_relative;
-
 /// Project dependency.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(untagged)]
 pub enum Dependency {
     // Fetch from the crates.io
@@ -38,6 +37,28 @@ pub enum Dependency {
         #[serde(deserialize_with = "deserialize_path_expand_home")]
         path: Utf8PathBuf,
     },
+}
+
+impl Dependency {
+    pub fn from_path(path: impl AsRef<Path>) -> Option<Self> {
+        let path = Utf8Path::from_path(path.as_ref())?;
+        Some(Dependency::Path {
+            path: path.to_owned(),
+        })
+    }
+
+    pub fn make_relative(self, base: impl AsRef<Path>) -> Self {
+        match &self {
+            Dependency::Path { path } => {
+                let rel_path = make_relative(path.as_std_path(), base.as_ref());
+                let Ok(utf8_path) = Utf8PathBuf::from_path_buf(rel_path) else {
+                    return self;
+                };
+                Dependency::Path { path: utf8_path }
+            }
+            _ => self,
+        }
+    }
 }
 
 fn deserialize_path_expand_home<'de, D>(deserializer: D) -> Result<Utf8PathBuf, D::Error>
@@ -84,7 +105,7 @@ impl fmt::Display for Dependency {
     }
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Hash, serde::Serialize, serde::Deserialize)]
 pub struct Plugin {
     pub name: String,
     pub dep: Dependency,
@@ -298,7 +319,7 @@ mod plugins_serde {
 /// Locks corresponding "Arcana.toml" file.
 /// Syncs changes to the manifest.
 pub struct Project {
-    path: RealPathBuf,
+    path: PathBuf,
     file: File,
     manifest: ProjectManifest,
 }
@@ -311,32 +332,15 @@ impl fmt::Debug for Project {
 
 impl Project {
     pub fn new(
-        path: RealPathBuf,
-        name: Option<Ident>,
+        path: PathBuf,
+        name: Ident,
         engine: Option<Dependency>,
         new: bool,
     ) -> miette::Result<Self> {
+        assert!(path.is_absolute());
+
         let arcana_toml_path = path.join("Arcana.toml");
         let path_meta = path.metadata();
-
-        let name = match name {
-            None => {
-                let Some(file_name) = path.file_name() else {
-                    miette::bail!("Failed to get project name destination path");
-                };
-
-                if file_name.is_empty() || file_name == "." || file_name == ".." {
-                    miette::bail!("Failed to get project name destination path");
-                }
-
-                let Some(file_name) = file_name.to_str() else {
-                    miette::bail!("Failed to get project name destination path");
-                };
-
-                Ident::from_str(file_name).context("Failed to derive project name from path")?
-            }
-            Some(name) => name,
-        };
 
         if new {
             if path_meta.is_ok() {
@@ -443,7 +447,7 @@ impl Project {
     }
 
     pub fn find(path: &Path) -> miette::Result<Self> {
-        let mut candidate = real_path(path).into_diagnostic()?.into_path();
+        let mut candidate = real_path(path).into_diagnostic()?;
 
         loop {
             candidate.push("Arcana.toml");
@@ -527,15 +531,99 @@ impl Project {
         Ok(())
     }
 
-    pub fn add_plugin_with_path(&mut self, path: &Path, init: bool) -> miette::Result<String> {
+    pub fn add_plugin(&mut self, name: String, dep: Dependency) -> bool {
+        if self.manifest.plugins.iter().any(|p| p.name == name) {
+            return false;
+        }
+
+        let dep = dep.make_relative(&self.path);
+
+        tracing::info!("Plugin '{} added", name);
+        let plugin = Plugin {
+            name,
+            dep,
+            enabled: true,
+        };
+
+        self.manifest.plugins.push(plugin);
+        true
+    }
+
+    pub fn insert_plugin(&mut self, name: String, dep: Dependency, index: usize) -> bool {
+        if self.manifest.plugins.iter().any(|p| p.name == name) {
+            return false;
+        }
+
+        let dep = dep.make_relative(&self.path);
+
+        tracing::info!("Plugin '{} added", name);
+        let plugin = Plugin {
+            name,
+            dep,
+            enabled: true,
+        };
+
+        self.manifest.plugins.insert(index, plugin);
+        true
+    }
+
+    pub fn remove_plugin(&mut self, name: &str) -> bool {
+        let mut removed = false;
+        self.manifest.plugins.retain(|p| {
+            let retain = p.name != name;
+            removed |= !retain;
+            retain
+        });
+        removed
+    }
+
+    /// Initializes all plugin wrapper libs and workspace.
+    pub fn init_workspace(&self) -> miette::Result<()> {
+        wrapper::init_workspace(
+            &self.path,
+            &self.manifest.name,
+            self.manifest.engine.as_ref(),
+            &self.manifest.plugins,
+        )
+    }
+
+    pub fn build_plugins_library(&self) -> miette::Result<BuildProcess> {
+        wrapper::build_plugins(&self.path)
+    }
+
+    pub fn manifest(&self) -> &ProjectManifest {
+        &self.manifest
+    }
+
+    pub fn manifest_mut(&mut self) -> &mut ProjectManifest {
+        &mut self.manifest
+    }
+
+    pub fn run_editor(self) -> miette::Result<()> {
+        let Project { file, path, .. } = self;
+
+        drop(file);
+
+        let status = wrapper::run_editor(&path)
+            .status()
+            .map_err(|err| miette::miette!("Cannot run \"ed\" on \"{}\": {err}", path.display()))?;
+
+        match status.code() {
+            Some(0) => Ok(()),
+            Some(code) => miette::bail!("\"ed\" exited with code {}", code),
+            None => miette::bail!("\"ed\" terminated by signal"),
+        }
+    }
+
+    pub fn plugin_with_path(&self, path: &Path) -> miette::Result<(String, Dependency)> {
         let canon_path = real_path(path).into_diagnostic()?;
 
-        let lib_path: &RealPath;
+        let lib_path: &Path;
         let cargo_toml_path;
 
         if path.file_name() == Some("Cargo.toml".as_ref()) {
-            cargo_toml_path = canon_path.into_path();
-            lib_path = RealPath::wrap(cargo_toml_path.parent().unwrap());
+            cargo_toml_path = canon_path;
+            lib_path = cargo_toml_path.parent().unwrap();
         } else {
             cargo_toml_path = canon_path.join("Cargo.toml");
             lib_path = canon_path.as_ref();
@@ -568,92 +656,31 @@ impl Project {
             miette::miette!("Not a package manifest: \"{}\"", cargo_toml_path.display())
         })?;
 
-        if self.manifest.plugins.iter().any(|p| p.name == package.name) {
-            miette::bail!(
-                "Library \"{}\" is already added to the project",
-                package.name
-            );
+        Ok((
+            package.name,
+            Dependency::Path {
+                path: lib_path_str.into(),
+            },
+        ))
+    }
+
+    pub fn new_plugin_crate(
+        path: &Path,
+        name: &Ident,
+        engine: Option<&Dependency>,
+    ) -> miette::Result<()> {
+        if path.exists() {
+            miette::bail!("Path '{}' already exists", path.display());
         }
 
-        let dep = Dependency::Path {
-            path: lib_path_str.into(),
-        };
-
-        let plugin = Plugin {
-            name: package.name.clone(),
-            dep,
-            enabled: true,
-        };
-
-        self.manifest.plugins.push(plugin);
-        tracing::info!("Plugin '{} added", package.name);
-
-        if init {
-            self.init_workspace()?;
-        }
-
-        self.sync()?;
-        Ok(package.name)
-    }
-
-    pub fn remove_plugin(&mut self, name: &str, init: bool) -> miette::Result<()> {
-        let mut removed = false;
-        self.manifest.plugins.retain(|p| {
-            let retain = p.name != name;
-            removed |= !retain;
-            retain
-        });
-        tracing::info!("Plugin '{name} removed");
-
-        if init && removed {
-            self.init_workspace()?;
-        }
-        Ok(())
-    }
-
-    /// Initializes all plugin wrapper libs and workspace.
-    pub fn init_workspace(&self) -> miette::Result<()> {
-        wrapper::init_workspace(
-            &self.manifest.name,
-            self.manifest.engine.as_ref(),
-            &self.path,
-            &self.manifest.plugins,
-        )
-    }
-
-    pub fn build_plugins_library(&self) -> miette::Result<BuildProcess> {
-        wrapper::build_plugins(&self.path)
-    }
-
-    pub fn manifest(&self) -> &ProjectManifest {
-        &self.manifest
-    }
-
-    pub fn manifest_mut(&mut self) -> &mut ProjectManifest {
-        &mut self.manifest
-    }
-
-    pub fn run_editor(self) -> miette::Result<()> {
-        let Project { file, path, .. } = self;
-
-        drop(file);
-
-        let status = wrapper::run_editor(&path)
-            .status()
-            .map_err(|err| miette::miette!("Cannot run \"ed\" on \"{}\": {err}", path.display()))?;
-
-        match status.code() {
-            Some(0) => Ok(()),
-            Some(code) => miette::bail!("\"ed\" exited with code {}", code),
-            None => miette::bail!("\"ed\" terminated by signal"),
-        }
+        wrapper::new_plugin_crate(name, path, engine)
     }
 }
 
-fn is_in_cargo_workspace(path: &RealPath) -> bool {
+fn is_in_cargo_workspace(path: &Path) -> bool {
     for a in path.ancestors() {
         if a.exists() {
-            let mut candidate = a.as_path().to_owned();
+            let mut candidate = a.to_owned();
 
             loop {
                 candidate.push("Cargo.toml");

@@ -1,17 +1,15 @@
 //! Async event loop.
 
 use std::{
-    cell::Cell, future::Future, ops::Deref, ptr::NonNull, rc::Rc, sync::Arc, task::Poll,
-    time::Instant,
+    borrow::Borrow, cell::Cell, future::Future, ops::Deref, ptr::NonNull, rc::Rc, sync::Arc,
+    task::Poll, time::Instant,
 };
 
 use parking_lot::Mutex;
 
-use winit::{
-    event::{DeviceEvent, WindowEvent},
-    event_loop::EventLoopWindowTarget,
-    window::WindowId,
-};
+use winit::{event_loop::EventLoopWindowTarget, window::WindowId};
+
+pub use winit::event::*;
 
 #[cfg(target_os = "windows")]
 use winit::platform::windows::EventLoopBuilderExtWindows as _;

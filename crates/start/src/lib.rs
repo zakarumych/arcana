@@ -2,11 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use arcana_project::{
-    path::{make_relative, real_path, RealPath},
-    Dependency, Ident, Project,
-};
-use camino::Utf8PathBuf;
+use arcana_project::{path::real_path, Dependency, Ident, Project};
 use figa::Figa;
 use miette::{Context, IntoDiagnostic};
 
@@ -79,14 +75,13 @@ impl Start {
         path: &Path,
         name: Option<&str>,
         new: bool,
-        engine: Option<&Dependency>,
+        engine: Option<Dependency>,
     ) -> miette::Result<Project> {
-        let path = real_path(&path).into_diagnostic()?;
-        let engine = map_engine_dep(engine.or(self.config.engine.as_ref()), &path)?;
-        let name: Option<Ident> = name
-            .map(Ident::from_str)
-            .transpose()
-            .context("Invalid project name provided")?;
+        let engine = engine
+            .or_else(|| self.config.engine.clone())
+            .map(|d| d.make_relative(path));
+
+        let (path, name) = process_path_name(path, name)?;
         Project::new(path, name, engine, new)
     }
 
@@ -99,25 +94,60 @@ impl Start {
         p.init_workspace()?;
         p.run_editor()
     }
-}
 
-fn map_engine_dep(dep: Option<&Dependency>, base: &RealPath) -> miette::Result<Option<Dependency>> {
-    match dep {
-        Some(Dependency::Path { path }) if path.is_absolute() => {
-            Ok(Some(Dependency::Path { path: path.clone() }))
-        }
-        Some(Dependency::Path { path }) => Ok(Some(Dependency::Path {
-            path: rebase_dep_path(path.as_ref(), base)?,
-        })),
+    pub fn new_plugin(
+        &self,
+        path: &Path,
+        name: Option<&str>,
+        engine: Option<Dependency>,
+    ) -> miette::Result<()> {
+        let engine = engine
+            .or_else(|| self.config.engine.clone())
+            .map(|d| d.make_relative(path));
 
-        Some(arcana) => Ok(Some(arcana.clone())),
-        None => Ok(None),
+        let (path, name) = process_path_name(path, name)?;
+        Project::new_plugin_crate(&path, &name, engine.as_ref())
     }
 }
 
-fn rebase_dep_path(path: &Path, base: &RealPath) -> miette::Result<Utf8PathBuf> {
-    let path = real_path(path).into_diagnostic()?;
-    let path = make_relative(&path, &base);
-    let path = Utf8PathBuf::try_from(path).into_diagnostic()?;
-    Ok(path)
+// fn map_engine_dep(dep: Option<&Dependency>, base: &Path) -> miette::Result<Option<Dependency>> {
+//     match dep {
+//         Some(Dependency::Path { path }) if !path.is_absolute() => Ok(Some(Dependency::Path {
+//             path: rebase_dep_path(path.as_ref(), base)?,
+//         })),
+//         Some(arcana) => Ok(Some(arcana.clone())),
+//         None => Ok(None),
+//     }
+// }
+
+// fn rebase_dep_path(path: &Path, base: &Path) -> miette::Result<Utf8PathBuf> {
+//     let path = real_path(path).into_diagnostic()?;
+//     let path = make_relative(&path, &base);
+//     let path = Utf8PathBuf::try_from(path).into_diagnostic()?;
+//     Ok(path)
+// }
+
+fn process_path_name(path: &Path, name: Option<&str>) -> miette::Result<(PathBuf, Ident)> {
+    let path = real_path(&path).into_diagnostic()?;
+
+    let name = match name {
+        None => {
+            let Some(file_name) = path.file_name() else {
+                miette::bail!("Failed to get project name destination path");
+            };
+
+            if file_name.is_empty() || file_name == "." || file_name == ".." {
+                miette::bail!("Failed to get project name destination path");
+            }
+
+            let Some(file_name) = file_name.to_str() else {
+                miette::bail!("Failed to get project name destination path");
+            };
+
+            Ident::from_str(file_name).context("Failed to derive project name from path")?
+        }
+        Some(name) => Ident::from_str(name).context("Invalid project name provided")?,
+    };
+
+    Ok((path, name))
 }

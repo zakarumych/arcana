@@ -1,5 +1,5 @@
 [workspace]
-members = ["arcana", "dyn", "mev", "start", "plugins/dummy"]
+members = ["arcana", "dyn", "mev", "start", "plugins/*"]
 resolver = "2"
 
 
@@ -12,11 +12,13 @@ version = "0.1.0"
 
 [workspace.dependencies]
 alkahest = { version = "0.3", features = ["derive"] }
+approx = { version = "0.5" }
 argosy = { path = "../../argosy" }
 argosy-store = { path = "../../argosy/store" }
 ash = { version = "0.37.0", features = ["loaded"] }
 base64 = "0.21"
 bitflags = "2.0"
+bit-vec = { version = "0.6" }
 blink-alloc = { version = "0.3.1", features = ["nightly"] }
 bytemuck = { version = "1.7", features = ["derive"] }
 camino = "1.1"
@@ -31,7 +33,9 @@ edict = { version = "0.5.0", features = [
     "rayon",
 ], git = "http://github.com/zakarumych/edict" }
 egui = { version = "0.23", features = ["bytemuck"] }
+egui_dnd = { version = "0.5" }
 egui_dock = { version = "0.8.0" }
+egui-phosphor = { version = "0.3.0" }
 egui_tracing = { version = "0.2", git = "http://github.com/zakarumych/egui_tracing" }
 egui-winit = { version = "0.23" }
 flume = "0.11"
@@ -46,7 +50,7 @@ hidden-trait = "0.1"
 libloading = "0.8"
 metal = { version = "0.26.0" }
 miette = "5.9"
-na = { package = "nalgebra", version = "0.32" }
+na = { package = "nalgebra", version = "0.32", features = ["libm"] }
 naga = { version = "0.13", features = ["spv-in", "wgsl-in", "glsl-in"] }
 objc = { version = "0.2" }
 parking_lot = "0.12"
@@ -54,6 +58,8 @@ percent-encoding = "2.3"
 proc-macro2 = "1.0"
 rand = "0.8"
 rapid-qoi = "0.6"
+rapier2d = "0.17"
+parry2d = "0.13"
 quote = "1.0"
 raw-window-handle = "0.5"
 rfd = "0.12"
@@ -62,6 +68,7 @@ serde_json = { version = "1.0" }
 sha2 = "0.10"
 slab = "0.4"
 smallvec = "1.6"
+simba = { version = "0.8" }
 syn = "2.0"
 thiserror = "1.0"
 tokio = { version = "1.0", features = [
