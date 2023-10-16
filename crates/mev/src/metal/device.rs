@@ -414,6 +414,7 @@ fn compile_shader(
     for (i, entry) in module.entry_points.iter().enumerate() {
         let mut bindings = Bindings::new();
         let mut map = naga::back::msl::EntryPointResources::default();
+        map.sizes_buffer = Some(30);
         let mut next_buffer_slot = 0u8;
         let mut next_texture_slot = 0u8;
         let mut next_sampler_slot = 0u8;

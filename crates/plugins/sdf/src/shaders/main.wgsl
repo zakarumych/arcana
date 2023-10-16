@@ -39,7 +39,7 @@ struct Circle {
 
 
 struct Rect {
-    half: vec2f,
+    half_box: vec2f,
 }
 
 @group(0) @binding(0) var<storage> shapes: array<Shape>;
@@ -65,7 +65,7 @@ fn circle_sdf(cirle: Circle, sample: vec2f) -> f32 {
 }
 
 fn rect_sdf(rect: Rect, sample: vec2f) -> f32 {
-    let d = abs(sample) - rect.half;
+    let d = abs(sample) - rect.half_box;
     return length(max(d, vec2f(0f))) + min(max(d.x, d.y), 0f);
 }
 

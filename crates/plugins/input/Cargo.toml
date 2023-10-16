@@ -5,6 +5,6 @@ edition = "2021"
 publish = false
 
 [dependencies]
-arcana = { path = "..\\..\\arcana" }
+arcana = { path = "../../arcana" }
 hashbrown = { workspace = true }
 flume = { workspace = true }

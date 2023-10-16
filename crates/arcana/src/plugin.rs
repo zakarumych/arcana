@@ -84,8 +84,11 @@ pub trait ArcanaPlugin: Any + Sync {
     #[doc(hidden)]
     fn __running_arcana_instance_check(&self, check: &AtomicBool) {
         assert!(
-            check as *const _ == &GLOBAL_CHECK as *const _
-                && GLOBAL_CHECK.load(::core::sync::atomic::Ordering::Relaxed),
+            check as *const _ == &GLOBAL_CHECK as *const _,
+            "Wrong instance of Arcana library linked"
+        );
+        assert!(
+            GLOBAL_CHECK.load(::core::sync::atomic::Ordering::Relaxed),
             "Wrong instance of Arcana library linked"
         );
     }

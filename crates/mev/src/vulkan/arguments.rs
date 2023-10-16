@@ -27,7 +27,7 @@ where
 {
     const LAYOUT: ArgumentGroupLayout<'static> = T::LAYOUT;
 
-    #[inline(never)]
+    #[inline(always)]
     fn bind_render(&self, group: u32, encoder: &mut RenderCommandEncoder) {
         let Some(layout) = encoder.current_layout() else {
             panic!("Argument binding requires a pipeline to be bound to the encoder");

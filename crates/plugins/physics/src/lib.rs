@@ -56,7 +56,7 @@ pub struct Body {
     handle: rapier2d::dynamics::RigidBodyHandle,
 }
 
-struct PhysicsResource {
+pub struct PhysicsResource {
     pipeline: PhysicsPipeline,
     parameters: IntegrationParameters,
     islands: IslandManager,

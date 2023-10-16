@@ -121,9 +121,9 @@ pub trait Translator: Send {
 }
 
 pub struct Mapper<A> {
-    keyboard_map: HashMap<VirtualKeyCode, A>,
-    scancode_map: HashMap<ScanCode, A>,
-    mouse_map: HashMap<MouseButton, A>,
+    keyboard_map: HashMap<(VirtualKeyCode, ElementState), A>,
+    scancode_map: HashMap<(ScanCode, ElementState), A>,
+    mouse_map: HashMap<(MouseButton, ElementState), A>,
     move_map: fn(f64, f64) -> Option<A>,
 }
 
@@ -136,18 +136,18 @@ where
     fn on_keyboard_input(&mut self, input: &KeyboardInput) -> Option<A> {
         if let Some(action) = input
             .virtual_keycode
-            .and_then(|code| self.keyboard_map.get(&code))
+            .and_then(|code| self.keyboard_map.get(&(code, input.state)))
         {
             return Some(action.clone());
         }
-        if let Some(action) = self.scancode_map.get(&input.scancode) {
+        if let Some(action) = self.scancode_map.get(&(input.scancode, input.state)) {
             return Some(action.clone());
         }
         None
     }
 
     fn on_mouse_button(&mut self, button: MouseButton, state: ElementState) -> Option<A> {
-        self.mouse_map.get(&button).cloned()
+        self.mouse_map.get(&(button, state)).cloned()
     }
 
     fn on_mouse_move(&mut self, x: f64, y: f64) -> Option<A> {

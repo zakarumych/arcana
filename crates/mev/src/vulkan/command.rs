@@ -328,12 +328,12 @@ impl crate::traits::RenderCommandEncoder for RenderCommandEncoder<'_> {
         }
     }
 
-    #[inline(never)]
+    #[inline(always)]
     fn with_arguments(&mut self, group: u32, arguments: &impl Arguments) {
         arguments.bind_render(group, self);
     }
 
-    #[inline(never)]
+    #[inline(always)]
     fn with_constants(&mut self, constants: &impl DeviceRepr) {
         let Some(layout) = self.current_layout.as_ref() else {
             panic!("Constants binding requires a pipeline to be bound to the encoder");
@@ -429,7 +429,7 @@ impl crate::traits::CopyCommandEncoder for CopyCommandEncoder<'_> {
         self.refs.add_image(image.clone());
     }
 
-    #[inline(never)]
+    #[inline(always)]
     fn copy_buffer_to_image(
         &mut self,
         src: &Buffer,
@@ -482,7 +482,7 @@ impl crate::traits::CopyCommandEncoder for CopyCommandEncoder<'_> {
         }
     }
 
-    #[inline(never)]
+    #[inline(always)]
     fn copy_image_region(
         &mut self,
         src: &Image,
@@ -538,6 +538,10 @@ impl crate::traits::CopyCommandEncoder for CopyCommandEncoder<'_> {
 
     #[inline]
     fn write_buffer_raw(&mut self, buffer: &Buffer, offset: usize, data: &[u8]) {
+        if data.is_empty() {
+            return;
+        }
+
         self.refs.add_buffer(buffer.clone());
 
         const CHUNK_SIZE: usize = 65536;
@@ -569,13 +573,23 @@ impl crate::traits::CopyCommandEncoder for CopyCommandEncoder<'_> {
     }
 
     #[inline]
-    fn write_buffer(&mut self, buffer: &Buffer, offset: usize, data: &impl bytemuck::Pod) {
-        self.write_buffer_raw(buffer, offset, bytemuck::bytes_of(data));
+    fn write_buffer(
+        &mut self,
+        buffer: &crate::backend::Buffer,
+        offset: usize,
+        data: &impl bytemuck::Pod,
+    ) {
+        self.write_buffer_raw(buffer, offset, bytemuck::bytes_of(data))
     }
 
     #[inline]
-    fn write_buffer_slice(&mut self, buffer: &Buffer, offset: usize, data: &[impl bytemuck::Pod]) {
-        self.write_buffer_raw(buffer, offset, bytemuck::cast_slice(data));
+    fn write_buffer_slice(
+        &mut self,
+        buffer: &crate::backend::Buffer,
+        offset: usize,
+        data: &[impl bytemuck::Pod],
+    ) {
+        self.write_buffer_raw(buffer, offset, bytemuck::cast_slice(data))
     }
 }
 

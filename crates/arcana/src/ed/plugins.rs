@@ -40,7 +40,7 @@ impl fmt::Display for PluginsLibrary {
 
 impl PluginsLibrary {
     pub fn load(path: &Path) -> miette::Result<Self> {
-        #[cfg(windows)]
+        // #[cfg(windows)]
         let path = {
             let filename = match path.file_name() {
                 None => miette::bail!("Invalid plugins library path '{}'", path.display()),
@@ -93,12 +93,18 @@ impl PluginsLibrary {
         })?;
         let plugins = arcana_plugins();
 
-        for plugin in plugins {
-            plugin.__running_arcana_instance_check(&crate::plugin::GLOBAL_CHECK);
+        match plugins.len() {
+            1 => {
+                tracing::debug!("Loaded plugins library has one plugin");
+            }
+            len => {
+                tracing::debug!("Loaded plugins library has {len} plugins");
+            }
         }
 
         for plugin in plugins {
-            tracing::debug!("Loaded plugin '{name}'", name = plugin.name());
+            tracing::debug!("Verify plugin '{}'", plugin.name());
+            plugin.__running_arcana_instance_check(&crate::plugin::GLOBAL_CHECK);
         }
 
         Ok(PluginsLibrary { lib, plugins })
@@ -159,6 +165,9 @@ impl Plugins {
     pub fn add_plugin(&mut self, name: String, dep: Dependency, project: &mut Project) -> bool {
         if project.add_plugin(name, dep) {
             // Stop current build if there was one.
+            tracing::info!(
+                "Stopping current build process to re-build plugins library with new plugin"
+            );
             self.build = None;
             true
         } else {

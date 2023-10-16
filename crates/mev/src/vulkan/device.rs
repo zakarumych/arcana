@@ -873,7 +873,7 @@ impl Device {
         }
     }
 
-    #[inline(never)]
+    #[inline(always)]
     #[cold]
     pub(super) fn new_image_view(
         &self,

@@ -29,7 +29,11 @@ impl crate::traits::Queue for Queue {
         ))
     }
 
-    fn submit<I>(&mut self, command_buffers: I, _check_point: bool) -> Result<(), DeviceError>
+    fn submit<I>(
+        &mut self,
+        command_buffers: I,
+        _check_point: bool,
+    ) -> Result<(), DeviceError<Vec<CommandBuffer>>>
     where
         I: IntoIterator<Item = CommandBuffer>,
     {
@@ -37,5 +41,13 @@ impl crate::traits::Queue for Queue {
             buffer.commit();
         }
         Ok(())
+    }
+
+    /// Drop command buffers without submitting them to the queue.
+    fn drop_command_buffer<I>(&mut self, command_buffers: I)
+    where
+        I: IntoIterator<Item = CommandBuffer>,
+    {
+        command_buffers.into_iter().for_each(drop);
     }
 }

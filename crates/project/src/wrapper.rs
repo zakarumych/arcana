@@ -71,58 +71,58 @@ impl fmt::Display for ArcanaDependency<'_> {
     }
 }
 
-struct ArcanaDynDependency<'a>(Option<&'a Dependency>);
+// struct ArcanaDynDependency<'a>(Option<&'a Dependency>);
 
-impl fmt::Display for ArcanaDynDependency<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.0 {
-            None => write!(f, "\"{}\"", env!("CARGO_PKG_VERSION")),
-            Some(Dependency::Crates(version)) => write!(f, "\"{}\"", version),
-            Some(Dependency::Git { git, branch }) => {
-                if let Some(branch) = branch {
-                    write!(f, "{{ git = \"{git}\", branch = \"{branch}\" }}")
-                } else {
-                    write!(f, "{{ git = \"{git}\" }}")
-                }
-            }
-            Some(Dependency::Path { path }) => {
-                // Switch to arcana-dyn crate
-                if path.is_absolute() {
-                    if let Some(parent) = path.parent() {
-                        write!(
-                            f,
-                            "{{ path = \"{}/dyn\" }}",
-                            parent.as_str().escape_default()
-                        )
-                    } else {
-                        // Try like that
-                        write!(
-                            f,
-                            "{{ path = \"{}/../dyn\" }}",
-                            path.as_str().escape_default()
-                        )
-                    }
-                } else {
-                    // Workspace is currently hardcoded to be one directory down from the root.
-                    if let Some(parent) = path.parent() {
-                        write!(
-                            f,
-                            "{{ path = \"{}/dyn\" }}",
-                            parent.as_str().escape_default()
-                        )
-                    } else {
-                        // Try like that
-                        write!(
-                            f,
-                            "{{ path = \"{}/../dyn\" }}",
-                            path.as_str().escape_default()
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
+// impl fmt::Display for ArcanaDynDependency<'_> {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         match self.0 {
+//             None => write!(f, "\"{}\"", env!("CARGO_PKG_VERSION")),
+//             Some(Dependency::Crates(version)) => write!(f, "\"{}\"", version),
+//             Some(Dependency::Git { git, branch }) => {
+//                 if let Some(branch) = branch {
+//                     write!(f, "{{ git = \"{git}\", branch = \"{branch}\" }}")
+//                 } else {
+//                     write!(f, "{{ git = \"{git}\" }}")
+//                 }
+//             }
+//             Some(Dependency::Path { path }) => {
+//                 // Switch to arcana-dyn crate
+//                 if path.is_absolute() {
+//                     if let Some(parent) = path.parent() {
+//                         write!(
+//                             f,
+//                             "{{ path = \"{}/dyn\" }}",
+//                             parent.as_str().escape_default()
+//                         )
+//                     } else {
+//                         // Try like that
+//                         write!(
+//                             f,
+//                             "{{ path = \"{}/../dyn\" }}",
+//                             path.as_str().escape_default()
+//                         )
+//                     }
+//                 } else {
+//                     // Workspace is currently hardcoded to be one directory down from the root.
+//                     if let Some(parent) = path.parent() {
+//                         write!(
+//                             f,
+//                             "{{ path = \"{}/dyn\" }}",
+//                             parent.as_str().escape_default()
+//                         )
+//                     } else {
+//                         // Try like that
+//                         write!(
+//                             f,
+//                             "{{ path = \"{}/../dyn\" }}",
+//                             path.as_str().escape_default()
+//                         )
+//                     }
+//                 }
+//             }
+//         }
+//     }
+// }
 
 struct PluginDependency<'a> {
     dep: &'a Dependency,
@@ -175,11 +175,10 @@ members = ["plugins", "ed", "game"]
 
 [workspace.dependencies]
 arcana = {arcana}
-arcana-dyn = {arcana_dyn}
 "#,
         gh_issue = github_autogen_issue_template("workspace Cargo.toml"),
         arcana = ArcanaDependency(engine.as_ref()),
-        arcana_dyn = ArcanaDynDependency(engine.as_ref())
+        // arcana_dyn = ArcanaDynDependency(engine.as_ref())
     );
 
     let cargo_toml_path = workspace.join("Cargo.toml");
@@ -232,7 +231,7 @@ publish = false
 edition = "2021"
 
 [dependencies]
-arcana-dyn = {{ workspace = true }}
+arcana = {{ workspace = true, features = ["client", "server", "ed"] }}
 "#,
         gh_issue = github_autogen_issue_template("ed/Cargo.toml")
     );
@@ -259,11 +258,8 @@ arcana-dyn = {{ workspace = true }}
 //! If manual editing is required, consider posting your motivation in new GitHub issue
 //! [{gh_issue}]
 
-#[global_allocator]
-static ALLOC: arcana::alloc::ArcanaAllocator = arcana::alloc::ArcanaAllocator::new();
-
 fn main() {{
-    arcana_dyn::ed::run(env!("CARGO_MANIFEST_DIR").as_ref());
+    arcana::ed::run(env!("CARGO_MANIFEST_DIR").as_ref());
 }}
 "#,
         gh_issue = github_autogen_issue_template("ed/src/main.rs")
@@ -307,7 +303,7 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-arcana-dyn = {{ workspace = true }}
+arcana = {{ workspace = true, features = ["client", "server", "ed"] }}
 "#,
         gh_issue = github_autogen_issue_template("plugins/Cargo.toml")
     );
@@ -345,8 +341,8 @@ arcana-dyn = {{ workspace = true }}
 //! [{gh_issue}]
 
 #[no_mangle]
-pub const fn arcana_plugins() -> &'static [&'static dyn arcana_dyn::plugin::ArcanaPlugin] {{
-    const PLUGINS: [&'static dyn arcana_dyn::plugin::ArcanaPlugin; {plugins_count}] = ["#,
+pub fn arcana_plugins() -> &'static [&'static dyn arcana::plugin::ArcanaPlugin] {{
+    const PLUGINS: [&'static dyn arcana::plugin::ArcanaPlugin; {plugins_count}] = ["#,
         gh_issue = github_autogen_issue_template("plugins/src/lib.rs"),
         plugins_count = plugins.len(),
     );
@@ -548,6 +544,7 @@ pub fn run_editor(root: &Path) -> Command {
     let mut cmd = Command::new("cargo");
     cmd.arg("run")
         .arg("--package=ed")
+        // .arg("--release")
         .env("RUSTFLAGS", "-Zshare-generics=off -Cprefer-dynamic=yes")
         .current_dir(&workspace);
     cmd
@@ -561,7 +558,8 @@ pub fn build_plugins(root: &Path) -> miette::Result<BuildProcess> {
 
     let child = Command::new("cargo")
         .arg("build")
-        .arg("--verbose")
+        // .arg("--verbose")
+        // .arg("--release")
         .arg("--package=plugins")
         .env("RUSTFLAGS", "-Zshare-generics=off -Cprefer-dynamic=yes")
         .current_dir(&workspace)

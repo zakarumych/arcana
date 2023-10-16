@@ -4,7 +4,7 @@ use metal::NSUInteger;
 use smallvec::SmallVec;
 
 use crate::generic::{
-    Arguments, ClearColor, ClearDepthStencil, Constants, Extent2, Extent3, LoadOp, Offset2,
+    Arguments, ClearColor, ClearDepthStencil, DeviceRepr, Extent2, Extent3, LoadOp, Offset2,
     Offset3, OutOfMemory, PipelineStages, RenderPassDesc, StoreOp,
 };
 
@@ -160,10 +160,13 @@ impl Drop for CopyCommandEncoder<'_> {
 
 #[hidden_trait::expose]
 impl crate::traits::CopyCommandEncoder for CopyCommandEncoder<'_> {
+    #[inline]
     fn barrier(&mut self, _after: PipelineStages, _before: PipelineStages) {}
 
+    #[inline]
     fn init_image(&mut self, _after: PipelineStages, _before: PipelineStages, _image: &Image) {}
 
+    #[inline]
     fn copy_buffer_to_image(
         &mut self,
         src: &Buffer,
@@ -201,6 +204,7 @@ impl crate::traits::CopyCommandEncoder for CopyCommandEncoder<'_> {
         );
     }
 
+    #[inline]
     fn copy_image_region(
         &mut self,
         src: &Image,
@@ -239,7 +243,12 @@ impl crate::traits::CopyCommandEncoder for CopyCommandEncoder<'_> {
         }
     }
 
-    fn write_buffer(&mut self, buffer: &Buffer, offset: usize, data: &[u8]) {
+    #[inline]
+    fn write_buffer_raw(&mut self, buffer: &Buffer, offset: usize, data: &[u8]) {
+        if data.is_empty() {
+            return;
+        }
+
         let length = buffer.metal().length();
         let mut data_len = 0;
         let fits = match (u64::try_from(offset), u64::try_from(data.len())) {
@@ -264,6 +273,26 @@ impl crate::traits::CopyCommandEncoder for CopyCommandEncoder<'_> {
 
         self.encoder
             .copy_from_buffer(&staged, 0, buffer.metal(), offset as NSUInteger, data_len);
+    }
+
+    #[inline]
+    fn write_buffer(
+        &mut self,
+        buffer: &crate::backend::Buffer,
+        offset: usize,
+        data: &impl bytemuck::Pod,
+    ) {
+        self.write_buffer_raw(buffer, offset, bytemuck::bytes_of(data))
+    }
+
+    #[inline]
+    fn write_buffer_slice(
+        &mut self,
+        buffer: &crate::backend::Buffer,
+        offset: usize,
+        data: &[impl bytemuck::Pod],
+    ) {
+        self.write_buffer_raw(buffer, offset, bytemuck::cast_slice(data))
     }
 }
 

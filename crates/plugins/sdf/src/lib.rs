@@ -38,30 +38,6 @@ impl ArcanaPlugin for SdfPlugin {
                 (std::ptr::addr_of!($s.$f) as usize - std::ptr::addr_of!($s) as usize)
             };
         }
-
-        let c = <<MainConstants as DeviceRepr>::Repr as arcana::bytemuck::Zeroable>::zeroed();
-
-        dbg!(
-            c._pad_for_background.len(),
-            field_offset!(c.background),
-            c._pad_for_shape_count.len(),
-            field_offset!(c.shape_count),
-            c._pad_for_camera.len(),
-            field_offset!(c.camera),
-        );
-
-        let s = <<ShapeDevice as DeviceRepr>::Repr as arcana::bytemuck::Zeroable>::zeroed();
-
-        dbg!(
-            s._pad_for_inv_tr.len(),
-            field_offset!(s.inv_tr),
-            s._pad_for_color.len(),
-            field_offset!(s.color),
-            s._pad_for_kind.len(),
-            field_offset!(s.kind),
-            s._pad_for_payload.len(),
-            field_offset!(s.payload),
-        );
     }
 }
 

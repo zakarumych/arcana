@@ -35,7 +35,8 @@ pub(crate) use self::{
 
 // Minimize functions size by offloading panic to a separate function.
 #[cold]
-#[inline(never)]
+#[inline(always)]
+#[track_caller]
 fn out_of_bounds() -> ! {
     panic!("offset + data.len() > buffer.length()");
 }
