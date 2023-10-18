@@ -170,3 +170,6 @@ macro_rules! feature {
     (if server { $($yes:tt)* } $(else { $($no:tt)* })?) => { $crate::feature_server!($($yes)*); $($crate::not_feature_server!($($no)*);)? };
     (if ed { $($yes:tt)* } $(else { $($no:tt)* })?) => { $crate::feature_ed!($($yes)*); $($crate::not_feature_ed!($($no)*);)? };
 }
+
+// #[global_allocator]
+// static ALLOC: alloc::ArcanaAllocator = alloc::ArcanaAllocator;

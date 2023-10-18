@@ -49,14 +49,11 @@ pub struct Shape {
 }
 
 impl Shape {
-    pub fn new_rect(a: f32, b: f32) -> Self {
+    pub fn new_rect(width: f32, height: f32) -> Self {
         Self {
             color: [0.8, 0.2, 1.0, 1.0],
             transform: na::Affine2::identity(),
-            kind: ShapeKind::Rect {
-                width: a,
-                height: b,
-            },
+            kind: ShapeKind::Rect { width, height },
         }
     }
 }

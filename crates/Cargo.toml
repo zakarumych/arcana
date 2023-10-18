@@ -1,5 +1,5 @@
 [workspace]
-members = ["arcana", "dyn", "mev", "start", "plugins/*"]
+members = ["arcana", "mev", "start", "plugins/*"]
 resolver = "2"
 
 
@@ -12,6 +12,7 @@ version = "0.1.0"
 
 [workspace.dependencies]
 alkahest = { version = "0.3", features = ["derive"] }
+amity = { git = "https://github.com/zakarumych/amity.git" }
 approx = { version = "0.5" }
 argosy = { path = "../../argosy" }
 argosy-store = { path = "../../argosy/store" }

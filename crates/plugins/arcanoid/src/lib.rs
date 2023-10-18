@@ -9,6 +9,7 @@ use arcana::{
 };
 use camera::Camera2;
 use input::{new_commander, CommandQueue, InputHandler, Translator};
+use physics::{geometry::ColliderBuilder, PhysicsResource};
 use scene::Global2;
 use sdf::SdfRender;
 
@@ -57,6 +58,14 @@ impl ArcanaPlugin for ArcanoidPlugin {
             graph.present(target, window);
         }
 
+        let paddle_body = {
+            let mut physics = world.expect_resource_mut::<PhysicsResource>();
+            let paddle_body = physics.new_position_body();
+
+            physics.add_collider(&paddle_body, ColliderBuilder::cuboid(0.5, 0.5));
+            paddle_body
+        };
+
         let paddle = world
             .spawn((
                 PaddleState {
@@ -65,6 +74,7 @@ impl ArcanaPlugin for ArcanoidPlugin {
                 },
                 sdf::Shape::new_rect(1.0, 1.0),
                 Global2::identity(),
+                paddle_body,
             ))
             .id();
 
@@ -128,6 +138,13 @@ fn paddle_system(
             (true, false) => global.iso.translation.x -= 1.0,
             (false, true) => global.iso.translation.x += 1.0,
             _ => {}
+        }
+
+        if global.iso.translation.x < -15.0 {
+            global.iso.translation.x = -15.0;
+        }
+        if global.iso.translation.x > 15.0 {
+            global.iso.translation.x = 15.0;
         }
     }
 }

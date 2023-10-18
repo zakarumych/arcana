@@ -11,3 +11,4 @@ arcana = { path = "../../arcana" }
 scene = { path = "../scene" }
 rapier2d = "0.17"
 na = { workspace = true }
+amity = { workspace = true }

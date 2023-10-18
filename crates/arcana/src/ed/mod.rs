@@ -9,6 +9,7 @@ mod app;
 mod console;
 mod game;
 mod ide;
+mod memory;
 mod plugins;
 
 /// Editor tab.
@@ -16,6 +17,7 @@ mod plugins;
 enum Tab {
     Plugins,
     Console,
+    // Memory,
 }
 
 /// Runs the editor application

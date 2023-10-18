@@ -23,7 +23,7 @@ use crate::{
     },
 };
 
-use super::{console::Console, game::Games, plugins::Plugins, Tab};
+use super::{console::Console, game::Games, memory::Memory, plugins::Plugins, Tab};
 
 /// Editor app instance.
 /// Contains state of the editor.
@@ -176,12 +176,9 @@ impl TabViewer for AppModel {
 
     fn ui(&mut self, ui: &mut Ui, tab: &mut Tab) {
         match tab {
-            Tab::Plugins => {
-                Plugins::show(&mut self.world, ui);
-            }
-            Tab::Console => {
-                Console::show(&mut self.world, ui);
-            }
+            Tab::Plugins => Plugins::show(&mut self.world, ui),
+            Tab::Console => Console::show(&mut self.world, ui),
+            // Tab::Memory => Memory::show(&mut self.world, ui),
         }
     }
 
@@ -189,6 +186,7 @@ impl TabViewer for AppModel {
         match tab {
             Tab::Plugins => "Plugins".into(),
             Tab::Console => "Console".into(),
+            // Tab::Memory => "Memory".into(),
         }
     }
 }
@@ -315,6 +313,10 @@ impl Menu<'_> {
                         tabs.push_to_first_leaf(Console::tab());
                         ui.close_menu();
                     }
+                    // if ui.button("Memory").clicked() {
+                    //     tabs.push_to_first_leaf(Memory::tab());
+                    //     ui.close_menu();
+                    // }
                 });
             });
         });
