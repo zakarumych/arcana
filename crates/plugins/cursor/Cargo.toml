@@ -1,0 +1,12 @@
+[package]
+name = "cursor"
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+license.workspace = true
+version.workspace = true
+publish = false
+
+[dependencies]
+arcana = { path = "../../arcana", features = ["client"] }
+na = { workspace = true }

@@ -12,3 +12,5 @@ sdf = { path = "../sdf" }
 input = { path = "../input" }
 camera = { path = "../camera" }
 motion = { path = "../motion" }
+cursor = { path = "../cursor" }
+rand = { workspace = true }

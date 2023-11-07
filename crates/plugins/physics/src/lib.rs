@@ -11,7 +11,7 @@ arcana::feature_ed! {
 use rapier2d::{
     dynamics::{
         CCDSolver, ImpulseJointSet, IntegrationParameters, IslandManager, MultibodyJointSet,
-        RigidBodySet,
+        RigidBody, RigidBodySet,
     },
     geometry::{
         BroadPhase, Collider, ColliderHandle, ColliderSet, CollisionEvent, ContactPair, NarrowPhase,
@@ -60,7 +60,7 @@ impl ArcanaPlugin for PhysicsPlugin {
 /// Component that represents a physics body.
 /// Use `PhysicsResource` to create bodies.
 /// Use `PhysicsResource::add_collider` to add colliders to bodies.
-#[derive(Clone, Copy, Debug, Component)]
+#[derive(Debug, Component)]
 #[edict(name = "Body")]
 pub struct Body {
     handle: rapier2d::dynamics::RigidBodyHandle,
@@ -145,6 +145,14 @@ impl PhysicsResource {
         self.colliders
             .insert_with_parent(collider, body.handle, &mut self.bodies)
     }
+
+    pub fn get_body(&self, body: &Body) -> &RigidBody {
+        self.bodies.get(body.handle).unwrap()
+    }
+
+    pub fn get_body_mut(&mut self, body: &Body) -> &mut RigidBody {
+        self.bodies.get_mut(body.handle).unwrap()
+    }
 }
 
 fn assert_send<T: Send>() {}
@@ -185,8 +193,9 @@ fn physics_system(
     );
 
     for (body, global) in bodies.iter_mut() {
-        let rb = res.bodies.get(body.handle).unwrap();
+        let rb = res.bodies.get_mut(body.handle).unwrap();
         global.iso = *rb.position();
+        rb.reset_forces(false);
     }
 
     for collision in state.new_events.drain() {

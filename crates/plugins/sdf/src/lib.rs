@@ -7,11 +7,9 @@ use std::mem::size_of;
 use arcana::{
     blink_alloc::BlinkAlloc,
     edict::{self, Component, EntityId, Scheduler, World},
-    egui::{EguiRender, EguiResource},
     mev::{self, Arguments, DeviceRepr},
     plugin::ArcanaPlugin,
     render::{Render, RenderBuilderContext, RenderContext, RenderError, RenderGraph, TargetId},
-    winit::window::Window,
 };
 
 macro_rules! print_layout {
@@ -226,7 +224,7 @@ impl Render for SdfRender {
 
             let viewport = c
                 .viewport
-                .transform(0.5, dims.width() as f32 / dims.height() as f32);
+                .transform(1.0, dims.width() as f32 / dims.height() as f32);
 
             <[[f32; 3]; 3]>::from((g.iso * viewport).to_homogeneous())
         };
