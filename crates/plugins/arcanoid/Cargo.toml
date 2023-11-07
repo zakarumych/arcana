@@ -6,8 +6,9 @@ publish = false
 
 [dependencies]
 arcana = { path = "../../arcana" }
-scene = { path = "../../plugins/scene" }
-physics = { path = "../../plugins/physics" }
-sdf = { path = "../../plugins/sdf" }
-input = { path = "../../plugins/input" }
-camera = { path = "../../plugins/camera" }
+scene = { path = "../scene" }
+physics = { path = "../physics" }
+sdf = { path = "../sdf" }
+input = { path = "../input" }
+camera = { path = "../camera" }
+motion = { path = "../motion" }

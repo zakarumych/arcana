@@ -12,7 +12,8 @@ version = "0.1.0"
 
 [workspace.dependencies]
 alkahest = { version = "0.3", features = ["derive"] }
-amity = { git = "https://github.com/zakarumych/amity.git" }
+# amity = { git = "https://github.com/zakarumych/amity.git" }
+amity = { path = "../../amity" }
 approx = { version = "0.5" }
 argosy = { path = "../../argosy" }
 argosy-store = { path = "../../argosy/store" }
@@ -30,9 +31,10 @@ core-graphics-types = { version = "0.1" }
 denvars = { version = "0.3.2" }
 dirs = { version = "5.0" }
 dunce = "1.0"
-edict = { version = "0.5.0", features = [
-    "rayon",
-], git = "http://github.com/zakarumych/edict" }
+# edict = { version = "0.5.0", features = [
+#     "rayon",
+# ], git = "http://github.com/zakarumych/edict" }
+edict = { version = "0.5.0", path = "../../edict" }
 egui = { version = "0.23", features = ["bytemuck"] }
 egui_dnd = { version = "0.5" }
 egui_dock = { version = "0.8.0" }

@@ -67,12 +67,12 @@ fn derive_impl(input: syn::DeriveInput) -> syn::Result<proc_macro2::TokenStream>
         quote_spanned! { ty.span() => mev::for_macro::repr_append_field::<#ty>(#acc) }
     });
 
-    let tail_pad = quote::quote!(mev::for_macro::pad_align(#tail, 16));
-
     let total_align = data.fields.iter().fold(quote! { 0 }, |acc, field| {
         let ty = &field.ty;
         quote_spanned! { ty.span() => #acc | (mev::for_macro::repr_align_of::<#ty>() - 1) }
     });
+
+    let tail_pad = quote::quote!(mev::for_macro::pad_align(#tail, #total_align + 1));
 
     match data.fields {
         syn::Fields::Named(_) => {
@@ -89,7 +89,7 @@ fn derive_impl(input: syn::DeriveInput) -> syn::Result<proc_macro2::TokenStream>
                 .collect::<Vec<_>>();
 
             let tokens = quote::quote! {
-                #[repr(C, align(16))]
+                #[repr(C)]
                 #[doc(hidden)]
                 #[derive(Clone, Copy, Debug)]
                 #vis struct #name_repr {
@@ -105,7 +105,9 @@ fn derive_impl(input: syn::DeriveInput) -> syn::Result<proc_macro2::TokenStream>
 
                 impl mev::for_macro::DeviceRepr for #name {
                     type Repr = #name_repr;
+                    type ArrayRepr = #name_repr;
 
+                    #[inline(always)]
                     fn as_repr(&self) -> #name_repr {
                         #name_repr {
                             #(
@@ -114,6 +116,11 @@ fn derive_impl(input: syn::DeriveInput) -> syn::Result<proc_macro2::TokenStream>
                             )*
                             _mev_tail_pad: [0xDAu8; #tail_pad],
                         }
+                    }
+
+                    #[inline(always)]
+                    fn as_array_repr(&self) -> #name_repr {
+                        self.as_repr()
                     }
 
                     const ALIGN: usize = 1 + (#total_align);

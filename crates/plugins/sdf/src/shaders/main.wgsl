@@ -9,8 +9,8 @@ struct VertOutput {
 
 struct Constants {
     background: vec4f,
-    shape_count: u32,
     camera: mat3x3f,
+    shape_count: u32,
 }
 
 var<push_constant> pc: Constants;

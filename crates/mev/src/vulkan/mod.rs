@@ -47,7 +47,7 @@ fn handle_host_oom() -> ! {
 
 #[track_caller]
 fn unexpected_error(err: vk::Result) -> ! {
-    unreachable!("unexpected error: {err:?}")
+    panic!("unexpected error: {err:?}")
 }
 
 /// Version of the API.

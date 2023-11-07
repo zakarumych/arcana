@@ -1,5 +1,5 @@
 use arcana::{
-    edict::{self, Component, Scheduler, View, World},
+    edict::{self, ActionEncoder, Component, Entities, Scheduler, View, World},
     egui::{EguiRender, EguiResource},
     events::{ElementState, KeyboardInput, VirtualKeyCode},
     na,
@@ -8,7 +8,8 @@ use arcana::{
     winit::window::Window,
 };
 use camera::Camera2;
-use input::{new_commander, CommandQueue, InputHandler, Translator};
+use input::{insert_global_entity_controller, ActionQueue, InputHandler, Translator};
+use motion::{Motion2, MoveAfter2, MoveTo2};
 use physics::{geometry::ColliderBuilder, PhysicsResource};
 use scene::Global2;
 use sdf::SdfRender;
@@ -29,6 +30,7 @@ impl ArcanaPlugin for ArcanoidPlugin {
                 physics::path_dependency(),
                 sdf::path_dependency(),
                 input::path_dependency(),
+                motion::path_dependency(),
             ]
         }
     }
@@ -66,23 +68,44 @@ impl ArcanaPlugin for ArcanoidPlugin {
             paddle_body
         };
 
-        let paddle = world
+        let target = world
             .spawn((
-                PaddleState {
-                    left: false,
-                    right: false,
-                },
-                sdf::Shape::new_rect(1.0, 1.0),
-                Global2::identity(),
-                paddle_body,
+                sdf::Shape::new_rect(1.0, 1.0).with_color([0.1, 0.8, 0.2, 1.0]),
+                Global2::identity().translated(na::Vector2::new(-10.0, 20.0)),
             ))
             .id();
 
-        let commander = new_commander(PaddleTranslator, paddle, world).unwrap();
+        let paddle = world
+            .spawn((
+                // PaddleState {
+                //     left: false,
+                //     right: false,
+                // },
+                sdf::Shape::new_rect(1.0, 1.0),
+                Global2::identity(),
+                Motion2 {
+                    velocity: na::Vector2::new(10.0, 15.0),
+                    acceleration: na::Vector2::zeros(),
+                    deceleration: 0.0,
+                },
+                // MoveTo2 {
+                //     target: na::Point2::new(-10.0, 3.0),
+                //     acceleration: 20.0,
+                //     velocity: 10.0,
+                //     threshold: 4.0,
+                // },
+                MoveAfter2 {
+                    id: target,
+                    global_offset: na::Vector2::zeros(),
+                    local_offset: na::Vector2::zeros(),
+                    velocity: 10.0,
+                    acceleration: 12.0,
+                    threshold: 4.0,
+                },
+            ))
+            .id();
 
-        world
-            .expect_resource_mut::<InputHandler>()
-            .add_global_controller(Box::new(commander));
+        // insert_global_entity_controller(PaddleTranslator, paddle, world).unwrap();
 
         scheduler.add_system(paddle_system);
     }
@@ -111,20 +134,18 @@ impl Translator for PaddleTranslator {
     }
 }
 
-#[derive(Component)]
+#[derive(Clone, Copy, Component)]
 struct PaddleState {
     left: bool,
     right: bool,
 }
 
 fn paddle_system(
-    view: View<(
-        &mut PaddleState,
-        &mut Global2,
-        &mut CommandQueue<PaddleAction>,
-    )>,
+    paddles: View<(Entities, &mut PaddleState, &mut ActionQueue<PaddleAction>)>,
+    mut move_to: View<&mut MoveTo2>,
+    mut encoder: ActionEncoder,
 ) {
-    for (state, global, queue) in view {
+    for (e, state, queue) in paddles {
         for action in queue.drain() {
             match action {
                 PaddleAction::PaddleLeft => state.left = true,
@@ -134,17 +155,34 @@ fn paddle_system(
             }
         }
 
-        match (state.left, state.right) {
-            (true, false) => global.iso.translation.x -= 1.0,
-            (false, true) => global.iso.translation.x += 1.0,
-            _ => {}
-        }
+        let target = match (state.left, state.right) {
+            (true, true) | (false, false) => {
+                if move_to.get_mut(e).is_some() {
+                    encoder.drop_bundle::<(MoveTo2, Motion2)>(e);
+                }
+                continue;
+            }
+            (true, false) => na::Point2::new(-15.0, 12.0),
+            (false, true) => na::Point2::new(15.0, 12.0),
+        };
 
-        if global.iso.translation.x < -15.0 {
-            global.iso.translation.x = -15.0;
-        }
-        if global.iso.translation.x > 15.0 {
-            global.iso.translation.x = 15.0;
-        }
+        // let m = MoveTo2 {
+        //     target,
+        //     acceleration: 1.0,
+        //     max_velocity: 3.0,
+        //     threshold: 0.1,
+        // };
+
+        // match move_to.get_mut(e) {
+        //     Some(motion) => *motion = m,
+        //     None => encoder.insert(e, m),
+        // }
+
+        // if global.iso.translation.x < -15.0 {
+        //     global.iso.translation.x = -15.0;
+        // }
+        // if global.iso.translation.x > 15.0 {
+        //     global.iso.translation.x = 15.0;
+        // }
     }
 }

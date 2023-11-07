@@ -8,3 +8,4 @@ publish = false
 arcana = { path = "../../arcana" }
 hashbrown = { workspace = true }
 flume = { workspace = true }
+futures = { workspace = true }

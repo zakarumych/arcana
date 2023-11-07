@@ -25,7 +25,7 @@ impl ArcanaPlugin for ScenePlugin {
     }
 }
 
-#[derive(Clone, Copy, Component)]
+#[derive(Clone, Copy, Debug, Component)]
 #[repr(transparent)]
 pub struct Global2 {
     pub iso: na::Isometry2<f32>,
@@ -59,7 +59,7 @@ impl Global2 {
     }
 }
 
-#[derive(Clone, Copy, Component)]
+#[derive(Clone, Copy, Debug, Component)]
 #[repr(transparent)]
 pub struct Global3 {
     pub iso: na::Isometry3<f32>,
@@ -81,7 +81,7 @@ impl Global3 {
     }
 }
 
-#[derive(Clone, Copy, Relation)]
+#[derive(Clone, Copy, Debug, Relation)]
 #[edict(owned, exclusive)]
 #[repr(transparent)]
 pub struct Local2 {
@@ -104,7 +104,7 @@ impl Local2 {
     }
 }
 
-#[derive(Clone, Copy, Relation)]
+#[derive(Clone, Copy, Debug, Relation)]
 #[edict(owned, exclusive)]
 #[repr(transparent)]
 pub struct Local3 {
@@ -130,19 +130,19 @@ impl Local3 {
 fn scene_system2(
     root: View<(Entities, Related<Local2>), (Not<FilterRelates<Local2>>, With<Global2>)>,
     kid: View<(RelatesExclusive<&Local2>, Option<Related<Local2>>), With<Global2>>,
-    global: View<&mut Global2>,
+    mut global: View<&mut Global2>,
 ) {
     let mut queue = VecDeque::new();
 
     for (parent, children) in root {
-        let global = *global.get(parent).unwrap();
+        let global = *global.get_mut(parent).unwrap();
         queue.push_back((global, children));
     }
 
     while let Some((parent_global, children)) = queue.pop_front() {
         for &child in children {
             if let Some(((local, _), children)) = kid.get(child) {
-                let global = global.get(child).unwrap();
+                let global = global.get_mut(child).unwrap();
                 global.iso = parent_global.iso * local.iso;
                 if let Some(children) = children {
                     queue.push_back((*global, children));
@@ -155,19 +155,19 @@ fn scene_system2(
 fn scene_system3(
     root: View<(Entities, Related<Local3>), (Not<FilterRelates<Local3>>, With<Global3>)>,
     kid: View<(RelatesExclusive<&Local3>, Option<Related<Local3>>), With<Global3>>,
-    global: View<&mut Global3>,
+    mut global: View<&mut Global3>,
 ) {
     let mut queue = VecDeque::new();
 
     for (parent, children) in root {
-        let global = *global.get(parent).unwrap();
+        let global = *global.get_mut(parent).unwrap();
         queue.push_back((global, children));
     }
 
     while let Some((parent_global, children)) = queue.pop_front() {
         for &child in children {
             if let Some(((local, _), children)) = kid.get(child) {
-                let global = global.get(child).unwrap();
+                let global = global.get_mut(child).unwrap();
                 global.iso = parent_global.iso * local.iso;
                 if let Some(children) = children {
                     queue.push_back((*global, children));

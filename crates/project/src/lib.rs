@@ -17,7 +17,7 @@ mod wrapper;
 use miette::{Context, IntoDiagnostic};
 use path::{make_relative, normalizing_join, real_path};
 use serde::Deserializer;
-pub use wrapper::BuildProcess;
+pub use wrapper::{game_bin_path, BuildProcess};
 
 /// Project dependency.
 #[derive(Debug, Clone, Hash, serde::Serialize, serde::Deserialize)]
@@ -613,6 +613,29 @@ impl Project {
             Some(code) => miette::bail!("\"ed\" exited with code {}", code),
             None => miette::bail!("\"ed\" terminated by signal"),
         }
+    }
+
+    pub fn build_game(self) -> miette::Result<PathBuf> {
+        let Project {
+            file,
+            path,
+            manifest,
+            ..
+        } = self;
+
+        drop(file);
+
+        let status = wrapper::build_game(&path)
+            .status()
+            .map_err(|err| miette::miette!("Cannot build game \"{}\": {err}", path.display()))?;
+
+        match status.code() {
+            Some(0) => {}
+            Some(code) => miette::bail!("Game build exited with code {}", code),
+            None => miette::bail!("Game build terminated by signal"),
+        }
+
+        Ok(game_bin_path(&manifest.name, &path))
     }
 
     pub fn plugin_with_path(&self, path: &Path) -> miette::Result<(String, Dependency)> {

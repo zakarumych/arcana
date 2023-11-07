@@ -1,3 +1,7 @@
+arcana::not_feature_client! {
+    std::compile_error!("arcana/client feature is required");
+}
+
 use std::mem::size_of;
 
 use arcana::{
@@ -10,8 +14,19 @@ use arcana::{
     winit::window::Window,
 };
 
-arcana::feature_ed! {
-    use arcana::project::Dependency;
+macro_rules! print_layout {
+    ($name:ident {
+        $($field:ident)*
+    }) => {
+        let value = unsafe { core::mem::MaybeUninit::<<$name as DeviceRepr>::Repr>::zeroed().assume_init() };
+        let ptr = &value as *const _ as usize;
+        println!("{}: {} {{", stringify!($name), size_of::<<$name as DeviceRepr>::Repr>());
+        $(
+            let field_ptr = &value.$field as *const _ as usize;
+            println!("  {}: {}", stringify!($field), field_ptr - ptr);
+        )*
+        println!("}}");
+    };
 }
 
 use camera::Camera2;
@@ -27,17 +42,26 @@ impl ArcanaPlugin for SdfPlugin {
     }
 
     arcana::feature_ed! {
-        fn dependencies(&self) -> Vec<(&'static dyn ArcanaPlugin, Dependency)> {
+        fn dependencies(&self) -> Vec<(&'static dyn ArcanaPlugin, arcana::project::Dependency)> {
             vec![scene::path_dependency(), camera::path_dependency()]
         }
     }
 
     fn init(&self, _world: &mut World, _scheduler: &mut Scheduler) {
-        macro_rules! field_offset {
-            ($s:ident . $f:ident) => {
-                (std::ptr::addr_of!($s.$f) as usize - std::ptr::addr_of!($s) as usize)
-            };
-        }
+        print_layout!(MainConstants {
+            background
+            camera
+            shape_count
+        });
+        print_layout!(ShapeDevice {
+            inv_tr
+            color
+            kind
+            payload
+            layer
+        });
+        print_layout!(CirleDevice { radius });
+        print_layout!(RectDevice { half });
     }
 }
 
@@ -55,6 +79,11 @@ impl Shape {
             transform: na::Affine2::identity(),
             kind: ShapeKind::Rect { width, height },
         }
+    }
+
+    pub fn with_color(mut self, color: [f32; 4]) -> Self {
+        self.color = color;
+        self
     }
 }
 
@@ -95,8 +124,8 @@ pub struct MainArguments {
 #[derive(mev::DeviceRepr)]
 pub struct MainConstants {
     pub background: mev::vec4,
-    pub shape_count: u32,
     pub camera: mev::mat3,
+    pub shape_count: u32,
 }
 
 pub struct SdfRender {
@@ -285,8 +314,8 @@ impl Render for SdfRender {
 
         self.constants = MainConstants {
             background: mev::vec4(0.5, 0.2, 0.1, 1.0),
-            shape_count: shapes_count as u32,
             camera: mev::mat3::from(camera),
+            shape_count: shapes_count as u32,
         };
 
         self.shapes_device.clear();

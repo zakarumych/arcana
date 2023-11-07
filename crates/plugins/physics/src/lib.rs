@@ -1,8 +1,6 @@
-use std::sync::atomic::AtomicUsize;
-
 use amity::flip_queue::FlipQueue;
 use arcana::{
-    edict::{self, Component, EntityId, ResMut, Scheduler, State, View, ViewCell, World},
+    edict::{self, Component, EntityId, ResMut, Scheduler, State, View, World},
     plugin::ArcanaPlugin,
 };
 
@@ -34,6 +32,8 @@ impl ArcanaPlugin for PhysicsPlugin {
     }
 
     fn init(&self, world: &mut World, scheduler: &mut Scheduler) {
+        world.ensure_component_registered::<Body>();
+
         let res = PhysicsResource {
             pipeline: PhysicsPipeline::new(),
             parameters: IntegrationParameters::default(),
@@ -147,16 +147,20 @@ impl PhysicsResource {
     }
 }
 
+fn assert_send<T: Send>() {}
+fn assert_sync<T: Sync>() {}
+
+#[derive(Default)]
 pub struct PhysicsState {
     new_events: FlipQueue<CollisionEvent>,
 }
 
 fn physics_system(
     mut res: ResMut<PhysicsResource>,
-    bodies: View<(&Body, &mut Global2)>,
+    mut bodies: View<(&Body, &mut Global2)>,
     mut state: State<PhysicsState>,
 ) {
-    for (body, global) in bodies.iter() {
+    for (body, global) in bodies.iter_mut() {
         let rb = res.bodies.get_mut(body.handle).unwrap();
         rb.set_position(global.iso, true);
     }
@@ -180,7 +184,7 @@ fn physics_system(
         },
     );
 
-    for (body, global) in bodies.iter() {
+    for (body, global) in bodies.iter_mut() {
         let rb = res.bodies.get(body.handle).unwrap();
         global.iso = *rb.position();
     }
@@ -203,5 +207,15 @@ impl<'a> rapier2d::pipeline::EventHandler for EventHandler<'a> {
         _contact_pair: Option<&ContactPair>,
     ) {
         self.new_events.push(event);
+    }
+
+    fn handle_contact_force_event(
+        &self,
+        _dt: f32,
+        _bodies: &RigidBodySet,
+        _colliders: &ColliderSet,
+        _contact_pair: &ContactPair,
+        _total_force_magnitude: f32,
+    ) {
     }
 }

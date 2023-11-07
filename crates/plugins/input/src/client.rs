@@ -12,20 +12,9 @@ use arcana::{
 };
 use hashbrown::HashMap;
 
-use crate::CommandQueue;
+use crate::ActionQueue;
 
-struct InputFilter;
-
-impl EventFilter for InputFilter {
-    fn filter(&mut self, _: &Blink, world: &mut World, event: Event) -> Option<Event> {
-        world
-            .expect_resource_mut::<InputHandler>()
-            .handle(world, event)
-    }
-}
-
-/// Choses which controller to dispatch events to.
-pub struct InputHandler {
+pub struct InputFilter {
     /// Dispatch events from this device to this controller.
     device: HashMap<DeviceId, Box<dyn Controller>>,
 
@@ -37,28 +26,39 @@ pub struct InputHandler {
     global: Option<Box<dyn Controller>>,
 }
 
-impl InputHandler {
+impl EventFilter for InputFilter {
+    fn filter(&mut self, _: &Blink, world: &mut World, event: Event) -> Option<Event> {
+        self.add_controllers(world);
+        self.handle(world, event)
+    }
+}
+
+impl InputFilter {
     pub fn new() -> Self {
-        InputHandler {
+        InputFilter {
             device: HashMap::new(),
             window: HashMap::new(),
             global: None,
         }
     }
 
-    pub fn add_global_controller(&mut self, controller: Box<dyn Controller>) {
-        self.global = Some(controller);
+    pub fn add_controllers(&mut self, world: &mut World) {
+        let mut handler = world.expect_resource_mut::<InputHandler>();
+
+        for (bind, controller) in handler.add_controller.drain() {
+            match bind {
+                ControllerBind::Global => self.global = Some(controller),
+                ControllerBind::Device(device) => {
+                    self.device.insert(device, controller);
+                }
+                ControllerBind::Window(window) => {
+                    self.window.insert(window, controller);
+                }
+            }
+        }
     }
 
-    pub fn add_device_controller(&mut self, device: DeviceId, controller: Box<dyn Controller>) {
-        self.device.insert(device, controller);
-    }
-
-    pub fn add_window_controller(&mut self, window: WindowId, controller: Box<dyn Controller>) {
-        self.window.insert(window, controller);
-    }
-
-    pub fn handle(&mut self, world: &World, event: Event) -> Option<Event> {
+    pub fn handle(&mut self, world: &mut World, event: Event) -> Option<Event> {
         match event {
             Event::WindowEvent { window_id, event } => match event {
                 WindowEvent::KeyboardInput {
@@ -84,17 +84,61 @@ impl InputHandler {
     }
 }
 
+/// Choses which controller to dispatch events to.
+pub struct InputHandler {
+    add_controller: HashMap<ControllerBind, Box<dyn Controller>>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ControllerBind {
+    Global,
+    Device(DeviceId),
+    Window(WindowId),
+}
+
+impl InputHandler {
+    #[inline]
+    pub fn new() -> Self {
+        InputHandler {
+            add_controller: HashMap::new(),
+        }
+    }
+
+    #[inline]
+    pub fn add_controller(&mut self, controller: Box<dyn Controller>, bind: ControllerBind) {
+        self.add_controller.insert(bind, controller);
+    }
+
+    #[inline]
+    pub fn add_global_controller(&mut self, controller: Box<dyn Controller>) {
+        self.add_controller
+            .insert(ControllerBind::Global, controller);
+    }
+
+    #[inline]
+    pub fn add_device_controller(&mut self, device: DeviceId, controller: Box<dyn Controller>) {
+        self.add_controller
+            .insert(ControllerBind::Device(device), controller);
+    }
+
+    #[inline]
+    pub fn add_window_controller(&mut self, window: WindowId, controller: Box<dyn Controller>) {
+        self.add_controller
+            .insert(ControllerBind::Window(window), controller);
+    }
+}
+
 /// Consumer of input events.
 /// When added to InputHandler it may be associated with
 /// a specific device or window.
 pub trait Controller: Send {
-    fn on_keyboard_input(&mut self, world: &World, input: &KeyboardInput) {
+    fn on_keyboard_input(&mut self, world: &mut World, input: &KeyboardInput) {
         let _ = (world, input);
     }
-    fn on_mouse_button(&mut self, world: &World, button: MouseButton, state: ElementState) {
+    fn on_mouse_button(&mut self, world: &mut World, button: MouseButton, state: ElementState) {
         let _ = (world, button, state);
     }
-    fn on_mouse_move(&mut self, world: &World, x: f64, y: f64) {
+    fn on_mouse_move(&mut self, world: &mut World, x: f64, y: f64) {
         let _ = (world, x, y);
     }
 }
@@ -155,7 +199,7 @@ where
     }
 }
 
-pub struct Commander<T> {
+struct Commander<T> {
     translator: T,
     entity: EntityId,
 }
@@ -165,10 +209,11 @@ where
     T: Translator,
     T::Action: Send + 'static,
 {
-    fn send(&self, world: &World, action: T::Action) {
-        if let Ok(one) = world.try_view_one::<&mut CommandQueue<T::Action>>(self.entity) {
-            if let Some(queue) = one.get() {
-                queue.actions.push_back(action);
+    fn send(&self, world: &mut World, action: T::Action) {
+        if let Ok(queue) = world.get::<&mut ActionQueue<T::Action>>(self.entity) {
+            queue.actions.push_back(action);
+            if let Some(waker) = queue.waker.take() {
+                waker.wake();
             }
         }
     }
@@ -179,40 +224,65 @@ where
     T: Translator,
     T::Action: Send + 'static,
 {
-    fn on_keyboard_input(&mut self, world: &World, input: &KeyboardInput) {
+    fn on_keyboard_input(&mut self, world: &mut World, input: &KeyboardInput) {
         if let Some(action) = self.translator.on_keyboard_input(input) {
             self.send(world, action);
         }
     }
 
-    fn on_mouse_button(&mut self, world: &World, button: MouseButton, state: ElementState) {
+    fn on_mouse_button(&mut self, world: &mut World, button: MouseButton, state: ElementState) {
         if let Some(action) = self.translator.on_mouse_button(button, state) {
             self.send(world, action);
         }
     }
 
-    fn on_mouse_move(&mut self, world: &World, x: f64, y: f64) {
+    fn on_mouse_move(&mut self, world: &mut World, x: f64, y: f64) {
         if let Some(action) = self.translator.on_mouse_move(x, y) {
             self.send(world, action);
         }
     }
 }
 
-pub fn new_commander<T>(
+/// Inserts controller for entity into the world.
+///
+/// It will use provided translator to convert input events to actions
+/// that will be sent to the command queue component of the entity.
+pub fn insert_entity_controller<T>(
     translator: T,
     entity: EntityId,
+    bind: ControllerBind,
     world: &mut World,
-) -> Result<Commander<T>, NoSuchEntity>
+) -> Result<(), NoSuchEntity>
 where
-    T: Translator,
+    T: Translator + 'static,
     T::Action: Send + 'static,
 {
     let commander = Commander { translator, entity };
-    let queue = CommandQueue::<T::Action> {
+    let queue = ActionQueue::<T::Action> {
         actions: VecDeque::new(),
+        waker: None,
     };
     world.insert(entity, queue)?;
-    Ok(commander)
+    world
+        .expect_resource_mut::<InputHandler>()
+        .add_controller(Box::new(commander), bind);
+    Ok(())
+}
+
+/// Inserts controller for entity into the world.
+///
+/// It will use provided translator to convert input events to actions
+/// that will be sent to the command queue component of the entity.
+pub fn insert_global_entity_controller<T>(
+    translator: T,
+    entity: EntityId,
+    world: &mut World,
+) -> Result<(), NoSuchEntity>
+where
+    T: Translator + 'static,
+    T::Action: Send + 'static,
+{
+    insert_entity_controller(translator, entity, ControllerBind::Global, world)
 }
 
 pub fn init(world: &mut World, _scheduler: &mut Scheduler) {
@@ -220,5 +290,5 @@ pub fn init(world: &mut World, _scheduler: &mut Scheduler) {
 }
 
 pub fn init_funnel(funnel: &mut EventFunnel) {
-    funnel.add(InputFilter);
+    funnel.add(InputFilter::new());
 }

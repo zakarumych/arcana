@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, sync::Arc};
+use std::{collections::VecDeque, sync::Arc, time::Instant};
 
 use blink_alloc::Blink;
 use edict::{world::WorldBuilder, Scheduler, World};
@@ -15,6 +15,7 @@ use crate::{
     egui::{EguiFilter, EguiResource},
     events::{Event, EventLoop},
     funnel::{EventFilter, EventFunnel},
+    init_mev,
     plugin::ArcanaPlugin,
     render::{render_system, RenderGraph},
 };
@@ -182,15 +183,10 @@ impl Game {
         self.world.get_resource::<Quit>().is_some()
     }
 
-    pub fn tick(&mut self) {
+    pub fn tick(&mut self) -> Instant {
         self.blink.reset();
 
         let clock_step = self.clocks.step();
-
-        *self.world.expect_resource_mut::<ClockStep>() = ClockStep {
-            now: clock_step.now,
-            step: clock_step.step,
-        };
 
         let ticks = self
             .world
@@ -203,31 +199,73 @@ impl Game {
             debug_assert!(now >= self.last_fixed);
             let step = now - self.last_fixed;
             *self.world.expect_resource_mut::<ClockStep>() = ClockStep { now, step };
-            if cfg!(debug_assertions) {
-                self.fixed_scheduler.run_sequential(&mut self.world);
-            } else {
-                self.fixed_scheduler.run_rayon(&mut self.world);
-            }
+            // if cfg!(debug_assertions) {
+            self.fixed_scheduler.run_sequential(&mut self.world);
+            // } else {
+            //     self.fixed_scheduler.run_rayon(&mut self.world);
+            // }
             self.last_fixed = now;
             self.blink.reset();
         }
 
-        let ticks = self
-            .world
-            .expect_resource_mut::<Limiter>()
-            .0
-            .ticks(clock_step.now)
-            .count();
+        let mut limiter = self.world.expect_resource_mut::<Limiter>();
+        let next_tick = self.clocks.stamp_instant(limiter.0.next_tick().unwrap());
+
+        let ticks = limiter.0.ticks(clock_step.now).count();
+        drop(limiter);
 
         if ticks > 0 {
             self.world.expect_resource_mut::<FPS>().add(clock_step.now);
+            *self.world.expect_resource_mut::<ClockStep>() = clock_step;
 
-            if cfg!(debug_assertions) {
-                self.var_scheduler.run_sequential(&mut self.world);
-            } else {
-                self.var_scheduler.run_rayon(&mut self.world);
-            }
+            // if cfg!(debug_assertions) {
+            self.var_scheduler.run_sequential(&mut self.world);
+            // } else {
+            //     self.var_scheduler.run_rayon(&mut self.world);
+            // }
             self.blink.reset();
         }
+
+        next_tick
     }
+}
+
+/// Runs game in standalone mode
+pub fn run(plugins: &'static [&'static dyn ArcanaPlugin]) {
+    let event_collector = egui_tracing::EventCollector::default();
+
+    use tracing_subscriber::layer::SubscriberExt as _;
+
+    if let Err(err) = tracing::subscriber::set_global_default(
+        tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .finish()
+            .with(tracing_error::ErrorLayer::default())
+            .with(event_collector.clone()),
+    ) {
+        panic!("Failed to install tracing subscriber: {}", err);
+    }
+
+    EventLoop::run(|events| async move {
+        let (device, queue) = init_mev();
+        let mut game = Game::launch(
+            &events,
+            plugins.iter().copied(),
+            device,
+            Arc::new(Mutex::new(queue)),
+        );
+
+        loop {
+            for event in events.next(Some(Instant::now())).await {
+                game.on_event(event);
+            }
+
+            if game.should_quit() {
+                drop(game);
+                return;
+            }
+
+            game.tick();
+        }
+    });
 }

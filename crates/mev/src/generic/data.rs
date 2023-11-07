@@ -1,34 +1,107 @@
 use std::{
+    any::{type_name, TypeId},
     fmt::Debug,
-    mem::{align_of, size_of, MaybeUninit},
+    mem::{align_of, size_of, transmute, transmute_copy, MaybeUninit},
+    ptr::copy_nonoverlapping,
 };
 
 use bytemuck::{Pod, Zeroable};
 
-const fn max_align(a: usize, b: usize) -> usize {
-    if a > b {
-        a
-    } else {
-        b
-    }
+union TransmuteUnchecked<A: Copy, B: Copy> {
+    a: A,
+    b: B,
+}
+
+#[inline(always)]
+unsafe fn transmute_unchecked<A: Copy, B: Copy>(a: A) -> B {
+    debug_assert_eq!(size_of::<A>(), size_of::<B>());
+    unsafe { TransmuteUnchecked { a }.b }
 }
 
 /// Type represetable as a POD type with layout with GPU compatible.
-pub trait DeviceRepr {
+pub trait DeviceRepr: Sized + 'static {
+    /// The POD type with layout compatible with shaders.
     type Repr: bytemuck::Pod + Debug;
 
+    /// The POD type with layout compatible with shaders.
+    /// This is the same as `Self::Repr` but with tail padding up to `Self::ALIGN`.
+    type ArrayRepr: bytemuck::Pod + Debug;
+
+    /// Construct a `Self::Repr` from `&self`.
+    ///
+    /// This needs to be implemented if `Self::Repr` is not the same size as `Self`.
+    /// Typically implemented by `DeviceRepr` proc-macro and executed when
+    /// non-zero padding is required.
+    #[inline(always)]
     fn as_repr(&self) -> Self::Repr;
 
+    #[inline(always)]
+    fn make_array_repr(&self) -> Self::ArrayRepr {
+        unimplemented!("<{} as DeviceRepr>::make_array_repr must be implemented if size of `ArrayRepr` is not equal to size of `Repr`", type_name::<Self>());
+    }
+
+    #[inline(always)]
+    fn as_array_repr(&self) -> Self::ArrayRepr {
+        if size_of::<Self::Repr>() == size_of::<Self::ArrayRepr>() {
+            // Safety: transmutting between POD types with same size is safe.
+            unsafe { transmute_unchecked(self.as_repr()) }
+        }
+        self.make_array_repr()
+    }
+
+    #[inline(always)]
     fn as_bytes(repr: &Self::Repr) -> &[u8] {
         bytemuck::bytes_of(repr)
     }
 
-    fn as_bytes_array(repr: &[Self::Repr]) -> &[u8] {
+    #[inline(always)]
+    fn as_array_bytes(repr: &[Self::ArrayRepr]) -> &[u8] {
         bytemuck::cast_slice(repr)
     }
 
     const ALIGN: usize;
     const SIZE: usize = size_of::<Self::Repr>();
+    const ARRAY_SIZE: usize = size_of::<Self::ArrayRepr>();
+}
+
+impl<T, const N: usize> DeviceRepr for [T; N]
+where
+    T: DeviceRepr,
+{
+    type Repr = [T::ArrayRepr; N];
+    type ArrayRepr = [T::ArrayRepr; N];
+
+    #[inline(always)]
+    fn as_repr(&self) -> [T::ArrayRepr; N] {
+        if TypeId::of::<Self>() == TypeId::of::<T::ArrayRepr>() {
+            // Self is `ArrayRepr` so it is POD and can be copied.
+            return unsafe { transmute_copy(self) };
+        }
+        if TypeId::of::<Self>() == TypeId::of::<T::Repr>()
+            && size_of::<T::Repr>() == size_of::<T::ArrayRepr>()
+        {
+            // Self is `Repr` so it is POD and can be copied.
+            // Size of `Repr` and `ArrayRepr` matches.
+            return unsafe { transmute_copy(self) };
+        }
+
+        // Construct `ArrayRepr` from elements.
+        let mut repr: MaybeUninit<[T::ArrayRepr; N]> = MaybeUninit::uninit();
+        let ptr = repr.as_mut_ptr().cast::<T::ArrayRepr>();
+        for idx in 0..N {
+            unsafe {
+                ptr.add(idx).write(self[idx].as_array_repr());
+            }
+        }
+        unsafe { repr.assume_init() }
+    }
+
+    #[inline(always)]
+    fn as_array_repr(&self) -> [T::ArrayRepr; N] {
+        self.as_repr()
+    }
+
+    const ALIGN: usize = T::ALIGN;
 }
 
 /// Types that can be passed as arguments to shaders.
@@ -68,228 +141,115 @@ impl ScalarType {
     }
 }
 
-pub trait Scalar: crate::private::Sealed + DeviceRepr + Debug + 'static {
+pub trait Scalar: crate::private::Sealed + Sized + Debug + 'static {
     const TYPE: ScalarType;
+
+    type ScalarRepr: bytemuck::Pod + Debug;
+
+    #[inline(always)]
+    fn as_scalar_repr(&self) -> Self::ScalarRepr {
+        assert_eq!(align_of::<Self>(), align_of::<Self::ScalarRepr>());
+        assert_eq!(size_of::<Self>(), size_of::<Self::ScalarRepr>());
+        unsafe { *(self as *const Self as *const Self::ScalarRepr) }
+    }
+}
+
+impl<T> DeviceRepr for T
+where
+    T: Scalar,
+{
+    type Repr = T::ScalarRepr;
+    type ArrayRepr = T::ScalarRepr;
+
+    #[inline(always)]
+    fn as_repr(&self) -> Self::Repr {
+        self.as_scalar_repr()
+    }
+
+    #[inline(always)]
+    fn as_array_repr(&self) -> Self::ArrayRepr {
+        self.as_scalar_repr()
+    }
+
+    const ALIGN: usize = align_of::<Self>();
 }
 
 impl crate::private::Sealed for bool {}
 
 impl Scalar for bool {
     const TYPE: ScalarType = ScalarType::Bool;
-}
-
-impl DeviceRepr for bool {
-    type Repr = u8;
-
-    #[inline(always)]
-    fn as_repr(&self) -> u8 {
-        *self as u8
-    }
-
-    const ALIGN: usize = align_of::<u8>();
+    type ScalarRepr = u8;
 }
 
 impl crate::private::Sealed for i8 {}
 
-impl DeviceRepr for i8 {
-    type Repr = i8;
-
-    #[inline(always)]
-    fn as_repr(&self) -> i8 {
-        *self
-    }
-
-    const ALIGN: usize = align_of::<i8>();
-}
-
 impl Scalar for i8 {
     const TYPE: ScalarType = ScalarType::Sint8;
+    type ScalarRepr = Self;
 }
 
 impl crate::private::Sealed for u8 {}
 
-impl DeviceRepr for u8 {
-    type Repr = u8;
-
-    #[inline(always)]
-    fn as_repr(&self) -> u8 {
-        *self
-    }
-
-    const ALIGN: usize = align_of::<u8>();
-}
-
 impl Scalar for u8 {
     const TYPE: ScalarType = ScalarType::Uint8;
+    type ScalarRepr = Self;
 }
 
 impl crate::private::Sealed for i16 {}
 
-impl DeviceRepr for i16 {
-    type Repr = i16;
-
-    #[inline(always)]
-    fn as_repr(&self) -> i16 {
-        *self
-    }
-
-    const ALIGN: usize = align_of::<i16>();
-}
-
 impl Scalar for i16 {
     const TYPE: ScalarType = ScalarType::Sint16;
+    type ScalarRepr = Self;
 }
 
 impl crate::private::Sealed for u16 {}
 
-impl DeviceRepr for u16 {
-    type Repr = u16;
-
-    #[inline(always)]
-    fn as_repr(&self) -> u16 {
-        *self
-    }
-
-    const ALIGN: usize = align_of::<u16>();
-}
-
 impl Scalar for u16 {
     const TYPE: ScalarType = ScalarType::Uint16;
+    type ScalarRepr = Self;
 }
 
 impl crate::private::Sealed for i32 {}
 
-impl DeviceRepr for i32 {
-    type Repr = i32;
-
-    #[inline(always)]
-    fn as_repr(&self) -> i32 {
-        *self
-    }
-
-    const ALIGN: usize = align_of::<i32>();
-}
-
 impl Scalar for i32 {
     const TYPE: ScalarType = ScalarType::Sint32;
+    type ScalarRepr = Self;
 }
 
 impl crate::private::Sealed for u32 {}
 
-impl DeviceRepr for u32 {
-    type Repr = u32;
-
-    #[inline(always)]
-    fn as_repr(&self) -> u32 {
-        *self
-    }
-
-    const ALIGN: usize = align_of::<u32>();
-}
-
 impl Scalar for u32 {
     const TYPE: ScalarType = ScalarType::Uint32;
+    type ScalarRepr = Self;
 }
 
 impl crate::private::Sealed for i64 {}
 
-impl DeviceRepr for i64 {
-    type Repr = i64;
-
-    #[inline(always)]
-    fn as_repr(&self) -> i64 {
-        *self
-    }
-
-    const ALIGN: usize = align_of::<i64>();
-}
-
 impl Scalar for i64 {
     const TYPE: ScalarType = ScalarType::Sint64;
+    type ScalarRepr = Self;
 }
 
 impl crate::private::Sealed for u64 {}
 
-impl DeviceRepr for u64 {
-    type Repr = u64;
-
-    #[inline(always)]
-    fn as_repr(&self) -> u64 {
-        *self
-    }
-
-    const ALIGN: usize = align_of::<u64>();
-}
-
 impl Scalar for u64 {
     const TYPE: ScalarType = ScalarType::Uint64;
+    type ScalarRepr = Self;
 }
 
 impl crate::private::Sealed for f32 {}
 
-impl DeviceRepr for f32 {
-    type Repr = f32;
-
-    #[inline(always)]
-    fn as_repr(&self) -> f32 {
-        *self
-    }
-
-    const ALIGN: usize = align_of::<f32>();
-}
-
 impl Scalar for f32 {
     const TYPE: ScalarType = ScalarType::Float32;
+    type ScalarRepr = Self;
 }
 
 impl crate::private::Sealed for f64 {}
 
-impl DeviceRepr for f64 {
-    type Repr = f64;
-
-    #[inline(always)]
-    fn as_repr(&self) -> f64 {
-        *self
-    }
-
-    const ALIGN: usize = align_of::<f64>();
-}
-
 impl Scalar for f64 {
     const TYPE: ScalarType = ScalarType::Float64;
+    type ScalarRepr = Self;
 }
-
-// #[derive(Clone, Copy, Debug)]
-// #[repr(align(16), C)]
-// pub struct Align16<T> {
-//     value: T,
-//     padding: [u8; 16 - size_of::<T>() % 16],
-// }
-
-// unsafe impl<T> Zeroable for Align16<T>
-// where
-//     T: Zeroable,
-// {
-//     fn zeroed() -> Self {
-//         Align16(T::zeroed())
-//     }
-// }
-
-// impl<T, const N: usize> DeviceRepr for [T; N]
-// where
-//     T: DeviceRepr,
-// {
-//     type Pod = [Align16<T::Pod>; N];
-
-//     #[inline(always)]
-//     fn as_pod(&self) -> Self::Pod {
-//         let mut pod = [bytemuck::Zeroable::zeroed(); N];
-//         for (i, item) in self.iter().enumerate() {
-//             pod[i] = Align16(item.as_pod());
-//         }
-//         pod
-//     }
-// }
 
 /// Supported sizes of vectors.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -573,59 +533,63 @@ impl<T> DeviceRepr for vec2<T>
 where
     T: Scalar,
 {
-    type Repr = [T::Repr; 2];
+    type Repr = [T::ScalarRepr; 2];
+    type ArrayRepr = [T::ScalarRepr; 2];
 
-    fn as_repr(&self) -> [T::Repr; 2] {
-        [self.0[0].as_repr(), self.0[1].as_repr()]
+    #[inline(always)]
+    fn as_repr(&self) -> Self::Repr {
+        self.0.as_repr()
     }
 
-    const ALIGN: usize = max_align(size_of::<[T::Repr; 2]>(), T::ALIGN);
+    const ALIGN: usize = size_of::<[T::ScalarRepr; 2]>();
 }
 
 impl<T> DeviceRepr for vec3<T>
 where
     T: Scalar,
 {
-    type Repr = [T::Repr; 4];
+    type Repr = [T::ScalarRepr; 3];
+    type ArrayRepr = [T::ScalarRepr; 4];
 
-    fn as_repr(&self) -> [T::Repr; 4] {
-        [
-            self.0[0].as_repr(),
-            self.0[1].as_repr(),
-            self.0[2].as_repr(),
-            T::Repr::zeroed(),
-        ]
+    #[inline(always)]
+    fn as_repr(&self) -> Self::Repr {
+        self.0.as_repr()
     }
 
-    const ALIGN: usize = max_align(size_of::<[T::Repr; 4]>(), T::ALIGN);
+    #[inline(always)]
+    fn make_array_repr(&self) -> [T::ScalarRepr; 4] {
+        let [a, b, c] = self.0.as_repr();
+        [a, b, c, Zeroable::zeroed()]
+    }
+
+    const ALIGN: usize = size_of::<[T::ScalarRepr; 4]>();
 }
 
 impl<T> DeviceRepr for vec4<T>
 where
     T: Scalar,
 {
-    type Repr = [T::Repr; 4];
+    type Repr = [T::ScalarRepr; 4];
+    type ArrayRepr = [T::ScalarRepr; 4];
 
-    fn as_repr(&self) -> [T::Repr; 4] {
-        [
-            self.0[0].as_repr(),
-            self.0[1].as_repr(),
-            self.0[2].as_repr(),
-            self.0[3].as_repr(),
-        ]
+    #[inline(always)]
+    fn as_repr(&self) -> Self::Repr {
+        self.0.as_repr()
     }
 
-    const ALIGN: usize = max_align(size_of::<[T::Repr; 4]>(), T::ALIGN);
+    const ALIGN: usize = size_of::<[T::ScalarRepr; 4]>();
 }
 
 impl<T, const M: usize> DeviceRepr for mat<T, 2, M>
 where
     vec<T, M>: DeviceRepr,
 {
-    type Repr = [<vec<T, M> as DeviceRepr>::Repr; 2];
+    type Repr = [<vec<T, M> as DeviceRepr>::ArrayRepr; 2];
+    type ArrayRepr = [<vec<T, M> as DeviceRepr>::ArrayRepr; 2];
 
-    fn as_repr(&self) -> [<vec<T, M> as DeviceRepr>::Repr; 2] {
-        [self.0[0].as_repr(), self.0[1].as_repr()]
+    #[inline(always)]
+    fn as_repr(&self) -> Self::Repr {
+        self.0.as_repr()
     }
 
     const ALIGN: usize = <vec<T, M> as DeviceRepr>::ALIGN;
@@ -635,14 +599,12 @@ impl<T, const M: usize> DeviceRepr for mat<T, 3, M>
 where
     vec<T, M>: DeviceRepr,
 {
-    type Repr = [<vec<T, M> as DeviceRepr>::Repr; 3];
+    type Repr = [<vec<T, M> as DeviceRepr>::ArrayRepr; 3];
+    type ArrayRepr = [<vec<T, M> as DeviceRepr>::ArrayRepr; 3];
 
-    fn as_repr(&self) -> [<vec<T, M> as DeviceRepr>::Repr; 3] {
-        [
-            self.0[0].as_repr(),
-            self.0[1].as_repr(),
-            self.0[2].as_repr(),
-        ]
+    #[inline(always)]
+    fn as_repr(&self) -> Self::Repr {
+        self.0.as_repr()
     }
 
     const ALIGN: usize = <vec<T, M> as DeviceRepr>::ALIGN;
@@ -652,15 +614,12 @@ impl<T, const M: usize> DeviceRepr for mat<T, 4, M>
 where
     vec<T, M>: DeviceRepr,
 {
-    type Repr = [<vec<T, M> as DeviceRepr>::Repr; 4];
+    type Repr = [<vec<T, M> as DeviceRepr>::ArrayRepr; 4];
+    type ArrayRepr = [<vec<T, M> as DeviceRepr>::ArrayRepr; 4];
 
-    fn as_repr(&self) -> [<vec<T, M> as DeviceRepr>::Repr; 4] {
-        [
-            self.0[0].as_repr(),
-            self.0[1].as_repr(),
-            self.0[2].as_repr(),
-            self.0[3].as_repr(),
-        ]
+    #[inline(always)]
+    fn as_repr(&self) -> Self::Repr {
+        self.0.as_repr()
     }
 
     const ALIGN: usize = <vec<T, M> as DeviceRepr>::ALIGN;

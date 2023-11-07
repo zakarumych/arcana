@@ -3,5 +3,14 @@
     // Hover to view descriptions of existing attributes.
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
-    "configurations": []
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Launch",
+            "program": "C:\\Users\\user\\code\\xxx\\aaa\\crates\\target\\debug\\aaa.exe",
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
 }
