@@ -77,6 +77,14 @@ fn fs_main(@location(0) sample: vec2f) -> @location(0) vec4f {
         let d = sdf(shape, shape_sample.xy);
 
         if d <= 0f {
+            let dx = d / dpdx(d);
+            let dy = d / dpdy(d);
+            let dd = dx * dy / (dx * dx + dy * dy);
+
+            if abs(d) < 0.1f {
+                return vec4f(0f, 0f, 0f, 1f);
+            }
+
             return shape.color;
         }
     }

@@ -71,11 +71,19 @@ pub struct Shape {
 }
 
 impl Shape {
-    pub fn new_rect(width: f32, height: f32) -> Self {
+    pub fn rect(width: f32, height: f32) -> Self {
         Self {
             color: [0.8, 0.2, 1.0, 1.0],
             transform: na::Affine2::identity(),
             kind: ShapeKind::Rect { width, height },
+        }
+    }
+
+    pub fn circle(radius: f32) -> Self {
+        Self {
+            color: [0.8, 0.2, 1.0, 1.0],
+            transform: na::Affine2::identity(),
+            kind: ShapeKind::Circle { radius },
         }
     }
 
@@ -272,14 +280,14 @@ impl Render for SdfRender {
             }
         });
 
-        if arguments.shapes.size() < size_of::<ShapeDevice>() * shapes_count {
+        if arguments.shapes.size() < size_of::<<ShapeDevice as DeviceRepr>::Repr>() * shapes_count {
             arguments.shapes = ctx
                 .device()
                 .new_buffer(mev::BufferDesc {
                     size: size_of::<<ShapeDevice as DeviceRepr>::Repr>()
                         * shapes_count.next_power_of_two(),
                     name: "shapes",
-                    usage: mev::BufferUsage::UNIFORM,
+                    usage: mev::BufferUsage::STORAGE | mev::BufferUsage::TRANSFER_DST,
                     memory: mev::Memory::Shared,
                 })
                 .unwrap();
@@ -290,9 +298,10 @@ impl Render for SdfRender {
             arguments.circles = ctx
                 .device()
                 .new_buffer(mev::BufferDesc {
-                    size: size_of::<CirleDevice>() * shapes_count.next_power_of_two(),
+                    size: size_of::<<CirleDevice as DeviceRepr>::Repr>()
+                        * shapes_count.next_power_of_two(),
                     name: "circles",
-                    usage: mev::BufferUsage::UNIFORM,
+                    usage: mev::BufferUsage::STORAGE | mev::BufferUsage::TRANSFER_DST,
                     memory: mev::Memory::Shared,
                 })
                 .unwrap();
@@ -302,9 +311,10 @@ impl Render for SdfRender {
             arguments.rects = ctx
                 .device()
                 .new_buffer(mev::BufferDesc {
-                    size: size_of::<CirleDevice>() * shapes_count.next_power_of_two(),
+                    size: size_of::<<RectDevice as DeviceRepr>::Repr>()
+                        * shapes_count.next_power_of_two(),
                     name: "rects",
-                    usage: mev::BufferUsage::UNIFORM,
+                    usage: mev::BufferUsage::STORAGE | mev::BufferUsage::TRANSFER_DST,
                     memory: mev::Memory::Shared,
                 })
                 .unwrap();

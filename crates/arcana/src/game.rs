@@ -14,6 +14,7 @@ use winit::{
 use crate::{
     egui::{EguiFilter, EguiResource},
     events::{Event, EventLoop},
+    flow::init_flows,
     funnel::{EventFilter, EventFunnel},
     init_mev,
     plugin::ArcanaPlugin,
@@ -69,7 +70,7 @@ impl FPS {
             self.frames.pop_front();
         }
         self.frames.push_back(time);
-        while *self.frames.back().unwrap() > *self.frames.front().unwrap() + 30u32.seconds() {
+        while *self.frames.back().unwrap() > *self.frames.front().unwrap() + 30.seconds() {
             self.frames.pop_front();
         }
     }
@@ -91,7 +92,7 @@ pub struct Game {
     world: World,
     funnel: EventFunnel,
     blink: Blink,
-    last_fixed: TimeStamp,
+    fixed_now: TimeStamp,
     fixed_scheduler: Scheduler,
     var_scheduler: Scheduler,
 }
@@ -125,8 +126,8 @@ impl Game {
             step: TimeSpan::ZERO,
         });
 
-        world.insert_resource(Limiter(FrequencyTicker::new(120u32.khz(), clocks.now())));
-        world.insert_resource(FixedTicker(FrequencyTicker::new(1u32.hz(), clocks.now())));
+        world.insert_resource(Limiter(FrequencyTicker::new(120u32.khz())));
+        world.insert_resource(FixedTicker(FrequencyTicker::new(1u32.hz())));
         world.insert_resource(FPS::new());
         world.insert_resource(RenderGraph::new());
         world.insert_resource(EguiResource::new());
@@ -153,7 +154,9 @@ impl Game {
         var_scheduler.add_system(render_system);
 
         let blink = Blink::new();
-        let last_fixed = TimeStamp::start();
+        let fixed_now = TimeStamp::start();
+
+        init_flows(&mut world, &mut var_scheduler);
 
         for plugin in plugins {
             plugin.init(&mut world, &mut var_scheduler);
@@ -165,7 +168,7 @@ impl Game {
             world,
             funnel,
             blink,
-            last_fixed,
+            fixed_now,
             fixed_scheduler,
             var_scheduler,
         }
@@ -183,7 +186,7 @@ impl Game {
         self.world.get_resource::<Quit>().is_some()
     }
 
-    pub fn tick(&mut self) -> Instant {
+    pub fn tick(&mut self) {
         self.blink.reset();
 
         let clock_step = self.clocks.step();
@@ -192,27 +195,28 @@ impl Game {
             .world
             .expect_resource_mut::<FixedTicker>()
             .0
-            .ticks(clock_step.now);
+            .ticks(clock_step.step);
 
-        for now in ticks {
-            debug_assert!(now <= clock_step.now);
-            debug_assert!(now >= self.last_fixed);
-            let step = now - self.last_fixed;
-            *self.world.expect_resource_mut::<ClockStep>() = ClockStep { now, step };
+        for fixed_step in ticks {
+            self.fixed_now += fixed_step;
+
+            *self.world.expect_resource_mut::<ClockStep>() = ClockStep {
+                now: self.fixed_now,
+                step: fixed_step,
+            };
             // if cfg!(debug_assertions) {
             self.fixed_scheduler.run_sequential(&mut self.world);
             // } else {
             //     self.fixed_scheduler.run_rayon(&mut self.world);
             // }
-            self.last_fixed = now;
             self.blink.reset();
         }
 
-        let mut limiter = self.world.expect_resource_mut::<Limiter>();
-        let next_tick = self.clocks.stamp_instant(limiter.0.next_tick().unwrap());
-
-        let ticks = limiter.0.ticks(clock_step.now).count();
-        drop(limiter);
+        let mut ticks = self
+            .world
+            .expect_resource_mut::<Limiter>()
+            .0
+            .tick_count(clock_step.step);
 
         if ticks > 0 {
             self.world.expect_resource_mut::<FPS>().add(clock_step.now);
@@ -225,8 +229,6 @@ impl Game {
             // }
             self.blink.reset();
         }
-
-        next_tick
     }
 }
 

@@ -638,6 +638,22 @@ impl Project {
         Ok(game_bin_path(&manifest.name, &path))
     }
 
+    pub fn run_game(self) -> miette::Result<()> {
+        let Project { file, path, .. } = self;
+
+        drop(file);
+
+        let status = wrapper::run_game(&path)
+            .status()
+            .map_err(|err| miette::miette!("Cannot run game on \"{}\": {err}", path.display()))?;
+
+        match status.code() {
+            Some(0) => Ok(()),
+            Some(code) => miette::bail!("Game exited with code {}", code),
+            None => miette::bail!("Game terminated by signal"),
+        }
+    }
+
     pub fn plugin_with_path(&self, path: &Path) -> miette::Result<(String, Dependency)> {
         let canon_path = real_path(path).into_diagnostic()?;
 

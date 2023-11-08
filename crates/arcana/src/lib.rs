@@ -62,6 +62,7 @@ pub mod ed;
 
 pub mod assets;
 pub mod bundle;
+pub mod flow;
 pub mod plugin;
 
 pub fn version() -> &'static str {

@@ -1,7 +1,12 @@
 use arcana::{
-    edict::{self, ActionEncoder, Component, Entities, EntityId, Res, Scheduler, View, World},
+    edict::{
+        self, spawn_block, ActionEncoder, Component, Entities, EntityId, Res, Scheduler, View,
+        World,
+    },
     egui::{EguiRender, EguiResource},
     events::{ElementState, KeyboardInput, VirtualKeyCode},
+    flow::sleep,
+    gametime::{timespan, TimeSpan, TimeSpanNumExt},
     na,
     plugin::ArcanaPlugin,
     render::RenderGraph,
@@ -10,7 +15,7 @@ use arcana::{
 use camera::Camera2;
 use cursor::MainCursor;
 use input::{insert_global_entity_controller, ActionQueue, InputHandler, Translator};
-use motion::{Motion2, MoveAfter2, MoveTo2};
+use motion::{Motion2, Motor2, MoveAfter2, MoveTo2};
 use physics::{geometry::ColliderBuilder, PhysicsResource};
 use scene::Global2;
 use sdf::SdfRender;
@@ -63,12 +68,12 @@ impl ArcanaPlugin for ArcanoidPlugin {
             let mut physics = world.expect_resource_mut::<PhysicsResource>();
             let body = physics.new_dynamic_body();
 
-            physics.add_collider(&body, ColliderBuilder::cuboid(0.5, 0.5));
+            physics.add_collider(&body, ColliderBuilder::ball(1.0));
             body
         };
         let mut target = world
             .spawn((
-                sdf::Shape::new_rect(1.0, 1.0).with_color([
+                sdf::Shape::circle(1.0).with_color([
                     rand::random(),
                     rand::random(),
                     rand::random(),
@@ -76,13 +81,8 @@ impl ArcanaPlugin for ArcanoidPlugin {
                 ]),
                 Global2::identity(),
                 body,
-                MoveTo2 {
-                    target: na::Point2::new(0.0, 0.0),
-                    acceleration: 100.0,
-                    velocity: 30.0,
-                    threshold: 1.0,
-                    distance: 0.0,
-                },
+                MoveTo2::new(na::Point2::new(0.0, 0.0)),
+                Motor2::new(30.0, 100.0),
             ))
             .id();
 
@@ -106,52 +106,6 @@ impl ArcanaPlugin for ArcanoidPlugin {
             },
         );
 
-        for i in 0..20 {
-            let body = {
-                let mut physics = world.expect_resource_mut::<PhysicsResource>();
-                let body = physics.new_dynamic_body();
-
-                physics.add_collider(&body, ColliderBuilder::cuboid(0.5, 0.5));
-                body
-            };
-            target = world
-                .spawn((
-                    // PaddleState {
-                    //     // left: false,
-                    //     // right: false,
-                    //     chasing: MoveAfter2 {
-                    //         id: target,
-                    //         global_offset: na::Vector2::zeros(),
-                    //         local_offset: na::Vector2::zeros(),
-                    //         velocity: 30.0,
-                    //         acceleration: 100.0,
-                    //         threshold: 2.0,
-                    //     },
-                    // },
-                    sdf::Shape::new_rect(1.0, 1.0).with_color([
-                        rand::random(),
-                        rand::random(),
-                        rand::random(),
-                        1.0,
-                    ]),
-                    Global2::identity().translated(na::Vector2::new(
-                        rand::random::<f32>() * -10.0,
-                        rand::random::<f32>() * 10.0,
-                    )),
-                    body,
-                    MoveAfter2 {
-                        id: target,
-                        global_offset: na::Vector2::zeros(),
-                        local_offset: na::Vector2::zeros(),
-                        velocity: 10.0,
-                        acceleration: 80.0 - (i as f32 * 3.0),
-                        threshold: 2.0,
-                        distance: 1.4,
-                    },
-                ))
-                .id();
-        }
-
         // insert_global_entity_controller(PaddleTranslator, paddle, world).unwrap();
 
         let wall_body = {
@@ -163,12 +117,47 @@ impl ArcanaPlugin for ArcanoidPlugin {
             body
         };
         world.spawn((
-            sdf::Shape::new_rect(0.4, 10.0).with_color([0.3, 0.2, 0.1, 1.0]),
+            sdf::Shape::rect(0.4, 10.0).with_color([0.3, 0.2, 0.1, 1.0]),
             Global2::identity().translated(na::Vector2::new(4.0, 0.0)),
             wall_body,
         ));
 
         scheduler.add_system(paddle_system);
+
+        let mut new_node = move |world: &mut World| {
+            let body = {
+                let mut physics = world.expect_resource_mut::<PhysicsResource>();
+                let body = physics.new_dynamic_body();
+
+                physics.add_collider(&body, ColliderBuilder::ball(1.0));
+                body
+            };
+            target = world
+                .spawn((
+                    sdf::Shape::circle(1.0).with_color([
+                        rand::random(),
+                        rand::random(),
+                        rand::random(),
+                        1.0,
+                    ]),
+                    Global2::from_position(na::Point2::new(
+                        rand::random::<f32>() * -10.0,
+                        rand::random::<f32>() * 10.0,
+                    )),
+                    body,
+                    MoveAfter2::new(target).with_distance(2.0),
+                    Motor2::new(10.0, 100.0),
+                ))
+                .id();
+        };
+
+        spawn_block!(in ref world -> {
+            sleep(timespan!(2 seconds), world).await;
+            loop {
+                sleep(timespan!(1 s), world).await;
+                world.with_sync(|world| new_node(world));
+            }
+        });
     }
 }
 

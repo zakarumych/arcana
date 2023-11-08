@@ -88,13 +88,13 @@ where
     }
 
     let mut clock = Clock::new();
-    let mut limiter = FrequencyTicker::new(30u64.hz(), clock.now());
+    let mut limiter = FrequencyTicker::new(120u64.hz());
 
     EventLoop::run(|events| async move {
         let mut app = app(&events, event_collector);
 
         loop {
-            let deadline = clock.stamp_instant(limiter.next_tick().unwrap());
+            let deadline = clock.stamp_instant(limiter.next_tick_stamp(clock.now()).unwrap());
 
             for event in events.next(Some(deadline)).await {
                 app.on_event(event);
@@ -106,7 +106,7 @@ where
             }
 
             let step = clock.step();
-            if limiter.step_tick_count(step.step) > 0 {
+            if limiter.tick_count(step.step) > 0 {
                 app.tick(&events);
                 app.render();
             }

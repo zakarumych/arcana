@@ -91,14 +91,17 @@ enum Command {
         #[arg(long = "arcana", value_name = "arcana-dependency")]
         arcana: Option<ArcanaArg>,
     },
-    /// Builds the game binary.
+    /// Runs the game.
     Game {
         /// Path to the project directory.
         #[arg(value_name = "path", default_value = ".")]
         path: PathBuf,
-
-        #[arg(long)]
-        run: bool,
+    },
+    /// Cooks game together with assets and all binaries.
+    Cook {
+        /// Path to the project directory.
+        #[arg(value_name = "path", default_value = ".")]
+        path: PathBuf,
     },
 }
 
@@ -135,26 +138,30 @@ fn main() -> miette::Result<()> {
         Command::NewPlugin { path, name, arcana } => {
             start.new_plugin(&path, name.as_deref(), arcana.map(|a| a.arcana))?;
         }
-        Command::Game { path, run } => {
-            let path = start.build_game(&path)?;
+        Command::Game { path } => {
+            start.run_game(&path)?;
+        }
+        Command::Cook { .. } => {
+            unimplemented!()
+            //     let path = start.build_game(&path)?;
 
-            if run {
-                tracing::info!("Game binary: {}", path.display());
-                match std::process::Command::new(path).status() {
-                    Ok(status) => {
-                        if !status.success() {
-                            std::process::exit(status.code().unwrap_or(1));
-                        }
-                    }
-                    Err(err) => {
-                        eprintln!("Failed to run game: {}", err);
-                        std::process::exit(1);
-                    }
-                }
-            } else {
-                println!("Game binary");
-                println!("{}", path.display());
-            }
+            //     if run {
+            //         tracing::info!("Game binary: {}", path.display());
+            //         match std::process::Command::new(path).status() {
+            //             Ok(status) => {
+            //                 if !status.success() {
+            //                     std::process::exit(status.code().unwrap_or(1));
+            //                 }
+            //             }
+            //             Err(err) => {
+            //                 eprintln!("Failed to run game: {}", err);
+            //                 std::process::exit(1);
+            //             }
+            //         }
+            //     } else {
+            //         println!("Game binary");
+            //         println!("{}", path.display());
+            //     }
         }
     }
 

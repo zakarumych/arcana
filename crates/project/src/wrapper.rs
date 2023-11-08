@@ -569,6 +569,19 @@ pub fn run_editor(root: &Path) -> Command {
 }
 
 /// Construct a command to run ed for arcana project.
+pub fn run_game(root: &Path) -> Command {
+    let workspace = root.join(WORKSPACE_DIR_NAME);
+    let mut cmd = Command::new("cargo");
+    cmd.arg("run")
+        .arg("--package=game")
+        .arg("--features=arcana/ed")
+        // .arg("--release")
+        .env("RUSTFLAGS", "-Zshare-generics=off -Cprefer-dynamic=yes")
+        .current_dir(&workspace);
+    cmd
+}
+
+/// Construct a command to run ed for arcana project.
 pub fn build_game(root: &Path) -> Command {
     let workspace = root.join(WORKSPACE_DIR_NAME);
     let mut cmd = Command::new("cargo");

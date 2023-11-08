@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use arcana_project::{game_bin_path, path::real_path, Dependency, Ident, Project};
+use arcana_project::{path::real_path, Dependency, Ident, Project};
 use figa::Figa;
 use miette::{Context, IntoDiagnostic};
 
@@ -113,6 +113,12 @@ impl Start {
         let p = Project::find(&path)?;
         p.init_workspace()?;
         p.build_game()
+    }
+
+    pub fn run_game(&self, path: &Path) -> miette::Result<()> {
+        let p = Project::find(&path)?;
+        p.init_workspace()?;
+        p.run_game()
     }
 }
 

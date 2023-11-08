@@ -27,15 +27,94 @@ impl ArcanaPlugin for MotionPlugin {
     }
 
     fn init(&self, world: &mut World, scheduler: &mut Scheduler) {
+        world.ensure_component_registered::<Motor2>();
         world.ensure_component_registered::<Motion2>();
         world.ensure_component_registered::<MoveTo2>();
         world.ensure_component_registered::<MoveAfter2>();
 
-        scheduler.add_system(motion_after_system_initial);
+        scheduler.add_system(motion_after_init_system);
+        scheduler.add_system(move_to_init_system);
         scheduler.add_system(motion_after_system);
         scheduler.add_system(move_to_system);
-        scheduler.add_system(move_to_system_initial);
         scheduler.add_system(motion_system);
+    }
+}
+
+pub struct Motor2 {
+    /// Cruise velocity for the motor.
+    pub velocity: f32,
+
+    /// Maximum acceleration for the motor.
+    pub acceleration: f32,
+
+    /// Deceleration threshold.
+    pub threshold: f32,
+}
+
+impl Component for Motor2 {
+    fn name() -> &'static str {
+        "Motor2"
+    }
+}
+
+impl Motor2 {
+    pub fn new(velocity: f32, acceleration: f32) -> Self {
+        // Find stopping threshold and add 10% to it just in case.
+        let threshold = (velocity * velocity / acceleration / 2.0) * 1.1;
+        Motor2 {
+            velocity,
+            acceleration,
+            threshold,
+        }
+    }
+
+    pub fn with_threshold(mut self, threshold: f32) -> Self {
+        self.threshold = threshold;
+        self
+    }
+
+    fn initial_state(position: na::Vector2<f32>) -> Motor2State {
+        Motor2State {
+            prev_position: position,
+            // integral: na::Vector2::zeros(),
+        }
+    }
+
+    /// Calculate required motion for the entity to eventually reach the target.
+    fn update(
+        &self,
+        position: na::Vector2<f32>,
+        target: na::Point2<f32>,
+        distance: f32,
+        state: &mut Motor2State,
+        delta_time: f32,
+    ) -> na::Vector2<f32> {
+        let mut target = target.coords - position;
+        let mut target_mag = target.magnitude();
+
+        let target_velocity;
+
+        if target_mag < distance {
+            target = na::Vector2::zeros();
+            target_mag = 0.0;
+        } else {
+            target -= target / target_mag * distance;
+            target_mag -= distance;
+        }
+
+        if target_mag < self.threshold {
+            target_velocity = self.velocity * target / self.threshold;
+        } else {
+            target_velocity = self.velocity * target / target_mag;
+        }
+
+        let velocity = (position - state.prev_position) / delta_time;
+        state.prev_position = position;
+        let error = target_velocity - velocity;
+
+        let correction = error / delta_time;
+
+        correction.cap_magnitude(self.acceleration)
     }
 }
 
@@ -97,14 +176,13 @@ fn motion_system(view: View<(&mut Motion2, &mut Global2), Without<Body>>, clocks
     }
 }
 
-struct MoveTo2State {
+struct Motor2State {
     prev_position: na::Vector2<f32>,
-    // integral: na::Vector2<f32>,
 }
 
-impl Component for MoveTo2State {
+impl Component for Motor2State {
     fn name() -> &'static str {
-        "MoveTo2State"
+        "Motor2State"
     }
 }
 
@@ -114,60 +192,21 @@ pub struct MoveTo2 {
     /// Target of the motion.
     pub target: na::Point2<f32>,
 
-    /// Maximum velocity.
-    pub velocity: f32,
-
-    /// Maximum acceleration.
-    pub acceleration: f32,
-
-    /// Deceleration threshold.
-    pub threshold: f32,
-
     /// Distance offset.
     pub distance: f32,
 }
 
 impl MoveTo2 {
-    fn initial_state(position: na::Vector2<f32>) -> MoveTo2State {
-        MoveTo2State {
-            prev_position: position,
-            // integral: na::Vector2::zeros(),
+    pub fn new(target: na::Point2<f32>) -> Self {
+        MoveTo2 {
+            target,
+            distance: EPSILON,
         }
     }
 
-    /// Calculate required motion for the entity to eventually reach the target.
-    fn update(
-        &self,
-        position: &na::Vector2<f32>,
-        state: &mut MoveTo2State,
-        delta_time: f32,
-    ) -> na::Vector2<f32> {
-        let mut target = self.target.coords - *position;
-        let mut target_mag = target.magnitude();
-
-        let target_velocity;
-
-        if target_mag < self.distance {
-            target = na::Vector2::zeros();
-            target_mag = 0.0;
-        } else {
-            target -= target / target_mag * self.distance;
-            target_mag -= self.distance;
-        }
-
-        if target_mag < self.threshold {
-            target_velocity = self.velocity * target / self.threshold;
-        } else {
-            target_velocity = self.velocity * target / target_mag;
-        }
-
-        let velocity = (position - state.prev_position) / delta_time;
-        state.prev_position = *position;
-        let error = target_velocity - velocity;
-
-        let correction = error / delta_time;
-
-        correction.cap_magnitude(self.acceleration)
+    pub fn with_distance(mut self, distance: f32) -> Self {
+        self.distance = distance;
+        self
     }
 }
 
@@ -178,18 +217,33 @@ impl Component for MoveTo2 {
 }
 
 /// Applies motion to entities.
-fn move_to_system_initial(
-    view: View<(Entities, &Global2, &MoveTo2, Xor2<&mut Motion2, &Body>), Without<MoveTo2State>>,
+fn move_to_init_system(
+    initial: View<
+        (
+            Entities,
+            &Global2,
+            &MoveTo2,
+            &Motor2,
+            Xor2<&mut Motion2, &Body>,
+        ),
+        Without<Motor2State>,
+    >,
     clocks: Res<ClockStep>,
     mut physics: ResMut<PhysicsResource>,
     mut encoder: ActionEncoder,
 ) {
     let delta_time = clocks.step.as_secs_f32();
 
-    for (e, g, mt, m_b) in view {
-        let mut state = MoveTo2::initial_state(g.iso.translation.vector);
+    for (e, g, mt, m, m_b) in initial {
+        let mut state = Motor2::initial_state(g.iso.translation.vector);
 
-        let acc = mt.update(&g.iso.translation.vector, &mut state, delta_time);
+        let acc = m.update(
+            g.iso.translation.vector,
+            mt.target,
+            mt.distance,
+            &mut state,
+            delta_time,
+        );
 
         match m_b {
             (Some(m), None) => {
@@ -210,10 +264,11 @@ fn move_to_system_initial(
 
 /// Applies motion to entities.
 fn move_to_system(
-    view: View<(
+    with_state: View<(
         &Global2,
         &MoveTo2,
-        &mut MoveTo2State,
+        &Motor2,
+        &mut Motor2State,
         Xor2<&mut Motion2, &mut Body>,
     )>,
     clocks: Res<ClockStep>,
@@ -221,8 +276,14 @@ fn move_to_system(
 ) {
     let delta_time = clocks.step.as_secs_f32();
 
-    for (g, mt, ms, m_b) in view {
-        let acc = mt.update(&g.iso.translation.vector, ms, delta_time);
+    for (g, mt, m, ms, m_b) in with_state {
+        let acc = m.update(
+            g.iso.translation.vector,
+            mt.target,
+            mt.distance,
+            ms,
+            delta_time,
+        );
         match m_b {
             (Some(m), None) => {
                 m.acceleration = acc;
@@ -256,17 +317,34 @@ pub struct MoveAfter2 {
     // both offsets are used to calculate final offset
     pub local_offset: na::Vector2<f32>,
 
-    /// Maximum velocity.
-    pub velocity: f32,
-
-    /// Maximum acceleration.
-    pub acceleration: f32,
-
-    /// Distance to target at which motion is stopped.
-    pub threshold: f32,
-
     /// Distance offset.
     pub distance: f32,
+}
+
+impl MoveAfter2 {
+    pub fn new(id: EntityId) -> Self {
+        MoveAfter2 {
+            id,
+            global_offset: na::Vector2::zeros(),
+            local_offset: na::Vector2::zeros(),
+            distance: EPSILON,
+        }
+    }
+
+    pub fn with_global_offset(mut self, offset: na::Vector2<f32>) -> Self {
+        self.global_offset = offset;
+        self
+    }
+
+    pub fn with_local_offset(mut self, offset: na::Vector2<f32>) -> Self {
+        self.local_offset = offset;
+        self
+    }
+
+    pub fn with_distance(mut self, distance: f32) -> Self {
+        self.distance = distance;
+        self
+    }
 }
 
 impl Component for MoveAfter2 {
@@ -275,9 +353,18 @@ impl Component for MoveAfter2 {
     }
 }
 
-/// Initial system to start MoveAfter2 motion.
-fn motion_after_system_initial(
-    view: View<(Entities, &Global2, &MoveAfter2, Xor2<&mut Motion2, &Body>), Without<MoveTo2State>>,
+/// System to perform MoveAfter2 motion.
+fn motion_after_init_system(
+    initial: View<
+        (
+            Entities,
+            &Global2,
+            &MoveAfter2,
+            &Motor2,
+            Xor2<&mut Motion2, &Body>,
+        ),
+        Without<Motor2State>,
+    >,
     globals: View<&Global2>,
     clocks: Res<ClockStep>,
     mut physics: ResMut<PhysicsResource>,
@@ -285,20 +372,19 @@ fn motion_after_system_initial(
 ) {
     let delta_time = clocks.step.as_secs_f32();
 
-    for (e, g, ma, m_b) in view {
+    for (e, g, ma, m, m_b) in initial {
         match globals.try_get(ma.id) {
             Ok(tg) => {
                 let target = tg.iso.transform_vector(&ma.local_offset) + ma.global_offset;
 
-                let mut ms = MoveTo2::initial_state(g.iso.translation.vector);
-                let mt = MoveTo2 {
-                    target: target.into(),
-                    velocity: ma.velocity,
-                    acceleration: ma.acceleration,
-                    threshold: ma.threshold,
-                    distance: ma.distance,
-                };
-                let acc = mt.update(&g.iso.translation.vector, &mut ms, delta_time);
+                let mut ms = Motor2::initial_state(g.iso.translation.vector);
+                let acc = m.update(
+                    g.iso.translation.vector,
+                    target.into(),
+                    ma.distance,
+                    &mut ms,
+                    delta_time,
+                );
                 match m_b {
                     (Some(m), None) => {
                         m.acceleration = acc;
@@ -323,10 +409,11 @@ fn motion_after_system_initial(
 
 /// System to perform MoveAfter2 motion.
 fn motion_after_system(
-    with_motion: View<(
+    with_state: View<(
         &Global2,
         &MoveAfter2,
-        &mut MoveTo2State,
+        &Motor2,
+        &mut Motor2State,
         Xor2<&mut Motion2, &Body>,
     )>,
     globals: View<&Global2>,
@@ -336,21 +423,20 @@ fn motion_after_system(
 ) {
     let delta_time = clocks.step.as_secs_f32();
 
-    for (g, ma, ms, m_b) in with_motion {
+    for (g, ma, m, ms, m_b) in with_state {
         match globals.try_get(ma.id) {
             Ok(tg) => {
                 let target = tg.iso.rotation.transform_vector(&ma.local_offset)
                     + tg.iso.translation.vector
                     + ma.global_offset;
 
-                let mt = MoveTo2 {
-                    target: target.into(),
-                    velocity: ma.velocity,
-                    acceleration: ma.acceleration,
-                    threshold: ma.threshold,
-                    distance: ma.distance,
-                };
-                let acc = mt.update(&g.iso.translation.vector, ms, delta_time);
+                let acc = m.update(
+                    g.iso.translation.vector,
+                    target.into(),
+                    ma.distance,
+                    ms,
+                    delta_time,
+                );
                 match m_b {
                     (Some(m), None) => {
                         m.acceleration = acc;

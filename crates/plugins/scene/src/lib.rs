@@ -38,6 +38,32 @@ impl Global2 {
         }
     }
 
+    pub fn new(iso: na::Isometry2<f32>) -> Self {
+        Global2 { iso }
+    }
+
+    pub fn from_position(position: na::Point2<f32>) -> Self {
+        Global2 {
+            iso: na::Isometry2 {
+                rotation: na::UnitComplex::identity(),
+                translation: na::Translation2 {
+                    vector: position.coords,
+                },
+            },
+        }
+    }
+
+    pub fn from_position_rotation(position: na::Point2<f32>, rotation: f32) -> Self {
+        Global2 {
+            iso: na::Isometry2 {
+                rotation: na::UnitComplex::new(rotation),
+                translation: na::Translation2 {
+                    vector: position.coords,
+                },
+            },
+        }
+    }
+
     pub fn translate(&mut self, v: na::Vector2<f32>) -> &mut Self {
         self.iso.translation.vector += v;
         self
