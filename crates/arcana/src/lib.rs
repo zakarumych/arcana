@@ -28,7 +28,6 @@ pub use mev;
 #[cfg(feature = "client")]
 pub use winit;
 
-#[cfg(feature = "ed")]
 pub use arcana_project as project;
 
 pub mod alloc;

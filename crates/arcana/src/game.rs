@@ -1,7 +1,8 @@
 use std::{collections::VecDeque, sync::Arc, time::Instant};
 
+use arcana_project::Ident;
 use blink_alloc::Blink;
-use edict::{world::WorldBuilder, Scheduler, World};
+use edict::{world::WorldBuilder, IntoSystem, Scheduler, System, World};
 use gametime::{
     Clock, ClockStep, FrequencyNumExt, FrequencyTicker, TimeSpan, TimeSpanNumExt, TimeStamp,
 };
@@ -17,7 +18,7 @@ use crate::{
     flow::init_flows,
     funnel::{EventFilter, EventFunnel},
     init_mev,
-    plugin::ArcanaPlugin,
+    plugin::{ArcanaPlugin, PluginInit},
     render::{render_system, RenderGraph},
 };
 
@@ -88,19 +89,21 @@ impl FPS {
 }
 
 pub struct Game {
-    clocks: Clock,
     world: World,
     funnel: EventFunnel,
     blink: Blink,
     fixed_now: TimeStamp,
     fixed_scheduler: Scheduler,
     var_scheduler: Scheduler,
+    show_scheduler: Scheduler,
 }
 
 impl Game {
     pub fn launch<'a>(
         events: &EventLoop,
-        plugins: impl IntoIterator<Item = &'a dyn ArcanaPlugin>,
+        plugins: impl IntoIterator<Item = (&'a Ident, &'a dyn ArcanaPlugin)>,
+        filters: impl IntoIterator<Item = (&'a Ident, &'a Ident)>,
+        systems: impl IntoIterator<Item = (&'a Ident, &'a Ident)>,
         device: mev::Device,
         queue: Arc<Mutex<mev::Queue>>,
     ) -> Self {
@@ -151,26 +154,74 @@ impl Game {
         funnel.add(MainWindowFilter { id: main_window_id });
         funnel.add(EguiFilter);
 
-        var_scheduler.add_system(render_system);
-
         let blink = Blink::new();
         let fixed_now = TimeStamp::start();
 
         init_flows(&mut world, &mut var_scheduler);
 
-        for plugin in plugins {
-            plugin.init(&mut world, &mut var_scheduler);
-            plugin.init_funnel(&mut funnel);
+        struct PluginInit<'a> {
+            plugin: &'a Ident,
+            systems: Vec<(&'a Ident, Box<dyn System + Send>)>,
+            #[cfg(feature = "client")]
+            filters: Vec<(&'a Ident, Box<dyn EventFilter>)>,
         }
 
+        let mut init_plugins = plugins
+            .into_iter()
+            .map(|(name, plugin)| {
+                let init = plugin.init(&mut world);
+                PluginInit {
+                    plugin: name,
+                    systems: init.systems,
+                    #[cfg(feature = "client")]
+                    filters: init.filters,
+                }
+            })
+            .collect::<Vec<PluginInit>>();
+
+        for (plugin, name) in systems {
+            let p = init_plugins
+                .iter_mut()
+                .find(|p| p.plugin == plugin)
+                .expect("Plugin not found");
+
+            let idx = p
+                .systems
+                .iter()
+                .position(|(system, _)| *system == name)
+                .expect("System not found");
+
+            let system = p.systems.swap_remove(idx).1;
+            var_scheduler.add_boxed_system(system);
+        }
+
+        for (plugin, name) in filters {
+            let p = init_plugins
+                .iter_mut()
+                .find(|p| p.plugin == plugin)
+                .expect("Plugin not found");
+
+            let idx = p
+                .systems
+                .iter()
+                .position(|(filter, _)| *filter == name)
+                .expect("System not found");
+
+            let filter = p.filters.swap_remove(idx).1;
+            funnel.add_boxed(filter);
+        }
+
+        let mut show_scheduler = Scheduler::new();
+        show_scheduler.add_system(render_system);
+
         Game {
-            clocks,
             world,
             funnel,
             blink,
             fixed_now,
             fixed_scheduler,
             var_scheduler,
+            show_scheduler,
         }
     }
 
@@ -186,16 +237,18 @@ impl Game {
         self.world.get_resource::<Quit>().is_some()
     }
 
-    pub fn tick(&mut self) {
-        self.blink.reset();
+    pub fn show(&mut self) {
+        self.show_scheduler.run_sequential(&mut self.world);
+    }
 
-        let clock_step = self.clocks.step();
+    pub fn tick(&mut self, step: ClockStep) {
+        self.blink.reset();
 
         let ticks = self
             .world
             .expect_resource_mut::<FixedTicker>()
             .0
-            .ticks(clock_step.step);
+            .ticks(step.step);
 
         for fixed_step in ticks {
             self.fixed_now += fixed_step;
@@ -216,11 +269,11 @@ impl Game {
             .world
             .expect_resource_mut::<Limiter>()
             .0
-            .tick_count(clock_step.step);
+            .tick_count(step.step);
 
         if ticks > 0 {
-            self.world.expect_resource_mut::<FPS>().add(clock_step.now);
-            *self.world.expect_resource_mut::<ClockStep>() = clock_step;
+            self.world.expect_resource_mut::<FPS>().add(step.now);
+            *self.world.expect_resource_mut::<ClockStep>() = step;
 
             // if cfg!(debug_assertions) {
             self.var_scheduler.run_sequential(&mut self.world);
@@ -232,42 +285,42 @@ impl Game {
     }
 }
 
-/// Runs game in standalone mode
-pub fn run(plugins: &'static [&'static dyn ArcanaPlugin]) {
-    let event_collector = egui_tracing::EventCollector::default();
+// /// Runs game in standalone mode
+// pub fn run(plugins: &'static [&'static dyn ArcanaPlugin]) {
+//     let event_collector = egui_tracing::EventCollector::default();
 
-    use tracing_subscriber::layer::SubscriberExt as _;
+//     use tracing_subscriber::layer::SubscriberExt as _;
 
-    if let Err(err) = tracing::subscriber::set_global_default(
-        tracing_subscriber::fmt()
-            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-            .finish()
-            .with(tracing_error::ErrorLayer::default())
-            .with(event_collector.clone()),
-    ) {
-        panic!("Failed to install tracing subscriber: {}", err);
-    }
+//     if let Err(err) = tracing::subscriber::set_global_default(
+//         tracing_subscriber::fmt()
+//             .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+//             .finish()
+//             .with(tracing_error::ErrorLayer::default())
+//             .with(event_collector.clone()),
+//     ) {
+//         panic!("Failed to install tracing subscriber: {}", err);
+//     }
 
-    EventLoop::run(|events| async move {
-        let (device, queue) = init_mev();
-        let mut game = Game::launch(
-            &events,
-            plugins.iter().copied(),
-            device,
-            Arc::new(Mutex::new(queue)),
-        );
+//     EventLoop::run(|events| async move {
+//         let (device, queue) = init_mev();
+//         let mut game = Game::launch(
+//             &events,
+//             plugins.iter().copied(),
+//             device,
+//             Arc::new(Mutex::new(queue)),
+//         );
 
-        loop {
-            for event in events.next(Some(Instant::now())).await {
-                game.on_event(event);
-            }
+//         loop {
+//             for event in events.next(Some(Instant::now())).await {
+//                 game.on_event(event);
+//             }
 
-            if game.should_quit() {
-                drop(game);
-                return;
-            }
+//             if game.should_quit() {
+//                 drop(game);
+//                 return;
+//             }
 
-            game.tick();
-        }
-    });
-}
+//             game.tick();
+//         }
+//     });
+// }

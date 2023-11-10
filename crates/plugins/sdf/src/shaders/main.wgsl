@@ -25,6 +25,7 @@ fn vs_main(@builtin(vertex_index) index: u32) -> VertOutput {
 }
 
 struct Shape {
+    tr: mat3x3f,
     inv_tr: mat3x3f,
     color: vec4f,
     kind: u32,
@@ -75,16 +76,22 @@ fn fs_main(@location(0) sample: vec2f) -> @location(0) vec4f {
         let shape = shapes[i];
         let shape_sample = shape.inv_tr * vec3f(sample, 1f);
         let d = sdf(shape, shape_sample.xy);
-
-        if d <= 0f {
-            let dx = d / dpdx(d);
-            let dy = d / dpdy(d);
-            let dd = dx * dy / (dx * dx + dy * dy);
-
-            if abs(d) < 0.1f {
-                return vec4f(0f, 0f, 0f, 1f);
+        if d <= -0.001f {
+            let dd = abs(vec2f(d / dpdx(d) * dpdx(sample.x), d / dpdy(d) *  dpdy(sample.y)));
+            var ddd = vec2f(0f, 0f);
+            if dd.x > 10000000f {
+                ddd = vec2f(0f, dd.y);
+            } else if dd.y > 10000000f {
+                ddd = vec2f(dd.x, 0f);
+            } else {
+                ddd = (dd.x * dd.y / length(dd)) * normalize(dd.yx);
             }
 
+            let dd_w = shape.tr * vec3f(ddd, 0f);
+
+            if length(dd_w) < 0.1f {
+                return vec4f(0f, 0f, 0f, 1f);
+            }
             return shape.color;
         }
     }

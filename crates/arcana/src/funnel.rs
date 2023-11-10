@@ -27,6 +27,11 @@ impl EventFunnel {
     }
 
     #[inline]
+    pub fn add_boxed(&mut self, filter: Box<dyn EventFilter>) {
+        self.filters.push(filter);
+    }
+
+    #[inline]
     pub fn filter(&mut self, blink: &Blink, world: &mut World, mut event: Event) -> Option<Event> {
         for filter in self.filters.iter_mut() {
             event = filter.filter(blink, world, event)?;

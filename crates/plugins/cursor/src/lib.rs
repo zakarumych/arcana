@@ -2,10 +2,12 @@ use std::ops::{Deref, DerefMut};
 
 use arcana::{
     blink_alloc::Blink,
-    edict::{Scheduler, World},
+    edict::World,
     events::{Event, WindowEvent},
-    funnel::{EventFilter, EventFunnel},
-    plugin::ArcanaPlugin,
+    funnel::EventFilter,
+    plugin::{ArcanaPlugin, PluginInit},
+    plugin_init,
+    project::{ident, Ident},
     winit::window::Window,
 };
 
@@ -14,18 +16,16 @@ arcana::export_arcana_plugin!(CursorPlugin);
 pub struct CursorPlugin;
 
 impl ArcanaPlugin for CursorPlugin {
-    fn name(&self) -> &'static str {
-        "cursor"
-    }
-
-    fn init(&self, world: &mut World, _scheduler: &mut Scheduler) {
+    fn init(&self, world: &mut World) -> PluginInit {
         world.insert_resource(MainCursor(Cursor {
             pos: na::Point2::origin(),
         }));
+
+        plugin_init!()
     }
 
-    fn init_funnel(&self, funnel: &mut EventFunnel) {
-        funnel.add(CursorFilter);
+    fn event_filters(&self) -> Vec<&Ident> {
+        vec![ident!(CursorFilter)]
     }
 }
 

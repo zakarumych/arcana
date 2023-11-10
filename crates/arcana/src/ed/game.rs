@@ -5,6 +5,7 @@
 use std::sync::Arc;
 
 use arcana_project::Project;
+use gametime::ClockStep;
 use hashbrown::HashMap;
 use parking_lot::Mutex;
 use winit::{event::WindowEvent, window::WindowId};
@@ -46,10 +47,24 @@ impl Games {
         let mut games = world.expect_resource_mut::<Self>();
         match plugins.enabled_plugins(&project) {
             Some(enabled_plugins) => {
-                let game = Game::launch(events, enabled_plugins, device.clone(), queue.clone());
+                let systems = project
+                    .manifest()
+                    .systems
+                    .iter()
+                    .filter(|s| s.enabled)
+                    .map(|s| (&*s.plugin, &*s.name));
+
+                let game = Game::launch(
+                    events,
+                    enabled_plugins,
+                    vec![],
+                    systems,
+                    device.clone(),
+                    queue.clone(),
+                );
                 games.games.insert(game.window_id(), game);
             }
-            None => tracing::error!("Plugins list issue"),
+            None => tracing::error!("Plugins not linked yet"),
         }
     }
 
@@ -66,10 +81,16 @@ impl Games {
         }
     }
 
-    pub fn tick(&mut self) {
+    pub fn show(&mut self) {
+        for game in self.games.values_mut() {
+            game.show();
+        }
+    }
+
+    pub fn tick(&mut self, step: ClockStep) {
         let mut to_remove = Vec::new();
         for (id, game) in &mut self.games {
-            game.tick();
+            game.tick(step);
 
             if game.should_quit() {
                 to_remove.push(*id);

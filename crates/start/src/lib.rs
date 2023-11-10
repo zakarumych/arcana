@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use arcana_project::{path::real_path, Dependency, Ident, Project};
+use arcana_project::{new_plugin_crate, real_path, Dependency, Ident, IdentBuf, Project};
 use figa::Figa;
 use miette::{Context, IntoDiagnostic};
 
@@ -74,15 +74,15 @@ impl Start {
         &self,
         path: &Path,
         name: Option<&str>,
-        new: bool,
         engine: Option<Dependency>,
+        new: bool,
     ) -> miette::Result<Project> {
         let engine = engine
             .or_else(|| self.config.engine.clone())
             .map(|d| d.make_relative(path));
 
         let (path, name) = process_path_name(path, name)?;
-        Project::new(path, name, engine, new)
+        Project::new(name, engine, path, new)
     }
 
     pub fn init_workspace(&self, path: &Path) -> miette::Result<()> {
@@ -106,7 +106,7 @@ impl Start {
             .map(|d| d.make_relative(path));
 
         let (path, name) = process_path_name(path, name)?;
-        Project::new_plugin_crate(&path, &name, engine.as_ref())
+        new_plugin_crate(&name, &path, engine.as_ref())
     }
 
     pub fn build_game(&self, path: &Path) -> miette::Result<PathBuf> {
@@ -139,8 +139,14 @@ impl Start {
 //     Ok(path)
 // }
 
-fn process_path_name(path: &Path, name: Option<&str>) -> miette::Result<(PathBuf, Ident)> {
-    let path = real_path(&path).into_diagnostic()?;
+fn process_path_name(path: &Path, name: Option<&str>) -> miette::Result<(PathBuf, IdentBuf)> {
+    let path = match real_path(&path) {
+        Some(path) => path,
+        None => miette::bail!(
+            "Failed to get project destination path from {}",
+            path.display()
+        ),
+    };
 
     let name = match name {
         None => {
@@ -156,9 +162,13 @@ fn process_path_name(path: &Path, name: Option<&str>) -> miette::Result<(PathBuf
                 miette::bail!("Failed to get project name destination path");
             };
 
-            Ident::from_str(file_name).context("Failed to derive project name from path")?
+            Ident::from_str(file_name)
+                .context("Failed to derive project name from path")?
+                .to_buf()
         }
-        Some(name) => Ident::from_str(name).context("Invalid project name provided")?,
+        Some(name) => Ident::from_str(name)
+            .context("Invalid project name provided")?
+            .to_buf(),
     };
 
     Ok((path, name))

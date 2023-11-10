@@ -1,7 +1,9 @@
 use amity::flip_queue::FlipQueue;
 use arcana::{
-    edict::{self, Component, EntityId, ResMut, Scheduler, State, View, World},
-    plugin::ArcanaPlugin,
+    edict::{self, Component, EntityId, IntoSystem, ResMut, Scheduler, State, System, View, World},
+    plugin::{ArcanaPlugin, PluginInit},
+    plugin_init,
+    project::{ident, Ident},
 };
 
 arcana::feature_ed! {
@@ -27,11 +29,7 @@ arcana::export_arcana_plugin!(PhysicsPlugin);
 pub struct PhysicsPlugin;
 
 impl ArcanaPlugin for PhysicsPlugin {
-    fn name(&self) -> &'static str {
-        "physics"
-    }
-
-    fn init(&self, world: &mut World, scheduler: &mut Scheduler) {
+    fn init(&self, world: &mut World) -> PluginInit {
         world.ensure_component_registered::<Body>();
 
         let res = PhysicsResource {
@@ -47,13 +45,15 @@ impl ArcanaPlugin for PhysicsPlugin {
             ccd_solver: CCDSolver::new(),
         };
         world.insert_resource(res);
-        scheduler.add_system(physics_system);
+        plugin_init!(systems: [physics_system])
     }
 
-    arcana::feature_ed! {
-        fn dependencies(&self) -> Vec<(&'static dyn ArcanaPlugin, Dependency)> {
-            vec![scene::path_dependency()]
-        }
+    fn systems(&self) -> Vec<&Ident> {
+        vec![ident!(physics_system)]
+    }
+
+    fn dependencies(&self) -> Vec<(&Ident, Dependency)> {
+        vec![scene::path_dependency()]
     }
 }
 

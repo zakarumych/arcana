@@ -3,113 +3,146 @@ use std::{fmt, path::Path};
 use edict::World;
 use egui::{Color32, Ui, WidgetText};
 
-use arcana_project::{BuildProcess, Dependency, Ident, Project, ProjectManifest};
+use arcana_project::{
+    plugin_with_path, BuildProcess, Dependency, Ident, IdentBuf, Plugin, Project, ProjectManifest,
+};
 
 use crate::{ok_log_err, plugin::ArcanaPlugin, try_log_err};
 
 use super::{game::Games, Tab};
 
-struct PluginsLibrary {
-    /// Linked library
-    #[allow(unused)]
-    lib: libloading::Library,
-    plugins: &'static [&'static dyn ArcanaPlugin],
-}
+mod private {
+    use std::{fmt, path::Path};
 
-impl fmt::Display for PluginsLibrary {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if f.alternate() {
-            write!(f, "Plugins:\n")?;
-            for plugin in self.plugins {
-                write!(f, "  {}\n", plugin.name())?;
-            }
-        } else {
-            write!(f, "Plugins: [")?;
-            let mut plugins = self.plugins.iter().map(|p| p.name());
-            if let Some(name) = plugins.next() {
-                write!(f, "{}", name)?;
-                for name in plugins {
-                    write!(f, ", {}", name)?;
-                }
-            }
-            write!(f, "]")?;
-        }
-        Ok(())
+    use arcana_project::Ident;
+
+    use crate::plugin::ArcanaPlugin;
+
+    pub(super) struct PluginsLibrary {
+        /// Linked library
+        #[allow(unused)]
+        lib: libloading::Library,
+        plugins: &'static [(&'static Ident, &'static dyn ArcanaPlugin)],
     }
-}
 
-impl PluginsLibrary {
-    pub fn load(path: &Path) -> miette::Result<Self> {
-        // #[cfg(windows)]
-        let path = {
-            let filename = match path.file_name() {
-                None => miette::bail!("Invalid plugins library path '{}'", path.display()),
-                Some(name) => name,
-            };
+    impl PluginsLibrary {
+        pub fn get(&self, name: &Ident) -> Option<&dyn ArcanaPlugin> {
+            self.plugins
+                .iter()
+                .find_map(|(n, p)| if **n == *name { Some(*p) } else { None })
+        }
 
-            loop {
-                let r = rand::random::<u32>();
-                let mut new_filename = filename.to_owned();
-                new_filename.push(format!(".{r:0X}"));
-                let new_path = path.with_file_name(new_filename);
-                if !new_path.exists() {
-                    std::fs::copy(path, &new_path).map_err(|err| {
-                        miette::miette!(
-                            "Failed to copy plugins library '{path}' to '{new_path}'. {err}",
+        pub fn has(&self, name: &Ident) -> bool {
+            self.plugins.iter().any(|(n, _)| **n == *name)
+        }
+
+        pub fn list<'a>(&'a self) -> impl Iterator<Item = (&'a Ident, &'a dyn ArcanaPlugin)> {
+            self.plugins.iter().copied()
+        }
+    }
+
+    impl fmt::Display for PluginsLibrary {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            if f.alternate() {
+                write!(f, "Plugins:\n")?;
+                for (name, _) in self.plugins {
+                    write!(f, "  {}\n", *name)?;
+                }
+            } else {
+                write!(f, "Plugins: [")?;
+                let mut plugins = self.plugins.iter().map(|(name, _)| *name);
+                if let Some(name) = plugins.next() {
+                    write!(f, "{}", name)?;
+                    for name in plugins {
+                        write!(f, ", {}", name)?;
+                    }
+                }
+                write!(f, "]")?;
+            }
+            Ok(())
+        }
+    }
+
+    impl PluginsLibrary {
+        pub fn load(path: &Path) -> miette::Result<Self> {
+            // #[cfg(windows)]
+            let path = {
+                let filename = match path.file_name() {
+                    None => miette::bail!("Invalid plugins library path '{}'", path.display()),
+                    Some(name) => name,
+                };
+
+                loop {
+                    let r = rand::random::<u32>();
+                    let mut new_filename = filename.to_owned();
+                    new_filename.push(format!(".{r:0X}"));
+                    let new_path = path.with_file_name(new_filename);
+                    if !new_path.exists() {
+                        std::fs::copy(path, &new_path).map_err(|err| {
+                            miette::miette!(
+                                "Failed to copy plugins library '{path}' to '{new_path}'. {err}",
+                                path = path.display(),
+                                new_path = new_path.display()
+                            )
+                        })?;
+                        tracing::debug!(
+                            "Copied plugins library '{path}' to '{new_path}'",
                             path = path.display(),
                             new_path = new_path.display()
-                        )
-                    })?;
-                    tracing::debug!(
-                        "Copied plugins library '{path}' to '{new_path}'",
-                        path = path.display(),
-                        new_path = new_path.display()
-                    );
-                    break new_path;
+                        );
+                        break new_path;
+                    }
+                }
+            };
+
+            // Safety: None
+            let res = unsafe { libloading::Library::new(&*path) };
+            let lib = res.map_err(|err| {
+                miette::miette!(
+                    "Failed to load plugins library '{path}'. {err}",
+                    path = path.display()
+                )
+            })?;
+
+            tracing::debug!("Loaded plugins library '{path}'", path = path.display());
+
+            type ArcanaPluginsFn = fn() -> &'static [(&'static Ident, &'static dyn ArcanaPlugin)];
+
+            // Safety: None
+            let res = unsafe { lib.get::<ArcanaPluginsFn>(b"arcana_plugins\0") };
+            let arcana_plugins = res.map_err(|err| {
+                miette::miette!(
+                    "Failed to load plugins library '{path}'. {err}",
+                    path = path.display()
+                )
+            })?;
+
+            let plugins = arcana_plugins();
+
+            match plugins.len() {
+                1 => {
+                    tracing::debug!("Loaded plugins library has one plugin");
+                }
+                len => {
+                    tracing::debug!("Loaded plugins library has {len} plugins");
                 }
             }
-        };
 
-        // Safety: None
-        let res = unsafe { libloading::Library::new(&*path) };
-        let lib = res.map_err(|err| {
-            miette::miette!(
-                "Failed to load plugins library '{path}'. {err}",
-                path = path.display()
-            )
-        })?;
-
-        tracing::debug!("Loaded plugins library '{path}'", path = path.display());
-
-        type ArcanaPluginsFn = fn() -> &'static [&'static dyn ArcanaPlugin];
-
-        // Safety: None
-        let res = unsafe { lib.get::<ArcanaPluginsFn>(b"arcana_plugins\0") };
-        let arcana_plugins = res.map_err(|err| {
-            miette::miette!(
-                "Failed to load plugins library '{path}'. {err}",
-                path = path.display()
-            )
-        })?;
-        let plugins = arcana_plugins();
-
-        match plugins.len() {
-            1 => {
-                tracing::debug!("Loaded plugins library has one plugin");
+            for (name, plugin) in plugins {
+                tracing::debug!("Verifying plugin '{}'", name);
+                if !plugin.__running_arcana_instance_check(&crate::plugin::GLOBAL_CHECK) {
+                    miette::bail!(
+                        "Plugin '{name}' is linked to wrong Arcana instance",
+                        name = name
+                    );
+                }
             }
-            len => {
-                tracing::debug!("Loaded plugins library has {len} plugins");
-            }
-        }
 
-        for plugin in plugins {
-            tracing::debug!("Verify plugin '{}'", plugin.name());
-            plugin.__running_arcana_instance_check(&crate::plugin::GLOBAL_CHECK);
+            Ok(PluginsLibrary { lib, plugins })
         }
-
-        Ok(PluginsLibrary { lib, plugins })
     }
 }
+use private::PluginsLibrary;
 
 /// Tool to manage plugins libraries
 /// and enable/disable plugins.
@@ -141,7 +174,7 @@ impl Plugins {
     fn all_plugins_linked(&self, project: &ProjectManifest) -> bool {
         if let Some(linked) = &self.linked {
             return project.plugins.iter().all(|p| {
-                let is_linked = linked.plugins.iter().any(|plugin| plugin.name() == p.name);
+                let is_linked = linked.has(&p.name);
                 if !is_linked {
                     tracing::debug!("Plugin '{}' is not linked", p.name);
                 }
@@ -153,16 +186,13 @@ impl Plugins {
 
     fn all_plugins_pending(&self, project: &ProjectManifest) -> bool {
         if let Some(linked) = &self.pending {
-            return project
-                .plugins
-                .iter()
-                .all(|p| linked.plugins.iter().any(|plugin| plugin.name() == p.name));
+            return project.plugins.iter().all(|p| linked.has(&p.name));
         }
         false
     }
 
     /// Adds new plugin.
-    pub fn add_plugin(&mut self, name: String, dep: Dependency, project: &mut Project) -> bool {
+    pub fn add_plugin(&mut self, name: IdentBuf, dep: Dependency, project: &mut Project) -> bool {
         if project.add_plugin(name, dep) {
             // Stop current build if there was one.
             tracing::info!(
@@ -270,26 +300,17 @@ impl Plugins {
         });
 
         let mut plugins_copy = project.manifest().plugins.clone();
-        let mut add_plugins = Vec::new();
         let mut remove_plugins = Vec::new();
 
         egui_dnd::dnd(ui, "plugins-list").show_vec(
             &mut plugins_copy,
             |ui, plugin, handle, state| {
-                let mut heading = WidgetText::from(&plugin.name);
+                let mut heading = WidgetText::from(plugin.name.as_str());
 
                 let tooltip;
                 let lib_linked = match &me.linked {
                     None => None,
-                    Some(lib) => {
-                        let linked = lib
-                            .plugins
-                            .iter()
-                            .copied()
-                            .find(|p| p.name() == plugin.name);
-
-                        linked.map(|linked| (lib, linked))
-                    }
+                    Some(lib) => lib.get(&plugin.name).map(|linked| (lib, linked)),
                 };
 
                 match lib_linked {
@@ -303,21 +324,8 @@ impl Plugins {
                         }
                     }
                     Some((lib, linked)) => {
-                        match check_dependencies(
-                            linked,
-                            state.index,
-                            project.manifest(),
-                            &lib.plugins,
-                        ) {
-                            Ok(()) => {
-                                tooltip = None;
-                                heading = heading.color(Color32::GREEN);
-                            }
-                            Err(error) => {
-                                tooltip = Some(error);
-                                heading = heading.color(Color32::RED);
-                            }
-                        }
+                        tooltip = None;
+                        heading = heading.color(Color32::GREEN);
                     }
                 }
 
@@ -338,17 +346,6 @@ impl Plugins {
                             remove_plugins.push(plugin.name.clone());
                             ui.close_menu();
                         }
-                        if let Some((_, linked)) = lib_linked {
-                            if has_missing_dependencies(linked, &project) {
-                                if ui.button("Insert missing dependencies").clicked() {
-                                    add_plugins.extend(
-                                        missing_dependencies(linked, &mut project)
-                                            .map(|(name, dep)| (name, dep, state.index)),
-                                    );
-                                    ui.close_menu();
-                                }
-                            }
-                        }
                     });
                     if let Some(tooltip) = tooltip {
                         r.on_hover_text(tooltip);
@@ -364,14 +361,16 @@ impl Plugins {
                 sync = true;
                 rebuild = true;
             }
-        }
 
-        let mut offset = 0;
-        for (name, dep, index) in add_plugins {
-            if project.insert_plugin(name, dep, index + offset) {
-                sync = true;
-                rebuild = true;
-                offset += 1;
+            if let Some(linked) = &me.linked {
+                if let Some(removed_plugin) = linked.get(&name) {
+                    // Disable dependencies of the removed plugin.
+                    removed_plugin.dependencies().iter().for_each(|(dep, _)| {
+                        if let Some(dep) = project.manifest_mut().get_plugin_mut(*dep) {
+                            dep.enabled = false
+                        }
+                    });
+                }
             }
         }
 
@@ -390,152 +389,112 @@ impl Plugins {
         Tab::Plugins
     }
 
-    /// Finds all linked plugins that were enabled.
-    /// If plugin is missing, plugins lib is not linked or dependency is not placed before and enabled
-    /// returns None.
-    pub fn enabled_plugins(&self, project: &Project) -> Option<Vec<&dyn ArcanaPlugin>> {
+    /// List all linked plugins that were enabled.
+    pub fn enabled_plugins<'a, 'b>(
+        &'a self,
+        project: &'b Project,
+    ) -> Option<Vec<(&'b Ident, &'a dyn ArcanaPlugin)>> {
         let linked = self.linked.as_ref()?;
+        let mut plugins = Vec::new();
 
-        let manifest = project.manifest();
+        for plugin in project.manifest().plugins.iter() {
+            if plugin.enabled {
+                let p = linked.get(&plugin.name)?;
+                plugins.push((&*plugin.name, p));
+            }
+        }
 
-        manifest
-            .plugins
-            .iter()
-            .enumerate()
-            .filter(|(_, p)| p.enabled)
-            .map(|(idx, plugin)| -> Option<&dyn ArcanaPlugin> {
-                let plugin = linked
-                    .plugins
-                    .iter()
-                    .copied()
-                    .find(|p| p.name() == plugin.name)?;
-
-                if check_dependencies(plugin, idx, manifest, &linked.plugins).is_err() {
-                    return None;
-                }
-
-                Some(plugin)
-            })
-            .collect()
+        Some(plugins)
     }
 }
 
 /// Adds new plugins library.
 fn add_plugin_with_path(path: &Path, project: &mut Project) -> bool {
-    let (name, dep) = try_log_err!(project.plugin_with_path(path); false);
+    let (name, dep) = try_log_err!(plugin_with_path(path); false);
     project.add_plugin(name, dep)
 }
 
-fn has_missing_dependencies(plugin: &dyn ArcanaPlugin, project: &Project) -> bool {
-    for (dep, _) in plugin.dependencies() {
-        if !project
-            .manifest()
-            .plugins
-            .iter()
-            .any(|p| p.name == dep.name())
-        {
-            return true;
-        }
-    }
+// fn has_missing_dependencies(plugin: &dyn ArcanaPlugin, project: &Project) -> bool {
+//     for (dep, _) in plugin.dependencies() {
+//         if !project
+//             .manifest()
+//             .plugins
+//             .iter()
+//             .any(|p| p.name == dep.name())
+//         {
+//             return true;
+//         }
+//     }
 
-    false
-}
+//     false
+// }
 
-fn missing_dependencies<'a>(
-    plugin: &'a dyn ArcanaPlugin,
-    project: &'a mut Project,
-) -> impl Iterator<Item = (String, Dependency)> + 'a {
-    plugin
-        .dependencies()
-        .into_iter()
-        .filter_map(|(dep, lookup)| {
-            let exists = project
-                .manifest()
-                .plugins
-                .iter()
-                .any(|p| p.name == dep.name());
-            if !exists {
-                Some((dep.name().to_owned(), lookup.clone()))
-            } else {
-                None
-            }
-        })
-}
+// fn missing_dependencies<'a>(
+//     plugin: &'a dyn ArcanaPlugin,
+//     project: &'a mut Project,
+// ) -> impl Iterator<Item = (String, Dependency)> + 'a {
+//     plugin
+//         .dependencies()
+//         .into_iter()
+//         .filter_map(|(dep, lookup)| {
+//             let exists = project
+//                 .manifest()
+//                 .plugins
+//                 .iter()
+//                 .any(|p| p.name == dep.name());
+//             if !exists {
+//                 Some((dep.name().to_owned(), lookup.clone()))
+//             } else {
+//                 None
+//             }
+//         })
+// }
 
-fn check_dependencies(
-    plugin: &dyn ArcanaPlugin,
-    plugin_idx: usize,
-    project: &ProjectManifest,
-    plugins: &[&dyn ArcanaPlugin],
-) -> Result<(), String> {
-    for (dep, _) in plugin.dependencies() {
-        match project.plugins[..plugin_idx]
-            .iter()
-            .find(|p| p.name == dep.name())
-        {
-            None => {
-                let dep_after = project.plugins[plugin_idx + 1..]
-                    .iter()
-                    .any(|p| p.name == dep.name());
+// fn check_dependencies(
+//     plugin: &dyn ArcanaPlugin,
+//     plugin_idx: usize,
+//     project: &ProjectManifest,
+//     plugins: &[(&Ident, &dyn ArcanaPlugin)],
+// ) -> Result<(), String> {
+//     for (p, name, dep) in plugin.dependencies() {
+//         assert_eq!(project.plugins[plugin_idx].name, *name);
+//         assert_eq!(project.plugins[plugin_idx].dep, dep);
+//         assert_eq!(*plugins[plugin_idx].0, *name);
+//         assert_eq!(plugins[plugin_idx].1 as *const _, plugin as *const _);
 
-                if dep_after {
-                    return Err(format!("Dependency '{}' is after the plugin", dep.name()));
-                } else {
-                    return Err(format!("Dependency '{}' is missing", dep.name()));
-                }
-            }
-            Some(plugin) => {
-                if !plugin.enabled {
-                    return Err(format!("Dependency '{}' is disabled", dep.name()));
-                }
-                match plugins.iter().find(|p| p.name() == dep.name()) {
-                    None => return Err(format!("Dependency '{}' not linked", dep.name())),
-                    Some(plugin) => {
-                        if !plugin.__eq(dep) {
-                            return Err(format!(
-                                "Dependency '{}' is not the same plugin.",
-                                dep.name()
-                            ));
-                        }
-                    }
-                }
-            }
-        }
-    }
+//         match project.plugins[..plugin_idx]
+//             .iter()
+//             .find(|p| *p.name == *name)
+//         {
+//             None => {
+//                 let dep_after = project.plugins[plugin_idx + 1..]
+//                     .iter()
+//                     .any(|p| *p.name == *name);
 
-    Ok(())
-}
+//                 if dep_after {
+//                     return Err(format!("Dependency '{}' is after the plugin", name));
+//                 } else {
+//                     return Err(format!("Dependency '{}' is missing", name));
+//                 }
+//             }
+//             Some(plugin) => {
+//                 if !plugin.enabled {
+//                     return Err(format!("Dependency '{}' is disabled", name));
+//                 }
+//                 match plugins.iter().find(|(name, _)| name == name) {
+//                     None => return Err(format!("Dependency '{}' not linked", name)),
+//                     Some(plugin) => {
+//                         if !plugin.__eq(dep) {
+//                             return Err(format!(
+//                                 "Dependency '{}' is not the same plugin.",
+//                                 dep.name()
+//                             ));
+//                         }
+//                     }
+//                 }
+//             }
+//         }
+//     }
 
-fn new_plugin_cargo_toml(name: &Ident, arcana: &Dependency) -> String {
-    format!(
-        r#"[package]
-    name = "{name}"
-    version = "0.1.0"
-    edition = "2021"
-    publish = false
-
-    [dependencies]
-    arcana = {arcana}
-    "#
-    )
-}
-
-fn new_plugin_lib_rs(name: &Ident) -> String {
-    format!(
-        r#"
-        arcana::export_arcana_plugin!(Plugin);
-
-        pub struct Plugin;
-
-        impl arcana::plugin::ArcanaPlugin for Plugin {{
-            fn name(&self) -> &'static str {{
-                "{name}"
-            }}
-
-            fn init(&self, world: &mut arcana::edict::World, scheduler: &mut arcana::edict::Scheduler) {{
-                // Add your code here.
-            }}
-        }}
-    "#
-    )
-}
+//     Ok(())
+// }

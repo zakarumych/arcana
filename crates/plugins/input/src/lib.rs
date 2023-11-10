@@ -18,9 +18,9 @@ use std::{
 };
 
 use arcana::{
-    edict::{flow::FlowEntity, Component, EntityError, Scheduler, World},
+    edict::{flow::FlowEntity, Component, EntityError, World},
     export_arcana_plugin,
-    plugin::ArcanaPlugin,
+    plugin::{ArcanaPlugin, PluginInit},
 };
 
 arcana::feature_client! {
@@ -34,19 +34,20 @@ export_arcana_plugin!(ThePlugin);
 pub struct ThePlugin;
 
 impl ArcanaPlugin for ThePlugin {
-    fn name(&self) -> &'static str {
-        "input"
-    }
-
-    fn init(&self, world: &mut World, scheduler: &mut Scheduler) {
+    fn init(&self, world: &mut World) -> PluginInit {
         arcana::feature_client! {
-            client::init(world, scheduler);
+            client::init_world(world);
         }
+        let mut init = PluginInit::new();
+        arcana::feature_client! {
+            init.filters.push(client::init_event_filter());
+        }
+        init
     }
 
     arcana::feature_client! {
-        fn init_funnel(&self, funnel: &mut arcana::funnel::EventFunnel) {
-            client::init_funnel(funnel);
+        fn event_filters(&self) -> Vec<&arcana::project::Ident> {
+            vec![client::event_filter()]
         }
     }
 }

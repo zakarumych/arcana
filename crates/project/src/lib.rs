@@ -6,386 +6,166 @@ use std::{
     fs::File,
     io::{Read, Seek, SeekFrom, Write},
     ops::Deref,
-    path::{Path, PathBuf},
+    path::{Path, PathBuf, MAIN_SEPARATOR},
 };
 
 use camino::{Utf8Path, Utf8PathBuf};
 
-pub mod path;
+mod dependency;
+mod generator;
+mod ident;
+mod manifest;
+mod path;
+mod plugin;
 mod wrapper;
 
+use generator::init_workspace;
 use miette::{Context, IntoDiagnostic};
-use path::{make_relative, normalizing_join, real_path};
-use serde::Deserializer;
-pub use wrapper::{game_bin_path, BuildProcess};
+use path::normalizing_join;
 
-/// Project dependency.
-#[derive(Debug, Clone, Hash, serde::Serialize, serde::Deserialize)]
-#[serde(untagged)]
-pub enum Dependency {
-    // Fetch from the crates.io
-    Crates(String),
+pub use self::{
+    dependency::Dependency,
+    generator::new_plugin_crate,
+    ident::{Ident, IdentBuf},
+    manifest::{Plugin, ProjectManifest, System},
+    path::{make_relative, real_path},
+    wrapper::{game_bin_path, BuildProcess},
+};
 
-    // Fetch from the git repository
-    Git {
-        git: String,
-        branch: Option<String>,
-    },
-
-    // Fetch from the local path
-    Path {
-        #[serde(deserialize_with = "deserialize_path_expand_home")]
-        path: Utf8PathBuf,
-    },
-}
-
-impl Dependency {
-    pub fn from_path(path: impl AsRef<Path>) -> Option<Self> {
-        let path = Utf8Path::from_path(path.as_ref())?;
-        Some(Dependency::Path {
-            path: path.to_owned(),
-        })
-    }
-
-    pub fn make_relative(self, base: impl AsRef<Path>) -> Self {
-        match &self {
-            Dependency::Path { path } => {
-                let rel_path = make_relative(path.as_std_path(), base.as_ref());
-                let Ok(utf8_path) = Utf8PathBuf::from_path_buf(rel_path) else {
-                    return self;
-                };
-                Dependency::Path { path: utf8_path }
-            }
-            _ => self,
-        }
-    }
-}
-
-fn deserialize_path_expand_home<'de, D>(deserializer: D) -> Result<Utf8PathBuf, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let path: String = serde::Deserialize::deserialize(deserializer)?;
-    let path = Utf8PathBuf::from(path);
-
-    if let Ok(suffix) = path.strip_prefix("~") {
-        match dirs::home_dir() {
-            Some(home) => {
-                let mut home = Utf8PathBuf::from_path_buf(home).map_err(|path| {
-                    serde::de::Error::custom(format!(
-                        "Home directory is not UTF-8 \"{}\"",
-                        path.display()
-                    ))
-                })?;
-                home.push(suffix);
-                Ok(home)
-            }
-            None => Ok(path),
-        }
-    } else {
-        Ok(path)
-    }
-}
-
-impl fmt::Display for Dependency {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Dependency::Crates(version) => write!(f, "\"{}\"", version),
-            Dependency::Git { git, branch } => {
-                if let Some(branch) = branch {
-                    write!(f, "{{ git = \"{git}\", branch = \"{branch}\" }}")
-                } else {
-                    write!(f, "{{ git = \"{git}\" }}")
-                }
-            }
-            Dependency::Path { path } => {
-                write!(f, "{{ path = \"{}\" }}", path.as_str().escape_default())
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone, Hash, serde::Serialize, serde::Deserialize)]
-pub struct Plugin {
-    pub name: String,
-    pub dep: Dependency,
-    pub enabled: bool,
-}
-
-#[derive(Clone, Default)]
-#[repr(transparent)]
-pub struct Ident(String);
-
-impl Ident {
-    pub fn from_string(s: String) -> miette::Result<Self> {
-        Ident::validate(&s)?;
-        Ok(Ident(s))
-    }
-
-    pub fn from_str(s: &str) -> miette::Result<Self> {
-        Ident::validate(s)?;
-        Ok(Ident(s.to_owned()))
-    }
-
-    fn validate(s: &str) -> miette::Result<()> {
-        if s.is_empty() {
-            miette::bail!("Ident must not be empty");
-        }
-
-        let bad_first = |c: char| !unicode_ident::is_xid_start(c);
-
-        if s.starts_with(bad_first) {
-            miette::bail!("'{s}' is not valid Ident. First char must have XID_Start property");
-        }
-
-        let bad = |c: char| !unicode_ident::is_xid_continue(c);
-
-        match s.matches(bad).next() {
-            None => Ok(()),
-            Some(c) => {
-                miette::bail!(
-                    "'{s}' is not valid Ident. 2nd and later chars must have XID_Continue property. '{c}' doesn't"
-                );
-            }
-        }
-    }
-}
-
-impl Deref for Ident {
-    type Target = str;
-
-    #[inline]
-    fn deref(&self) -> &str {
-        &*self.0
-    }
-}
-
-impl AsRef<str> for Ident {
-    fn as_ref(&self) -> &str {
-        &*self.0
-    }
-}
-
-impl fmt::Debug for Ident {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Debug::fmt(&*self.0, f)
-    }
-}
-
-impl fmt::Display for Ident {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(&*self.0, f)
-    }
-}
-
-impl serde::Serialize for Ident {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serde::Serialize::serialize(&*self.0, serializer)
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for Ident {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        const EXPECTED_IDENT: &'static str = "Expected unicode identifier";
-
-        let s: String = serde::Deserialize::deserialize(deserializer)?;
-
-        if s.is_empty() {
-            return Err(serde::de::Error::invalid_length(1, &EXPECTED_IDENT));
-        }
-
-        let good_first = unicode_ident::is_xid_start;
-        let bad_first = |c: char| !good_first(c);
-
-        if s.starts_with(bad_first) {
-            return Err(serde::de::Error::invalid_value(
-                serde::de::Unexpected::Char(s.chars().next().unwrap()),
-                &EXPECTED_IDENT,
-            ));
-        }
-
-        let good = unicode_ident::is_xid_continue;
-        let bad = |c: char| !good(c);
-
-        match s.matches(bad).next() {
-            None => Ok(Ident(s)),
-            Some(c) => Err(serde::de::Error::invalid_value(
-                serde::de::Unexpected::Str(c),
-                &EXPECTED_IDENT,
-            )),
-        }
-    }
-}
-
-/// Project manifest.
-///
-/// Typically parsed from "Arcana.toml" file.
-#[derive(serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub struct ProjectManifest {
-    pub name: Ident,
-
-    /// How to fetch engine dependency.
-    /// Defaults to `Dependency::Crates(version())`.
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub engine: Option<Dependency>,
-
-    /// List of plugin libraries this project depends on.
-    #[serde(skip_serializing_if = "Vec::is_empty", default, with = "plugins_serde")]
-    pub plugins: Vec<Plugin>,
-}
-
-mod plugins_serde {
-    use std::fmt;
-
-    use serde::ser::{SerializeMap, Serializer};
-
-    use super::{Dependency, Plugin};
-
-    pub fn serialize<S>(plugins: &Vec<Plugin>, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut serializer = serializer.serialize_map(Some(plugins.len()))?;
-
-        #[derive(serde::Serialize)]
-        struct PluginSer<'a> {
-            dep: &'a Dependency,
-            enabled: bool,
-        }
-
-        for plugin in plugins {
-            serializer.serialize_entry(
-                &plugin.name,
-                &PluginSer {
-                    dep: &plugin.dep,
-                    enabled: plugin.enabled,
-                },
-            )?;
-        }
-
-        serializer.end()
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<Plugin>, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        deserializer.deserialize_map(VisitPlugins)
-    }
-
-    struct VisitPlugins;
-
-    impl<'de> serde::de::Visitor<'de> for VisitPlugins {
-        type Value = Vec<Plugin>;
-
-        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-            formatter.write_str("map of plugins")
-        }
-
-        fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
-        where
-            A: serde::de::MapAccess<'de>,
-        {
-            #[derive(serde::Deserialize)]
-            struct PluginDe {
-                dep: Dependency,
-                enabled: bool,
-            }
-
-            let mut plugins = Vec::new();
-
-            while let Some((name, plugin)) = map.next_entry::<String, PluginDe>()? {
-                plugins.push(Plugin {
-                    name,
-                    dep: plugin.dep.clone(),
-                    enabled: plugin.enabled,
-                });
-            }
-
-            Ok(plugins)
-        }
-    }
-}
+const MANIFEST_NAME: &'static str = "Arcana.toml";
+const CARGO_TOML_NAME: &'static str = "Arcana.toml";
+const WORKSPACE_DIR_NAME: &'static str = "crates";
 
 /// Open project object.
 ///
-/// Locks corresponding "Arcana.toml" file.
-/// Syncs changes to the manifest.
+/// When open from manifest file it locks the file and syncs changes to it.
 pub struct Project {
-    path: PathBuf,
-    file: File,
     manifest: ProjectManifest,
+
+    // Contains path assigned to the project.
+    // It will sync with the manifest file at the path both ways.
+    // Whenever changes happen to the manifest file, the user will be asked what to do:
+    // reaload or overwrite.
+    // If file is deleted the user will be notified on save.
+    // On save the file will be created if it doesn't exist.
+    manifest_path: PathBuf,
+
+    /// Project root path.
+    /// Typically it is parent directory of the manifest file.
+    root_path: PathBuf,
 }
 
 impl fmt::Debug for Project {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Project").field("path", &self.path).finish()
+        f.debug_struct("Project")
+            .field("manifest", &self.manifest_path)
+            .finish()
     }
 }
 
 impl Project {
+    /// Creates new project with the given name.
+    ///
+    /// Associate it with the path.
+    ///
+    /// # Errors
+    ///
+    /// * If `engine` dependency is provided and it is invalid.
+    ///   Path dependency is invalid if it is not a valid path to directory containing `Cargo.toml`.
+    /// * If `path` is occupied.
     pub fn new(
+        name: IdentBuf,
+        mut engine: Option<Dependency>,
         path: PathBuf,
-        name: Ident,
-        engine: Option<Dependency>,
         new: bool,
     ) -> miette::Result<Self> {
-        assert!(path.is_absolute());
-
-        let arcana_toml_path = path.join("Arcana.toml");
-        let path_meta = path.metadata();
-
-        if new {
-            if path_meta.is_ok() {
-                miette::bail!("Destination '{}' already exists", path.display());
-            }
-            if is_in_cargo_workspace(path.as_ref()) {
-                miette::bail!("Project cannot be created inside a cargo workspace");
-            }
-            if let Err(err) = std::fs::create_dir_all(&path) {
+        if path.exists() {}
+        if let Ok(m) = path.metadata() {
+            if new {
                 miette::bail!(
-                    "Failed to create project directory '{}'. {err}",
+                    "Cannot create new project. Path '{}' already exists",
                     path.display()
                 );
-            };
-        } else {
-            match path_meta {
-                Err(_) => {
-                    if is_in_cargo_workspace(&path) {
-                        miette::bail!("Project cannot be created inside a cargo workspace");
-                    }
-                    if let Err(err) = std::fs::create_dir_all(&path) {
-                        miette::bail!(
-                            "Failed to create project directory '{}'. {err}",
-                            path.display()
-                        );
-                    };
-                }
-                Ok(meta) => {
-                    if !meta.is_dir() {
-                        miette::bail!("Destination '{}' is not a directory", path.display());
-                    }
-                    if arcana_toml_path.exists() {
-                        miette::bail!("Project already initialized");
-                    }
-                    if is_in_cargo_workspace(&path) {
-                        miette::bail!("Project cannot be created inside a cargo workspace");
-                    }
-                }
+            }
+
+            if !m.is_dir() {
+                miette::bail!(
+                    "Cannot create new project. Path '{}' is not a directory",
+                    path.display()
+                );
+            }
+
+            if path.join(MANIFEST_NAME).exists() {
+                miette::bail!(
+                    "Cannot create new project. Path '{}' is already an Arcana project",
+                    path.display()
+                );
             }
         }
 
+        let path = match real_path(&path) {
+            Some(path) => path,
+            None => {
+                miette::bail!(
+                    "Cannot create new project. Failed to resolve path '{}'",
+                    path.display()
+                );
+            }
+        };
+
+        if let Some(Dependency::Path { path: engine_path }) = &engine {
+            let real_engine_path = match real_path(engine_path.as_std_path()) {
+                Some(path) => path,
+                None => {
+                    miette::bail!(
+                        "Cannot create new project. Failed to resolve engine path '{engine_path}'"
+                    );
+                }
+            };
+
+            let relative_engine_path = make_relative(&real_engine_path, &path);
+
+            let relative_engine_path = match Utf8PathBuf::from_path_buf(relative_engine_path) {
+                Ok(path) => path,
+                Err(err) => {
+                    miette::bail!(
+                        "Cannot create new project. Resolved engine path contains non-utf8 symbols '{engine_path}'",
+                    );
+                }
+            };
+
+            let cargo_toml_path = real_engine_path.join(CARGO_TOML_NAME);
+
+            let manifest = match cargo_toml::Manifest::from_path(cargo_toml_path) {
+                Ok(manifest) => manifest,
+                Err(err) => {
+                    miette::bail!("Failed to read engine manifest '{engine_path}': {err}",);
+                }
+            };
+
+            let package = match &manifest.package {
+                Some(package) => package,
+                None => {
+                    miette::bail!("Cargo.toml in '{engine_path}' does not contain package section",);
+                }
+            };
+
+            if package.name != "arcana" {
+                miette::bail!("'{engine_path}' is not an Arcana engine");
+            }
+
+            // Rewrite engine dependency to relative path.
+            engine = Some(Dependency::Path {
+                path: relative_engine_path,
+            });
+        }
+
+        /// Construct project manifest.
         let manifest = ProjectManifest {
             name: name.to_owned(),
             engine,
             plugins: Vec::new(),
+            systems: Vec::new(),
         };
 
         let manifest_str = match toml::to_string(&manifest) {
@@ -395,62 +175,123 @@ impl Project {
             }
         };
 
-        let mut project_file = match std::fs::File::options()
-            .create_new(true)
-            .read(true)
-            .write(true)
-            .open(&arcana_toml_path)
-        {
-            Ok(f) => f,
-            Err(err) => {
-                miette::bail!(
-                    "Failed to create project manifest at '{}'. {err}",
-                    arcana_toml_path.display()
-                );
-            }
-        };
-
-        if let Err(err) = project_file.write_all(manifest_str.as_bytes()) {
+        if let Err(err) = std::fs::create_dir_all(&path) {
             miette::bail!(
-                "Failed to write project manifest to '{}'. {err}",
-                arcana_toml_path.display()
+                "Cannot create new project. Failed to create directory '{}': {err}",
+                path.display()
             );
-        };
+        }
 
-        if let Some(Dependency::Path { path: engine_path }) = &manifest.engine {
-            let check = || -> miette::Result<()> {
-                let cargo_toml_path = path.join(engine_path).join("Cargo.toml");
-                let manifest =
-                    cargo_toml::Manifest::from_path(cargo_toml_path).into_diagnostic()?;
-                let package = manifest
-                    .package
-                    .as_ref()
-                    .ok_or_else(|| miette::miette!("not a package"))?;
-                if package.name != "arcana" {
-                    miette::bail!("not an arcana package");
-                }
-                Ok(())
-            };
-
-            if let Err(err) = check() {
-                tracing::warn!("'arcana' path dependency is '{engine_path}' broken: {err}");
-            }
+        let manifest_path = path.join(MANIFEST_NAME);
+        if let Err(err) = std::fs::write(&path, &manifest_str) {
+            miette::bail!(
+                "Cannot create new project. Failed to write manifest to '{}': {err}",
+                manifest_path.display()
+            );
         }
 
         tracing::info!("Created project {name} at '{}'", path.display());
 
         Ok(Project {
-            path,
-            file: project_file,
+            root_path: path,
+            manifest_path,
             manifest,
         })
     }
 
+    /// Opens existing Arcana project from the given path.
+    ///
+    /// # Errors
+    ///
+    /// * If `path` is not a valid path to Arcana project.
+    ///   It must be either path to a directory that contains `Arcana.toml` manifest file
+    ///   or path to manifest file itself.
+    pub fn open(path: &Path) -> miette::Result<Self> {
+        let path = match real_path(path) {
+            Some(path) => path,
+            None => {
+                miette::bail!(
+                    "Cannot open project at '{}': failed to resolve path",
+                    path.display()
+                );
+            }
+        };
+
+        let m = match path.metadata() {
+            Ok(m) => m,
+            Err(err) => {
+                miette::bail!("Cannot open project at '{}': {err}", path.display());
+            }
+        };
+
+        if m.is_symlink() {
+            miette::bail!(
+                "Cannot open project at '{}': failed to follow symlink",
+                path.display()
+            );
+        }
+
+        let (manifest_path, root_path) = if m.is_dir() {
+            (path.join(MANIFEST_NAME), path.to_owned())
+        } else {
+            let root_path = match path.parent() {
+                Some(path) => path.to_owned(),
+                None => {
+                    miette::bail!(
+                        "Cannot open project at '{}': failed to resolve parent directory",
+                        path.display()
+                    );
+                }
+            };
+            (path.to_owned(), root_path)
+        };
+
+        let mut arcana_toml = match std::fs::read_to_string(&manifest_path) {
+            Ok(s) => s,
+            Err(err) => {
+                miette::bail!(
+                    "Cannot open project at '{}': failed to read project manifest: {err}",
+                    path.display()
+                );
+            }
+        };
+
+        let manifest: ProjectManifest = match toml::from_str(&arcana_toml) {
+            Ok(manifest) => manifest,
+            Err(err) => {
+                miette::bail!("Cannot deserialize project manifest from \"Arcana.toml\": {err}");
+            }
+        };
+
+        let project = Project {
+            root_path,
+            manifest_path,
+            manifest,
+        };
+
+        Ok(project)
+    }
+
+    /// Searches for Arcana project in the given path or any parent directory.
+    ///
+    /// # Errors
+    ///
+    /// * If `path` is not a valid path.
+    /// * If project is not found in `path` or any parent directory.
+    /// * If project is found but cannot be opened.
     pub fn find(path: &Path) -> miette::Result<Self> {
-        let mut candidate = real_path(path).into_diagnostic()?;
+        let mut candidate = match real_path(path) {
+            Some(path) => path,
+            None => {
+                miette::bail!(
+                    "Cannot find project at '{}': failed to resolve path",
+                    path.display()
+                );
+            }
+        };
 
         loop {
-            candidate.push("Arcana.toml");
+            candidate.push(MANIFEST_NAME);
             if candidate.exists() {
                 return Project::open(&candidate);
             }
@@ -468,75 +309,38 @@ impl Project {
         );
     }
 
-    pub fn open(path: &Path) -> miette::Result<Self> {
-        let path = real_path(path).into_diagnostic()?;
-
-        let mut file = std::fs::File::options()
-            .read(true)
-            .write(true)
-            .open(&path)
-            .map_err(|err| {
-                miette::miette!(
-                    "Cannot open project at {}, failed to open \"Arcana.toml\": {err}",
-                    path.display()
-                )
-            })?;
-
-        let mut arcana_toml = String::new();
-        file.read_to_string(&mut arcana_toml).map_err(|err| {
-            miette::miette!(
-                "Cannot read project manifest from \"{}\\Arcana.toml\": {err}",
-                path.display()
-            )
-        })?;
-
-        let manifest: ProjectManifest = toml::from_str(&arcana_toml).map_err(|err| {
-            miette::miette!("Cannot deserialize project manifest from \"Arcana.toml\": {err}")
-        })?;
-
-        let mut path = path;
-        path.pop();
-
-        let project = Project {
-            path,
-            file,
-            manifest,
-        };
-
-        Ok(project)
-    }
-
-    pub fn name(&self) -> &str {
+    /// Returns name of the project.
+    pub fn name(&self) -> &Ident {
         &self.manifest.name
     }
 
+    /// Returns name of the project.
+    pub fn set_name(&mut self, name: impl Into<IdentBuf>) {
+        self.manifest.name = name.into();
+    }
+
     pub fn sync(&mut self) -> miette::Result<()> {
-        let content = toml::to_string_pretty(&self.manifest).map_err(|err| {
+        let serialized_manifest = toml::to_string_pretty(&self.manifest).map_err(|err| {
             miette::miette!("Cannot serialize project manifest to \"Arcana.toml\": {err}")
         })?;
 
-        let mut write_to_file = || {
-            self.file.seek(SeekFrom::Start(0))?;
-            self.file.set_len(0)?;
-            self.file.write_all(content.as_bytes())
-        };
-
-        write_to_file().map_err(|err| {
-            miette::miette!(
-                "Cannot write project manifest to \"{}\\Arcana.toml\": {err}",
-                self.path.display()
-            )
-        })?;
-
-        Ok(())
+        match std::fs::write(&self.manifest_path, serialized_manifest) {
+            Ok(()) => Ok(()),
+            Err(err) => {
+                miette::bail!(
+                    "Cannot write project manifest to \"Arcana.toml\": {err}",
+                    err = err
+                );
+            }
+        }
     }
 
-    pub fn add_plugin(&mut self, name: String, dep: Dependency) -> bool {
+    pub fn add_plugin(&mut self, name: IdentBuf, dep: Dependency) -> bool {
         if self.manifest.plugins.iter().any(|p| p.name == name) {
             return false;
         }
 
-        let dep = dep.make_relative(&self.path);
+        let dep = dep.make_relative(&self.root_path);
 
         tracing::info!("Plugin '{} added", name);
         let plugin = Plugin {
@@ -549,12 +353,12 @@ impl Project {
         true
     }
 
-    pub fn insert_plugin(&mut self, name: String, dep: Dependency, index: usize) -> bool {
+    pub fn insert_plugin(&mut self, name: IdentBuf, dep: Dependency, index: usize) -> bool {
         if self.manifest.plugins.iter().any(|p| p.name == name) {
             return false;
         }
 
-        let dep = dep.make_relative(&self.path);
+        let dep = dep.make_relative(&self.root_path);
 
         tracing::info!("Plugin '{} added", name);
         let plugin = Plugin {
@@ -567,10 +371,10 @@ impl Project {
         true
     }
 
-    pub fn remove_plugin(&mut self, name: &str) -> bool {
+    pub fn remove_plugin(&mut self, name: &Ident) -> bool {
         let mut removed = false;
         self.manifest.plugins.retain(|p| {
-            let retain = p.name != name;
+            let retain = p.name != *name;
             removed |= !retain;
             retain
         });
@@ -579,8 +383,8 @@ impl Project {
 
     /// Initializes all plugin wrapper libs and workspace.
     pub fn init_workspace(&self) -> miette::Result<()> {
-        wrapper::init_workspace(
-            &self.path,
+        init_workspace(
+            &self.root_path,
             &self.manifest.name,
             self.manifest.engine.as_ref(),
             &self.manifest.plugins,
@@ -588,7 +392,7 @@ impl Project {
     }
 
     pub fn build_plugins_library(&self) -> miette::Result<BuildProcess> {
-        wrapper::build_plugins(&self.path)
+        wrapper::build_plugins(&self.root_path)
     }
 
     pub fn manifest(&self) -> &ProjectManifest {
@@ -600,13 +404,14 @@ impl Project {
     }
 
     pub fn run_editor(self) -> miette::Result<()> {
-        let Project { file, path, .. } = self;
-
-        drop(file);
-
-        let status = wrapper::run_editor(&path)
+        let status = wrapper::run_editor(&self.root_path)
             .status()
-            .map_err(|err| miette::miette!("Cannot run \"ed\" on \"{}\": {err}", path.display()))?;
+            .map_err(|err| {
+                miette::miette!(
+                    "Cannot run \"ed\" on \"{}\": {err}",
+                    self.root_path.display()
+                )
+            })?;
 
         match status.code() {
             Some(0) => Ok(()),
@@ -616,18 +421,11 @@ impl Project {
     }
 
     pub fn build_game(self) -> miette::Result<PathBuf> {
-        let Project {
-            file,
-            path,
-            manifest,
-            ..
-        } = self;
-
-        drop(file);
-
-        let status = wrapper::build_game(&path)
+        let status = wrapper::build_game(&self.root_path)
             .status()
-            .map_err(|err| miette::miette!("Cannot build game \"{}\": {err}", path.display()))?;
+            .map_err(|err| {
+                miette::miette!("Cannot build game \"{}\": {err}", self.root_path.display())
+            })?;
 
         match status.code() {
             Some(0) => {}
@@ -635,84 +433,19 @@ impl Project {
             None => miette::bail!("Game build terminated by signal"),
         }
 
-        Ok(game_bin_path(&manifest.name, &path))
+        Ok(game_bin_path(&self.manifest.name, &self.root_path))
     }
 
     pub fn run_game(self) -> miette::Result<()> {
-        let Project { file, path, .. } = self;
-
-        drop(file);
-
-        let status = wrapper::run_game(&path)
-            .status()
-            .map_err(|err| miette::miette!("Cannot run game on \"{}\": {err}", path.display()))?;
+        let status = wrapper::run_game(&self.root_path).status().map_err(|err| {
+            miette::miette!("Cannot run game on \"{}\": {err}", self.root_path.display())
+        })?;
 
         match status.code() {
             Some(0) => Ok(()),
             Some(code) => miette::bail!("Game exited with code {}", code),
             None => miette::bail!("Game terminated by signal"),
         }
-    }
-
-    pub fn plugin_with_path(&self, path: &Path) -> miette::Result<(String, Dependency)> {
-        let canon_path = real_path(path).into_diagnostic()?;
-
-        let lib_path: &Path;
-        let cargo_toml_path;
-
-        if path.file_name() == Some("Cargo.toml".as_ref()) {
-            cargo_toml_path = canon_path;
-            lib_path = cargo_toml_path.parent().unwrap();
-        } else {
-            cargo_toml_path = canon_path.join("Cargo.toml");
-            lib_path = canon_path.as_ref();
-        }
-
-        let lib_path = make_relative(&lib_path, &self.path);
-
-        let lib_path_str = lib_path.to_str().ok_or_else(|| {
-            miette::miette!(
-                "Cannot add library path \"{}\": path is not valid UTF-8",
-                path.display()
-            )
-        })?;
-
-        let cargo_toml = std::fs::read_to_string(&cargo_toml_path).map_err(|err| {
-            miette::miette!(
-                "Cannot read Cargo.toml from \"{}\": {err}",
-                cargo_toml_path.display()
-            )
-        })?;
-
-        let manifest = cargo_toml::Manifest::from_str(&cargo_toml).map_err(|err| {
-            miette::miette!(
-                "Cannot read Cargo.toml from \"{}\": {err}",
-                cargo_toml_path.display()
-            )
-        })?;
-
-        let package = manifest.package.ok_or_else(|| {
-            miette::miette!("Not a package manifest: \"{}\"", cargo_toml_path.display())
-        })?;
-
-        Ok((
-            package.name,
-            Dependency::Path {
-                path: lib_path_str.into(),
-            },
-        ))
-    }
-
-    pub fn new_plugin_crate(
-        path: &Path,
-        name: &Ident,
-        engine: Option<&Dependency>,
-    ) -> miette::Result<()> {
-        if path.exists() {
-            miette::bail!("Path '{}' already exists", path.display());
-        }
-
-        wrapper::new_plugin_crate(name, path, engine)
     }
 }
 
@@ -735,4 +468,62 @@ fn is_in_cargo_workspace(path: &Path) -> bool {
         }
     }
     false
+}
+
+pub fn plugin_with_path(plugin_path: &Path) -> miette::Result<(IdentBuf, Dependency)> {
+    let real_plugin_path = match real_path(plugin_path) {
+        Some(path) => path,
+        None => {
+            miette::bail!(
+                "Cannot search plugin at \"{}\": failed to resolve path",
+                plugin_path.display()
+            );
+        }
+    };
+
+    let lib_path: &Path;
+    let cargo_toml_path;
+
+    if real_plugin_path.file_name() == Some("Cargo.toml".as_ref()) {
+        cargo_toml_path = real_plugin_path;
+        lib_path = cargo_toml_path.parent().unwrap();
+    } else {
+        cargo_toml_path = real_plugin_path.join("Cargo.toml");
+        lib_path = real_plugin_path.as_ref();
+    }
+
+    let lib_path = match Utf8Path::from_path(lib_path) {
+        Some(path) => path,
+        None => {
+            miette::bail!(
+                "Cannot add library path \"{}\": path is not valid UTF-8",
+                plugin_path.display()
+            )
+        }
+    };
+
+    let cargo_toml = std::fs::read_to_string(&cargo_toml_path).map_err(|err| {
+        miette::miette!(
+            "Cannot read Cargo.toml from \"{}\": {err}",
+            cargo_toml_path.display()
+        )
+    })?;
+
+    let manifest = cargo_toml::Manifest::from_str(&cargo_toml).map_err(|err| {
+        miette::miette!(
+            "Cannot read Cargo.toml from \"{}\": {err}",
+            cargo_toml_path.display()
+        )
+    })?;
+
+    let package = manifest.package.ok_or_else(|| {
+        miette::miette!("Not a package manifest: \"{}\"", cargo_toml_path.display())
+    })?;
+
+    Ok((
+        IdentBuf::from_string(package.name).expect("Package name is not valid ident"),
+        Dependency::Path {
+            path: lib_path.to_path_buf(),
+        },
+    ))
 }

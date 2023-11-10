@@ -6,7 +6,9 @@ use arcana::{
         Without, World,
     },
     gametime::ClockStep,
-    plugin::ArcanaPlugin,
+    plugin::{ArcanaPlugin, PluginInit},
+    plugin_init,
+    project::{ident, Dependency, Ident},
 };
 use physics::{Body, PhysicsResource};
 use scene::Global2;
@@ -16,27 +18,33 @@ arcana::export_arcana_plugin!(MotionPlugin);
 pub struct MotionPlugin;
 
 impl ArcanaPlugin for MotionPlugin {
-    fn name(&self) -> &'static str {
-        "motion"
+    fn dependencies(&self) -> Vec<(&Ident, Dependency)> {
+        vec![scene::path_dependency(), physics::path_dependency()]
     }
 
-    arcana::feature_ed! {
-        fn dependencies(&self) -> Vec<(&'static dyn ArcanaPlugin, arcana::project::Dependency)> {
-            vec![scene::path_dependency(), physics::path_dependency()]
-        }
-    }
-
-    fn init(&self, world: &mut World, scheduler: &mut Scheduler) {
+    fn init(&self, world: &mut World) -> PluginInit {
         world.ensure_component_registered::<Motor2>();
         world.ensure_component_registered::<Motion2>();
         world.ensure_component_registered::<MoveTo2>();
         world.ensure_component_registered::<MoveAfter2>();
 
-        scheduler.add_system(motion_after_init_system);
-        scheduler.add_system(move_to_init_system);
-        scheduler.add_system(motion_after_system);
-        scheduler.add_system(move_to_system);
-        scheduler.add_system(motion_system);
+        plugin_init!(systems: [
+            motion_after_init_system,
+            move_to_init_system,
+            motion_after_system,
+            move_to_system,
+            motion_system,
+        ])
+    }
+
+    fn systems(&self) -> Vec<&Ident> {
+        vec![
+            ident!(motion_after_init_system),
+            ident!(move_to_init_system),
+            ident!(motion_after_system),
+            ident!(move_to_system),
+            ident!(motion_system),
+        ]
     }
 }
 

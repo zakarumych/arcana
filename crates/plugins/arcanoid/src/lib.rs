@@ -8,7 +8,8 @@ use arcana::{
     flow::sleep,
     gametime::{timespan, TimeSpan, TimeSpanNumExt},
     na,
-    plugin::ArcanaPlugin,
+    plugin::{ArcanaPlugin, PluginInit},
+    project::{ident, Ident},
     render::RenderGraph,
     winit::window::Window,
 };
@@ -25,12 +26,8 @@ arcana::export_arcana_plugin!(ArcanoidPlugin);
 pub struct ArcanoidPlugin;
 
 impl ArcanaPlugin for ArcanoidPlugin {
-    fn name(&self) -> &'static str {
-        "arcanoid"
-    }
-
     arcana::feature_ed! {
-        fn dependencies(&self) -> Vec<(&'static dyn ArcanaPlugin, arcana::project::Dependency)> {
+        fn dependencies(&self) -> Vec<(&Ident, arcana::project::Dependency)> {
             vec![
                 scene::path_dependency(),
                 physics::path_dependency(),
@@ -42,7 +39,13 @@ impl ArcanaPlugin for ArcanoidPlugin {
         }
     }
 
-    fn init(&self, world: &mut World, scheduler: &mut Scheduler) {
+    fn systems(&self) -> Vec<&Ident> {
+        vec![ident!(target_cursor), ident!(paddle_system)]
+    }
+
+    fn init(&self, world: &mut World) -> PluginInit {
+        let mut init = PluginInit::new();
+
         let camera = world
             .spawn((Global2::identity(), Camera2::new().with_fovy(15.0)))
             .id();
@@ -86,7 +89,8 @@ impl ArcanaPlugin for ArcanoidPlugin {
             ))
             .id();
 
-        scheduler.add_system(
+        let init = init.with_system(
+            ident!(target_cursor),
             move |cursor: Res<MainCursor>,
                   window: Res<Window>,
                   mut move_to: View<&mut MoveTo2>,
@@ -122,7 +126,7 @@ impl ArcanaPlugin for ArcanoidPlugin {
             wall_body,
         ));
 
-        scheduler.add_system(paddle_system);
+        let init = init.with_system(ident!(paddle_system), paddle_system);
 
         let mut new_node = move |world: &mut World| {
             let body = {
@@ -158,6 +162,8 @@ impl ArcanaPlugin for ArcanoidPlugin {
                 world.with_sync(|world| new_node(world));
             }
         });
+
+        init
     }
 }
 

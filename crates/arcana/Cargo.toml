@@ -11,7 +11,6 @@ description = "Arcana Engine"
 crate-type = ["dylib"]
 
 [features]
-derive = ["dep:arcana-proc"]
 
 # Enables multi-threaded runtime for tokio.
 multi-thread = ["tokio/rt-multi-thread"]
@@ -22,18 +21,11 @@ server = []
 
 app = ["client", "dep:miette", "dep:serde", "dep:serde_json", "winit/serde"]
 
-ed = [
-    "app",
-    "server",
-    "dep:arcana-project",
-    "dep:arcana-importers",
-    "dep:argosy-store",
-    "dep:rfd",
-]
+ed = ["app", "server", "dep:arcana-importers", "dep:argosy-store", "dep:rfd"]
 
 [dependencies]
-arcana-proc = { path = "proc", optional = true }
-arcana-project = { path = "../project", optional = true }
+arcana-proc = { path = "proc" }
+arcana-project = { path = "../project" }
 arcana-importers = { path = "../importers", optional = true }
 mev = { path = "../mev", optional = true }
 

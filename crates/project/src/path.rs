@@ -33,7 +33,7 @@ pub fn normalizing_join(mut base: PathBuf, path: &Path) -> Option<PathBuf> {
 
 /// Returns absolute resolved path.
 /// If path is relative, it is resolved relative to current directory.
-pub fn _real_path(path: &Path) -> Option<PathBuf> {
+pub fn real_path(path: &Path) -> Option<PathBuf> {
     for a in path.ancestors() {
         if let Ok(base) = dunce::canonicalize(a) {
             let tail = path.strip_prefix(a).unwrap();
@@ -50,7 +50,6 @@ pub fn _real_path(path: &Path) -> Option<PathBuf> {
     }
 
     let cd = std::env::current_dir().ok()?;
-    let cd = dunce::canonicalize(cd).ok()?;
     let path = normalizing_join(cd, path)?;
 
     // Current directory was canonicalized
@@ -58,29 +57,29 @@ pub fn _real_path(path: &Path) -> Option<PathBuf> {
     Some(path)
 }
 
-pub struct RealPathError {
-    path: PathBuf,
-}
+// pub struct RealPathError {
+//     path: PathBuf,
+// }
 
-impl fmt::Debug for RealPathError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(self, f)
-    }
-}
+// impl fmt::Debug for RealPathError {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         fmt::Display::fmt(self, f)
+//     }
+// }
 
-impl fmt::Display for RealPathError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Failed to resolve path {}", self.path.display())
-    }
-}
+// impl fmt::Display for RealPathError {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         write!(f, "Failed to resolve path {}", self.path.display())
+//     }
+// }
 
-impl std::error::Error for RealPathError {}
+// impl std::error::Error for RealPathError {}
 
-pub fn real_path(path: &Path) -> Result<PathBuf, RealPathError> {
-    _real_path(path).ok_or_else(|| RealPathError {
-        path: path.to_owned(),
-    })
-}
+// pub fn real_path(path: &Path) -> Result<PathBuf, RealPathError> {
+//     _real_path(path).ok_or_else(|| RealPathError {
+//         path: path.to_owned(),
+//     })
+// }
 
 /// Returns relative path from base to path.
 pub fn make_relative(path: &Path, base: &Path) -> PathBuf {

@@ -2,12 +2,13 @@ use std::collections::VecDeque;
 
 use arcana::{
     blink_alloc::Blink,
-    edict::{EntityId, NoSuchEntity, Scheduler, World},
+    edict::{EntityId, NoSuchEntity, World},
     events::{
         DeviceId, ElementState, Event, KeyboardInput, MouseButton, ScanCode, VirtualKeyCode,
         WindowEvent,
     },
-    funnel::{EventFilter, EventFunnel},
+    funnel::EventFilter,
+    project::{ident, Ident},
     winit::window::WindowId,
 };
 use hashbrown::HashMap;
@@ -285,10 +286,14 @@ where
     insert_entity_controller(translator, entity, ControllerBind::Global, world)
 }
 
-pub fn init(world: &mut World, _scheduler: &mut Scheduler) {
+pub fn init_world(world: &mut World) {
     world.insert_resource(InputHandler::new());
 }
 
-pub fn init_funnel(funnel: &mut EventFunnel) {
-    funnel.add(InputFilter::new());
+pub fn event_filter() -> &'static Ident {
+    ident!(InputFilter)
+}
+
+pub fn init_event_filter() -> (&'static Ident, Box<dyn EventFilter>) {
+    (ident!(InputFilter), Box::new(InputFilter::new()))
 }

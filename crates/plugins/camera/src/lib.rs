@@ -1,7 +1,8 @@
 use arcana::{
-    edict::{self, Component, Scheduler, World},
+    edict::{self, Component, World},
     export_arcana_plugin, na,
-    plugin::ArcanaPlugin,
+    plugin::{ArcanaPlugin, PluginInit},
+    plugin_init,
 };
 
 export_arcana_plugin!(CameraPlugin);
@@ -9,11 +10,10 @@ export_arcana_plugin!(CameraPlugin);
 pub struct CameraPlugin;
 
 impl ArcanaPlugin for CameraPlugin {
-    fn name(&self) -> &'static str {
-        "camera"
+    fn init(&self, world: &mut World) -> PluginInit {
+        world.ensure_component_registered::<Camera2>();
+        plugin_init!()
     }
-
-    fn init(&self, _world: &mut World, _scheduler: &mut Scheduler) {}
 }
 
 #[derive(Clone, Copy, Component)]

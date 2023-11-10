@@ -5,9 +5,11 @@ use arcana::{
         self,
         query::{Not, With},
         relation::FilterRelates,
-        Component, Entities, Related, RelatesExclusive, Relation, Scheduler, View, World,
+        Component, Entities, Related, RelatesExclusive, Relation, View, World,
     },
-    plugin::ArcanaPlugin,
+    plugin::{ArcanaPlugin, PluginInit},
+    plugin_init,
+    project::{ident, Ident},
 };
 
 arcana::export_arcana_plugin!(ScenePlugin);
@@ -15,13 +17,15 @@ arcana::export_arcana_plugin!(ScenePlugin);
 pub struct ScenePlugin;
 
 impl ArcanaPlugin for ScenePlugin {
-    fn name(&self) -> &'static str {
-        "scene"
+    fn init(&self, world: &mut World) -> PluginInit {
+        world.ensure_component_registered::<Global2>();
+        world.ensure_component_registered::<Global3>();
+
+        plugin_init!(systems: [scene_system2, scene_system3])
     }
 
-    fn init(&self, _world: &mut World, scheduler: &mut Scheduler) {
-        scheduler.add_system(scene_system2);
-        scheduler.add_system(scene_system3);
+    fn systems(&self) -> Vec<&'static Ident> {
+        vec![ident!(scene_system2), ident!(scene_system3)]
     }
 }
 

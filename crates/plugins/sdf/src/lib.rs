@@ -8,7 +8,8 @@ use arcana::{
     blink_alloc::BlinkAlloc,
     edict::{self, Component, EntityId, Scheduler, World},
     mev::{self, Arguments, DeviceRepr},
-    plugin::ArcanaPlugin,
+    plugin::{ArcanaPlugin, PluginInit},
+    project::{Dependency, Ident},
     render::{Render, RenderBuilderContext, RenderContext, RenderError, RenderGraph, TargetId},
 };
 
@@ -35,32 +36,29 @@ arcana::export_arcana_plugin!(SdfPlugin);
 pub struct SdfPlugin;
 
 impl ArcanaPlugin for SdfPlugin {
-    fn name(&self) -> &'static str {
-        "sdf"
+    fn dependencies(&self) -> Vec<(&Ident, Dependency)> {
+        vec![scene::path_dependency(), camera::path_dependency()]
     }
 
-    arcana::feature_ed! {
-        fn dependencies(&self) -> Vec<(&'static dyn ArcanaPlugin, arcana::project::Dependency)> {
-            vec![scene::path_dependency(), camera::path_dependency()]
-        }
-    }
+    // fn init(&self, _world: &mut World) -> PluginInit {
+    //     print_layout!(MainConstants {
+    //         background
+    //         camera
+    //         shape_count
+    //     });
+    //     print_layout!(ShapeDevice {
+    //         tr
+    //         inv_tr
+    //         color
+    //         kind
+    //         payload
+    //         layer
+    //     });
+    //     print_layout!(CirleDevice { radius });
+    //     print_layout!(RectDevice { half });
 
-    fn init(&self, _world: &mut World, _scheduler: &mut Scheduler) {
-        print_layout!(MainConstants {
-            background
-            camera
-            shape_count
-        });
-        print_layout!(ShapeDevice {
-            inv_tr
-            color
-            kind
-            payload
-            layer
-        });
-        print_layout!(CirleDevice { radius });
-        print_layout!(RectDevice { half });
-    }
+    //     PluginInit::new()
+    // }
 }
 
 #[derive(Component)]
@@ -100,6 +98,7 @@ pub enum ShapeKind {
 
 #[derive(DeviceRepr)]
 struct ShapeDevice {
+    tr: mev::mat3,
     inv_tr: mev::mat3,
     color: mev::vec4,
     kind: u32,
@@ -330,7 +329,8 @@ impl Render for SdfRender {
         self.circles_device.clear();
         self.rects_device.clear();
         for (global, shape) in shapes.iter() {
-            let inv_tr = global.iso.inverse().to_homogeneous() * shape.transform.inverse().matrix();
+            let tr = shape.transform.matrix() * global.iso.to_homogeneous();
+            let inv_tr = tr.try_inverse().unwrap();
 
             self.shapes_device.push(
                 ShapeDevice {
@@ -343,6 +343,7 @@ impl Render for SdfRender {
                         ShapeKind::Rect { .. } => self.rects_device.len() as u32,
                     },
                     color: mev::vec(shape.color),
+                    tr: tr.as_ref().into(),
                     inv_tr: inv_tr.as_ref().into(),
                     layer: 0,
                 }

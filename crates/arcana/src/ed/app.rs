@@ -4,6 +4,7 @@ use arcana_project::Project;
 
 use egui_dock::{DockState, TabViewer, Tree};
 use egui_tracing::EventCollector;
+use gametime::Clock;
 use hashbrown::HashMap;
 use parking_lot::Mutex;
 
@@ -43,6 +44,7 @@ pub struct App {
     queue: Arc<Mutex<mev::Queue>>,
 
     blink: BlinkAlloc,
+    clock: Clock,
 }
 
 impl Application for App {
@@ -85,10 +87,12 @@ impl Application for App {
             return;
         }
 
+        let step = self.clock.step();
+
         {
             let world = self.model.world.local();
             let mut games = world.get_resource_mut::<Games>().unwrap();
-            games.tick();
+            games.tick(step);
         }
 
         Plugins::tick(&mut self.model.world);
@@ -140,6 +144,12 @@ impl Application for App {
             &self.model.world,
             &mut self.resources,
         );
+
+        {
+            let world = self.model.world.local();
+            let mut games = world.get_resource_mut::<Games>().unwrap();
+            games.show();
+        }
     }
 
     fn should_quit(&self) -> bool {
@@ -278,6 +288,7 @@ impl App {
             device,
             queue: Arc::new(Mutex::new(queue)),
             blink: BlinkAlloc::new(),
+            clock: Clock::new(),
         }
     }
 }

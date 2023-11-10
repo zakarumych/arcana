@@ -11,6 +11,7 @@ mod game;
 mod ide;
 mod memory;
 mod plugins;
+mod systems;
 
 /// Editor tab.
 #[derive(serde::Serialize, serde::Deserialize)]

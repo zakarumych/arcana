@@ -124,10 +124,10 @@ fn main() -> miette::Result<()> {
         path: PathBuf::from("."),
     }) {
         Command::Init { path, name, arcana } => {
-            start.init(&path, name.as_deref(), false, arcana.map(|a| a.arcana))?;
+            start.init(&path, name.as_deref(), arcana.map(|a| a.arcana), false)?;
         }
         Command::New { path, name, arcana } => {
-            start.init(&path, name.as_deref(), true, arcana.map(|a| a.arcana))?;
+            start.init(&path, name.as_deref(), arcana.map(|a| a.arcana), true)?;
         }
         Command::InitWorkspace { path } => {
             start.init_workspace(&path)?;

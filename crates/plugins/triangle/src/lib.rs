@@ -4,11 +4,12 @@ arcana::not_feature_client! {
 
 use arcana::{
     blink_alloc::BlinkAlloc,
-    edict::{Res, ResMutNoSend, Scheduler, World},
+    edict::{Res, ResMutNoSend, World},
     egui::{EguiRender, EguiResource},
     gametime::ClockStep,
     mev::{self, Arguments, DeviceRepr},
-    plugin::ArcanaPlugin,
+    plugin::{ArcanaPlugin, PluginInit},
+    project::{ident, Dependency, Ident},
     render::{Render, RenderBuilderContext, RenderContext, RenderError, RenderGraph, TargetId},
     winit::window::Window,
 };
@@ -200,16 +201,15 @@ pub struct TrianglePlugin;
 arcana::export_arcana_plugin!(TrianglePlugin);
 
 impl ArcanaPlugin for TrianglePlugin {
-    fn name(&self) -> &'static str {
-        "triangle"
+    fn dependencies(&self) -> Vec<(&Ident, Dependency)> {
+        vec![dummy::path_dependency()]
     }
 
-    #[cfg(arcana_ed)]
-    fn dependencies(&self) -> Vec<(&'static dyn ArcanaPlugin, Dependency)> {
-        vec![dummy::path_dependency("../../crates/plugins/dummy")]
+    fn systems(&self) -> Vec<&Ident> {
+        vec![(ident!(hello_triangle))]
     }
 
-    fn init(&self, world: &mut World, scheduler: &mut Scheduler) {
+    fn init(&self, world: &mut World) -> PluginInit {
         let world = world.local();
 
         let window = world.expect_resource::<Window>().id();
@@ -227,8 +227,9 @@ impl ArcanaPlugin for TrianglePlugin {
         graph.present(target, window);
         drop(graph);
 
-        scheduler.add_system(
-            move |mut egui: ResMutNoSend<EguiResource>, window: Res<Window>| {
+        PluginInit::new().with_system(
+            ident!(hello_triangle),
+            |mut egui: ResMutNoSend<EguiResource>, window: Res<Window>| {
                 egui.run(&window, |ctx| {
                     arcana::egui::Window::new("Hello triangle!")
                         .resizable(false)
@@ -238,6 +239,6 @@ impl ArcanaPlugin for TrianglePlugin {
                         });
                 });
             },
-        );
+        )
     }
 }
