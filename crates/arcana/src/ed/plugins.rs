@@ -464,16 +464,35 @@ impl Plugins {
                 sync = true;
                 rebuild = true;
             }
+        }
 
-            if let Some(linked) = &me.linked {
-                if let Some(removed_plugin) = linked.get(&name) {
-                    // Disable dependencies of the removed plugin.
-                    removed_plugin.dependencies().iter().for_each(|(dep, _)| {
-                        if let Some(dep) = project.manifest_mut().get_plugin_mut(*dep) {
-                            dep.enabled = false
+        if let Some(linked) = &me.linked {
+            let mut disable = Vec::new();
+
+            // Disable dependencies of the removed plugin.
+            for p in project.manifest().plugins.iter() {
+                if p.enabled {
+                    if let Some(a) = linked.get(&p.name) {
+                        for (dep, _) in a.dependencies() {
+                            if !project
+                                .manifest()
+                                .get_plugin(dep)
+                                .map_or(false, |d| d.enabled)
+                            {
+                                disable.push(p.name.clone());
+                                break;
+                            }
                         }
-                    });
+                    }
                 }
+            }
+
+            if !disable.is_empty() {
+                sync = true;
+            }
+
+            for name in disable {
+                project.manifest_mut().enable_plugin(&name, false);
             }
         }
 
