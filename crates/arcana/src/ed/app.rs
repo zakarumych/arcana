@@ -188,6 +188,8 @@ impl TabViewer for AppModel {
         match tab {
             Tab::Plugins => Plugins::show(&mut self.world, ui),
             Tab::Console => Console::show(&mut self.world, ui),
+            Tab::Systems => todo!(),
+            Tab::Filters => todo!(),
             // Tab::Memory => Memory::show(&mut self.world, ui),
         }
     }
@@ -196,6 +198,8 @@ impl TabViewer for AppModel {
         match tab {
             Tab::Plugins => "Plugins".into(),
             Tab::Console => "Console".into(),
+            Tab::Systems => "Systems".into(),
+            Tab::Filters => "Filters".into(),
             // Tab::Memory => "Memory".into(),
         }
     }

@@ -12,9 +12,10 @@ use crate::{ok_log_err, plugin::ArcanaPlugin, try_log_err};
 use super::{game::Games, Tab};
 
 mod private {
-    use std::{fmt, path::Path};
+    use std::{collections::VecDeque, fmt, path::Path};
 
-    use arcana_project::Ident;
+    use arcana_project::{Dependency, Ident, IdentBuf, Plugin};
+    use hashbrown::{HashMap, HashSet};
 
     use crate::plugin::ArcanaPlugin;
 
@@ -23,6 +24,12 @@ mod private {
         #[allow(unused)]
         lib: libloading::Library,
         plugins: &'static [(&'static Ident, &'static dyn ArcanaPlugin)],
+    }
+
+    pub(super) struct SortError {
+        pub not_linked: Vec<IdentBuf>,
+        pub circular_dependencies: Vec<(IdentBuf, IdentBuf)>,
+        pub missing_dependencies: Vec<(IdentBuf, Dependency)>,
     }
 
     impl PluginsLibrary {
@@ -38,6 +45,84 @@ mod private {
 
         pub fn list<'a>(&'a self) -> impl Iterator<Item = (&'a Ident, &'a dyn ArcanaPlugin)> {
             self.plugins.iter().copied()
+        }
+
+        pub fn sort_plugins(&self, plugins: &[Plugin]) -> Result<Vec<Plugin>, SortError> {
+            let mut queue = VecDeque::new();
+            let mut items = HashMap::new();
+
+            let mut error = SortError {
+                not_linked: Vec::new(),
+                circular_dependencies: Vec::new(),
+                missing_dependencies: Vec::new(),
+            };
+
+            for plugin in plugins.iter() {
+                let a = match self.get(&*plugin.name) {
+                    None => {
+                        error.not_linked.push(plugin.name.to_buf());
+                        continue;
+                    }
+                    Some(a) => a,
+                };
+
+                queue.push_back(&*plugin.name);
+                items.insert(&*plugin.name, (a, plugin));
+            }
+
+            let mut pending = HashSet::new();
+            let mut sorted = HashSet::new();
+            let mut result = Vec::new();
+
+            while let Some(name) = queue.pop_front() {
+                if sorted.contains(name) {
+                    continue;
+                }
+                pending.insert(name);
+
+                let (a, plugin) = items[name];
+
+                let mut defer = false;
+                if plugin.enabled {
+                    for (dep_name, dep) in a.dependencies() {
+                        if sorted.contains(dep_name) {
+                            continue;
+                        }
+                        if pending.contains(dep_name) {
+                            error
+                                .circular_dependencies
+                                .push((name.to_buf(), dep_name.to_buf()));
+                            continue;
+                        }
+
+                        if !items.contains_key(dep_name) {
+                            error.missing_dependencies.push((dep_name.to_buf(), dep));
+                            continue;
+                        };
+
+                        if !defer {
+                            defer = true;
+                            queue.push_front(name);
+                        }
+
+                        queue.push_front(dep_name);
+                    }
+                }
+
+                if !defer {
+                    sorted.insert(name);
+                    result.push(plugin.clone());
+                }
+            }
+
+            if error.not_linked.is_empty()
+                && error.circular_dependencies.is_empty()
+                && error.missing_dependencies.is_empty()
+            {
+                Ok(result)
+            } else {
+                Err(error)
+            }
         }
     }
 
@@ -209,7 +294,7 @@ impl Plugins {
         let world = world.local();
         let plugins = &mut *world.expect_resource_mut::<Plugins>();
         let games = world.expect_resource_mut::<Games>();
-        let project = world.expect_resource::<Project>();
+        let mut project = world.expect_resource_mut::<Project>();
 
         if let Some(mut build) = plugins.build.take() {
             match build.finished() {
@@ -242,7 +327,25 @@ impl Plugins {
         if games.is_empty() {
             if let Some(lib) = plugins.pending.take() {
                 tracing::info!("New plugins lib version linked");
-                plugins.linked = Some(lib);
+
+                match lib.sort_plugins(&project.manifest().plugins) {
+                    Ok(sorted) => {
+                        project.manifest_mut().plugins = sorted;
+                        plugins.linked = Some(lib);
+                    }
+                    Err(err) => {
+                        for (name) in err.not_linked {
+                            tracing::info!("Plugin '{name}' is not linked", name = name);
+                        }
+                        for (name, dep) in err.missing_dependencies {
+                            tracing::info!("Missing dependency '{name}'");
+                            plugins.add_plugin(name.to_buf(), dep, &mut project);
+                        }
+                        for (name, dep) in err.circular_dependencies {
+                            tracing::info!("Circular dependency '{name}'");
+                        }
+                    }
+                }
             }
 
             if plugins.failure.is_none()
@@ -299,7 +402,7 @@ impl Plugins {
             });
         });
 
-        let mut plugins_copy = project.manifest().plugins.clone();
+        let mut plugins_copy: Vec<Plugin> = project.manifest().plugins.clone();
         let mut remove_plugins = Vec::new();
 
         egui_dnd::dnd(ui, "plugins-list").show_vec(

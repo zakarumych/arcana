@@ -18,6 +18,8 @@ mod systems;
 enum Tab {
     Plugins,
     Console,
+    Systems,
+    Filters,
     // Memory,
 }
 

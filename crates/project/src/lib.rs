@@ -392,6 +392,7 @@ impl Project {
     }
 
     pub fn build_plugins_library(&self) -> miette::Result<BuildProcess> {
+        self.init_workspace()?;
         wrapper::build_plugins(&self.root_path)
     }
 
@@ -404,6 +405,7 @@ impl Project {
     }
 
     pub fn run_editor(self) -> miette::Result<()> {
+        self.init_workspace()?;
         let status = wrapper::run_editor(&self.root_path)
             .status()
             .map_err(|err| {
@@ -421,6 +423,7 @@ impl Project {
     }
 
     pub fn build_game(self) -> miette::Result<PathBuf> {
+        self.init_workspace()?;
         let status = wrapper::build_game(&self.root_path)
             .status()
             .map_err(|err| {
@@ -437,6 +440,7 @@ impl Project {
     }
 
     pub fn run_game(self) -> miette::Result<()> {
+        self.init_workspace()?;
         let status = wrapper::run_game(&self.root_path).status().map_err(|err| {
             miette::miette!("Cannot run game on \"{}\": {err}", self.root_path.display())
         })?;

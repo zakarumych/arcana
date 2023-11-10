@@ -152,6 +152,12 @@ impl ProjectManifest {
     pub fn get_plugin_mut(&mut self, name: &Ident) -> Option<&mut Plugin> {
         self.plugins.iter_mut().find(|p| &p.name == name)
     }
+
+    pub fn enable_plugin(&mut self, name: &Ident, enabled: bool) {
+        if let Some(plugin) = self.get_plugin_mut(name) {
+            plugin.enabled = enabled;
+        }
+    }
 }
 
 mod plugins_serde {
