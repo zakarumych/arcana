@@ -10,7 +10,7 @@ pub struct Texture {
 impl argosy::Asset for Texture {
     type Decoded = (rapid_qoi::Qoi, Vec<u8>);
     type DecodeError = rapid_qoi::DecodeError;
-    type BuildError = mev::ImageError;
+    type BuildError = mev::OutOfMemory;
     type Fut = Ready<Result<(rapid_qoi::Qoi, Vec<u8>), rapid_qoi::DecodeError>>;
 
     fn name() -> &'static str {
@@ -24,7 +24,7 @@ impl argosy::Asset for Texture {
 }
 
 impl argosy::AssetBuild<BobBuilder<'_>> for Texture {
-    fn build(builder: &mut BobBuilder, decoded: Self::Decoded) -> Result<Self, mev::ImageError> {
+    fn build(builder: &mut BobBuilder, decoded: Self::Decoded) -> Result<Self, mev::OutOfMemory> {
         let (qoi, bytes) = decoded;
 
         let image = builder.device.new_image(mev::ImageDesc {

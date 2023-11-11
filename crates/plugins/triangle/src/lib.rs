@@ -8,8 +8,7 @@ use arcana::{
     egui::{EguiRender, EguiResource},
     gametime::ClockStep,
     mev::{self, Arguments, DeviceRepr},
-    plugin::{ArcanaPlugin, PluginInit},
-    project::{ident, Dependency, Ident},
+    project::{Dependency, Ident},
     render::{Render, RenderBuilderContext, RenderContext, RenderError, RenderGraph, TargetId},
     winit::window::Window,
 };
@@ -59,12 +58,7 @@ impl MainPass {
 }
 
 impl Render for MainPass {
-    fn render(
-        &mut self,
-        mut ctx: RenderContext<'_, '_>,
-        world: &World,
-        _blink: &BlinkAlloc,
-    ) -> Result<(), RenderError> {
+    fn render(&mut self, world: &World, mut ctx: RenderContext<'_, '_>) -> Result<(), RenderError> {
         let mut encoder = ctx.new_command_encoder()?;
         let target = ctx.write_target(self.target, &mut encoder).clone();
         let pipeline = self.pipeline.get_or_insert_with(|| {
@@ -196,49 +190,36 @@ impl Render for MainPass {
 //     res
 // }
 
-pub struct TrianglePlugin;
+arcana::export_arcana_plugin! {
+    TrianglePlugin {
+        dependencies: [dummy ...],
+        systems: [hello_triangle: |mut egui: ResMutNoSend<EguiResource>, window: Res<Window>| {
+            egui.run(&window, |ctx| {
+                arcana::egui::Window::new("Hello triangle!")
+                    .resizable(false)
+                    .collapsible(true)
+                    .show(ctx, |ui| {
+                        ui.label("Hello triangle!");
+                    });
+            });
+        }],
+        in world => {
+            let world = world.local();
 
-arcana::export_arcana_plugin!(TrianglePlugin);
+            let window = world.expect_resource::<Window>().id();
 
-impl ArcanaPlugin for TrianglePlugin {
-    fn dependencies(&self) -> Vec<(&Ident, Dependency)> {
-        vec![dummy::path_dependency()]
-    }
+            let mut graph = world.expect_resource_mut::<RenderGraph>();
+            // Create main pass.
+            // It returns target id that it renders to.
+            let mut target = MainPass::build(&mut graph);
 
-    fn systems(&self) -> Vec<&Ident> {
-        vec![(ident!(hello_triangle))]
-    }
+            if world.get_resource::<EguiResource>().is_some() {
+                target = EguiRender::build_overlay(target, &mut graph, window);
+            }
 
-    fn init(&self, world: &mut World) -> PluginInit {
-        let world = world.local();
-
-        let window = world.expect_resource::<Window>().id();
-
-        let mut graph = world.expect_resource_mut::<RenderGraph>();
-        // Create main pass.
-        // It returns target id that it renders to.
-        let mut target = MainPass::build(&mut graph);
-
-        if world.get_resource::<EguiResource>().is_some() {
-            target = EguiRender::build_overlay(target, &mut graph, window);
+            // Use window's surface for the render target.
+            graph.present(target, window);
+            drop(graph);
         }
-
-        // Use window's surface for the render target.
-        graph.present(target, window);
-        drop(graph);
-
-        PluginInit::new().with_system(
-            ident!(hello_triangle),
-            |mut egui: ResMutNoSend<EguiResource>, window: Res<Window>| {
-                egui.run(&window, |ctx| {
-                    arcana::egui::Window::new("Hello triangle!")
-                        .resizable(false)
-                        .collapsible(true)
-                        .show(ctx, |ui| {
-                            ui.label("Hello triangle!");
-                        });
-                });
-            },
-        )
     }
 }

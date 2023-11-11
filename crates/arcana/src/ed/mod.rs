@@ -5,9 +5,12 @@ use parking_lot::Mutex;
 
 use crate::plugin::GLOBAL_CHECK;
 
+use self::games::GameId;
+
 mod app;
 mod console;
-mod game;
+mod filters;
+mod games;
 mod ide;
 mod memory;
 mod plugins;
@@ -20,6 +23,7 @@ enum Tab {
     Console,
     Systems,
     Filters,
+    Game(GameId),
     // Memory,
 }
 

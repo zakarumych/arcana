@@ -4,31 +4,7 @@ use std::{
     ops::{Mul, Range},
 };
 
-use super::{format::PixelFormat, Extent1, Extent2, Extent3, OutOfMemory};
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum ImageError {
-    OutOfMemory,
-    InvalidFormat,
-}
-
-impl From<OutOfMemory> for ImageError {
-    #[inline(always)]
-    fn from(_: OutOfMemory) -> Self {
-        ImageError::OutOfMemory
-    }
-}
-
-impl fmt::Display for ImageError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ImageError::OutOfMemory => fmt::Display::fmt(&OutOfMemory, f),
-            ImageError::InvalidFormat => write!(f, "invalid format"),
-        }
-    }
-}
-
-impl Error for ImageError {}
+use super::{format::PixelFormat, Extent1, Extent2, Extent3};
 
 /// Image component swizzle
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -166,6 +142,69 @@ impl ImageDimensions {
             ImageDimensions::D2(width, height) => Extent3::new(width, height, 1),
             ImageDimensions::D3(width, height, depth) => Extent3::new(width, height, depth),
         }
+    }
+}
+
+impl PartialEq<Extent1> for ImageDimensions {
+    fn eq(&self, other: &Extent1) -> bool {
+        match *self {
+            ImageDimensions::D1(width) => width == other.width(),
+            ImageDimensions::D2(width, 1) => width == other.width(),
+            ImageDimensions::D3(width, 1, 1) => width == other.width(),
+            _ => false,
+        }
+    }
+}
+
+impl PartialEq<Extent2> for ImageDimensions {
+    fn eq(&self, other: &Extent2) -> bool {
+        match *self {
+            ImageDimensions::D1(width) => width == other.width() && 1 == other.height(),
+            ImageDimensions::D2(width, height) => {
+                width == other.width() && height == other.height()
+            }
+            ImageDimensions::D3(width, height, 1) => {
+                width == other.width() && height == other.height()
+            }
+            _ => false,
+        }
+    }
+}
+
+impl PartialEq<Extent3> for ImageDimensions {
+    fn eq(&self, other: &Extent3) -> bool {
+        match *self {
+            ImageDimensions::D1(width) => {
+                width == other.width() && 1 == other.height() && 1 == other.depth()
+            }
+            ImageDimensions::D2(width, height) => {
+                width == other.width() && height == other.height() && 1 == other.depth()
+            }
+            ImageDimensions::D3(width, height, depth) => {
+                width == other.width() && height == other.height() && depth == other.depth()
+            }
+        }
+    }
+}
+
+impl From<Extent1> for ImageDimensions {
+    #[inline(always)]
+    fn from(extent: Extent1) -> Self {
+        ImageDimensions::D1(extent.width())
+    }
+}
+
+impl From<Extent2> for ImageDimensions {
+    #[inline(always)]
+    fn from(extent: Extent2) -> Self {
+        ImageDimensions::D2(extent.width(), extent.height())
+    }
+}
+
+impl From<Extent3> for ImageDimensions {
+    #[inline(always)]
+    fn from(extent: Extent3) -> Self {
+        ImageDimensions::D3(extent.width(), extent.height(), extent.depth())
     }
 }
 

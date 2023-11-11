@@ -20,6 +20,7 @@ mod plugin;
 mod wrapper;
 
 use generator::init_workspace;
+use manifest::serialize_manifest;
 use miette::{Context, IntoDiagnostic};
 use path::normalizing_join;
 
@@ -27,7 +28,7 @@ pub use self::{
     dependency::Dependency,
     generator::new_plugin_crate,
     ident::{Ident, IdentBuf},
-    manifest::{Plugin, ProjectManifest, System},
+    manifest::{Item, Plugin, ProjectManifest},
     path::{make_relative, real_path},
     wrapper::{game_bin_path, BuildProcess},
 };
@@ -166,6 +167,7 @@ impl Project {
             engine,
             plugins: Vec::new(),
             systems: Vec::new(),
+            filters: Vec::new(),
         };
 
         let manifest_str = match toml::to_string(&manifest) {
@@ -320,7 +322,11 @@ impl Project {
     }
 
     pub fn sync(&mut self) -> miette::Result<()> {
-        let serialized_manifest = toml::to_string_pretty(&self.manifest).map_err(|err| {
+        // let serialized_manifest = toml::to_string(&self.manifest).map_err(|err| {
+        //     miette::miette!("Cannot serialize project manifest to \"Arcana.toml\": {err}")
+        // })?;
+
+        let serialized_manifest = serialize_manifest(&self.manifest).map_err(|err| {
             miette::miette!("Cannot serialize project manifest to \"Arcana.toml\": {err}")
         })?;
 
@@ -333,52 +339,6 @@ impl Project {
                 );
             }
         }
-    }
-
-    pub fn add_plugin(&mut self, name: IdentBuf, dep: Dependency) -> bool {
-        if self.manifest.plugins.iter().any(|p| p.name == name) {
-            return false;
-        }
-
-        let dep = dep.make_relative(&self.root_path);
-
-        tracing::info!("Plugin '{} added", name);
-        let plugin = Plugin {
-            name,
-            dep,
-            enabled: true,
-        };
-
-        self.manifest.plugins.push(plugin);
-        true
-    }
-
-    pub fn insert_plugin(&mut self, name: IdentBuf, dep: Dependency, index: usize) -> bool {
-        if self.manifest.plugins.iter().any(|p| p.name == name) {
-            return false;
-        }
-
-        let dep = dep.make_relative(&self.root_path);
-
-        tracing::info!("Plugin '{} added", name);
-        let plugin = Plugin {
-            name,
-            dep,
-            enabled: true,
-        };
-
-        self.manifest.plugins.insert(index, plugin);
-        true
-    }
-
-    pub fn remove_plugin(&mut self, name: &Ident) -> bool {
-        let mut removed = false;
-        self.manifest.plugins.retain(|p| {
-            let retain = p.name != *name;
-            removed |= !retain;
-            retain
-        });
-        removed
     }
 
     /// Initializes all plugin wrapper libs and workspace.
@@ -450,6 +410,24 @@ impl Project {
             Some(code) => miette::bail!("Game exited with code {}", code),
             None => miette::bail!("Game terminated by signal"),
         }
+    }
+
+    pub fn add_plugin(&mut self, name: IdentBuf, dep: Dependency) -> bool {
+        if self.manifest.has_plugin(&name) {
+            return false;
+        }
+
+        let dep = dep.make_relative(&self.root_path);
+
+        tracing::info!("Plugin '{} added", name);
+        let plugin = Plugin {
+            name,
+            dep,
+            enabled: true,
+        };
+
+        self.manifest.plugins.push(plugin);
+        true
     }
 }
 

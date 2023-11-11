@@ -24,7 +24,7 @@ use crate::{
 /// according to the order specified in the manifest.
 ///
 /// If manifest has enabled system not registed by plugin, game instance cannot be started.
-#[derive(Debug, Clone, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Plugin {
     /// Name of the plugin.
     pub name: IdentBuf,
@@ -37,7 +37,8 @@ pub struct Plugin {
     pub enabled: bool,
 }
 
-pub struct System {
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Item {
     /// Plugin that registers this system.
     pub plugin: IdentBuf,
 
@@ -49,13 +50,13 @@ pub struct System {
     pub enabled: bool,
 }
 
-impl serde::Serialize for System {
+impl serde::Serialize for Item {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
         #[derive(serde::Serialize)]
-        struct SerSystem<'a> {
+        struct SerItem<'a> {
             plugin: &'a Ident,
             name: &'a Ident,
             enabled: bool,
@@ -69,7 +70,7 @@ impl serde::Serialize for System {
             }
         } else {
             serde::Serialize::serialize(
-                &SerSystem {
+                &SerItem {
                     plugin: &self.plugin,
                     name: &self.name,
                     enabled: self.enabled,
@@ -80,13 +81,13 @@ impl serde::Serialize for System {
     }
 }
 
-impl<'de> serde::Deserialize<'de> for System {
-    fn deserialize<D>(deserializer: D) -> Result<System, D::Error>
+impl<'de> serde::Deserialize<'de> for Item {
+    fn deserialize<D>(deserializer: D) -> Result<Item, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
         #[derive(serde::Deserialize)]
-        struct DeSystem {
+        struct DeItem {
             plugin: IdentBuf,
             name: IdentBuf,
             enabled: bool,
@@ -106,14 +107,14 @@ impl<'de> serde::Deserialize<'de> for System {
             let plugin = Ident::from_str(plugin).map_err(|_| expected())?;
             let name = Ident::from_str(name).map_err(|_| expected())?;
 
-            Ok(System {
+            Ok(Item {
                 plugin: plugin.to_buf(),
                 name: name.to_buf(),
                 enabled: !disabled,
             })
         } else {
-            let system: DeSystem = serde::Deserialize::deserialize(deserializer)?;
-            Ok(System {
+            let system: DeItem = serde::Deserialize::deserialize(deserializer)?;
+            Ok(Item {
                 plugin: system.plugin,
                 name: system.name,
                 enabled: system.enabled,
@@ -125,7 +126,7 @@ impl<'de> serde::Deserialize<'de> for System {
 /// Project manifest.
 /// Contains information about project, dependencies, systems order, etc.
 /// Usually put into `Arcana.toml` file.
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct ProjectManifest {
     /// Name of the project.
     pub name: IdentBuf,
@@ -140,8 +141,12 @@ pub struct ProjectManifest {
     pub plugins: Vec<Plugin>,
 
     /// List of systems in order they should be added to scheduler.
-    #[serde(skip_serializing_if = "Vec::is_empty", default, with = "systems_serde")]
-    pub systems: Vec<System>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub systems: Vec<Item>,
+
+    /// List of systems in order they should be added to scheduler.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub filters: Vec<Item>,
 }
 
 impl ProjectManifest {
@@ -153,9 +158,83 @@ impl ProjectManifest {
         self.plugins.iter_mut().find(|p| &p.name == name)
     }
 
+    pub fn has_plugin(&self, name: &Ident) -> bool {
+        self.plugins.iter().any(|p| &p.name == name)
+    }
+
     pub fn enable_plugin(&mut self, name: &Ident, enabled: bool) {
         if let Some(plugin) = self.get_plugin_mut(name) {
             plugin.enabled = enabled;
+        }
+    }
+
+    pub fn remove_plugin(&mut self, name: &Ident) -> bool {
+        let mut removed = false;
+        self.plugins.retain(|p| {
+            let retain = p.name != *name;
+            removed |= !retain;
+            retain
+        });
+        removed
+    }
+
+    pub fn remove_plugin_idx(&mut self, idx: usize) {
+        self.plugins.remove(idx);
+    }
+
+    pub fn get_system(&self, plugin: &Ident, name: &Ident) -> Option<&Item> {
+        self.systems
+            .iter()
+            .find(|s| *s.plugin == *plugin && *s.name == *name)
+    }
+
+    pub fn get_system_mut(&mut self, plugin: &Ident, name: &Ident) -> Option<&mut Item> {
+        self.systems
+            .iter_mut()
+            .find(|s| *s.plugin == *plugin && *s.name == *name)
+    }
+
+    pub fn has_system(&self, plugin: &Ident, name: &Ident) -> bool {
+        self.systems
+            .iter()
+            .any(|s| *s.plugin == *plugin && *s.name == *name)
+    }
+
+    pub fn add_system(&mut self, plugin: &Ident, name: &Ident, enabled: bool) {
+        if !self.has_system(plugin, name) {
+            self.systems.push(Item {
+                plugin: plugin.to_buf(),
+                name: name.to_buf(),
+                enabled,
+            });
+        }
+    }
+
+    pub fn get_filter(&self, plugin: &Ident, name: &Ident) -> Option<&Item> {
+        self.filters
+            .iter()
+            .find(|s| *s.plugin == *plugin && *s.name == *name)
+    }
+
+    pub fn get_filter_mut(&mut self, plugin: &Ident, name: &Ident) -> Option<&mut Item> {
+        self.filters
+            .iter_mut()
+            .find(|s| *s.plugin == *plugin && *s.name == *name)
+    }
+
+    pub fn has_filter(&self, plugin: &Ident, name: &Ident) -> bool {
+        self.filters
+            .iter()
+            .any(|s| *s.plugin == *plugin && *s.name == *name)
+    }
+
+    pub fn add_filter(&mut self, plugin: &Ident, name: &Ident, enabled: bool) {
+        if !self.has_filter(plugin, name) {
+            self.filters.push(Item {
+                plugin: plugin.to_buf(),
+                name: name.to_buf(),
+                enabled,
+            });
         }
     }
 }
@@ -177,16 +256,17 @@ mod plugins_serde {
 
         #[derive(serde::Serialize)]
         struct PluginSer<'a> {
-            dep: &'a Dependency,
             enabled: bool,
+            #[serde(flatten)]
+            dep: &'a Dependency,
         }
 
         for plugin in plugins {
             serializer.serialize_entry(
                 &plugin.name,
                 &PluginSer {
-                    dep: &plugin.dep,
                     enabled: plugin.enabled,
+                    dep: &plugin.dep,
                 },
             )?;
         }
@@ -216,8 +296,9 @@ mod plugins_serde {
         {
             #[derive(serde::Deserialize)]
             struct PluginDe {
-                dep: Dependency,
                 enabled: bool,
+                #[serde(flatten)]
+                dep: Dependency,
             }
 
             let mut plugins = Vec::new();
@@ -225,8 +306,8 @@ mod plugins_serde {
             while let Some((name, plugin)) = map.next_entry::<IdentBuf, PluginDe>()? {
                 plugins.push(Plugin {
                     name,
-                    dep: plugin.dep.clone(),
                     enabled: plugin.enabled,
+                    dep: plugin.dep.clone(),
                 });
             }
 
@@ -235,70 +316,46 @@ mod plugins_serde {
     }
 }
 
-mod systems_serde {
-    use std::fmt;
+pub(super) fn serialize_manifest(manifest: &ProjectManifest) -> Result<String, toml::ser::Error> {
+    use serde::Serialize;
+    use std::fmt::Write;
 
-    use serde::ser::{SerializeMap, SerializeSeq, Serializer};
+    let mut output = String::new();
+    // output.push_str("name = ");
 
-    use crate::IdentBuf;
+    // manifest
+    //     .name
+    //     .serialize(toml::ser::ValueSerializer::new(&mut output))?;
 
-    use super::System;
+    // if let Some(engine) = &manifest.engine {
+    //     #[derive(serde::Serialize)]
+    //     struct SerEngine<'a> {
+    //         engine: &'a Dependency,
+    //     }
+    //     SerEngine { engine }.serialize(toml::ser::Serializer::new(&mut output))?;
+    // }
 
-    fn is_true(b: &bool) -> bool {
-        *b
-    }
+    // if !manifest.plugins.is_empty() {
+    //     output.push_str("\n[plugins]");
 
-    fn default_true() -> bool {
-        true
-    }
+    //     for plugin in &manifest.plugins {
+    //         #[derive(serde::Serialize)]
+    //         struct PluginSer<'a> {
+    //             #[serde(flatten)]
+    //             dep: &'a Dependency,
+    //             enabled: bool,
+    //         }
 
-    pub fn serialize<S>(systems: &Vec<System>, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut serializer = serializer.serialize_seq(Some(systems.len()))?;
+    //         write!(output, "\n{} = ", plugin.name);
+    //         PluginSer {
+    //             dep: &plugin.dep,
+    //             enabled: plugin.enabled,
+    //         }
+    //         .serialize(toml::ser::ValueSerializer::new(&mut output))?;
+    //     }
+    // }
 
-        for system in systems {
-            if system.enabled {
-                serializer.serialize_element(&format!("{}:{}", system.plugin, system.name));
-            } else {
-                serializer.serialize_element(&format!("!{}:{}", system.plugin, system.name));
-            }
-        }
+    manifest.serialize(toml::Serializer::new(&mut output))?;
 
-        serializer.end()
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<System>, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        deserializer.deserialize_seq(VisitSystems)
-    }
-
-    struct VisitSystems;
-
-    impl<'de> serde::de::Visitor<'de> for VisitSystems {
-        type Value = Vec<System>;
-
-        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-            formatter.write_str("list of system ids")
-        }
-
-        fn visit_seq<S>(self, mut seq: S) -> Result<Self::Value, S::Error>
-        where
-            S: serde::de::SeqAccess<'de>,
-        {
-            let mut plugins = Vec::new();
-
-            while let Some(id) = seq.next_element::<String>()? {
-                let mut id_ref = &id[..];
-                if id.starts_with('!') {
-                    id_ref = &id[1..];
-                }
-            }
-
-            Ok(plugins)
-        }
-    }
+    Ok(output)
 }

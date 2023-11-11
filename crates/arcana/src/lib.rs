@@ -1,6 +1,7 @@
 #![feature(allocator_api)]
 #![allow(warnings)]
 
+#[macro_export]
 macro_rules! offset_of {
     ($struct:ident . $field:ident) => {
         unsafe {
@@ -18,40 +19,26 @@ macro_rules! offset_of {
     };
 }
 
+/// `std::format` where all arguments are constants.
+#[macro_export]
+macro_rules! const_format {
+    ($fmt:literal $(, $arg:expr)* $(,)?) => {{
+        std::thread_local! {
+            static VALUE: &'static str = std::format!($fmt $(, $arg)*).leak();
+        }
+        let s: &'static str = VALUE.with(|s| *s);
+        s
+    }};
+}
+
 // Re-exports
 
 pub use {blink_alloc, bytemuck, edict, gametime, na, parking_lot, tokio};
 
-#[cfg(feature = "client")]
-pub use mev;
-
-#[cfg(feature = "client")]
-pub use winit;
-
 pub use arcana_project as project;
-
-pub mod alloc;
-
-#[cfg(feature = "client")]
-pub mod game;
-
-#[cfg(feature = "client")]
-pub mod events;
-
-#[cfg(feature = "client")]
-pub mod funnel;
-
-#[cfg(feature = "client")]
-pub mod render;
 
 #[cfg(feature = "derive")]
 pub use arcana_proc::*;
-
-#[cfg(feature = "client")]
-pub mod egui;
-
-#[cfg(feature = "client")]
-pub mod texture;
 
 #[cfg(feature = "app")]
 pub mod app;
@@ -59,6 +46,19 @@ pub mod app;
 #[cfg(feature = "ed")]
 pub mod ed;
 
+feature_client! {
+    pub use mev;
+    pub use winit;
+    pub mod egui;
+    pub mod events;
+    pub mod funnel;
+    pub mod game;
+    pub mod render;
+    pub mod texture;
+    pub mod window;
+}
+
+pub mod alloc;
 pub mod assets;
 pub mod bundle;
 pub mod flow;
@@ -173,3 +173,16 @@ macro_rules! feature {
 
 // #[global_allocator]
 // static ALLOC: alloc::ArcanaAllocator = alloc::ArcanaAllocator;
+
+fn move_element<T>(slice: &mut [T], from_index: usize, to_index: usize) {
+    if from_index == to_index {
+        return;
+    }
+    if from_index < to_index {
+        let sub = &mut slice[from_index..=to_index];
+        sub.rotate_left(1);
+    } else {
+        let sub = &mut slice[to_index..=from_index];
+        sub.rotate_right(1);
+    }
+}

@@ -5,27 +5,15 @@ use arcana::{
     edict::World,
     events::{Event, WindowEvent},
     funnel::EventFilter,
-    plugin::{ArcanaPlugin, PluginInit},
-    plugin_init,
-    project::{ident, Ident},
     winit::window::Window,
 };
 
-arcana::export_arcana_plugin!(CursorPlugin);
-
-pub struct CursorPlugin;
-
-impl ArcanaPlugin for CursorPlugin {
-    fn init(&self, world: &mut World) -> PluginInit {
-        world.insert_resource(MainCursor(Cursor {
+arcana::export_arcana_plugin! {
+    CursorPlugin {
+        resources: [MainCursor(Cursor {
             pos: na::Point2::origin(),
-        }));
-
-        plugin_init!()
-    }
-
-    fn event_filters(&self) -> Vec<&Ident> {
-        vec![ident!(CursorFilter)]
+        })],
+        filters: [cursor: CursorFilter],
     }
 }
 

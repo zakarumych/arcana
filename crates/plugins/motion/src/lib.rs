@@ -2,49 +2,25 @@ use std::f32::EPSILON;
 
 use arcana::{
     edict::{
-        query::Xor2, ActionEncoder, Component, Entities, EntityId, Res, ResMut, Scheduler, View,
-        Without, World,
+        query::Xor2, ActionEncoder, Component, Entities, EntityId, Res, ResMut, View, Without,
     },
     gametime::ClockStep,
-    plugin::{ArcanaPlugin, PluginInit},
-    plugin_init,
-    project::{ident, Dependency, Ident},
+    project::{Dependency, Ident},
 };
 use physics::{Body, PhysicsResource};
 use scene::Global2;
 
-arcana::export_arcana_plugin!(MotionPlugin);
-
-pub struct MotionPlugin;
-
-impl ArcanaPlugin for MotionPlugin {
-    fn dependencies(&self) -> Vec<(&Ident, Dependency)> {
-        vec![scene::path_dependency(), physics::path_dependency()]
-    }
-
-    fn init(&self, world: &mut World) -> PluginInit {
-        world.ensure_component_registered::<Motor2>();
-        world.ensure_component_registered::<Motion2>();
-        world.ensure_component_registered::<MoveTo2>();
-        world.ensure_component_registered::<MoveAfter2>();
-
-        plugin_init!(systems: [
+arcana::export_arcana_plugin! {
+    MotionPlugin {
+        dependencies: [scene ..., physics ...],
+        components: [Motor2, Motion2, Motor2State, MoveTo2, MoveAfter2],
+        systems: [
             motion_after_init_system,
             move_to_init_system,
             motion_after_system,
             move_to_system,
             motion_system,
-        ])
-    }
-
-    fn systems(&self) -> Vec<&Ident> {
-        vec![
-            ident!(motion_after_init_system),
-            ident!(move_to_init_system),
-            ident!(motion_after_system),
-            ident!(move_to_system),
-            ident!(motion_system),
-        ]
+        ],
     }
 }
 

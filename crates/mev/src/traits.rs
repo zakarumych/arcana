@@ -5,8 +5,8 @@ use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use crate::generic::{
     Arguments, BufferDesc, BufferInitDesc, Capabilities, CreateError, CreateLibraryError,
     CreatePipelineError, DeviceDesc, DeviceError, DeviceRepr, Extent2, Extent3, ImageDesc,
-    ImageDimensions, ImageError, LibraryDesc, Offset2, Offset3, OutOfMemory, PipelineStages,
-    PixelFormat, RenderPassDesc, RenderPipelineDesc, SamplerDesc, SurfaceError, ViewDesc,
+    ImageDimensions, LibraryDesc, Offset2, Offset3, OutOfMemory, PipelineStages, PixelFormat,
+    RenderPassDesc, RenderPipelineDesc, SamplerDesc, SurfaceError, ViewDesc,
 };
 
 pub trait Instance {
@@ -37,7 +37,7 @@ pub trait Device {
     fn new_buffer_init(&self, desc: BufferInitDesc) -> Result<crate::backend::Buffer, OutOfMemory>;
 
     /// Create a new image.
-    fn new_image(&self, desc: ImageDesc) -> Result<crate::backend::Image, ImageError>;
+    fn new_image(&self, desc: ImageDesc) -> Result<crate::backend::Image, OutOfMemory>;
 
     /// Create a new sampler.
     fn new_sampler(&self, desc: SamplerDesc) -> Result<crate::backend::Sampler, OutOfMemory>;

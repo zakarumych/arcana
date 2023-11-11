@@ -2,6 +2,7 @@
 
 mod render;
 mod target;
+mod viewport;
 
 use std::{
     collections::VecDeque, fmt, marker::PhantomData, num::NonZeroU64, ops::Range, sync::Arc,
@@ -17,9 +18,14 @@ use mev::PipelineStages;
 use parking_lot::Mutex;
 use winit::window::{Window, WindowId};
 
+use crate::window::Windows;
+
 use self::{render::RenderId, target::RenderTarget};
 
-pub use self::render::{Render, RenderBuilderContext, TargetId};
+pub use self::{
+    render::{Render, RenderBuilderContext, TargetId},
+    viewport::{RTTs, Viewport, RTT},
+};
 
 pub trait RenderTargetType: 'static {
     fn add_target(
@@ -81,10 +87,10 @@ impl RenderTargetType for mev::Image {
         id: TargetId<mev::Image>,
         encoder: &mut mev::CommandEncoder,
     ) -> &'a mev::Image {
-        let image = cx.images.get(&id.0).expect("Invalid target id");
-        let barrier = cx.write_image_barriers.remove(&id);
+        let image = cx.values.images.get(&id.0).expect("Invalid target id");
+        let barrier = cx.values.write_image_barriers.remove(&id);
         if let Some(barrier) = barrier {
-            if cx.init_images.remove(&id.0) {
+            if cx.values.init_images.remove(&id.0) {
                 encoder.init_image(barrier.start, barrier.end, image);
             } else {
                 encoder.barrier(barrier.start, barrier.end);
@@ -98,8 +104,8 @@ impl RenderTargetType for mev::Image {
         id: TargetId<mev::Image>,
         encoder: &mut mev::CommandEncoder,
     ) -> &'a mev::Image {
-        let image = cx.images.get(&id.0).expect("Invalid target id");
-        let barrier = cx.read_image_barriers.remove(&id);
+        let image = cx.values.images.get(&id.0).expect("Invalid target id");
+        let barrier = cx.values.read_image_barriers.remove(&id);
         if let Some(barrier) = barrier {
             encoder.barrier(barrier.start, barrier.end);
         }
@@ -154,8 +160,8 @@ impl RenderTargetType for mev::Buffer {
         id: TargetId<mev::Buffer>,
         encoder: &mut mev::CommandEncoder,
     ) -> &'a mev::Buffer {
-        let buffer = cx.buffers.get(&id.0).expect("Invalid target id");
-        let barrier = cx.write_buffer_barriers.remove(&id);
+        let buffer = cx.values.buffers.get(&id.0).expect("Invalid target id");
+        let barrier = cx.values.write_buffer_barriers.remove(&id);
         if let Some(barrier) = barrier {
             encoder.barrier(barrier.start, barrier.end);
         }
@@ -167,8 +173,8 @@ impl RenderTargetType for mev::Buffer {
         id: TargetId<mev::Buffer>,
         encoder: &mut mev::CommandEncoder,
     ) -> &'a mev::Buffer {
-        let buffer = cx.buffers.get(&id.0).expect("Invalid target id");
-        let barrier = cx.read_buffer_barriers.remove(&id);
+        let buffer = cx.values.buffers.get(&id.0).expect("Invalid target id");
+        let barrier = cx.values.read_buffer_barriers.remove(&id);
         if let Some(barrier) = barrier {
             encoder.barrier(barrier.start, barrier.end);
         }
@@ -196,7 +202,7 @@ pub struct RenderGraph {
     renders: HashMap<RenderId, RenderNode>,
     image_targets: HashMap<NonZeroU64, RenderTarget<mev::Image>>,
     buffer_targets: HashMap<NonZeroU64, RenderTarget<mev::Buffer>>,
-    presents: HashMap<WindowId, TargetId<mev::Image>>,
+    presents: HashMap<Viewport, TargetId<mev::Image>>,
     next_id: u64,
 }
 
@@ -245,14 +251,8 @@ impl RenderGraph {
 
     /// Sets up render graph to present target to the window.
     /// Render system will look for this window and present the target to it if found.
-    pub fn present(&mut self, target: TargetId<mev::Image>, window: WindowId) {
-        let rt = self
-            .image_targets
-            .get_mut(&target.0)
-            .expect("Invalid target id");
-
-        rt.read(rt.versions() - 1, PipelineStages::empty());
-        self.presents.insert(window, target);
+    pub fn present(&mut self, target: TargetId<mev::Image>, viewport: impl Into<Viewport>) {
+        self.presents.insert(viewport.into(), target);
     }
 }
 
@@ -297,27 +297,29 @@ type TargetMap<'a, T> = BlinkHashMap<'a, NonZeroU64, T>;
 type BarrierMap<'a, T> = BlinkHashMap<'a, TargetId<T>, Range<mev::PipelineStages>>;
 type ImageInitSet<'a> = BlinkHashSet<'a, NonZeroU64>;
 
+struct RenderContextValues<'a> {
+    // Maps render target ids to image resources.
+    images: TargetMap<'a, mev::Image>,
+
+    // Maps render target to pipeline stages that need to be waited for.
+    init_images: ImageInitSet<'a>,
+    write_image_barriers: BarrierMap<'a, mev::Image>,
+    read_image_barriers: BarrierMap<'a, mev::Image>,
+
+    // Maps render target ids to buffer resources.
+    buffers: TargetMap<'a, mev::Buffer>,
+
+    // Maps render target to pipeline stages that need to be waited for.
+    write_buffer_barriers: BarrierMap<'a, mev::Buffer>,
+    read_buffer_barriers: BarrierMap<'a, mev::Buffer>,
+
+    cbufs: Vec<mev::CommandBuffer, &'a BlinkAlloc>,
+}
+
 pub struct RenderContext<'a, 'b> {
     device: &'a mev::Device,
     queue: &'a mut mev::Queue,
-
-    // Maps render target ids to image resources.
-    images: &'a mut TargetMap<'b, mev::Image>,
-
-    // Maps render target to pipeline stages that need to be waited for.
-    init_images: &'a mut ImageInitSet<'b>,
-    write_image_barriers: &'a mut BarrierMap<'b, mev::Image>,
-    read_image_barriers: &'a mut BarrierMap<'b, mev::Image>,
-
-    // Maps render target ids to buffer resources.
-    buffers: &'a mut TargetMap<'b, mev::Buffer>,
-
-    // Maps render target to pipeline stages that need to be waited for.
-    write_buffer_barriers: &'a mut BarrierMap<'b, mev::Buffer>,
-    read_buffer_barriers: &'a mut BarrierMap<'b, mev::Buffer>,
-
-    cbufs: &'a mut Vec<mev::CommandBuffer, &'b BlinkAlloc>,
-    world: &'a World,
+    values: &'a mut RenderContextValues<'b>,
 }
 
 impl<'a> RenderContext<'a, '_> {
@@ -332,7 +334,7 @@ impl<'a> RenderContext<'a, '_> {
     }
 
     pub fn commit(&mut self, cbuf: mev::CommandBuffer) {
-        self.cbufs.push(cbuf);
+        self.values.cbufs.push(cbuf);
     }
 
     pub fn write_target<T>(&mut self, id: TargetId<T>, encoder: &mut mev::CommandEncoder) -> &T
@@ -409,36 +411,10 @@ impl RenderNode {
 
     fn render<'a, 'b>(
         &mut self,
-        device: &'a mev::Device,
-        queue: &'a mut mev::Queue,
-        world: &'a World,
-        images: &'a mut TargetMap<'b, mev::Image>,
-        init_images: &'a mut ImageInitSet<'b>,
-        write_image_barriers: &'a mut BarrierMap<'b, mev::Image>,
-        read_image_barriers: &'a mut BarrierMap<'b, mev::Image>,
-        buffers: &'a mut TargetMap<'b, mev::Buffer>,
-        write_buffer_barriers: &'a mut BarrierMap<'b, mev::Buffer>,
-        read_buffer_barriers: &'a mut BarrierMap<'b, mev::Buffer>,
-        cbufs: &'a mut Vec<mev::CommandBuffer, &'b BlinkAlloc>,
-        blink: &'b BlinkAlloc,
+        world: &World,
+        ctx: RenderContext<'a, 'b>,
     ) -> Result<(), RenderError> {
-        self.render.render(
-            RenderContext::<'a, 'b> {
-                device,
-                queue,
-                images,
-                init_images,
-                write_image_barriers,
-                read_image_barriers,
-                buffers,
-                write_buffer_barriers,
-                read_buffer_barriers,
-                cbufs,
-                world,
-            },
-            world,
-            blink,
-        )
+        self.render.render(world, ctx)
     }
 }
 
@@ -481,7 +457,6 @@ pub fn render_system(world: &mut World, mut state: State<RenderState>) {
 
     let mut graph = world.expect_resource_mut::<RenderGraph>();
     let mut update_targets = world.get_resource_mut::<UpdateTargets>();
-    let window = world.expect_resource_mut::<Window>();
 
     render(
         &mut *graph,
@@ -489,7 +464,6 @@ pub fn render_system(world: &mut World, mut state: State<RenderState>) {
         queue,
         &state.blink,
         update_targets.as_deref_mut(),
-        Some(&*window),
         &*world,
         &mut state.resources,
     );
@@ -502,10 +476,25 @@ pub fn render<'a>(
     queue: &mut mev::Queue,
     blink: &BlinkAlloc,
     update_targets: Option<&mut UpdateTargets>,
-    windows: impl IntoIterator<Item = &'a Window>,
     world: &World,
     resources: &mut RenderResources,
 ) {
+    let mut ctx = RenderContextValues {
+        // Maps render target ids to image resources.
+        images: HashMap::new_in(blink),
+        buffers: HashMap::new_in(blink),
+
+        // Maps render target entity to access stages.
+        init_images: HashSet::new_in(blink),
+        write_image_barriers: HashMap::new_in(blink),
+        read_image_barriers: HashMap::new_in(blink),
+        write_buffer_barriers: HashMap::new_in(blink),
+        read_buffer_barriers: HashMap::new_in(blink),
+
+        // Submitted command buffers.
+        cbufs: Vec::new_in(blink),
+    };
+
     // Collect all targets that needs to be updated.
     // If target is bound to surface, fetch next frame.
     let mut image_targets_to_update = Vec::new_in(blink);
@@ -516,49 +505,69 @@ pub fn render<'a>(
         buffer_targets_to_update.extend(update_targets.update_buffers.drain());
     }
 
-    // Maps render target ids to image resources.
-    let mut images = HashMap::new_in(blink);
-    let mut buffers = HashMap::new_in(blink);
-
-    // Maps render target entity to access stages.
-    let mut init_images = HashSet::new_in(blink);
-    let mut write_image_barriers = HashMap::new_in(blink);
-    let mut read_image_barriers = HashMap::new_in(blink);
-    let mut write_buffer_barriers = HashMap::new_in(blink);
-    let mut read_buffer_barriers = HashMap::new_in(blink);
-
     let mut drop_surfaces = Vec::new_in(blink);
     let mut frames = Vec::new_in(blink);
 
-    for window in windows {
-        let wid = window.id();
-        let Some(&tid) = graph.presents.get(&wid) else {
-            // This graph does not presenting to this window.
-            continue;
-        };
+    let windows = world.get_resource::<Windows>();
+    let window = world.get_resource::<Window>();
+    let rtts = world.get_resource::<RTTs>();
 
+    let mut drop_viewports = Vec::new_in(blink);
+    for (&viewport, &tid) in &graph.presents {
         // Target is guaranteed to exist.
         let rt = &graph.image_targets[&tid.0];
 
-        let surface = match resources.surfaces.entry(wid) {
-            Entry::Occupied(entry) => entry.into_mut(),
-            Entry::Vacant(entry) => {
-                let surface = device.new_surface(&window, &window).unwrap();
-                entry.insert(surface)
-            }
-        };
+        match viewport {
+            Viewport::Texture(id) => {
+                let rtts = rtts.as_ref().expect("RTTs not initialized");
 
-        match surface.next_frame(&mut *queue, rt.writes(0)) {
-            Err(err) => {
-                tracing::error!(err = ?err);
-                drop_surfaces.push(wid);
-                continue;
+                let Some(image) = rtts.get(id) else {
+                    drop_viewports.push(viewport.clone());
+                    continue;
+                };
+
+                ctx.init_images.insert(tid.0);
+                ctx.images.insert(tid.0, image.clone());
             }
-            Ok(frame) => {
-                let image = frame.image();
-                init_images.insert(tid.0);
-                images.insert(tid.0, image.clone());
-                frames.push((frame, rt.writes(tid.1) | rt.reads(tid.1)));
+            Viewport::Window(wid) => {
+                // Find the window.
+                let window = match (&windows, &window) {
+                    (Some(windows), _) => {
+                        let Some(window) = windows.get(wid) else {
+                            drop_viewports.push(viewport.clone());
+                            continue;
+                        };
+                        window
+                    }
+                    (_, Some(window)) if window.id() == wid => window,
+                    _ => {
+                        tracing::error!("Window not found");
+                        drop_viewports.push(viewport.clone());
+                        continue;
+                    }
+                };
+
+                let surface = match resources.surfaces.entry(wid) {
+                    Entry::Occupied(entry) => entry.into_mut(),
+                    Entry::Vacant(entry) => {
+                        let surface = device.new_surface(window, window).unwrap();
+                        entry.insert(surface)
+                    }
+                };
+
+                match surface.next_frame(&mut *queue, rt.writes(0)) {
+                    Err(err) => {
+                        tracing::error!(err = ?err);
+                        drop_surfaces.push(wid);
+                        continue;
+                    }
+                    Ok(frame) => {
+                        let image = frame.image();
+                        ctx.init_images.insert(tid.0);
+                        ctx.images.insert(tid.0, image.clone());
+                        frames.push((frame, rt.writes(tid.1) | rt.reads(tid.1)));
+                    }
+                }
             }
         }
 
@@ -573,9 +582,11 @@ pub fn render<'a>(
     while let Some(tid) = image_targets_to_update.pop() {
         let rt = graph.get_target::<mev::Image>(tid.0);
 
-        write_image_barriers.insert(tid, rt.waits(tid.1)..rt.writes(tid.1));
+        ctx.write_image_barriers
+            .insert(tid, rt.waits(tid.1)..rt.writes(tid.1));
         if !rt.reads(tid.1).is_empty() {
-            read_image_barriers.insert(tid, rt.writes(tid.1)..rt.reads(tid.1));
+            ctx.read_image_barriers
+                .insert(tid, rt.writes(tid.1)..rt.reads(tid.1));
         }
 
         // Activate render node attached to the target.
@@ -596,9 +607,11 @@ pub fn render<'a>(
     while let Some(tid) = buffer_targets_to_update.pop() {
         let rt = graph.get_target::<mev::Buffer>(tid.0);
 
-        write_buffer_barriers.insert(tid, rt.waits(tid.1)..rt.writes(tid.1));
+        ctx.write_buffer_barriers
+            .insert(tid, rt.waits(tid.1)..rt.writes(tid.1));
         if !rt.reads(tid.1).is_empty() {
-            read_buffer_barriers.insert(tid, rt.writes(tid.1)..rt.reads(tid.1));
+            ctx.read_buffer_barriers
+                .insert(tid, rt.writes(tid.1)..rt.reads(tid.1));
         }
 
         // Activate render node attached to the target.
@@ -654,32 +667,24 @@ pub fn render<'a>(
         }
     }
 
-    let mut cbufs = Vec::new_in(blink);
-
     // Walk render schedule and run renders in opposite order.
     while let Some(rid) = render_schedule.pop() {
         let render = graph.renders.get_mut(&rid).unwrap();
 
-        let cbufs_pre = cbufs.len();
+        let cbufs_pre = ctx.cbufs.len();
         let result = render.render(
-            device,
-            queue,
             &*world,
-            &mut images,
-            &mut init_images,
-            &mut write_image_barriers,
-            &mut read_image_barriers,
-            &mut buffers,
-            &mut write_buffer_barriers,
-            &mut read_buffer_barriers,
-            &mut cbufs,
-            blink,
+            RenderContext {
+                device,
+                queue,
+                values: &mut ctx,
+            },
         );
 
         match result {
             Ok(()) => {
-                let cbufs_post = cbufs.len();
-                cbufs[cbufs_pre..cbufs_post].reverse();
+                let cbufs_post = ctx.cbufs.len();
+                ctx.cbufs[cbufs_pre..cbufs_post].reverse();
             }
             Err(err) => {
                 tracing::event!(tracing::Level::ERROR, err = ?err);
@@ -687,8 +692,8 @@ pub fn render<'a>(
         }
     }
 
-    cbufs.reverse();
-    queue.submit(cbufs, false).unwrap();
+    ctx.cbufs.reverse();
+    queue.submit(ctx.cbufs, false).unwrap();
 
     let mut encoder = queue.new_command_encoder().unwrap();
 

@@ -9,7 +9,9 @@ use winit::{event::WindowEvent, event_loop::EventLoopWindowTarget, window::Windo
 
 use crate::{
     funnel::EventFilter,
-    render::{Render, RenderBuilderContext, RenderContext, RenderError, RenderGraph, TargetId},
+    render::{
+        RTTs, Render, RenderBuilderContext, RenderContext, RenderError, RenderGraph, TargetId, RTT,
+    },
 };
 
 pub use egui::*;
@@ -38,7 +40,7 @@ struct EguiInstance {
     state: egui_winit::State,
     textures_delta: TexturesDelta,
     shapes: Vec<ClippedShape>,
-    textures: HashMap<TextureId, (mev::Image, Sampler)>,
+    textures: HashMap<u64, (mev::Image, Sampler)>,
     // scale: f32,
 }
 
@@ -197,12 +199,7 @@ impl EguiRender {
 }
 
 impl Render for EguiRender {
-    fn render(
-        &mut self,
-        mut cx: RenderContext<'_, '_>,
-        world: &World,
-        _blink: &BlinkAlloc,
-    ) -> Result<(), RenderError> {
+    fn render(&mut self, world: &World, mut cx: RenderContext<'_, '_>) -> Result<(), RenderError> {
         // Safety:
         // This code does not touch thread-local parts of the resource.
         let egui = unsafe { world.get_local_resource_mut::<EguiResource>() };
@@ -304,27 +301,25 @@ impl Render for EguiRender {
                     };
 
                     let mut image: mev::Image;
+
+                    let id = match id {
+                        egui::TextureId::Managed(id) => id,
+                        _ => continue,
+                    };
+
                     match instance.textures.entry(*id) {
                         Entry::Vacant(entry) => {
-                            let mut new_image = cx
-                                .device()
-                                .new_image(mev::ImageDesc {
-                                    dimensions: mev::ImageDimensions::D2(
-                                        size[0] as u32,
-                                        size[1] as u32,
-                                    ),
-                                    format,
-                                    usage: mev::ImageUsage::SAMPLED | mev::ImageUsage::TRANSFER_DST,
-                                    layers: 1,
-                                    levels: 1,
-                                    name: &format!("egui-texture-{id:?}"),
-                                })
-                                .map_err(|err| match err {
-                                    mev::ImageError::InvalidFormat => unimplemented!(),
-                                    mev::ImageError::OutOfMemory => {
-                                        RenderError::OutOfMemory(mev::OutOfMemory)
-                                    }
-                                })?;
+                            let mut new_image = cx.device().new_image(mev::ImageDesc {
+                                dimensions: mev::ImageDimensions::D2(
+                                    size[0] as u32,
+                                    size[1] as u32,
+                                ),
+                                format,
+                                usage: mev::ImageUsage::SAMPLED | mev::ImageUsage::TRANSFER_DST,
+                                layers: 1,
+                                levels: 1,
+                                name: &format!("egui-texture-{id:?}"),
+                            })?;
 
                             copy_encoder.init_image(
                                 mev::PipelineStages::empty(),
@@ -351,26 +346,17 @@ impl Render for EguiRender {
                             if (extent.width() as usize) < size[0]
                                 || (extent.height() as usize) < size[1]
                             {
-                                let mut new_image = cx
-                                    .device()
-                                    .new_image(mev::ImageDesc {
-                                        dimensions: mev::ImageDimensions::D2(
-                                            size[0] as u32,
-                                            size[1] as u32,
-                                        ),
-                                        format,
-                                        usage: mev::ImageUsage::SAMPLED
-                                            | mev::ImageUsage::TRANSFER_DST,
-                                        layers: 1,
-                                        levels: 1,
-                                        name: &format!("egui-texture-{id:?}"),
-                                    })
-                                    .map_err(|err| match err {
-                                        mev::ImageError::InvalidFormat => unimplemented!(),
-                                        mev::ImageError::OutOfMemory => {
-                                            RenderError::OutOfMemory(mev::OutOfMemory)
-                                        }
-                                    })?;
+                                let mut new_image = cx.device().new_image(mev::ImageDesc {
+                                    dimensions: mev::ImageDimensions::D2(
+                                        size[0] as u32,
+                                        size[1] as u32,
+                                    ),
+                                    format,
+                                    usage: mev::ImageUsage::SAMPLED | mev::ImageUsage::TRANSFER_DST,
+                                    layers: 1,
+                                    levels: 1,
+                                    name: &format!("egui-texture-{id:?}"),
+                                })?;
 
                                 if let ImageData::Font(_) = &delta.image {
                                     new_image = new_image.view(
@@ -660,7 +646,31 @@ impl Render for EguiRender {
                                 );
                                 render.with_scissor(offset, extent);
 
-                                let (ref image, sampler) = instance.textures[&mesh.texture_id];
+                                let (image, sampler) = match mesh.texture_id {
+                                    TextureId::Managed(id) => instance.textures[&id].clone(),
+                                    TextureId::User(id) => {
+                                        let Some(rtt) = RTT::new(id) else {
+                                            vertex_buffer_offset += size_of_val(&mesh.vertices[..]);
+                                            vertex_buffer_offset =
+                                                (vertex_buffer_offset + 31) & !31;
+                                            index_buffer_offset += size_of_val(&mesh.indices[..]);
+                                            index_buffer_offset = (index_buffer_offset + 31) & !31;
+
+                                            dbg!(id);
+                                            continue;
+                                        };
+                                        let rtts = world.expect_resource::<RTTs>();
+                                        let Some(image) = rtts.get(rtt) else {
+                                            vertex_buffer_offset += size_of_val(&mesh.vertices[..]);
+                                            vertex_buffer_offset =
+                                                (vertex_buffer_offset + 31) & !31;
+                                            index_buffer_offset += size_of_val(&mesh.indices[..]);
+                                            index_buffer_offset = (index_buffer_offset + 31) & !31;
+                                            continue;
+                                        };
+                                        (image.clone(), Sampler::LinearLinear)
+                                    }
+                                };
 
                                 render.with_arguments(
                                     0,
@@ -690,7 +700,12 @@ impl Render for EguiRender {
         }
 
         for id in instance.textures_delta.free.iter() {
-            instance.textures.remove(id);
+            match id {
+                TextureId::Managed(id) => {
+                    instance.textures.remove(id);
+                }
+                TextureId::User(_) => {}
+            }
         }
         instance.textures_delta.free.clear();
 

@@ -1,11 +1,13 @@
-use std::{collections::VecDeque, sync::Arc, time::Instant};
+use std::{collections::VecDeque, ptr::NonNull, sync::Arc, time::Instant};
 
 use arcana_project::Ident;
 use blink_alloc::Blink;
 use edict::{world::WorldBuilder, IntoSystem, Scheduler, System, World};
 use gametime::{
-    Clock, ClockStep, FrequencyNumExt, FrequencyTicker, TimeSpan, TimeSpanNumExt, TimeStamp,
+    Clock, ClockStep, Frequency, FrequencyNumExt, FrequencyTicker, TimeSpan, TimeSpanNumExt,
+    TimeStamp,
 };
+use mev::ImageDesc;
 use parking_lot::Mutex;
 use winit::{
     event::WindowEvent,
@@ -19,7 +21,7 @@ use crate::{
     funnel::{EventFilter, EventFunnel},
     init_mev,
     plugin::{ArcanaPlugin, PluginInit},
-    render::{render_system, RenderGraph},
+    render::{render_system, RTTs, RenderGraph, RenderState, Viewport, RTT},
 };
 
 /// Marker resource.
@@ -88,30 +90,112 @@ impl FPS {
     }
 }
 
+/// Game clock that uses global clock steps
+/// and apply necessary adjustments to produce game clock steps.
+pub struct GameClock {
+    nom: u64,
+    denom: u64,
+    until_next: u64,
+    now: TimeStamp,
+}
+
+impl GameClock {
+    pub fn new() -> Self {
+        GameClock {
+            nom: 1,
+            denom: 1,
+            until_next: 0,
+            now: TimeStamp::start(),
+        }
+    }
+
+    pub fn pause(&mut self) {
+        self.nom = 0;
+    }
+
+    pub fn set_rate(&mut self, rate: f32) {
+        let (nom, denom) = rate2ratio(rate);
+        self.nom = nom;
+        self.denom = denom;
+    }
+
+    pub fn get_rate(&mut self) -> f64 {
+        self.nom as f64 / self.denom as f64
+    }
+
+    pub fn set_rate_ratio(&mut self, nom: u64, denom: u64) {
+        self.nom = nom;
+        self.denom = denom;
+    }
+
+    pub fn get_rate_ratio(&mut self) -> (u64, u64) {
+        (self.nom, self.denom)
+    }
+
+    pub fn with_rate(rate: f32) -> Self {
+        let (nom, denom) = rate2ratio(rate);
+        GameClock {
+            nom,
+            denom,
+            until_next: denom,
+            now: TimeStamp::start(),
+        }
+    }
+
+    pub fn with_rate_ratio(nom: u64, denom: u64) -> Self {
+        GameClock {
+            nom,
+            denom,
+            until_next: denom,
+            now: TimeStamp::start(),
+        }
+    }
+
+    pub fn update(&mut self, span: TimeSpan) -> ClockStep {
+        let nanos = span.as_nanos();
+        let nom_nanos = nanos * self.nom;
+
+        if self.until_next > nom_nanos {
+            // Same game nanosecond.
+            self.until_next -= nom_nanos;
+            return ClockStep {
+                now: self.now,
+                step: TimeSpan::ZERO,
+            };
+        }
+        let game_nanos = (nom_nanos - self.until_next) / self.denom;
+        let nom_nanos_left = (nom_nanos - self.until_next) % self.denom;
+        self.until_next = self.denom - nom_nanos_left;
+
+        let game_span = TimeSpan::new(game_nanos);
+        self.now += game_span;
+        ClockStep {
+            now: self.now,
+            step: game_span,
+        }
+    }
+}
+
 pub struct Game {
+    clock: GameClock,
     world: World,
     funnel: EventFunnel,
     blink: Blink,
     fixed_now: TimeStamp,
     fixed_scheduler: Scheduler,
     var_scheduler: Scheduler,
-    show_scheduler: Scheduler,
+    render_state: RenderState,
 }
 
 impl Game {
     pub fn launch<'a>(
-        events: &EventLoop,
         plugins: impl IntoIterator<Item = (&'a Ident, &'a dyn ArcanaPlugin)>,
         filters: impl IntoIterator<Item = (&'a Ident, &'a Ident)>,
         systems: impl IntoIterator<Item = (&'a Ident, &'a Ident)>,
         device: mev::Device,
         queue: Arc<Mutex<mev::Queue>>,
+        window: Option<Window>,
     ) -> Self {
-        let window = WindowBuilder::new()
-            .with_title("game")
-            .build(events)
-            .unwrap();
-
         // Build the world.
         // Register external resources.
         let world_builder = WorldBuilder::new();
@@ -138,12 +222,10 @@ impl Game {
         world.insert_resource(device);
         world.insert_resource(queue);
 
-        let main_window_id = window.id();
-
-        let mut egui = EguiResource::new();
-        egui.add_window(&window, events);
-        world.insert_resource(egui);
-        world.insert_resource(window);
+        // let mut egui = EguiResource::new();
+        // egui.add_window(&window, events);
+        // world.insert_resource(egui);
+        // funnel.add(EguiFilter);
 
         // Setup the funnel
         let mut funnel = EventFunnel::new();
@@ -151,8 +233,28 @@ impl Game {
         let mut var_scheduler = Scheduler::new();
         let fixed_scheduler = Scheduler::new();
 
-        funnel.add(MainWindowFilter { id: main_window_id });
-        funnel.add(EguiFilter);
+        if let Some(window) = window {
+            // If window is provided, register it as a resource.
+            // Quit when the window is closed.
+
+            let id = window.id();
+            let viewport = Viewport::Window(id);
+
+            world.insert_resource(window);
+            world.insert_resource(viewport);
+
+            funnel.add(MainWindowFilter { id });
+        } else {
+            // If window is not provided, render to texture viewport.
+            // Create viewport and register it as a resource.
+            // Engine will set image for the viewport before rendering.
+
+            let mut rtts = RTTs::new();
+            let rtt = rtts.allocate();
+            world.insert_resource(rtts);
+            let viewport = Viewport::Texture(rtt);
+            world.insert_resource(viewport);
+        }
 
         let blink = Blink::new();
         let fixed_now = TimeStamp::start();
@@ -202,7 +304,7 @@ impl Game {
                 .expect("Plugin not found");
 
             let idx = p
-                .systems
+                .filters
                 .iter()
                 .position(|(filter, _)| *filter == name)
                 .expect("System not found");
@@ -211,18 +313,36 @@ impl Game {
             funnel.add_boxed(filter);
         }
 
-        let mut show_scheduler = Scheduler::new();
-        show_scheduler.add_system(render_system);
-
         Game {
+            clock: GameClock::new(),
             world,
             funnel,
             blink,
             fixed_now,
             fixed_scheduler,
             var_scheduler,
-            show_scheduler,
+            render_state: RenderState::default(),
         }
+    }
+
+    pub fn pause(&mut self) {
+        self.clock.pause();
+    }
+
+    pub fn set_rate(&mut self, rate: f32) {
+        self.clock.set_rate(rate);
+    }
+
+    pub fn get_rate(&mut self) -> f64 {
+        self.clock.get_rate()
+    }
+
+    pub fn set_rate_ratio(&mut self, nom: u64, denom: u64) {
+        self.clock.set_rate_ratio(nom, denom);
+    }
+
+    pub fn get_rate_ratio(&mut self) -> (u64, u64) {
+        self.clock.get_rate_ratio()
     }
 
     pub fn window_id(&self) -> WindowId {
@@ -237,11 +357,53 @@ impl Game {
         self.world.get_resource::<Quit>().is_some()
     }
 
-    pub fn show(&mut self) {
-        self.show_scheduler.run_sequential(&mut self.world);
+    pub fn render_to_window(&mut self) {
+        {
+            let viewport = self.world.expect_resource::<Viewport>();
+            if let Viewport::Texture(_) = *viewport {
+                return;
+            }
+        }
+        render_system(&mut self.world, (&mut self.render_state).into())
+    }
+
+    pub fn render_with_texture(
+        &mut self,
+        extent: mev::Extent2,
+    ) -> Result<mev::Image, mev::OutOfMemory> {
+        let rtt = match self.world.copy_resource::<Viewport>() {
+            Viewport::Texture(rtt) => rtt,
+            _ => unreachable!("Viewport is not a texture"),
+        };
+
+        let image;
+        {
+            let mut rtts = self.world.expect_resource_mut::<RTTs>();
+            image = match rtts.get(rtt) {
+                Some(i) if i.dimensions().to_2d() == extent => i.clone(),
+                _ => {
+                    let device = self.world.expect_resource::<mev::Device>();
+                    let image = device.new_image(mev::ImageDesc {
+                        dimensions: extent.into(),
+                        format: mev::PixelFormat::Rgba8Srgb,
+                        usage: mev::ImageUsage::TARGET | mev::ImageUsage::SAMPLED,
+                        layers: 1,
+                        levels: 1,
+                        name: "Game Viewport",
+                    })?;
+                    rtts.insert(rtt, image.clone());
+                    image
+                }
+            };
+        }
+
+        render_system(&mut self.world, (&mut self.render_state).into());
+        Ok(image)
     }
 
     pub fn tick(&mut self, step: ClockStep) {
+        let step = self.clock.update(step.step);
+
         self.blink.reset();
 
         let ticks = self
@@ -324,3 +486,23 @@ impl Game {
 //         }
 //     });
 // }
+
+fn gcd(mut a: u64, mut b: u64) -> u64 {
+    while b != 0 {
+        let temp = b;
+        b = a % b;
+        a = temp;
+    }
+    a
+}
+
+fn rate2ratio(rate: f32) -> (u64, u64) {
+    let denom = 6469693230;
+    let nom = (rate.max(0.0) * 6469693230.0).floor() as u64;
+
+    let gcd = gcd(nom, denom);
+
+    let nom = nom / gcd;
+    let denom = denom / gcd;
+    (nom, denom)
+}

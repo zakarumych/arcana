@@ -1,31 +1,16 @@
 use std::collections::VecDeque;
 
-use arcana::{
-    edict::{
-        self,
-        query::{Not, With},
-        relation::FilterRelates,
-        Component, Entities, Related, RelatesExclusive, Relation, View, World,
-    },
-    plugin::{ArcanaPlugin, PluginInit},
-    plugin_init,
-    project::{ident, Ident},
+use arcana::edict::{
+    self,
+    query::{Not, With},
+    relation::FilterRelates,
+    Component, Entities, Related, RelatesExclusive, Relation, View,
 };
 
-arcana::export_arcana_plugin!(ScenePlugin);
-
-pub struct ScenePlugin;
-
-impl ArcanaPlugin for ScenePlugin {
-    fn init(&self, world: &mut World) -> PluginInit {
-        world.ensure_component_registered::<Global2>();
-        world.ensure_component_registered::<Global3>();
-
-        plugin_init!(systems: [scene_system2, scene_system3])
-    }
-
-    fn systems(&self) -> Vec<&'static Ident> {
-        vec![ident!(scene_system2), ident!(scene_system3)]
+arcana::export_arcana_plugin! {
+    ScenePlugin {
+        components: [Global2, Global3],
+        systems: [scene_system2, scene_system3],
     }
 }
 

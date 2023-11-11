@@ -25,9 +25,7 @@ pub use self::{
     data::*,
     feature::Features,
     format::{PixelFormat, VertexFormat},
-    image::{
-        ComponentSwizzle, ImageDesc, ImageDimensions, ImageError, ImageUsage, Swizzle, ViewDesc,
-    },
+    image::{ComponentSwizzle, ImageDesc, ImageDimensions, ImageUsage, Swizzle, ViewDesc},
     instance::{
         Capabilities, CreateError, DeviceCapabilities, DeviceDesc, FamilyCapabilities, LoadError,
     },
@@ -130,6 +128,7 @@ impl One for f32 {
     const ONE: Self = 1.0;
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(transparent)]
 pub struct Offset<T, const D: usize>(pub [T; D]);
 
@@ -225,6 +224,7 @@ impl<T: Copy> Offset3<T> {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(transparent)]
 pub struct Extent<T, const D: usize>(pub [T; D]);
 

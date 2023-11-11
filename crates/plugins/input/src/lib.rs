@@ -18,36 +18,20 @@ use std::{
 };
 
 use arcana::{
-    edict::{flow::FlowEntity, Component, EntityError, World},
+    edict::{flow::FlowEntity, Component, EntityError},
     export_arcana_plugin,
-    plugin::{ArcanaPlugin, PluginInit},
 };
 
 arcana::feature_client! {
     mod client;
-
     pub use self::client::*;
 }
 
-export_arcana_plugin!(ThePlugin);
-
-pub struct ThePlugin;
-
-impl ArcanaPlugin for ThePlugin {
-    fn init(&self, world: &mut World) -> PluginInit {
-        arcana::feature_client! {
+export_arcana_plugin! {
+    InputPlugin {
+        filters: [input: InputFilter::new()],
+        in world => {
             client::init_world(world);
-        }
-        let mut init = PluginInit::new();
-        arcana::feature_client! {
-            init.filters.push(client::init_event_filter());
-        }
-        init
-    }
-
-    arcana::feature_client! {
-        fn event_filters(&self) -> Vec<&arcana::project::Ident> {
-            vec![client::event_filter()]
         }
     }
 }

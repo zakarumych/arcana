@@ -1,42 +1,100 @@
-use winit::window::{Window, WindowId};
+use std::{
+    hash::{BuildHasher, Hash, Hasher},
+    iter::FusedIterator,
+};
 
-use crate::render::TargetId;
+use hashbrown::{HashMap, HashSet};
+use winit::{
+    error::OsError,
+    window::{Window, WindowBuilder, WindowId},
+};
 
-pub struct BobWindow {
-    window: Window,
-    surface: mev::Surface,
+use crate::events::EventLoop;
+
+/// Resource containing all windows of the application.
+///
+/// This resource must be added by all multi-window applications.
+/// Single-window applications should add the [`Window`] as resource instead.
+///
+/// The code that should work for both single- and multi-window applications
+/// would check either for [`Window`] or [`Windows`] resource.
+pub struct Windows {
+    pub windows: HashMap<WindowId, Window>,
 }
 
-impl BobWindow {
-    pub fn new(window: Window, surface: mev::Surface, target: TargetId) -> Self {
-        BobWindow {
-            window,
-            surface,
-            target,
+impl Windows {
+    pub fn new() -> Self {
+        Windows {
+            windows: HashMap::new(),
         }
     }
 
-    pub fn id(&self) -> WindowId {
-        self.window.id()
+    pub fn get(&self, id: WindowId) -> Option<&Window> {
+        self.windows.get(&id)
     }
 
-    pub fn winit(&self) -> &Window {
-        &self.window
+    pub fn build(
+        &mut self,
+        builder: WindowBuilder,
+        events: &EventLoop,
+    ) -> Result<&Window, OsError> {
+        let window = builder.build(events)?;
+        Ok(self.windows.entry(window.id()).insert(window).into_mut())
     }
 
-    pub fn target(&self) -> TargetId {
-        self.target
+    pub fn open(&mut self, events: &EventLoop) -> Result<&Window, OsError> {
+        self.build(WindowBuilder::new(), events)
     }
 
-    pub fn surface(&self) -> &mev::Surface {
-        &self.surface
+    pub fn close(&mut self, id: WindowId) -> bool {
+        self.windows.remove(&id).is_some()
     }
 
-    pub fn surface_mut(&mut self) -> &mut mev::Surface {
-        &mut self.surface
+    pub fn is_empty(&self) -> bool {
+        self.windows.is_empty()
+    }
+
+    pub fn is_single(&self, id: WindowId) -> bool {
+        self.windows.len() == 1 && self.windows.contains_key(&id)
+    }
+
+    pub fn iter(&self) -> WindowsIter<'_> {
+        WindowsIter {
+            iter: self.windows.values(),
+        }
     }
 }
 
-pub struct Windows {
-    pub windows: Vec<BobWindow>,
+impl<'a> IntoIterator for &'a Windows {
+    type Item = &'a Window;
+    type IntoIter = WindowsIter<'a>;
+
+    fn into_iter(self) -> WindowsIter<'a> {
+        self.iter()
+    }
 }
+
+#[derive(Clone)]
+pub struct WindowsIter<'a> {
+    iter: hashbrown::hash_map::Values<'a, WindowId, Window>,
+}
+
+impl<'a> Iterator for WindowsIter<'a> {
+    type Item = &'a Window;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter.next()
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.iter.size_hint()
+    }
+}
+
+impl<'a> ExactSizeIterator for WindowsIter<'a> {
+    fn len(&self) -> usize {
+        self.iter.len()
+    }
+}
+
+impl<'a> FusedIterator for WindowsIter<'a> {}

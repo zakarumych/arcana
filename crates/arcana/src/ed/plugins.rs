@@ -1,4 +1,4 @@
-use std::{fmt, path::Path};
+use std::{collections::VecDeque, fmt, path::Path};
 
 use edict::World;
 use egui::{Color32, Ui, WidgetText};
@@ -6,10 +6,11 @@ use egui::{Color32, Ui, WidgetText};
 use arcana_project::{
     plugin_with_path, BuildProcess, Dependency, Ident, IdentBuf, Plugin, Project, ProjectManifest,
 };
+use hashbrown::HashSet;
 
 use crate::{ok_log_err, plugin::ArcanaPlugin, try_log_err};
 
-use super::{game::Games, Tab};
+use super::{games::Games, Tab};
 
 mod private {
     use std::{collections::VecDeque, fmt, path::Path};
@@ -24,106 +25,6 @@ mod private {
         #[allow(unused)]
         lib: libloading::Library,
         plugins: &'static [(&'static Ident, &'static dyn ArcanaPlugin)],
-    }
-
-    pub(super) struct SortError {
-        pub not_linked: Vec<IdentBuf>,
-        pub circular_dependencies: Vec<(IdentBuf, IdentBuf)>,
-        pub missing_dependencies: Vec<(IdentBuf, Dependency)>,
-    }
-
-    impl PluginsLibrary {
-        pub fn get(&self, name: &Ident) -> Option<&dyn ArcanaPlugin> {
-            self.plugins
-                .iter()
-                .find_map(|(n, p)| if **n == *name { Some(*p) } else { None })
-        }
-
-        pub fn has(&self, name: &Ident) -> bool {
-            self.plugins.iter().any(|(n, _)| **n == *name)
-        }
-
-        pub fn list<'a>(&'a self) -> impl Iterator<Item = (&'a Ident, &'a dyn ArcanaPlugin)> {
-            self.plugins.iter().copied()
-        }
-
-        pub fn sort_plugins(&self, plugins: &[Plugin]) -> Result<Vec<Plugin>, SortError> {
-            let mut queue = VecDeque::new();
-            let mut items = HashMap::new();
-
-            let mut error = SortError {
-                not_linked: Vec::new(),
-                circular_dependencies: Vec::new(),
-                missing_dependencies: Vec::new(),
-            };
-
-            for plugin in plugins.iter() {
-                let a = match self.get(&*plugin.name) {
-                    None => {
-                        error.not_linked.push(plugin.name.to_buf());
-                        continue;
-                    }
-                    Some(a) => a,
-                };
-
-                queue.push_back(&*plugin.name);
-                items.insert(&*plugin.name, (a, plugin));
-            }
-
-            let mut pending = HashSet::new();
-            let mut sorted = HashSet::new();
-            let mut result = Vec::new();
-
-            while let Some(name) = queue.pop_front() {
-                if sorted.contains(name) {
-                    continue;
-                }
-                pending.insert(name);
-
-                let (a, plugin) = items[name];
-
-                let mut defer = false;
-                if plugin.enabled {
-                    for (dep_name, dep) in a.dependencies() {
-                        if sorted.contains(dep_name) {
-                            continue;
-                        }
-                        if pending.contains(dep_name) {
-                            error
-                                .circular_dependencies
-                                .push((name.to_buf(), dep_name.to_buf()));
-                            continue;
-                        }
-
-                        if !items.contains_key(dep_name) {
-                            error.missing_dependencies.push((dep_name.to_buf(), dep));
-                            continue;
-                        };
-
-                        if !defer {
-                            defer = true;
-                            queue.push_front(name);
-                        }
-
-                        queue.push_front(dep_name);
-                    }
-                }
-
-                if !defer {
-                    sorted.insert(name);
-                    result.push(plugin.clone());
-                }
-            }
-
-            if error.not_linked.is_empty()
-                && error.circular_dependencies.is_empty()
-                && error.missing_dependencies.is_empty()
-            {
-                Ok(result)
-            } else {
-                Err(error)
-            }
-        }
     }
 
     impl fmt::Display for PluginsLibrary {
@@ -148,7 +49,187 @@ mod private {
         }
     }
 
+    pub(super) struct SortError {
+        pub not_linked: Vec<IdentBuf>,
+        pub circular_dependencies: Vec<(IdentBuf, IdentBuf)>,
+        pub missing_dependencies: Vec<(IdentBuf, Dependency)>,
+    }
+
     impl PluginsLibrary {
+        pub fn get(&self, name: &Ident) -> Option<&dyn ArcanaPlugin> {
+            self.plugins
+                .iter()
+                .find_map(|(n, p)| if **n == *name { Some(*p) } else { None })
+        }
+
+        pub fn has(&self, name: &Ident) -> bool {
+            self.plugins.iter().any(|(n, _)| **n == *name)
+        }
+
+        pub fn list<'a>(&'a self) -> impl Iterator<Item = (&'a Ident, &'a dyn ArcanaPlugin)> {
+            self.plugins.iter().copied()
+        }
+
+        /// Sort plugins placing dependencies first.
+        /// Errors on circular dependencies, missing dependencies and not linked plugins.
+        pub fn sort_plugins(&self, plugins: &[Plugin]) -> Result<Vec<Plugin>, SortError> {
+            let mut queue = VecDeque::new();
+            let mut items = HashMap::new();
+
+            let mut error = SortError {
+                not_linked: Vec::new(),
+                circular_dependencies: Vec::new(),
+                missing_dependencies: Vec::new(),
+            };
+
+            for plugin in plugins.iter() {
+                if !self.has(&*plugin.name) {
+                    error.not_linked.push(plugin.name.to_buf());
+                    continue;
+                }
+
+                queue.push_back(&*plugin.name);
+                items.insert(&*plugin.name, plugin);
+            }
+
+            let mut pending = HashSet::new();
+            let mut sorted = HashSet::new();
+            let mut result = Vec::new();
+
+            while let Some(name) = queue.pop_front() {
+                if sorted.contains(name) {
+                    continue;
+                }
+                pending.insert(name);
+
+                let plugin = items[name];
+                let a = self.get(name).unwrap();
+
+                let mut defer = false;
+                for &dep in a.dependencies() {
+                    if sorted.contains(dep) {
+                        continue;
+                    }
+                    if pending.contains(dep) {
+                        error
+                            .circular_dependencies
+                            .push((name.to_buf(), dep.to_buf()));
+                        continue;
+                    }
+
+                    if !items.contains_key(dep) {
+                        error
+                            .missing_dependencies
+                            .push((dep.to_buf(), a.get_dependency(dep)));
+                        continue;
+                    };
+
+                    if !defer {
+                        defer = true;
+                        queue.push_front(name);
+                    }
+
+                    queue.push_front(dep);
+                }
+
+                if !defer {
+                    sorted.insert(name);
+                    result.push(plugin.clone());
+                }
+            }
+
+            if error.not_linked.is_empty()
+                && error.circular_dependencies.is_empty()
+                && error.missing_dependencies.is_empty()
+            {
+                Ok(result)
+            } else {
+                Err(error)
+            }
+        }
+
+        /// List active plugins
+        /// e.g. enabled plugins for which all dependencies are active
+        pub fn active_plugins<'a>(&self, plugins: &'a [Plugin]) -> HashSet<IdentBuf> {
+            let mut active = HashSet::new();
+            let mut inactive = HashSet::new();
+
+            'p: for plugin in plugins.iter() {
+                if !plugin.enabled {
+                    inactive.insert(&*plugin.name);
+                    continue;
+                }
+                let Some(a) = self.get(&*plugin.name) else {
+                    inactive.insert(&*plugin.name);
+                    continue;
+                };
+
+                let mut queue = VecDeque::new();
+                let mut pending = HashSet::new();
+
+                for &dep in a.dependencies() {
+                    if active.contains(dep) {
+                        continue;
+                    }
+                    if inactive.contains(dep) {
+                        inactive.insert(&*plugin.name);
+                        continue 'p;
+                    }
+                    queue.push_back(dep);
+                }
+
+                while let Some(name) = queue.pop_front() {
+                    match plugins.iter().find(|p| *p.name == *name) {
+                        None => {
+                            inactive.insert(&*plugin.name);
+                            continue 'p;
+                        }
+                        Some(plugin) => {
+                            if !plugin.enabled {
+                                inactive.insert(&*plugin.name);
+                                continue 'p;
+                            }
+                        }
+                    }
+
+                    let Some(a) = self.get(name) else {
+                        inactive.insert(&*plugin.name);
+                        continue 'p;
+                    };
+                    pending.insert(name);
+
+                    let mut defer = false;
+                    for &dep in a.dependencies() {
+                        if active.contains(dep) {
+                            continue;
+                        }
+                        if inactive.contains(dep) {
+                            inactive.insert(&*plugin.name);
+                            continue 'p;
+                        }
+                        if pending.contains(dep) {
+                            inactive.insert(&*plugin.name);
+                            continue 'p;
+                        }
+
+                        if !defer {
+                            defer = true;
+                            queue.push_front(name);
+                        }
+                        queue.push_front(dep);
+                    }
+
+                    if !defer {
+                        active.insert(name);
+                    }
+                }
+
+                active.insert(&*plugin.name);
+            }
+
+            active.into_iter().map(|name| name.to_buf()).collect()
+        }
+
         pub fn load(path: &Path) -> miette::Result<Self> {
             // #[cfg(windows)]
             let path = {
@@ -244,6 +325,9 @@ pub(super) struct Plugins {
 
     // Running build process.
     build: Option<BuildProcess>,
+
+    /// Set of active plugins.
+    active_plugins: HashSet<IdentBuf>,
 }
 
 impl Plugins {
@@ -253,6 +337,7 @@ impl Plugins {
             pending: None,
             failure: None,
             build: None,
+            active_plugins: HashSet::new(),
         }
     }
 
@@ -269,12 +354,12 @@ impl Plugins {
         false
     }
 
-    fn all_plugins_pending(&self, project: &ProjectManifest) -> bool {
-        if let Some(linked) = &self.pending {
-            return project.plugins.iter().all(|p| linked.has(&p.name));
-        }
-        false
-    }
+    // fn all_plugins_pending(&self, project: &ProjectManifest) -> bool {
+    //     if let Some(linked) = &self.pending {
+    //         return project.plugins.iter().all(|p| linked.has(&p.name));
+    //     }
+    //     false
+    // }
 
     /// Adds new plugin.
     pub fn add_plugin(&mut self, name: IdentBuf, dep: Dependency, project: &mut Project) -> bool {
@@ -284,10 +369,16 @@ impl Plugins {
                 "Stopping current build process to re-build plugins library with new plugin"
             );
             self.build = None;
+
+            // Set of active plugins doesn't change yet.
             true
         } else {
             false
         }
+    }
+
+    pub fn get_plugin(&self, name: &Ident) -> Option<&dyn ArcanaPlugin> {
+        self.linked.as_ref()?.get(name)
     }
 
     pub fn tick(world: &mut World) {
@@ -331,6 +422,17 @@ impl Plugins {
                 match lib.sort_plugins(&project.manifest().plugins) {
                     Ok(sorted) => {
                         project.manifest_mut().plugins = sorted;
+
+                        for (name, plugin) in lib.list() {
+                            for system in plugin.systems() {
+                                project.manifest_mut().add_system(name, system, true);
+                            }
+                            for filter in plugin.filters() {
+                                project.manifest_mut().add_filter(name, filter, true);
+                            }
+                        }
+
+                        plugins.active_plugins = lib.active_plugins(&project.manifest().plugins);
                         plugins.linked = Some(lib);
                     }
                     Err(err) => {
@@ -342,7 +444,11 @@ impl Plugins {
                             plugins.add_plugin(name.to_buf(), dep, &mut project);
                         }
                         for (name, dep) in err.circular_dependencies {
-                            tracing::info!("Circular dependency '{name}'");
+                            plugins.failure = Some(miette::miette!(
+                                "Circular dependency between '{name}' and '{dep}'",
+                                name = name,
+                                dep = dep
+                            ));
                         }
                     }
                 }
@@ -361,149 +467,137 @@ impl Plugins {
 
     pub fn show(world: &mut World, ui: &mut Ui) {
         let world = world.local();
-        let me = &mut *world.expect_resource_mut::<Plugins>();
+        let plugins = &mut *world.expect_resource_mut::<Plugins>();
         let mut project = world.expect_resource_mut::<Project>();
         let mut sync = false;
         let mut rebuild = false;
 
-        if me.build.is_some() {
-            ui.horizontal(|ui| {
-                ui.label("Building...");
-                ui.spinner();
-            });
-        } else if ui.button("Rebuild").clicked() {
-            let build = try_log_err!(project.build_plugins_library());
-            me.build = Some(build);
-        }
+        // Building status
 
-        ui.horizontal(|ui| {
-            ui.menu_button("Add plugin lib", |ui| {
-                if ui.button("Path").clicked() {
-                    if let Some(path) = rfd::FileDialog::new()
-                        .set_file_name("Cargo.toml")
-                        .pick_file()
-                    {
-                        if add_plugin_with_path(&path, &mut project) {
-                            sync = true;
-                            rebuild = true;
-                        }
-                        ui.close_menu();
-                    }
+        ui.allocate_ui_with_layout(
+            ui.style().spacing.interact_size,
+            egui::Layout::left_to_right(egui::Align::Center),
+            |ui| {
+                if plugins.build.is_some() {
+                    ui.spinner();
+                    ui.label("Building");
+                } else if let Some(failure) = &plugins.failure {
+                    let r = ui.label("Build failed");
+                    r.on_hover_ui(|ui| {
+                        ui.label(failure.to_string());
+                    });
+                } else {
+                    ui.label("Build succeeded");
                 }
-            });
-            ui.menu_button("New plugin lib", |ui| {
+            },
+        );
+
+        // Top menu
+        ui.horizontal(|ui| {
+            let r = match plugins.build.is_none() {
+                false => ui.add_enabled(false, egui::Button::new(egui_phosphor::regular::HAMMER)),
+                true => ui.button(egui_phosphor::regular::HAMMER),
+            };
+            if r.clicked() {
+                let build = try_log_err!(project.build_plugins_library());
+                plugins.build = Some(build);
+            }
+            let r = ui.button(egui_phosphor::regular::PLUS);
+
+            if r.clicked() {
                 if let Some(path) = rfd::FileDialog::new().save_file() {
                     if add_plugin_with_path(&path, &mut project) {
                         sync = true;
                         rebuild = true;
-                        ui.close_menu();
                     }
                 }
-            });
+            } else {
+                r.on_hover_ui(|ui| {
+                    ui.label("New plugin");
+                });
+            }
+
+            let r = ui.button(egui_phosphor::regular::FOLDER_OPEN);
+            if r.clicked() {
+                if let Some(path) = rfd::FileDialog::new()
+                    .set_file_name("Cargo.toml")
+                    .pick_file()
+                {
+                    if add_plugin_with_path(&path, &mut project) {
+                        sync = true;
+                        rebuild = true;
+                    }
+                }
+            } else {
+                r.on_hover_ui(|ui| {
+                    ui.label("Add plugin");
+                });
+            }
         });
 
-        let mut plugins_copy: Vec<Plugin> = project.manifest().plugins.clone();
-        let mut remove_plugins = Vec::new();
+        // Plugins list
+        let mut remove_plugin = None;
+        let mut toggle_plugin = None;
 
-        egui_dnd::dnd(ui, "plugins-list").show_vec(
-            &mut plugins_copy,
-            |ui, plugin, handle, state| {
-                let mut heading = WidgetText::from(plugin.name.as_str());
+        for (idx, plugin) in project.manifest().plugins.iter().enumerate() {
+            let mut heading = WidgetText::from(plugin.name.as_str());
 
-                let tooltip;
-                let lib_linked = match &me.linked {
-                    None => None,
-                    Some(lib) => lib.get(&plugin.name).map(|linked| (lib, linked)),
-                };
-
-                match lib_linked {
-                    None => {
-                        if me.pending.is_some() || me.build.is_some() {
-                            tooltip = Some("Pending".to_owned());
-                            heading = heading.color(Color32::KHAKI);
-                        } else {
-                            tooltip = Some("Build failed".to_owned());
-                            heading = heading.color(Color32::DARK_RED);
-                        }
-                    }
-                    Some((lib, linked)) => {
-                        tooltip = None;
-                        heading = heading.color(Color32::GREEN);
-                    }
+            let mut tooltip = "";
+            if !plugins.is_linked(&plugin.name) {
+                // Not linked plugin may not be active.
+                if plugins.pending.is_some() || plugins.build.is_some() {
+                    tooltip = "Pending";
+                    heading = heading.color(Color32::KHAKI);
+                } else {
+                    tooltip = "Build failed";
+                    heading = heading.color(Color32::DARK_RED);
                 }
-
-                ui.horizontal(|ui| {
-                    handle.ui(ui, |ui| {
-                        ui.label(egui_phosphor::regular::DOTS_SIX_VERTICAL);
-                    });
-
-                    let mut enabled = plugin.enabled;
-                    let r = ui.checkbox(&mut enabled, heading);
-                    if plugin.enabled != enabled {
-                        plugin.enabled = enabled;
-                        sync = true;
-                    }
-
-                    let r = r.context_menu(|ui| {
-                        if ui.button("Remove").clicked() {
-                            remove_plugins.push(plugin.name.clone());
-                            ui.close_menu();
-                        }
-                    });
-                    if let Some(tooltip) = tooltip {
-                        r.on_hover_text(tooltip);
-                    }
-                });
-            },
-        );
-
-        project.manifest_mut().plugins = plugins_copy;
-
-        for name in remove_plugins {
-            if project.remove_plugin(&name) {
-                sync = true;
-                rebuild = true;
+            } else if !plugins.is_active(&plugin.name) {
+                tooltip = "Dependencies are not enabled";
+                heading = heading.color(Color32::KHAKI);
+            } else {
+                heading = heading.color(Color32::GREEN);
             }
+
+            ui.horizontal(|ui| {
+                let mut enabled = plugin.enabled;
+                let r = ui.checkbox(&mut enabled, heading);
+
+                if plugin.enabled != enabled {
+                    toggle_plugin = Some(idx);
+                }
+                r.on_disabled_hover_text(tooltip);
+
+                let r = ui.button(egui_phosphor::regular::TRASH);
+                if r.clicked() {
+                    remove_plugin = Some(idx);
+                }
+            });
         }
 
-        if let Some(linked) = &me.linked {
-            let mut disable = Vec::new();
+        if let Some(idx) = toggle_plugin {
+            let plugin = &mut project.manifest_mut().plugins[idx];
+            plugin.enabled = !plugin.enabled;
+            sync = true;
+        }
 
-            // Disable dependencies of the removed plugin.
-            for p in project.manifest().plugins.iter() {
-                if p.enabled {
-                    if let Some(a) = linked.get(&p.name) {
-                        for (dep, _) in a.dependencies() {
-                            if !project
-                                .manifest()
-                                .get_plugin(dep)
-                                .map_or(false, |d| d.enabled)
-                            {
-                                disable.push(p.name.clone());
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-
-            if !disable.is_empty() {
-                sync = true;
-            }
-
-            for name in disable {
-                project.manifest_mut().enable_plugin(&name, false);
-            }
+        if let Some(idx) = remove_plugin {
+            project.manifest_mut().remove_plugin_idx(idx);
+            sync = true;
+            rebuild = true;
         }
 
         if sync {
+            if let Some(linked) = &plugins.linked {
+                plugins.active_plugins = linked.active_plugins(&project.manifest().plugins);
+            }
             try_log_err!(project.sync());
         }
 
         if rebuild {
-            me.build = None;
+            plugins.build = None;
             try_log_err!(project.init_workspace());
-            me.build = ok_log_err!(project.build_plugins_library());
+            plugins.build = ok_log_err!(project.build_plugins_library());
         }
     }
 
@@ -511,22 +605,27 @@ impl Plugins {
         Tab::Plugins
     }
 
-    /// List all linked plugins that were enabled.
-    pub fn enabled_plugins<'a, 'b>(
-        &'a self,
-        project: &'b Project,
-    ) -> Option<Vec<(&'b Ident, &'a dyn ArcanaPlugin)>> {
-        let linked = self.linked.as_ref()?;
-        let mut plugins = Vec::new();
+    /// Checks if plugins with given name is active.
+    pub fn is_active(&self, name: &Ident) -> bool {
+        self.active_plugins.contains(name)
+    }
 
-        for plugin in project.manifest().plugins.iter() {
-            if plugin.enabled {
-                let p = linked.get(&plugin.name)?;
-                plugins.push((&*plugin.name, p));
+    /// Checks if plugins with given name is active.
+    pub fn is_linked(&self, name: &Ident) -> bool {
+        self.linked.as_ref().map_or(false, |lib| lib.has(name))
+    }
+
+    /// List all active plugins
+    pub fn active_plugins<'a>(&'a self) -> Option<Vec<(&'a Ident, &'a dyn ArcanaPlugin)>> {
+        let linked = self.linked.as_ref()?;
+
+        let mut list = Vec::new();
+        for (name, plugin) in linked.list() {
+            if self.active_plugins.contains(name) {
+                list.push((name, plugin));
             }
         }
-
-        Some(plugins)
+        Some(list)
     }
 }
 
@@ -536,87 +635,14 @@ fn add_plugin_with_path(path: &Path, project: &mut Project) -> bool {
     project.add_plugin(name, dep)
 }
 
-// fn has_missing_dependencies(plugin: &dyn ArcanaPlugin, project: &Project) -> bool {
-//     for (dep, _) in plugin.dependencies() {
-//         if !project
-//             .manifest()
-//             .plugins
-//             .iter()
-//             .any(|p| p.name == dep.name())
-//         {
-//             return true;
-//         }
-//     }
+fn all_dependencies_enabled(plugin: &dyn ArcanaPlugin, project: &ProjectManifest) -> bool {
+    for &dep in plugin.dependencies() {
+        let enabled = project.get_plugin(dep).map_or(false, |p| p.enabled);
 
-//     false
-// }
+        if !enabled {
+            return false;
+        }
+    }
 
-// fn missing_dependencies<'a>(
-//     plugin: &'a dyn ArcanaPlugin,
-//     project: &'a mut Project,
-// ) -> impl Iterator<Item = (String, Dependency)> + 'a {
-//     plugin
-//         .dependencies()
-//         .into_iter()
-//         .filter_map(|(dep, lookup)| {
-//             let exists = project
-//                 .manifest()
-//                 .plugins
-//                 .iter()
-//                 .any(|p| p.name == dep.name());
-//             if !exists {
-//                 Some((dep.name().to_owned(), lookup.clone()))
-//             } else {
-//                 None
-//             }
-//         })
-// }
-
-// fn check_dependencies(
-//     plugin: &dyn ArcanaPlugin,
-//     plugin_idx: usize,
-//     project: &ProjectManifest,
-//     plugins: &[(&Ident, &dyn ArcanaPlugin)],
-// ) -> Result<(), String> {
-//     for (p, name, dep) in plugin.dependencies() {
-//         assert_eq!(project.plugins[plugin_idx].name, *name);
-//         assert_eq!(project.plugins[plugin_idx].dep, dep);
-//         assert_eq!(*plugins[plugin_idx].0, *name);
-//         assert_eq!(plugins[plugin_idx].1 as *const _, plugin as *const _);
-
-//         match project.plugins[..plugin_idx]
-//             .iter()
-//             .find(|p| *p.name == *name)
-//         {
-//             None => {
-//                 let dep_after = project.plugins[plugin_idx + 1..]
-//                     .iter()
-//                     .any(|p| *p.name == *name);
-
-//                 if dep_after {
-//                     return Err(format!("Dependency '{}' is after the plugin", name));
-//                 } else {
-//                     return Err(format!("Dependency '{}' is missing", name));
-//                 }
-//             }
-//             Some(plugin) => {
-//                 if !plugin.enabled {
-//                     return Err(format!("Dependency '{}' is disabled", name));
-//                 }
-//                 match plugins.iter().find(|(name, _)| name == name) {
-//                     None => return Err(format!("Dependency '{}' not linked", name)),
-//                     Some(plugin) => {
-//                         if !plugin.__eq(dep) {
-//                             return Err(format!(
-//                                 "Dependency '{}' is not the same plugin.",
-//                                 dep.name()
-//                             ));
-//                         }
-//                     }
-//                 }
-//             }
-//         }
-//     }
-
-//     Ok(())
-// }
+    true
+}

@@ -5,11 +5,9 @@ arcana::not_feature_client! {
 use std::mem::size_of;
 
 use arcana::{
-    blink_alloc::BlinkAlloc,
-    edict::{self, Component, EntityId, Scheduler, World},
+    edict::{self, Component, EntityId, World},
     mev::{self, Arguments, DeviceRepr},
-    plugin::{ArcanaPlugin, PluginInit},
-    project::{Dependency, Ident},
+    project::Ident,
     render::{Render, RenderBuilderContext, RenderContext, RenderError, RenderGraph, TargetId},
 };
 
@@ -31,34 +29,11 @@ macro_rules! print_layout {
 use camera::Camera2;
 use scene::Global2;
 
-arcana::export_arcana_plugin!(SdfPlugin);
-
-pub struct SdfPlugin;
-
-impl ArcanaPlugin for SdfPlugin {
-    fn dependencies(&self) -> Vec<(&Ident, Dependency)> {
-        vec![scene::path_dependency(), camera::path_dependency()]
+arcana::export_arcana_plugin! {
+    SdfPlugin {
+        dependencies: [scene ..., camera ...],
+        components: [Shape],
     }
-
-    // fn init(&self, _world: &mut World) -> PluginInit {
-    //     print_layout!(MainConstants {
-    //         background
-    //         camera
-    //         shape_count
-    //     });
-    //     print_layout!(ShapeDevice {
-    //         tr
-    //         inv_tr
-    //         color
-    //         kind
-    //         payload
-    //         layer
-    //     });
-    //     print_layout!(CirleDevice { radius });
-    //     print_layout!(RectDevice { half });
-
-    //     PluginInit::new()
-    // }
 }
 
 #[derive(Component)]
@@ -174,16 +149,11 @@ impl SdfRender {
 }
 
 impl Render for SdfRender {
-    fn render(
-        &mut self,
-        mut ctx: RenderContext<'_, '_>,
-        world: &World,
-        _blink: &BlinkAlloc,
-    ) -> Result<(), RenderError> {
-        let mut encoder = ctx.new_command_encoder()?;
-        let target = ctx.write_target(self.target, &mut encoder).clone();
+    fn render(&mut self, world: &World, mut cx: RenderContext<'_, '_>) -> Result<(), RenderError> {
+        let mut encoder = cx.new_command_encoder()?;
+        let target = cx.write_target(self.target, &mut encoder).clone();
         let pipeline = self.pipeline.get_or_insert_with(|| {
-            let main_library = ctx
+            let main_library = cx
                 .device()
                 .new_shader_library(mev::LibraryDesc {
                     name: "main",
@@ -191,7 +161,7 @@ impl Render for SdfRender {
                 })
                 .unwrap();
 
-            ctx.device()
+            cx.device()
                 .new_render_pipeline(mev::RenderPipelineDesc {
                     name: "main",
                     vertex_shader: mev::Shader {
@@ -240,7 +210,7 @@ impl Render for SdfRender {
         let shapes_count = shapes.iter().count();
 
         let arguments = self.arguments.get_or_insert_with(|| {
-            let shapes = ctx
+            let shapes = cx
                 .device()
                 .new_buffer(mev::BufferDesc {
                     size: size_of::<<ShapeDevice as DeviceRepr>::Repr>()
@@ -251,7 +221,7 @@ impl Render for SdfRender {
                 })
                 .unwrap();
 
-            let circles = ctx
+            let circles = cx
                 .device()
                 .new_buffer(mev::BufferDesc {
                     size: size_of::<<CirleDevice as DeviceRepr>::Repr>()
@@ -262,7 +232,7 @@ impl Render for SdfRender {
                 })
                 .unwrap();
 
-            let rects = ctx
+            let rects = cx
                 .device()
                 .new_buffer(mev::BufferDesc {
                     size: size_of::<<RectDevice as DeviceRepr>::Repr>()
@@ -280,7 +250,7 @@ impl Render for SdfRender {
         });
 
         if arguments.shapes.size() < size_of::<<ShapeDevice as DeviceRepr>::Repr>() * shapes_count {
-            arguments.shapes = ctx
+            arguments.shapes = cx
                 .device()
                 .new_buffer(mev::BufferDesc {
                     size: size_of::<<ShapeDevice as DeviceRepr>::Repr>()
@@ -294,7 +264,7 @@ impl Render for SdfRender {
 
         if arguments.circles.size() < size_of::<<CirleDevice as DeviceRepr>::Repr>() * shapes_count
         {
-            arguments.circles = ctx
+            arguments.circles = cx
                 .device()
                 .new_buffer(mev::BufferDesc {
                     size: size_of::<<CirleDevice as DeviceRepr>::Repr>()
@@ -307,7 +277,7 @@ impl Render for SdfRender {
         }
 
         if arguments.rects.size() < size_of::<<RectDevice as DeviceRepr>::Repr>() * shapes_count {
-            arguments.rects = ctx
+            arguments.rects = cx
                 .device()
                 .new_buffer(mev::BufferDesc {
                     size: size_of::<<RectDevice as DeviceRepr>::Repr>()
@@ -389,7 +359,7 @@ impl Render for SdfRender {
         render.with_scissor(mev::Offset2::ZERO, dims);
         render.draw(0..3, 0..1);
         drop(render);
-        ctx.commit(encoder.finish()?);
+        cx.commit(encoder.finish()?);
         Ok(())
     }
 }

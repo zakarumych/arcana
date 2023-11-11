@@ -1,4 +1,5 @@
 use std::{
+    borrow::Borrow,
     cmp::Ordering,
     fmt,
     hash::{Hash, Hasher},
@@ -7,13 +8,13 @@ use std::{
 
 #[macro_export]
 macro_rules! ident {
-    ($i:ident) => {{
-        let ident: &$crate::Ident = $crate::Ident::from_ident_str(stringify!($i));
-        ident
-    }};
+    ($i:ident) => {
+        $crate::Ident::from_ident_str(stringify!($i))
+    };
 }
 
 /// String wrapper that ensures it is a valid unicode identifier.
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
 pub struct Ident {
     s: str,
@@ -73,6 +74,12 @@ impl AsRef<str> for Ident {
     }
 }
 
+impl Borrow<str> for Ident {
+    fn borrow(&self) -> &str {
+        &self.s
+    }
+}
+
 impl fmt::Debug for Ident {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(&self.s, f)
@@ -91,29 +98,9 @@ impl PartialEq<IdentBuf> for Ident {
     }
 }
 
-impl PartialEq for Ident {
-    fn eq(&self, other: &Self) -> bool {
-        self.s == other.s
-    }
-}
-
-impl Eq for Ident {}
-
 impl PartialOrd<IdentBuf> for Ident {
     fn partial_cmp(&self, other: &IdentBuf) -> Option<Ordering> {
         Some(self.s.cmp(&*other.s))
-    }
-}
-
-impl PartialOrd for Ident {
-    fn partial_cmp(&self, other: &Ident) -> Option<Ordering> {
-        Some(self.s.cmp(&other.s))
-    }
-}
-
-impl Ord for Ident {
-    fn cmp(&self, other: &Ident) -> Ordering {
-        self.s.cmp(&other.s)
     }
 }
 
@@ -163,7 +150,7 @@ impl<'de> serde::Deserialize<'de> for &'de Ident {
 }
 
 /// String wrapper that ensures it is a valid unicode identifier.
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
 pub struct IdentBuf {
     s: String,
@@ -223,6 +210,18 @@ impl AsRef<str> for IdentBuf {
     }
 }
 
+impl Borrow<Ident> for IdentBuf {
+    fn borrow(&self) -> &Ident {
+        Ident::from_ident_str(&*self.s)
+    }
+}
+
+impl Borrow<str> for IdentBuf {
+    fn borrow(&self) -> &str {
+        &*self.s
+    }
+}
+
 impl fmt::Debug for IdentBuf {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(&*self.s, f)
@@ -241,29 +240,9 @@ impl PartialEq<Ident> for IdentBuf {
     }
 }
 
-impl PartialEq for IdentBuf {
-    fn eq(&self, other: &Self) -> bool {
-        *self.s == *other.s
-    }
-}
-
-impl Eq for IdentBuf {}
-
 impl PartialOrd<Ident> for IdentBuf {
     fn partial_cmp(&self, other: &Ident) -> Option<Ordering> {
         Some((*self.s).cmp(&other.s))
-    }
-}
-
-impl PartialOrd for IdentBuf {
-    fn partial_cmp(&self, other: &IdentBuf) -> Option<Ordering> {
-        Some((*self.s).cmp(&*other.s))
-    }
-}
-
-impl Ord for IdentBuf {
-    fn cmp(&self, other: &IdentBuf) -> Ordering {
-        (*self.s).cmp(&*other.s)
     }
 }
 

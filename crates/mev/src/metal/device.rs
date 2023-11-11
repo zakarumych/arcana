@@ -17,7 +17,7 @@ use raw_window_handle::{
 use crate::{
     generic::{
         parse_shader, BufferDesc, BufferInitDesc, CreateLibraryError, CreatePipelineError,
-        ImageDesc, ImageDimensions, ImageError, LibraryDesc, LibraryInput, Memory, OutOfMemory,
+        ImageDesc, ImageDimensions, LibraryDesc, LibraryInput, Memory, OutOfMemory,
         RenderPipelineDesc, SamplerDesc, ShaderCompileError, ShaderLanguage, SurfaceError,
         VertexStepMode,
     },
@@ -273,7 +273,7 @@ impl crate::traits::Device for Device {
         Ok(Buffer::new(buffer))
     }
 
-    fn new_image(&self, desc: ImageDesc) -> Result<Image, ImageError> {
+    fn new_image(&self, desc: ImageDesc) -> Result<Image, OutOfMemory> {
         let texture_descriptor = metal::TextureDescriptor::new();
         texture_descriptor.set_pixel_format(desc.format.try_into_metal().unwrap());
         match desc.dimensions {

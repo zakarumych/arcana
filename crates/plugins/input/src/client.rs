@@ -8,7 +8,6 @@ use arcana::{
         WindowEvent,
     },
     funnel::EventFilter,
-    project::{ident, Ident},
     winit::window::WindowId,
 };
 use hashbrown::HashMap;
@@ -288,12 +287,4 @@ where
 
 pub fn init_world(world: &mut World) {
     world.insert_resource(InputHandler::new());
-}
-
-pub fn event_filter() -> &'static Ident {
-    ident!(InputFilter)
-}
-
-pub fn init_event_filter() -> (&'static Ident, Box<dyn EventFilter>) {
-    (ident!(InputFilter), Box::new(InputFilter::new()))
 }

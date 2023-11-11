@@ -1,18 +1,11 @@
 use arcana::{
-    edict::{self, Component, World},
+    edict::{self, Component},
     export_arcana_plugin, na,
-    plugin::{ArcanaPlugin, PluginInit},
-    plugin_init,
 };
 
-export_arcana_plugin!(CameraPlugin);
-
-pub struct CameraPlugin;
-
-impl ArcanaPlugin for CameraPlugin {
-    fn init(&self, world: &mut World) -> PluginInit {
-        world.ensure_component_registered::<Camera2>();
-        plugin_init!()
+export_arcana_plugin! {
+    CameraPlugin {
+        components: [Camera2],
     }
 }
 

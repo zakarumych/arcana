@@ -19,9 +19,9 @@ use smallvec::SmallVec;
 use crate::{
     generic::{
         BufferDesc, BufferInitDesc, CreateLibraryError, CreatePipelineError, Features, ImageDesc,
-        ImageDimensions, ImageError, LibraryDesc, LibraryInput, Memory, OutOfMemory,
-        PrimitiveTopology, RenderPipelineDesc, SamplerDesc, ShaderLanguage, SurfaceError, Swizzle,
-        VertexStepMode, ViewDesc,
+        ImageDimensions, LibraryDesc, LibraryInput, Memory, OutOfMemory, PrimitiveTopology,
+        RenderPipelineDesc, SamplerDesc, ShaderLanguage, SurfaceError, Swizzle, VertexStepMode,
+        ViewDesc,
     },
     parse_shader, ShaderCompileError,
 };
@@ -1284,16 +1284,12 @@ impl crate::traits::Device for Device {
         Ok(buffer)
     }
 
-    fn new_image(&self, desc: ImageDesc) -> Result<Image, ImageError> {
+    fn new_image(&self, desc: ImageDesc) -> Result<Image, OutOfMemory> {
         let image = unsafe {
             self.inner.device.create_image(
                 &vk::ImageCreateInfo::builder()
                     .image_type(desc.dimensions.into_ash())
-                    .format(
-                        desc.format
-                            .try_into_ash()
-                            .ok_or(ImageError::InvalidFormat)?,
-                    )
+                    .format(desc.format.try_into_ash().expect("Unsupported format"))
                     .extent(desc.dimensions.to_3d().into_ash())
                     .array_layers(desc.layers)
                     .mip_levels(desc.levels)
@@ -1306,7 +1302,7 @@ impl crate::traits::Device for Device {
         }
         .map_err(|err| match err {
             vk::Result::ERROR_OUT_OF_HOST_MEMORY => handle_host_oom(),
-            vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => ImageError::OutOfMemory,
+            vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => OutOfMemory,
             err => unexpected_error(err),
         })?;
 
@@ -1332,16 +1328,10 @@ impl crate::traits::Device for Device {
                     self.inner.device.destroy_image(image, None);
                 }
                 match err {
-                    gpu_alloc::AllocationError::OutOfDeviceMemory => {
-                        return Err(ImageError::OutOfMemory)
-                    }
+                    gpu_alloc::AllocationError::OutOfDeviceMemory => return Err(OutOfMemory),
                     gpu_alloc::AllocationError::OutOfHostMemory => handle_host_oom(),
-                    gpu_alloc::AllocationError::NoCompatibleMemoryTypes => {
-                        return Err(ImageError::OutOfMemory)
-                    }
-                    gpu_alloc::AllocationError::TooManyObjects => {
-                        return Err(ImageError::OutOfMemory)
-                    }
+                    gpu_alloc::AllocationError::NoCompatibleMemoryTypes => return Err(OutOfMemory),
+                    gpu_alloc::AllocationError::TooManyObjects => return Err(OutOfMemory),
                 }
             }
         };
@@ -1354,14 +1344,13 @@ impl crate::traits::Device for Device {
 
         if let Err(err) = result {
             unsafe {
-                self.inner.allocator.lock().dealloc(&*self.inner, block);
-
                 self.inner.device.destroy_image(image, None);
+                self.inner.allocator.lock().dealloc(&*self.inner, block);
             }
 
             match err {
                 vk::Result::ERROR_OUT_OF_HOST_MEMORY => handle_host_oom(),
-                vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => return Err(ImageError::OutOfMemory),
+                vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => return Err(OutOfMemory),
                 _ => unexpected_error(err),
             }
         }
@@ -1383,12 +1372,11 @@ impl crate::traits::Device for Device {
             Ok((view, idx)) => (view, idx),
             Err(OutOfMemory) => {
                 unsafe {
-                    self.inner.allocator.lock().dealloc(&*self.inner, block);
-
                     self.inner.device.destroy_image(image, None);
+                    self.inner.allocator.lock().dealloc(&*self.inner, block);
                 }
 
-                return Err(ImageError::OutOfMemory);
+                return Err(OutOfMemory);
             }
         };
 

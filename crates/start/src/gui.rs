@@ -18,8 +18,6 @@ struct Recent {
 
 /// Arcn app instance.
 pub struct App {
-    /// Windows opened in the editor.
-    window: Window,
     recent: Vec<Recent>,
     should_quit: bool,
 
@@ -53,7 +51,6 @@ impl Application for App {
             &mut self.queue,
             &self.blink,
             None,
-            std::iter::once(&self.window),
             &self.world,
             &mut self.resources,
         );

@@ -1,9 +1,8 @@
 use amity::flip_queue::FlipQueue;
 use arcana::{
-    edict::{self, Component, EntityId, IntoSystem, ResMut, Scheduler, State, System, View, World},
-    plugin::{ArcanaPlugin, PluginInit},
-    plugin_init,
-    project::{ident, Ident},
+    edict::{self, Component, EntityId, ResMut, State, View},
+    plugin::ArcanaPlugin,
+    project::Ident,
 };
 
 arcana::feature_ed! {
@@ -24,36 +23,12 @@ use scene::Global2;
 
 pub use rapier2d::{dynamics, geometry};
 
-arcana::export_arcana_plugin!(PhysicsPlugin);
-
-pub struct PhysicsPlugin;
-
-impl ArcanaPlugin for PhysicsPlugin {
-    fn init(&self, world: &mut World) -> PluginInit {
-        world.ensure_component_registered::<Body>();
-
-        let res = PhysicsResource {
-            pipeline: PhysicsPipeline::new(),
-            parameters: IntegrationParameters::default(),
-            islands: IslandManager::new(),
-            broad_phase: BroadPhase::new(),
-            narrow_phase: NarrowPhase::new(),
-            bodies: RigidBodySet::new(),
-            colliders: ColliderSet::new(),
-            impulse_joints: ImpulseJointSet::new(),
-            multibody_joints: MultibodyJointSet::new(),
-            ccd_solver: CCDSolver::new(),
-        };
-        world.insert_resource(res);
-        plugin_init!(systems: [physics_system])
-    }
-
-    fn systems(&self) -> Vec<&Ident> {
-        vec![ident!(physics_system)]
-    }
-
-    fn dependencies(&self) -> Vec<(&Ident, Dependency)> {
-        vec![scene::path_dependency()]
+arcana::export_arcana_plugin! {
+    PhysicsPlugin {
+        dependencies: [scene ...],
+        resources: [PhysicsResource::new()],
+        components: [Body],
+        systems: [physics_system],
     }
 }
 
@@ -101,6 +76,21 @@ pub struct PhysicsResource {
 }
 
 impl PhysicsResource {
+    fn new() -> Self {
+        PhysicsResource {
+            pipeline: PhysicsPipeline::new(),
+            parameters: IntegrationParameters::default(),
+            islands: IslandManager::new(),
+            broad_phase: BroadPhase::new(),
+            narrow_phase: NarrowPhase::new(),
+            bodies: RigidBodySet::new(),
+            colliders: ColliderSet::new(),
+            impulse_joints: ImpulseJointSet::new(),
+            multibody_joints: MultibodyJointSet::new(),
+            ccd_solver: CCDSolver::new(),
+        }
+    }
+
     pub fn new_fixed_body(&mut self) -> Body {
         Body {
             handle: self.bodies.insert(
