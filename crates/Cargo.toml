@@ -1,5 +1,5 @@
 [workspace]
-members = ["arcana", "mev", "start", "plugins/*"]
+members = ["project", "mev", "arcana", "ed", "start", "plugins/*"]
 resolver = "2"
 
 
@@ -45,7 +45,7 @@ flume = "0.11"
 figa = { version = "0.3" }
 foreign-types = { version = "0.5.0" }
 futures = "0.3"
-gametime = "0.2"
+gametime = "0.2.1"
 gilrs = { version = "0.10" }
 gpu-alloc = { version = "0.6" }
 hashbrown = { version = "0.14", features = ["nightly"] }

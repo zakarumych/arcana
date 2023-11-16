@@ -1,11 +1,11 @@
 use std::path::PathBuf;
 
 use arcana::{
+    _events::{Event, EventLoop},
     app::Application,
     blink_alloc::BlinkAlloc,
     edict::World,
     egui::{self, EguiRender, EguiResource},
-    events::{Event, EventLoop},
     init_mev, mev,
     render::{render, RenderGraph, RenderResources},
 };

@@ -2,14 +2,14 @@
 
 mod render;
 mod target;
-mod viewport;
 
 use std::{
     collections::VecDeque, fmt, marker::PhantomData, num::NonZeroU64, ops::Range, sync::Arc,
 };
 
+use base64::engine::general_purpose::NO_PAD;
 use blink_alloc::BlinkAlloc;
-use edict::{State, World};
+use edict::{EntityId, State, World};
 use hashbrown::{
     hash_map::{DefaultHashBuilder, Entry},
     HashMap, HashSet,
@@ -18,14 +18,13 @@ use mev::PipelineStages;
 use parking_lot::Mutex;
 use winit::window::{Window, WindowId};
 
-use crate::window::Windows;
+// use crate::window::Windows;
+
+use crate::viewport::{self, ViewportTexture};
 
 use self::{render::RenderId, target::RenderTarget};
 
-pub use self::{
-    render::{Render, RenderBuilderContext, TargetId},
-    viewport::{RTTs, Viewport, RTT},
-};
+pub use self::render::{Render, RenderBuilderContext, TargetId};
 
 pub trait RenderTargetType: 'static {
     fn add_target(
@@ -202,7 +201,8 @@ pub struct RenderGraph {
     renders: HashMap<RenderId, RenderNode>,
     image_targets: HashMap<NonZeroU64, RenderTarget<mev::Image>>,
     buffer_targets: HashMap<NonZeroU64, RenderTarget<mev::Buffer>>,
-    presents: HashMap<Viewport, TargetId<mev::Image>>,
+    presents: HashMap<EntityId, TargetId<mev::Image>>,
+    main_present: Option<TargetId<mev::Image>>,
     next_id: u64,
 }
 
@@ -213,6 +213,7 @@ impl RenderGraph {
             image_targets: HashMap::new(),
             buffer_targets: HashMap::new(),
             presents: HashMap::new(),
+            main_present: None,
             next_id: 1,
         }
     }
@@ -249,10 +250,16 @@ impl RenderGraph {
         T::get_target_mut(self, id)
     }
 
-    /// Sets up render graph to present target to the window.
-    /// Render system will look for this window and present the target to it if found.
-    pub fn present(&mut self, target: TargetId<mev::Image>, viewport: impl Into<Viewport>) {
-        self.presents.insert(viewport.into(), target);
+    /// Sets up render graph to present target to the main viewport.
+    /// Render system will look for main viewport and present the target to it if found.
+    pub fn present(&mut self, target: TargetId<mev::Image>) {
+        self.main_present = Some(target);
+    }
+
+    /// Sets up render graph to present target to the viewport.
+    /// Render system will look for this viewport and present the target to it if found.
+    pub fn present_to(&mut self, target: TargetId<mev::Image>, viewport: EntityId) {
+        self.presents.insert(viewport, target);
     }
 }
 
@@ -411,7 +418,7 @@ impl RenderNode {
 
     fn render<'a, 'b>(
         &mut self,
-        world: &World,
+        world: &mut World,
         ctx: RenderContext<'a, 'b>,
     ) -> Result<(), RenderError> {
         self.render.render(world, ctx)
@@ -420,7 +427,6 @@ impl RenderNode {
 
 #[derive(Default)]
 pub struct RenderResources {
-    surfaces: HashMap<WindowId, mev::Surface>,
     images: HashMap<NonZeroU64, mev::Image>,
     buffers: HashMap<NonZeroU64, mev::Buffer>,
 }
@@ -438,35 +444,46 @@ pub fn render_system(world: &mut World, mut state: State<RenderState>) {
     let state = &mut *state;
     // let world = world.local();
 
-    let device = world.expect_resource::<mev::Device>();
+    let mut graph = world.remove_resource::<RenderGraph>().unwrap();
+    let mut update_targets = world.remove_resource::<UpdateTargets>();
+    let device = world.remove_resource::<mev::Device>().unwrap();
+    let mut owned_queue = world.remove_resource::<mev::Queue>();
+    let mut shared_queue = world.remove_resource::<Arc<Mutex<mev::Queue>>>();
 
-    let mut owned_queue = world.get_resource_mut::<mev::Queue>();
-    let mut shard_queue = world.get_resource_mut::<Arc<Mutex<mev::Queue>>>();
-    let mut queue_lock;
+    {
+        let mut queue_lock;
 
-    let queue = match (&mut owned_queue, &mut shard_queue) {
-        (Some(queue), _) => &mut **queue,
-        (None, Some(queue)) => {
-            queue_lock = queue.lock();
-            &mut *queue_lock
-        }
-        (None, None) => {
-            panic!("No mev::Queue found")
-        }
-    };
+        let queue = match (&mut owned_queue, &mut shared_queue) {
+            (Some(queue), _) => queue,
+            (None, Some(queue)) => {
+                queue_lock = queue.lock();
+                &mut *queue_lock
+            }
+            (None, None) => {
+                panic!("No mev::Queue found")
+            }
+        };
 
-    let mut graph = world.expect_resource_mut::<RenderGraph>();
-    let mut update_targets = world.get_resource_mut::<UpdateTargets>();
+        render(
+            &mut graph,
+            &device,
+            queue,
+            &state.blink,
+            update_targets.as_mut(),
+            world,
+            &mut state.resources,
+        );
+    }
 
-    render(
-        &mut *graph,
-        &*device,
-        queue,
-        &state.blink,
-        update_targets.as_deref_mut(),
-        &*world,
-        &mut state.resources,
-    );
+    world.insert_resource(graph);
+    world.insert_resource(update_targets);
+    world.insert_resource(device);
+    if let Some(owned_queue) = owned_queue {
+        world.insert_resource(owned_queue);
+    }
+    if let Some(shared_queue) = shared_queue {
+        world.insert_resource(shared_queue);
+    }
 }
 
 /// Rendering function.
@@ -476,7 +493,7 @@ pub fn render<'a>(
     queue: &mut mev::Queue,
     blink: &BlinkAlloc,
     update_targets: Option<&mut UpdateTargets>,
-    world: &World,
+    world: &mut World,
     resources: &mut RenderResources,
 ) {
     let mut ctx = RenderContextValues {
@@ -505,61 +522,115 @@ pub fn render<'a>(
         buffer_targets_to_update.extend(update_targets.update_buffers.drain());
     }
 
-    let mut drop_surfaces = Vec::new_in(blink);
     let mut frames = Vec::new_in(blink);
 
-    let windows = world.get_resource::<Windows>();
-    let window = world.get_resource::<Window>();
-    let rtts = world.get_resource::<RTTs>();
+    let mut insert_surfaces = Vec::new_in(blink);
+    let mut drop_surfaces = Vec::new_in(blink);
 
-    let mut drop_viewports = Vec::new_in(blink);
-    for (&viewport, &tid) in &graph.presents {
+    for (&viewport, &tid) in graph.presents.iter() {
         // Target is guaranteed to exist.
         let rt = &graph.image_targets[&tid.0];
 
-        match viewport {
-            Viewport::Texture(id) => {
-                let rtts = rtts.as_ref().expect("RTTs not initialized");
+        let Ok(tripple) = world.get::<(
+            Option<&Window>,
+            Option<&mut mev::Surface>,
+            Option<&ViewportTexture>,
+        )>(viewport) else {
+            continue;
+        };
 
-                let Some(image) = rtts.get(id) else {
-                    drop_viewports.push(viewport.clone());
-                    continue;
-                };
+        match tripple {
+            (None, surface, None) => {
+                if surface.is_some() {
+                    drop_surfaces.push(viewport);
+                }
+            }
+            (None, surface, Some(texture)) => {
+                if surface.is_some() {
+                    drop_surfaces.push(viewport);
+                }
 
                 ctx.init_images.insert(tid.0);
-                ctx.images.insert(tid.0, image.clone());
+                ctx.images.insert(tid.0, texture.image.clone());
             }
-            Viewport::Window(wid) => {
-                // Find the window.
-                let window = match (&windows, &window) {
-                    (Some(windows), _) => {
-                        let Some(window) = windows.get(wid) else {
-                            drop_viewports.push(viewport.clone());
-                            continue;
-                        };
-                        window
-                    }
-                    (_, Some(window)) if window.id() == wid => window,
-                    _ => {
-                        tracing::error!("Window not found");
-                        drop_viewports.push(viewport.clone());
-                        continue;
-                    }
-                };
+            (Some(window), surface, _) => {
+                let window_id = window.id();
+                let mut new_surface = None;
 
-                let surface = match resources.surfaces.entry(wid) {
-                    Entry::Occupied(entry) => entry.into_mut(),
-                    Entry::Vacant(entry) => {
-                        let surface = device.new_surface(window, window).unwrap();
-                        entry.insert(surface)
-                    }
+                let surface = match surface {
+                    None => new_surface.get_or_insert(device.new_surface(window, window).unwrap()),
+                    Some(surface) => surface,
                 };
-
                 match surface.next_frame(&mut *queue, rt.writes(0)) {
                     Err(err) => {
                         tracing::error!(err = ?err);
-                        drop_surfaces.push(wid);
+                        if new_surface.is_none() {
+                            drop_surfaces.push(viewport);
+                        }
+                        new_surface = None;
                         continue;
+                    }
+                    Ok(frame) => {
+                        let image = frame.image();
+                        ctx.init_images.insert(tid.0);
+                        ctx.images.insert(tid.0, image.clone());
+                        frames.push((frame, rt.writes(tid.1) | rt.reads(tid.1)));
+                    }
+                }
+                if let Some(surface) = new_surface {
+                    insert_surfaces.push((viewport, surface));
+                }
+            }
+        }
+
+        image_targets_to_update.push(tid);
+    }
+
+    for (viewport, surface) in insert_surfaces {
+        world.insert_external(viewport, surface);
+    }
+    for viewport in drop_surfaces {
+        world.remove::<mev::Surface>(viewport);
+    }
+
+    let mut new_main_surface = None;
+    let mut remove_main_surface = false;
+    if let Some(tid) = graph.main_present {
+        // Target is guaranteed to exist.
+        let rt = &graph.image_targets[&tid.0];
+
+        let window = world.get_resource::<Window>();
+        let mut surface = world.get_resource_mut::<mev::Surface>();
+        let texture = world.get_resource::<ViewportTexture>();
+
+        match (
+            window.as_deref(),
+            surface.as_deref_mut(),
+            texture.as_deref(),
+        ) {
+            (None, surface, None) => {
+                remove_main_surface = surface.is_some();
+            }
+            (None, surface, Some(texture)) => {
+                remove_main_surface = surface.is_some();
+
+                ctx.init_images.insert(tid.0);
+                ctx.images.insert(tid.0, texture.image.clone());
+            }
+            (Some(window), surface, _) => {
+                let window_id = window.id();
+
+                let surface = match surface {
+                    None => {
+                        new_main_surface.get_or_insert(device.new_surface(window, window).unwrap())
+                    }
+                    Some(surface) => surface,
+                };
+                match surface.next_frame(&mut *queue, rt.writes(0)) {
+                    Err(err) => {
+                        tracing::error!(err = ?err);
+                        remove_main_surface = new_main_surface.is_none();
+                        new_main_surface = None;
                     }
                     Ok(frame) => {
                         let image = frame.image();
@@ -673,7 +744,7 @@ pub fn render<'a>(
 
         let cbufs_pre = ctx.cbufs.len();
         let result = render.render(
-            &*world,
+            &mut *world,
             RenderContext {
                 device,
                 queue,

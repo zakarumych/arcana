@@ -1,13 +1,13 @@
 use std::collections::VecDeque;
 
 use arcana::{
-    blink_alloc::Blink,
-    edict::{EntityId, NoSuchEntity, World},
-    events::{
+    _events::{
         DeviceId, ElementState, Event, KeyboardInput, MouseButton, ScanCode, VirtualKeyCode,
         WindowEvent,
     },
-    funnel::EventFilter,
+    blink_alloc::Blink,
+    edict::{EntityId, NoSuchEntity, World},
+    events::EventFilter,
     winit::window::WindowId,
 };
 use hashbrown::HashMap;

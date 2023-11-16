@@ -1,4 +1,4 @@
-use edict::World;
+use arcana::World;
 use egui::Ui;
 use egui_tracing::{EventCollector, Logs};
 

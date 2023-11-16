@@ -1,10 +1,18 @@
 use std::future::{ready, Ready};
 
+use edict::Component;
+
 use crate::assets::BobBuilder;
 
 #[derive(Clone)]
 pub struct Texture {
-    image: mev::Image,
+    pub image: mev::Image,
+}
+
+impl Component for Texture {
+    fn name() -> &'static str {
+        "Texture"
+    }
 }
 
 impl argosy::Asset for Texture {

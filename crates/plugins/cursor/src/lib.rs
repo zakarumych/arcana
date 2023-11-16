@@ -1,10 +1,10 @@
 use std::ops::{Deref, DerefMut};
 
 use arcana::{
+    _events::{Event, WindowEvent},
     blink_alloc::Blink,
     edict::World,
-    events::{Event, WindowEvent},
-    funnel::EventFilter,
+    events::EventFilter,
     winit::window::Window,
 };
 

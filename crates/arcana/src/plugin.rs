@@ -4,7 +4,7 @@ use arcana_project::{Dependency, Ident, IdentBuf};
 use edict::{IntoSystem, Scheduler, System, World};
 
 #[cfg(feature = "client")]
-use crate::funnel::EventFilter;
+use crate::events::EventFilter;
 
 pub struct PluginInit<'a> {
     pub systems: Vec<(&'a Ident, Box<dyn System + Send>)>,

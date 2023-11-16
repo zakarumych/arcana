@@ -1,30 +1,44 @@
 #![feature(allocator_api)]
 #![allow(warnings)]
 
+/// Finds offset of a field in a struct.
+///
+/// It uses `addr_of!` macro to get raw pointer to the field for uninit struct
+/// and then calculates offset from the beginning of the struct.
 #[macro_export]
 macro_rules! offset_of {
-    ($struct:ident . $field:ident) => {
-        unsafe {
-            let uninit: core::mem::MaybeUninit<$struct> = core::mem::MaybeUninit::uninit();
-            if false {
+    ($struct:ident . $field:ident) => {{
+        let uninit: ::core::mem::MaybeUninit<$struct> = ::core::mem::MaybeUninit::uninit();
+
+        if false {
+            // Safety: Not executed.
+            // This is required to make sure that field exists on the struct itself.
+            // To avoid `(*struct_ptr).$field` below to invoke `Deref::deref`.
+            unsafe {
                 let $struct { $field: _, .. } = uninit.assume_init();
-                0
-            } else {
-                let ptr = uninit.as_ptr();
-                core::ptr::addr_of!((*ptr).$field)
-                    .cast::<u8>()
-                    .offset_from(ptr.cast::<u8>()) as usize
             }
         }
-    };
+
+        let struct_ptr: *const _ = unsafe { uninit.as_ptr() };
+        let field_ptr: *const _ = unsafe { ::core::ptr::addr_of!((*struct_ptr).$field) };
+
+        // # Safety: Cannot overflow because result is field offset.
+        unsafe { field_ptr.cast::<u8>().offset_from(struct_ptr.cast::<u8>()) as usize }
+    }};
 }
 
 /// `std::format` where all arguments are constants.
+/// Uses thread-local to store result after first formatting.
+///
+/// This helps avoiding re-formatting of the same string each time code is executed.
+///
+/// String created will never be freed.
+/// This is OK since we were goint go use it untile the end of the program.
 #[macro_export]
 macro_rules! const_format {
     ($fmt:literal $(, $arg:expr)* $(,)?) => {{
-        std::thread_local! {
-            static VALUE: &'static str = std::format!($fmt $(, $arg)*).leak();
+        ::std::thread_local! {
+            static VALUE: &'static str = ::std::format!($fmt $(, $arg)*).leak();
         }
         let s: &'static str = VALUE.with(|s| *s);
         s
@@ -32,30 +46,25 @@ macro_rules! const_format {
 }
 
 // Re-exports
-
-pub use {blink_alloc, bytemuck, edict, gametime, na, parking_lot, tokio};
-
-pub use arcana_project as project;
+pub use {
+    arcana_project as project,
+    blink_alloc::{self, Blink, BlinkAlloc},
+    bytemuck,
+    edict::{self, prelude::*},
+    gametime::{self, Clock, ClockStep, Frequency, FrequencyTicker, FrequencyTickerIter},
+    na, parking_lot, tokio,
+};
 
 #[cfg(feature = "derive")]
 pub use arcana_proc::*;
 
-#[cfg(feature = "app")]
-pub mod app;
-
-#[cfg(feature = "ed")]
-pub mod ed;
-
 feature_client! {
     pub use mev;
-    pub use winit;
-    pub mod egui;
     pub mod events;
-    pub mod funnel;
     pub mod game;
     pub mod render;
     pub mod texture;
-    pub mod window;
+    pub mod viewport;
 }
 
 pub mod alloc;
@@ -64,6 +73,7 @@ pub mod bundle;
 pub mod flow;
 pub mod plugin;
 
+/// Returns version of the arcana crate.
 pub fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
@@ -107,18 +117,6 @@ macro_rules! feature_server {
     ($($tt:tt)*) => {};
 }
 
-#[cfg(feature = "ed")]
-#[macro_export]
-macro_rules! feature_ed {
-    ($($tt:tt)*) => {$($tt)*};
-}
-
-#[cfg(not(feature = "ed"))]
-#[macro_export]
-macro_rules! feature_ed {
-    ($($tt:tt)*) => {};
-}
-
 #[cfg(feature = "client")]
 #[macro_export]
 macro_rules! not_feature_client {
@@ -143,18 +141,6 @@ macro_rules! not_feature_server {
     ($($tt:tt)*) => {$($tt)*};
 }
 
-#[cfg(feature = "ed")]
-#[macro_export]
-macro_rules! not_feature_ed {
-    ($($tt:tt)*) => {};
-}
-
-#[cfg(not(feature = "ed"))]
-#[macro_export]
-macro_rules! not_feature_ed {
-    ($($tt:tt)*) => {$($tt)*};
-}
-
 /// Conditional compilation based on features enabled in arcana crate.
 #[macro_export]
 macro_rules! feature {
@@ -173,16 +159,3 @@ macro_rules! feature {
 
 // #[global_allocator]
 // static ALLOC: alloc::ArcanaAllocator = alloc::ArcanaAllocator;
-
-fn move_element<T>(slice: &mut [T], from_index: usize, to_index: usize) {
-    if from_index == to_index {
-        return;
-    }
-    if from_index < to_index {
-        let sub = &mut slice[from_index..=to_index];
-        sub.rotate_left(1);
-    } else {
-        let sub = &mut slice[to_index..=from_index];
-        sub.rotate_right(1);
-    }
-}

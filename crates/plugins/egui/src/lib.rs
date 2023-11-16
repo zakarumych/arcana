@@ -1,20 +1,18 @@
-use std::{marker::PhantomData, mem::size_of_val, rc::Rc};
+use std::mem::size_of_val;
 
-use blink_alloc::{Blink, BlinkAlloc};
-use edict::World;
-use egui::epaint::{ClippedShape, Primitive, Vertex};
-use hashbrown::{hash_map::Entry, HashMap};
-use mev::{Arguments as _, ClearColor, DeviceRepr as _};
-use winit::{event::WindowEvent, event_loop::EventLoopWindowTarget, window::WindowId};
-
-use crate::{
-    funnel::EventFilter,
-    render::{
-        RTTs, Render, RenderBuilderContext, RenderContext, RenderError, RenderGraph, TargetId, RTT,
-    },
+use arcana::{
+    bytemuck,
+    events::ViewportEvent,
+    mev::{self, Arguments, DeviceRepr},
+    offset_of,
+    render::{Render, RenderBuilderContext, RenderContext, RenderError, RenderGraph, TargetId},
+    texture::Texture,
+    Blink, EntityId, World,
 };
+use egui::epaint::{ClippedShape, Primitive, Vertex};
 
 pub use egui::*;
+use hashbrown::{hash_map::Entry, HashMap};
 
 #[derive(Clone, Copy)]
 enum Sampler {
@@ -35,92 +33,57 @@ impl Sampler {
     }
 }
 
-struct EguiInstance {
+/// Component that can be added to the viewport to display UI using egui.
+pub struct Egui {
     cx: Context,
-    state: egui_winit::State,
     textures_delta: TexturesDelta,
     shapes: Vec<ClippedShape>,
     textures: HashMap<u64, (mev::Image, Sampler)>,
-    // scale: f32,
+    raw_input: egui::RawInput,
+}
+
+impl Egui {
+    pub fn new(world: &World) -> Self {
+        let res = world.expect_resource::<EguiResource>();
+        let cx = Context::default();
+        cx.set_fonts(res.fonts.clone());
+
+        Egui {
+            cx,
+            textures_delta: TexturesDelta::default(),
+            shapes: Vec::new(),
+            textures: HashMap::new(),
+            raw_input: egui::RawInput::default(),
+        }
+    }
+
+    pub fn run<R>(&mut self, run_ui: impl FnOnce(&Context) -> R) -> Option<R> {
+        self.cx.begin_frame(self.raw_input.take());
+        let ret = run_ui(&self.cx);
+        let output = self.cx.end_frame();
+
+        // TODO: Handle platform output
+        let _ = output.platform_output;
+
+        self.textures_delta.append(output.textures_delta);
+        self.shapes = output.shapes;
+        Some(ret)
+    }
+
+    fn handle_event(&mut self, event: &ViewportEvent) -> bool {
+        false
+    }
 }
 
 pub struct EguiResource {
-    instances: HashMap<WindowId, EguiInstance>,
     fonts: FontDefinitions,
-    _local: PhantomData<Rc<u32>>,
 }
 
 impl EguiResource {
     pub fn new() -> Self {
         let mut fonts = egui::FontDefinitions::default();
         egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
-        EguiResource {
-            instances: HashMap::new(),
-            fonts,
-            _local: PhantomData,
-        }
-    }
-
-    pub fn add_window<T>(
-        &mut self,
-        window: &winit::window::Window,
-        event_loop: &EventLoopWindowTarget<T>,
-    ) {
-        let mut state = egui_winit::State::new(event_loop);
-        state.set_pixels_per_point(window.scale_factor() as f32);
-
-        let cx = Context::default();
-        cx.set_fonts(self.fonts.clone());
-
-        self.instances.insert(
-            window.id(),
-            EguiInstance {
-                cx,
-                state,
-                textures_delta: TexturesDelta::default(),
-                shapes: Vec::new(),
-                textures: HashMap::new(),
-                // scale: default_scale(),
-            },
-        );
-    }
-
-    pub fn run<R>(
-        &mut self,
-        window: &winit::window::Window,
-        run_ui: impl FnOnce(&Context) -> R,
-    ) -> Option<R> {
-        let Some(instance) = self.instances.get_mut(&window.id()) else {
-            return None;
-        };
-
-        let raw_input = instance.state.take_egui_input(window);
-
-        instance.cx.begin_frame(raw_input);
-        let ret = run_ui(&instance.cx);
-        let output = instance.cx.end_frame();
-
-        instance
-            .state
-            .handle_platform_output(window, &instance.cx, output.platform_output);
-
-        instance.textures_delta.append(output.textures_delta);
-        instance.shapes = output.shapes;
-        Some(ret)
-    }
-
-    pub fn handle_event(&mut self, window_id: WindowId, event: &WindowEvent) -> bool {
-        let Some(instance) = self.instances.get_mut(&window_id) else {
-            return false;
-        };
-
-        let response = instance.state.on_event(&instance.cx, event);
-
-        if let WindowEvent::Destroyed = event {
-            self.instances.remove(&window_id);
-        }
-
-        response.consumed
+        EguiResource { fonts }
     }
 }
 
@@ -140,8 +103,8 @@ struct EguiConstants {
 }
 
 pub struct EguiRender {
+    id: EntityId,
     target: TargetId<mev::Image>,
-    window: WindowId,
     samplers: Option<[mev::Sampler; 4]>,
     library: Option<mev::Library>,
     linear_pipeline: Option<mev::RenderPipeline>,
@@ -154,13 +117,13 @@ pub struct EguiRender {
 
 impl EguiRender {
     fn new(
+        id: EntityId,
         target: TargetId<mev::Image>,
-        window: WindowId,
         load_op: mev::LoadOp<mev::ClearColor>,
     ) -> Self {
         EguiRender {
+            id,
             target,
-            window,
             samplers: None,
             library: None,
             linear_pipeline: None,
@@ -172,42 +135,38 @@ impl EguiRender {
     }
 
     pub fn build_overlay(
+        id: EntityId,
         target: TargetId<mev::Image>,
         graph: &mut RenderGraph,
-        window: WindowId,
     ) -> TargetId<mev::Image> {
         let mut builder = RenderBuilderContext::new("egui", graph);
         let new_target = builder.write_target(target, mev::PipelineStages::COLOR_OUTPUT);
-        builder.build(EguiRender::new(new_target, window, mev::LoadOp::Load));
+        builder.build(EguiRender::new(id, new_target, mev::LoadOp::Load));
         new_target
     }
 
     pub fn build(
+        id: EntityId,
+        color: mev::ClearColor,
         graph: &mut RenderGraph,
-        window: WindowId,
-        color: ClearColor,
     ) -> TargetId<mev::Image> {
         let mut builder = RenderBuilderContext::new("egui", graph);
         let new_target = builder.create_target("egui-surface", mev::PipelineStages::COLOR_OUTPUT);
-        builder.build(EguiRender::new(
-            new_target,
-            window,
-            mev::LoadOp::Clear(color),
-        ));
+        builder.build(EguiRender::new(id, new_target, mev::LoadOp::Clear(color)));
         new_target
     }
 }
 
 impl Render for EguiRender {
-    fn render(&mut self, world: &World, mut cx: RenderContext<'_, '_>) -> Result<(), RenderError> {
-        // Safety:
-        // This code does not touch thread-local parts of the resource.
-        let egui = unsafe { world.get_local_resource_mut::<EguiResource>() };
-        let Some(mut egui) = egui else {
+    fn render(
+        &mut self,
+        world: &mut World,
+        mut cx: RenderContext<'_, '_>,
+    ) -> Result<(), RenderError> {
+        let Ok(mut egui) = world.try_view_one::<&mut Egui>(self.id) else {
             return Ok(());
         };
-
-        let Some(instance) = egui.instances.get_mut(&self.window) else {
+        let Some(egui) = egui.get_mut() else {
             return Ok(());
         };
 
@@ -254,17 +213,13 @@ impl Render for EguiRender {
                 mev::PipelineStages::TRANSFER,
             );
 
-            if !instance.textures_delta.set.is_empty() {
-                let delta_size = instance
-                    .textures_delta
-                    .set
-                    .iter()
-                    .fold(0, |acc, (_, delta)| {
-                        acc + match &delta.image {
-                            ImageData::Color(color) => std::mem::size_of_val(&color.pixels[..]),
-                            ImageData::Font(font) => std::mem::size_of_val(&font.pixels[..]),
-                        }
-                    });
+            if !egui.textures_delta.set.is_empty() {
+                let delta_size = egui.textures_delta.set.iter().fold(0, |acc, (_, delta)| {
+                    acc + match &delta.image {
+                        ImageData::Color(color) => std::mem::size_of_val(&color.pixels[..]),
+                        ImageData::Font(font) => std::mem::size_of_val(&font.pixels[..]),
+                    }
+                });
 
                 let mut upload_buffer = cx.device().new_buffer(mev::BufferDesc {
                     size: delta_size,
@@ -274,7 +229,7 @@ impl Render for EguiRender {
                 })?;
 
                 let mut offset = 0usize;
-                for (_, delta) in instance.textures_delta.set.iter() {
+                for (_, delta) in egui.textures_delta.set.iter() {
                     match &delta.image {
                         ImageData::Color(color) => unsafe {
                             upload_buffer
@@ -290,7 +245,7 @@ impl Render for EguiRender {
                 }
 
                 let mut offset = 0usize;
-                for (id, delta) in instance.textures_delta.set.iter() {
+                for (id, delta) in egui.textures_delta.set.iter() {
                     let region = delta.image.size();
                     let pos = delta.pos.unwrap_or([0; 2]);
                     let size = [pos[0] + region[0], pos[1] + region[1]];
@@ -307,7 +262,7 @@ impl Render for EguiRender {
                         _ => continue,
                     };
 
-                    match instance.textures.entry(*id) {
+                    match egui.textures.entry(*id) {
                         Entry::Vacant(entry) => {
                             let mut new_image = cx.device().new_image(mev::ImageDesc {
                                 dimensions: mev::ImageDimensions::D2(
@@ -404,11 +359,11 @@ impl Render for EguiRender {
                     }
                 }
 
-                instance.textures_delta.set.clear();
+                egui.textures_delta.set.clear();
             }
 
-            if !instance.shapes.is_empty() {
-                let primitives = instance.cx.tessellate(std::mem::take(&mut instance.shapes));
+            if !egui.shapes.is_empty() {
+                let primitives = egui.cx.tessellate(std::mem::take(&mut egui.shapes));
 
                 if !primitives.is_empty() {
                     let mut total_vertex_size = 0;
@@ -612,7 +567,7 @@ impl Render for EguiRender {
                     render.with_constants(&EguiConstants {
                         width: dims.width(),
                         height: dims.height(),
-                        scale: instance.cx.pixels_per_point(),
+                        scale: egui.cx.pixels_per_point(),
                     });
 
                     let mut vertex_buffer_offset = 0;
@@ -621,54 +576,54 @@ impl Render for EguiRender {
                     for primitive in primitives {
                         match primitive.primitive {
                             Primitive::Mesh(mesh) => {
-                                let offset =
-                                    mev::Offset2::new(
-                                        ((primitive.clip_rect.left()
-                                            * instance.state.pixels_per_point())
-                                            as i32)
-                                            .min(dims.width() as i32)
-                                            .max(0),
-                                        ((primitive.clip_rect.top()
-                                            * instance.state.pixels_per_point())
-                                            as i32)
-                                            .min(dims.height() as i32)
-                                            .max(0),
-                                    );
+                                macro_rules! next_mesh {
+                                    () => {
+                                        vertex_buffer_offset += size_of_val(&mesh.vertices[..]);
+                                        vertex_buffer_offset = (vertex_buffer_offset + 31) & !31;
+                                        index_buffer_offset += size_of_val(&mesh.indices[..]);
+                                        index_buffer_offset = (index_buffer_offset + 31) & !31;
+                                    };
+                                }
+
+                                let offset = mev::Offset2::new(
+                                    ((primitive.clip_rect.left() * egui.cx.pixels_per_point())
+                                        as i32)
+                                        .min(dims.width() as i32)
+                                        .max(0),
+                                    ((primitive.clip_rect.top() * egui.cx.pixels_per_point())
+                                        as i32)
+                                        .min(dims.height() as i32)
+                                        .max(0),
+                                );
                                 let extent = mev::Extent2::new(
-                                    ((primitive.clip_rect.width()
-                                        * instance.state.pixels_per_point())
+                                    ((primitive.clip_rect.width() * egui.cx.pixels_per_point())
                                         as u32)
                                         .min(dims.width() as u32 - offset.x() as u32),
-                                    ((primitive.clip_rect.height()
-                                        * instance.state.pixels_per_point())
+                                    ((primitive.clip_rect.height() * egui.cx.pixels_per_point())
                                         as u32)
                                         .min(dims.height() as u32 - offset.y() as u32),
                                 );
                                 render.with_scissor(offset, extent);
 
                                 let (image, sampler) = match mesh.texture_id {
-                                    TextureId::Managed(id) => instance.textures[&id].clone(),
+                                    TextureId::Managed(id) => egui.textures[&id].clone(),
                                     TextureId::User(id) => {
-                                        let Some(rtt) = RTT::new(id) else {
-                                            vertex_buffer_offset += size_of_val(&mesh.vertices[..]);
-                                            vertex_buffer_offset =
-                                                (vertex_buffer_offset + 31) & !31;
-                                            index_buffer_offset += size_of_val(&mesh.indices[..]);
-                                            index_buffer_offset = (index_buffer_offset + 31) & !31;
+                                        let Some(id) = EntityId::from_bits(id) else {
+                                            next_mesh!();
+                                            continue;
+                                        };
 
-                                            dbg!(id);
+                                        let Ok(mut texture) = world.try_view_one::<&Texture>(id)
+                                        else {
+                                            next_mesh!();
                                             continue;
                                         };
-                                        let rtts = world.expect_resource::<RTTs>();
-                                        let Some(image) = rtts.get(rtt) else {
-                                            vertex_buffer_offset += size_of_val(&mesh.vertices[..]);
-                                            vertex_buffer_offset =
-                                                (vertex_buffer_offset + 31) & !31;
-                                            index_buffer_offset += size_of_val(&mesh.indices[..]);
-                                            index_buffer_offset = (index_buffer_offset + 31) & !31;
+                                        let Some(texture) = texture.get_mut() else {
+                                            next_mesh!();
                                             continue;
                                         };
-                                        (image.clone(), Sampler::LinearLinear)
+
+                                        (texture.image.clone(), Sampler::LinearLinear)
                                     }
                                 };
 
@@ -687,10 +642,7 @@ impl Render for EguiRender {
                                 render.bind_index_buffer(&index_buffer, index_buffer_offset);
                                 render.draw_indexed(0, 0..mesh.indices.len() as u32, 0..1);
 
-                                vertex_buffer_offset += size_of_val(&mesh.vertices[..]);
-                                vertex_buffer_offset = (vertex_buffer_offset + 31) & !31;
-                                index_buffer_offset += size_of_val(&mesh.indices[..]);
-                                index_buffer_offset = (index_buffer_offset + 31) & !31;
+                                next_mesh!();
                             }
                             Primitive::Callback(_) => todo!(),
                         }
@@ -699,15 +651,15 @@ impl Render for EguiRender {
             }
         }
 
-        for id in instance.textures_delta.free.iter() {
+        for id in egui.textures_delta.free.iter() {
             match id {
                 TextureId::Managed(id) => {
-                    instance.textures.remove(id);
+                    egui.textures.remove(id);
                 }
                 TextureId::User(_) => {}
             }
         }
-        instance.textures_delta.free.clear();
+        egui.textures_delta.free.clear();
 
         cx.commit(encoder.finish()?);
 
@@ -717,19 +669,21 @@ impl Render for EguiRender {
 
 pub struct EguiFilter;
 
-impl EventFilter for EguiFilter {
+impl arcana::events::EventFilter for EguiFilter {
     fn filter(
         &mut self,
         _blink: &Blink,
         world: &mut World,
-        event: crate::events::Event,
-    ) -> Option<crate::events::Event> {
+        event: arcana::events::Event,
+    ) -> Option<arcana::events::Event> {
         let world = world.local();
-        let egui = &mut *world.expect_resource_mut::<EguiResource>();
 
-        if let crate::events::Event::WindowEvent { window_id, event } = &event {
-            if egui.handle_event(*window_id, event) {
-                return None;
+        if let arcana::events::Event::ViewportEvent { viewport, event } = &event {
+            if let Ok(egui) = world.get::<&mut Egui>(*viewport) {
+                if egui.handle_event(event) {
+                    // Egui consumed this event.
+                    return None;
+                }
             }
         }
 

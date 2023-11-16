@@ -1,7 +1,7 @@
 use arcana::{
+    _events::{ElementState, KeyboardInput, VirtualKeyCode},
     edict::{self, spawn_block, ActionEncoder, Component, Entities, Res, View, World},
     egui::{EguiRender, EguiResource},
-    events::{ElementState, KeyboardInput, VirtualKeyCode},
     flow::sleep,
     gametime::timespan,
     na,

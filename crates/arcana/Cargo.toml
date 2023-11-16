@@ -11,17 +11,11 @@ description = "Arcana Engine"
 crate-type = ["dylib"]
 
 [features]
-
-# Enables multi-threaded runtime for tokio.
-multi-thread = ["tokio/rt-multi-thread"]
-
 # Adds game client modules
 client = ["dep:winit", "dep:mev", "dep:gilrs"]
+
+# Adds game server modules
 server = []
-
-app = ["client", "dep:miette", "dep:serde", "dep:serde_json", "winit/serde"]
-
-ed = ["app", "server", "dep:arcana-importers", "dep:argosy-store", "dep:rfd"]
 
 [dependencies]
 arcana-proc = { path = "proc" }
@@ -39,31 +33,19 @@ bytemuck = { workspace = true }
 dirs = { workspace = true }
 dunce = { workspace = true }
 edict = { workspace = true }
-egui = { workspace = true }
-egui_dnd = { workspace = true }
-egui_dock = { workspace = true, features = ["serde"] }
-egui-phosphor = { workspace = true }
-egui_tracing = { workspace = true }
-egui-winit = { workspace = true }
+egui = { workspace = true, optional = true }
 flume = { workspace = true }
 futures = { workspace = true }
 gametime = { workspace = true }
 gilrs = { workspace = true, optional = true }
 hashbrown = { workspace = true, features = ["serde"] }
-libloading = { workspace = true }
-miette = { workspace = true, features = ["fancy"], optional = true }
 na = { workspace = true, features = ["libm"] }
 parking_lot = { workspace = true }
 rand = { workspace = true }
 rapid-qoi = { workspace = true }
-rfd = { workspace = true, optional = true }
-serde = { workspace = true, optional = true }
-serde_json = { workspace = true, optional = true }
 sha2 = { workspace = true }
 simba = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
-tracing-error = { workspace = true }
-tracing-subscriber = { workspace = true }
 winit = { workspace = true, optional = true }

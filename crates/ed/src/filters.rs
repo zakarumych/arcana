@@ -1,21 +1,23 @@
-use arcana_project::{IdentBuf, Item, Project};
-use edict::World;
+use arcana::{
+    project::{IdentBuf, Item, Project},
+    World,
+};
 use egui::{Color32, Ui, WidgetText};
 use hashbrown::HashMap;
 
-use crate::{move_element, try_log_err};
+use crate::move_element;
 
 use super::{plugins::Plugins, Tab};
 
-pub struct Systems;
+pub struct Filters;
 
-impl Systems {
+impl Filters {
     pub fn new() -> Self {
-        Systems
+        Filters
     }
 
     pub fn tab() -> Tab {
-        Tab::Systems
+        Tab::Filters
     }
 
     pub fn show(world: &mut World, ui: &mut Ui) {
@@ -23,23 +25,23 @@ impl Systems {
         let mut project = world.expect_resource_mut::<Project>();
         let mut plugins = world.expect_resource_mut::<Plugins>();
 
-        let mut toggle_system = None;
-        let mut remove_system = None;
-        let r = egui_dnd::dnd(ui, "system-list").show(
-            project.manifest().systems.iter(),
-            |ui, system, handle, state| {
-                let mut heading = WidgetText::from(system.name.as_str());
+        let mut toggle_filter = None;
+        let mut remove_filter = None;
+        let r = egui_dnd::dnd(ui, "filter-list").show(
+            project.manifest().filters.iter(),
+            |ui, filter, handle, state| {
+                let mut heading = WidgetText::from(filter.name.as_str());
                 let mut tooltip = "";
                 let mut removeable = false;
 
-                match project.manifest().get_plugin(&system.plugin) {
+                match project.manifest().get_plugin(&filter.plugin) {
                     None => {
                         tooltip = "Plugin not found";
                         heading = heading.color(Color32::DARK_RED);
                     }
-                    Some(plugin) => match plugins.get_plugin(&system.plugin) {
+                    Some(plugin) => match plugins.get_plugin(&filter.plugin) {
                         Some(a) => {
-                            if a.systems().iter().any(|s| **s == *system.name) {
+                            if a.filters().iter().any(|f| **f == *filter.name) {
                                 if plugins.is_active(&plugin.name) {
                                     heading = heading.color(Color32::GREEN);
                                 } else {
@@ -48,7 +50,7 @@ impl Systems {
                                 }
                             } else {
                                 heading = heading.color(Color32::DARK_RED);
-                                tooltip = "Plugin doesn't export this system";
+                                tooltip = "Plugin doesn't export this filter";
                                 removeable = true;
                             }
                         }
@@ -64,38 +66,37 @@ impl Systems {
                     handle.ui(ui, |ui| {
                         ui.label(egui_phosphor::regular::DOTS_SIX_VERTICAL);
                     });
-                    let mut enabled = system.enabled;
+                    let mut enabled = filter.enabled;
                     let r = ui.checkbox(&mut enabled, heading);
-                    if system.enabled != enabled {
-                        toggle_system = Some(state.index);
+                    if filter.enabled != enabled {
+                        toggle_filter = Some(state.index);
                     }
-
                     if !tooltip.is_empty() {
                         r.on_hover_text(tooltip);
                     }
 
                     if removeable {
                         if ui.button(egui_phosphor::regular::TRASH).clicked() {
-                            remove_system = Some(state.index);
+                            remove_filter = Some(state.index);
                         }
                     }
                 });
             },
         );
 
-        let systems = &mut project.manifest_mut().systems;
+        let filters = &mut project.manifest_mut().filters;
 
         let mut sync = false;
-        if let Some(idx) = toggle_system {
-            systems[idx].enabled = !systems[idx].enabled;
+        if let Some(idx) = toggle_filter {
+            filters[idx].enabled = !filters[idx].enabled;
             sync = true;
         }
-        if let Some(idx) = remove_system {
-            systems.remove(idx);
+        if let Some(idx) = remove_filter {
+            filters.remove(idx);
             sync = true;
         }
         if let Some(update) = r.update {
-            move_element(systems, update.from, update.to);
+            move_element(filters, update.from, update.to);
             sync = true;
         }
         if sync {

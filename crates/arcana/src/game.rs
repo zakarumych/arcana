@@ -2,7 +2,7 @@ use std::{collections::VecDeque, ptr::NonNull, sync::Arc, time::Instant};
 
 use arcana_project::Ident;
 use blink_alloc::Blink;
-use edict::{world::WorldBuilder, IntoSystem, Scheduler, System, World};
+use edict::{world::WorldBuilder, Component, EntityId, IntoSystem, Scheduler, System, World};
 use gametime::{
     Clock, ClockStep, Frequency, FrequencyNumExt, FrequencyTicker, TimeSpan, TimeSpanNumExt,
     TimeStamp,
@@ -15,13 +15,12 @@ use winit::{
 };
 
 use crate::{
-    egui::{EguiFilter, EguiResource},
-    events::{Event, EventLoop},
+    events::{Event, EventFilter, EventFunnel},
     flow::init_flows,
-    funnel::{EventFilter, EventFunnel},
     init_mev,
     plugin::{ArcanaPlugin, PluginInit},
-    render::{render_system, RTTs, RenderGraph, RenderState, Viewport, RTT},
+    render::{render_system, RenderGraph, RenderState},
+    viewport::ViewportTexture,
 };
 
 /// Marker resource.
@@ -29,29 +28,6 @@ use crate::{
 /// the game will quit.
 #[derive(Debug)]
 pub struct Quit;
-
-pub struct MainWindowFilter {
-    id: WindowId,
-}
-
-impl EventFilter for MainWindowFilter {
-    #[inline]
-    fn filter(&mut self, _blink: &Blink, world: &mut World, event: Event) -> Option<Event> {
-        match event {
-            Event::WindowEvent {
-                window_id,
-                event: WindowEvent::CloseRequested,
-            } => {
-                if window_id == self.id {
-                    world.insert_resource(Quit);
-                    return None;
-                }
-            }
-            _ => {}
-        }
-        Some(event)
-    }
-}
 
 pub struct FixedTicker(pub FrequencyTicker);
 
@@ -187,6 +163,12 @@ pub struct Game {
     render_state: RenderState,
 }
 
+impl Component for Game {
+    fn name() -> &'static str {
+        "Game"
+    }
+}
+
 impl Game {
     pub fn launch<'a>(
         plugins: impl IntoIterator<Item = (&'a Ident, &'a dyn ArcanaPlugin)>,
@@ -198,7 +180,9 @@ impl Game {
     ) -> Self {
         // Build the world.
         // Register external resources.
-        let world_builder = WorldBuilder::new();
+        let mut world_builder = WorldBuilder::new();
+        world_builder.register_external::<mev::Surface>();
+        world_builder.register_external::<Window>();
 
         let mut world = world_builder.build();
 
@@ -217,15 +201,9 @@ impl Game {
         world.insert_resource(FixedTicker(FrequencyTicker::new(1u32.hz())));
         world.insert_resource(FPS::new());
         world.insert_resource(RenderGraph::new());
-        world.insert_resource(EguiResource::new());
 
         world.insert_resource(device);
         world.insert_resource(queue);
-
-        // let mut egui = EguiResource::new();
-        // egui.add_window(&window, events);
-        // world.insert_resource(egui);
-        // funnel.add(EguiFilter);
 
         // Setup the funnel
         let mut funnel = EventFunnel::new();
@@ -236,24 +214,7 @@ impl Game {
         if let Some(window) = window {
             // If window is provided, register it as a resource.
             // Quit when the window is closed.
-
-            let id = window.id();
-            let viewport = Viewport::Window(id);
-
             world.insert_resource(window);
-            world.insert_resource(viewport);
-
-            funnel.add(MainWindowFilter { id });
-        } else {
-            // If window is not provided, render to texture viewport.
-            // Create viewport and register it as a resource.
-            // Engine will set image for the viewport before rendering.
-
-            let mut rtts = RTTs::new();
-            let rtt = rtts.allocate();
-            world.insert_resource(rtts);
-            let viewport = Viewport::Texture(rtt);
-            world.insert_resource(viewport);
         }
 
         let blink = Blink::new();
@@ -345,8 +306,8 @@ impl Game {
         self.clock.get_rate_ratio()
     }
 
-    pub fn window_id(&self) -> WindowId {
-        self.world.get_resource::<Window>().unwrap().id()
+    pub fn window_id(&self) -> Option<WindowId> {
+        self.world.get_resource::<Window>().map(|w| w.id())
     }
 
     pub fn on_event(&mut self, event: Event) -> Option<Event> {
@@ -357,33 +318,28 @@ impl Game {
         self.world.get_resource::<Quit>().is_some()
     }
 
-    pub fn render_to_window(&mut self) {
-        {
-            let viewport = self.world.expect_resource::<Viewport>();
-            if let Viewport::Texture(_) = *viewport {
-                return;
-            }
-        }
+    pub fn render(&mut self) {
+        // Just run the render system.
         render_system(&mut self.world, (&mut self.render_state).into())
     }
 
+    /// Render the game to a texture.
+    ///
+    /// Returns image to which main presentation happens.
     pub fn render_with_texture(
         &mut self,
         extent: mev::Extent2,
     ) -> Result<mev::Image, mev::OutOfMemory> {
-        let rtt = match self.world.copy_resource::<Viewport>() {
-            Viewport::Texture(rtt) => rtt,
-            _ => unreachable!("Viewport is not a texture"),
-        };
-
+        let mut new_texture = None;
         let image;
         {
-            let mut rtts = self.world.expect_resource_mut::<RTTs>();
-            image = match rtts.get(rtt) {
-                Some(i) if i.dimensions().to_2d() == extent => i.clone(),
+            match self.world.get_resource_mut::<ViewportTexture>() {
+                Some(t) if t.image.dimensions().to_2d() == extent => {
+                    image = t.image.clone();
+                }
                 _ => {
                     let device = self.world.expect_resource::<mev::Device>();
-                    let image = device.new_image(mev::ImageDesc {
+                    image = device.new_image(mev::ImageDesc {
                         dimensions: extent.into(),
                         format: mev::PixelFormat::Rgba8Srgb,
                         usage: mev::ImageUsage::TARGET | mev::ImageUsage::SAMPLED,
@@ -391,10 +347,15 @@ impl Game {
                         levels: 1,
                         name: "Game Viewport",
                     })?;
-                    rtts.insert(rtt, image.clone());
-                    image
+                    new_texture = Some(ViewportTexture {
+                        image: image.clone(),
+                    });
                 }
             };
+        }
+
+        if let Some(t) = new_texture {
+            self.world.insert_resource(t);
         }
 
         render_system(&mut self.world, (&mut self.render_state).into());

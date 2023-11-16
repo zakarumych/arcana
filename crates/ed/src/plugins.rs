@@ -1,24 +1,26 @@
-use std::{collections::VecDeque, fmt, path::Path};
+use std::path::Path;
 
-use edict::World;
-use egui::{Color32, Ui, WidgetText};
-
-use arcana_project::{
-    plugin_with_path, BuildProcess, Dependency, Ident, IdentBuf, Plugin, Project, ProjectManifest,
+use arcana::{
+    game::Game,
+    plugin::ArcanaPlugin,
+    project::{
+        plugin_with_path, BuildProcess, Dependency, Ident, IdentBuf, Project, ProjectManifest,
+    },
+    With, World,
 };
+use egui::{Color32, Ui, WidgetText};
 use hashbrown::HashSet;
 
-use crate::{ok_log_err, plugin::ArcanaPlugin, try_log_err};
-
-use super::{games::Games, Tab};
+use super::Tab;
 
 mod private {
     use std::{collections::VecDeque, fmt, path::Path};
 
-    use arcana_project::{Dependency, Ident, IdentBuf, Plugin};
+    use arcana::{
+        plugin::{ArcanaPlugin, GLOBAL_CHECK},
+        project::{Dependency, Ident, IdentBuf, Plugin},
+    };
     use hashbrown::{HashMap, HashSet};
-
-    use crate::plugin::ArcanaPlugin;
 
     pub(super) struct PluginsLibrary {
         /// Linked library
@@ -296,7 +298,7 @@ mod private {
 
             for (name, plugin) in plugins {
                 tracing::debug!("Verifying plugin '{}'", name);
-                if !plugin.__running_arcana_instance_check(&crate::plugin::GLOBAL_CHECK) {
+                if !plugin.__running_arcana_instance_check(&GLOBAL_CHECK) {
                     miette::bail!(
                         "Plugin '{name}' is linked to wrong Arcana instance",
                         name = name
@@ -384,7 +386,6 @@ impl Plugins {
     pub fn tick(world: &mut World) {
         let world = world.local();
         let plugins = &mut *world.expect_resource_mut::<Plugins>();
-        let games = world.expect_resource_mut::<Games>();
         let mut project = world.expect_resource_mut::<Project>();
 
         if let Some(mut build) = plugins.build.take() {
@@ -415,7 +416,7 @@ impl Plugins {
             }
         }
 
-        if games.is_empty() {
+        if world.view_mut::<With<Game>>().iter().count() == 0 {
             if let Some(lib) = plugins.pending.take() {
                 tracing::info!("New plugins lib version linked");
 
