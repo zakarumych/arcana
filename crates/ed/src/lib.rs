@@ -3,9 +3,12 @@ use std::{path::Path, process::Child};
 use arcana::{gametime::FrequencyNumExt, plugin::GLOBAL_CHECK, Clock, EntityId, FrequencyTicker};
 use arcana_project::Project;
 use parking_lot::Mutex;
-use winit::event_loop::EventLoopBuilder;
+use winit::{
+    event::Event,
+    event_loop::{ControlFlow, EventLoopBuilder},
+};
 
-use crate::app::EventLoop;
+use crate::app::{EventLoop, UserEvent};
 
 /// Result::ok, but logs Err case.
 macro_rules! ok_log_err {
@@ -89,9 +92,18 @@ fn _run(path: &Path) -> miette::Result<()> {
     let mut clock = Clock::new();
     let mut limiter = FrequencyTicker::new(120u64.hz());
 
-    let mut events = EventLoopBuilder::with_user_event().build();
+    let events = EventLoopBuilder::<UserEvent>::with_user_event().build();
+    let mut app = app::App::new(&events, event_collector, project);
 
-    Ok(())
+    events.run(move |event, events, flow| {
+        let step = clock.step().step;
+        limiter.ticks(step);
+
+        app.on_event(event, events);
+
+        let until = clock.stamp_instant(limiter.next_tick_stamp(clock.now()).unwrap());
+        *flow = ControlFlow::WaitUntil(until)
+    })
 }
 
 static SUBPROCESSES: Mutex<Vec<Child>> = Mutex::new(Vec::new());

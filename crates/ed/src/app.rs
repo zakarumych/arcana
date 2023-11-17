@@ -1,16 +1,13 @@
-use std::{
-    ops::{Deref, DerefMut},
-    path::PathBuf,
-    sync::Arc,
-};
+use std::{path::PathBuf, sync::Arc};
 
 use arcana::{
     blink_alloc::BlinkAlloc,
+    edict::world::WorldLocal,
     game::Quit,
     init_mev, mev,
     project::Project,
     render::{render, RenderGraph, RenderResources},
-    Clock, Entities, EntityId, With, World,
+    Clock, Entities, With, World, WorldBuilder,
 };
 use egui_dock::{DockState, TabViewer, Tree};
 use egui_tracing::EventCollector;
@@ -44,7 +41,7 @@ pub struct App {
     dock_states: HashMap<WindowId, DockState<Tab>>,
 
     // App state is stored in World.
-    world: World,
+    world: WorldLocal,
 
     graph: RenderGraph,
     resources: RenderResources,
@@ -56,12 +53,14 @@ pub struct App {
 }
 
 impl App {
-    fn on_event(&mut self, event: Event) -> Option<Event> {
+    pub fn on_event<'a>(&mut self, event: Event<'a>, events: &EventLoopWindowTarget) {
         match event {
             Event::WindowEvent { window_id, event } => {
-                let mut world = self.world.local();
+                let world = self.world.local();
 
-                let event = Games::handle_event(world, window_id, event)?;
+                let Some(event) = Games::handle_event(world, window_id, event) else {
+                    return;
+                };
 
                 for (w, egui) in world.view_mut::<(&Window, &mut Egui)>() {
                     if w.id() == window_id {
@@ -78,18 +77,23 @@ impl App {
                             }
                         }
                         for e in drop_windows {
-                            world.despawn(e);
+                            let _ = world.despawn(e);
                         }
-                        Some(Event::WindowEvent { window_id, event })
                     }
-                    _ => Some(Event::WindowEvent { window_id, event }),
+                    _ => {}
                 }
             }
-            _ => Some(event),
+            Event::MainEventsCleared => {
+                self.tick(events);
+            }
+            Event::RedrawEventsCleared => {
+                self.render();
+            }
+            _ => {}
         }
     }
 
-    fn tick(&mut self, events: &EventLoop) {
+    pub fn tick(&mut self, events: &EventLoopWindowTarget) {
         // Quit if last window was closed.
         if self.world.view_mut::<With<Window>>().into_iter().count() == 0 {
             self.world.insert_resource(Quit);
@@ -100,11 +104,6 @@ impl App {
 
         Games::tick(&mut self.world, step);
         Plugins::tick(&mut self.world);
-
-        let mut egui = self
-            .world
-            .remove_resource::<EguiResource>()
-            .expect("EguiResource must exist");
 
         for (window, egui) in self.world.view::<(&Window, &mut Egui)>() {
             let dock_state = self
@@ -118,12 +117,10 @@ impl App {
                     device: &self.device,
                     queue: &self.queue,
                 };
-                menu.show(dock_state.main_surface_mut(), &mut self.world, cx);
-                egui_dock::DockArea::new(dock_state).show(cx, AppModel::wrap(&mut self.world))
+                menu.show(dock_state.main_surface_mut(), &self.world, cx);
+                egui_dock::DockArea::new(dock_state).show(cx, &mut AppModel { world: &self.world })
             });
         }
-
-        self.world.insert_resource(egui);
 
         let mut subprocesses = super::SUBPROCESSES.lock();
         subprocesses.retain_mut(|child| match child.try_wait() {
@@ -133,7 +130,7 @@ impl App {
         });
     }
 
-    fn render(&mut self) {
+    pub fn render(&mut self) {
         if self.world.view_mut::<With<Window>>().into_iter().count() == 0 {
             return;
         }
@@ -151,7 +148,7 @@ impl App {
         );
     }
 
-    fn should_quit(&self) -> bool {
+    pub fn should_quit(&self) -> bool {
         if !self.world.get_resource::<Quit>().is_some() {
             return false;
         }
@@ -177,34 +174,20 @@ struct AppState {
 }
 
 #[repr(transparent)]
-struct AppModel {
-    world: World,
+struct AppModel<'a> {
+    world: &'a WorldLocal,
 }
 
-impl AppModel {
-    fn wrap(world: &mut World) -> &mut Self {
-        // Safety: AppModel is repr(transparent) over World.
-        unsafe { &mut *(world as *mut World as *mut Self) }
-    }
-}
-
-impl Drop for AppModel {
-    fn drop(&mut self) {
-        // Dirty hack to avoid crash on exit.
-        self.world.remove_resource::<Games>();
-    }
-}
-
-impl TabViewer for AppModel {
+impl TabViewer for AppModel<'_> {
     type Tab = Tab;
 
     fn ui(&mut self, ui: &mut Ui, tab: &mut Tab) {
         match *tab {
-            Tab::Plugins => Plugins::show(&mut self.world, ui),
-            Tab::Console => Console::show(&mut self.world, ui),
-            Tab::Systems => Systems::show(&mut self.world, ui),
-            Tab::Filters => Filters::show(&mut self.world, ui),
-            Tab::Game => Games::show(&mut self.world, ui),
+            Tab::Plugins => Plugins::show(self.world, ui),
+            Tab::Console => Console::show(self.world, ui),
+            Tab::Systems => Systems::show(self.world, ui),
+            Tab::Filters => Filters::show(self.world, ui),
+            Tab::Game => Games::show(self.world, ui),
             // Tab::Memory => Memory::show(&mut self.world, ui),
         }
     }
@@ -256,19 +239,40 @@ impl Drop for App {
 impl App {
     pub fn new(events: &EventLoop, event_collector: EventCollector, project: Project) -> Self {
         let (device, queue) = init_mev();
-        let mut world = World::new();
+
+        let mut builder = WorldBuilder::new();
+        builder.register_external::<Window>();
+        builder.register_component::<Egui>();
+        builder.register_external::<mev::Surface>();
+
+        let mut world = builder.build_local();
         world.insert_resource(project);
         world.insert_resource(Plugins::new());
         world.insert_resource(Console::new(event_collector));
         world.insert_resource(EguiResource::new());
-
-        world.ensure_external_registered::<Window>();
 
         let mut graph = RenderGraph::new();
 
         let state = load_app_state().unwrap_or_default();
 
         let mut dock_states = HashMap::new();
+
+        if state.windows.is_empty() {
+            let builder = WindowBuilder::new().with_title("Ed");
+            let window = builder
+                .build(events)
+                .map_err(|err| miette::miette!("Failed to create Ed window: {err}"))
+                .unwrap();
+
+            dock_states.insert(window.id(), DockState::new(vec![]));
+
+            let egui: Egui = Egui::new(&world);
+            let id = world.spawn_external((window, egui)).id();
+
+            let target = EguiRender::build(id, mev::ClearColor(0.2, 0.2, 0.2, 1.0), &mut graph);
+            graph.present_to(target, id);
+        }
+
         for w in state.windows {
             let builder = WindowBuilder::new()
                 .with_title("Ed")
@@ -279,26 +283,8 @@ impl App {
                 .build(&events)
                 .map_err(|err| miette::miette!("Failed to create Ed window: {err}"))
                 .unwrap();
-            let window_id = window.id();
 
             dock_states.insert(window.id(), w.dock_state);
-
-            let egui: Egui = Egui::new(&world);
-            let id = world.spawn_external((window, egui)).id();
-
-            let target = EguiRender::build(id, mev::ClearColor(0.2, 0.2, 0.2, 1.0), &mut graph);
-            graph.present_to(target, id);
-        }
-
-        if state.windows.is_empty() {
-            let builder = WindowBuilder::new().with_title("Ed");
-            let window = builder
-                .build(events)
-                .map_err(|err| miette::miette!("Failed to create Ed window: {err}"))
-                .unwrap();
-            let window_id = window.id();
-
-            dock_states.insert(window.id(), DockState::new(vec![]));
 
             let egui: Egui = Egui::new(&world);
             let id = world.spawn_external((window, egui)).id();
@@ -321,18 +307,18 @@ impl App {
 }
 
 pub struct Menu<'a> {
-    events: &'a EventLoop,
+    events: &'a EventLoopWindowTarget,
     device: &'a mev::Device,
     queue: &'a Arc<Mutex<mev::Queue>>,
 }
 
 impl Menu<'_> {
-    fn show(&mut self, tabs: &mut Tree<Tab>, world: &mut World, cx: &Context) {
+    fn show(&mut self, tabs: &mut Tree<Tab>, world: &WorldLocal, cx: &Context) {
         TopBottomPanel::top("Menu").show(cx, |ui| {
             ui.horizontal(|ui| {
                 ui.menu_button("File", |ui| {
                     if ui.button("Exit").clicked() {
-                        world.insert_resource(Quit);
+                        world.insert_resource_defer(Quit);
                         ui.close_menu();
                     }
                 });

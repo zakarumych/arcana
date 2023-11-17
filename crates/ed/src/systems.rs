@@ -1,4 +1,4 @@
-use arcana::{project::Project, World};
+use arcana::{edict::world::WorldLocal, project::Project, World};
 use egui::{Color32, Ui, WidgetText};
 
 use crate::move_element;
@@ -16,8 +16,7 @@ impl Systems {
         Tab::Systems
     }
 
-    pub fn show(world: &mut World, ui: &mut Ui) {
-        let world = world.local();
+    pub fn show(world: &WorldLocal, ui: &mut Ui) {
         let mut project = world.expect_resource_mut::<Project>();
         let mut plugins = world.expect_resource_mut::<Plugins>();
 

@@ -33,7 +33,6 @@ bytemuck = { workspace = true }
 dirs = { workspace = true }
 dunce = { workspace = true }
 edict = { workspace = true }
-egui = { workspace = true, optional = true }
 flume = { workspace = true }
 futures = { workspace = true }
 gametime = { workspace = true }

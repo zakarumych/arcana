@@ -5,12 +5,13 @@
 use std::sync::Arc;
 
 use arcana::{
+    edict::{action::LocalActionEncoder, world::WorldLocal},
     game::Game,
     mev,
     plugin::ArcanaPlugin,
     project::{Ident, Item, Project},
     texture::Texture,
-    ClockStep, Entities, EntityId, World,
+    ActionEncoder, ClockStep, Entities, EntityId, World,
 };
 use parking_lot::Mutex;
 use winit::{
@@ -18,7 +19,10 @@ use winit::{
     window::{WindowBuilder, WindowId},
 };
 
-use crate::{app::EventLoop, Tab};
+use crate::{
+    app::{EventLoop, EventLoopWindowTarget},
+    Tab,
+};
 
 use super::plugins::Plugins;
 
@@ -30,77 +34,78 @@ pub struct LaunchGame;
 impl Games {
     /// Launches a new game instance in its own window.
     pub fn launch(
-        events: &EventLoop,
-        world: &mut World,
+        events: &EventLoopWindowTarget,
+        world: &WorldLocal,
         device: &mev::Device,
         queue: &Arc<Mutex<mev::Queue>>,
         windowed: bool,
     ) -> Option<EntityId> {
-        let world = world.local();
-        let project = world.expect_resource_mut::<Project>();
-        let plugins = world.expect_resource_mut::<Plugins>();
-        let active_plugins = plugins.active_plugins()?;
+        let game = {
+            let project = world.expect_resource_mut::<Project>();
+            let plugins = world.expect_resource_mut::<Plugins>();
+            let active_plugins = plugins.active_plugins()?;
 
-        let active = |exported: fn(&dyn ArcanaPlugin) -> &[&Ident]| {
-            let plugins = &plugins;
-            move |item: &&Item| {
-                if !item.enabled {
-                    return false;
-                }
+            let active = |exported: fn(&dyn ArcanaPlugin) -> &[&Ident]| {
+                let plugins = &plugins;
+                move |item: &&Item| {
+                    if !item.enabled {
+                        return false;
+                    }
 
-                if !plugins.is_active(&item.plugin) {
-                    return false;
-                }
+                    if !plugins.is_active(&item.plugin) {
+                        return false;
+                    }
 
-                let plugin = plugins.get_plugin(&item.plugin).unwrap();
-                if !exported(plugin).iter().any(|name| **name == *item.name) {
-                    return false;
+                    let plugin = plugins.get_plugin(&item.plugin).unwrap();
+                    if !exported(plugin).iter().any(|name| **name == *item.name) {
+                        return false;
+                    }
+                    true
                 }
-                true
-            }
+            };
+
+            let active_systems = project
+                .manifest()
+                .systems
+                .iter()
+                .filter(active(|p| p.systems()))
+                .map(|i| (&*i.plugin, &*i.name));
+
+            let active_filters = project
+                .manifest()
+                .filters
+                .iter()
+                .filter(active(|p| p.filters()))
+                .map(|i| (&*i.plugin, &*i.name));
+
+            let window = match windowed {
+                false => None,
+                true => Some(
+                    WindowBuilder::new()
+                        .with_title("Arcana Game")
+                        .build(events)
+                        .unwrap(),
+                ),
+            };
+
+            Game::launch(
+                active_plugins,
+                active_filters,
+                active_systems,
+                device.clone(),
+                queue.clone(),
+                window,
+            )
         };
 
-        let active_systems = project
-            .manifest()
-            .systems
-            .iter()
-            .filter(active(|p| p.systems()))
-            .map(|i| (&*i.plugin, &*i.name));
-
-        let active_filters = project
-            .manifest()
-            .filters
-            .iter()
-            .filter(active(|p| p.filters()))
-            .map(|i| (&*i.plugin, &*i.name));
-
-        let window = match windowed {
-            false => None,
-            true => Some(
-                WindowBuilder::new()
-                    .with_title("Arcana Game")
-                    .build(events)
-                    .unwrap(),
-            ),
-        };
-
-        let game = Game::launch(
-            active_plugins,
-            active_filters,
-            active_systems,
-            device.clone(),
-            queue.clone(),
-            window,
-        );
-
-        Some(world.spawn_one(game).id())
+        Some(world.spawn_one_defer(game))
     }
 
-    pub fn handle_event(
+    pub fn handle_event<'a>(
         world: &mut World,
         window_id: WindowId,
-        event: WindowEvent<'static>,
-    ) -> Option<WindowEvent<'static>> {
+        event: WindowEvent<'a>,
+    ) -> Option<WindowEvent<'a>> {
         for game in world.view_mut::<&mut Game>() {
             if game.window_id() == Some(window_id) {
                 // return game.handle_event(event);
@@ -133,11 +138,9 @@ impl Games {
         }
     }
 
-    pub fn show(world: &mut World, ui: &mut egui::Ui) {
-        let world = world.local();
-
+    pub fn show(world: &WorldLocal, ui: &mut egui::Ui) {
         let mut id = None;
-        for (e, g) in world.view_mut::<(Entities, &Game)>() {
+        for (e, g) in world.view::<(Entities, &Game)>() {
             if g.window_id().is_none() {
                 id = Some(e.id());
                 break;
@@ -146,26 +149,26 @@ impl Games {
 
         let Some(e) = id else {
             let r = ui.horizontal_top(|ui| {
-                let mut stop = false;
-
                 let r = ui.button(egui_phosphor::regular::PLAY);
                 if r.clicked() {
-                    world.insert_resource(LaunchGame);
+                    world.insert_resource_defer(LaunchGame);
                 }
 
                 let was_enabled = ui.is_enabled();
                 ui.set_enabled(false);
-                ui.button(egui_phosphor::regular::PAUSE);
-                ui.button(egui_phosphor::regular::STOP);
-                ui.button(egui_phosphor::regular::FAST_FORWARD);
-                let value = egui::Slider::new(&mut 0.0, 0.0..=10.0);
+                let _ = ui.button(egui_phosphor::regular::PAUSE);
+                let _ = ui.button(egui_phosphor::regular::STOP);
+                let _ = ui.button(egui_phosphor::regular::FAST_FORWARD);
+                let mut rate = 0.0;
+                let value = egui::Slider::new(&mut rate, 0.0..=10.0);
                 ui.add(value);
                 ui.set_enabled(was_enabled);
             });
             return;
         };
 
-        let game = world.get::<&mut Game>(e).unwrap();
+        let mut game = world.try_view_one::<&mut Game>(e).unwrap();
+        let game = game.get_mut().unwrap();
 
         let r = ui.horizontal_top(|ui| {
             let mut stop = false;
@@ -206,7 +209,7 @@ impl Games {
             return;
         };
 
-        world.insert(e, Texture { image });
+        world.insert_defer(e, Texture { image });
 
         ui.add(egui::Image::new(egui::load::SizedTexture {
             id: egui::TextureId::User(e.bits()),
@@ -214,7 +217,7 @@ impl Games {
         }));
 
         if r.inner {
-            world.despawn(e);
+            world.despawn_defer(e);
         }
     }
 

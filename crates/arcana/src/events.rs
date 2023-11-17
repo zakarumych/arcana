@@ -1,6 +1,5 @@
 use blink_alloc::Blink;
 use edict::{EntityId, World};
-use egui::TouchPhase;
 use winit::event::{
     ElementState, KeyboardInput, ModifiersState, MouseButton, MouseScrollDelta, WindowEvent,
 };

@@ -1,4 +1,4 @@
-use arcana::World;
+use arcana::{edict::world::WorldLocal, World};
 use egui::Ui;
 use egui_tracing::{EventCollector, Logs};
 
@@ -13,7 +13,7 @@ impl Console {
         Console { collector }
     }
 
-    pub fn show(world: &mut World, ui: &mut Ui) {
+    pub fn show(world: &WorldLocal, ui: &mut Ui) {
         let console = world.expect_resource::<Console>();
         ui.add(Logs::new(console.collector.clone()));
     }

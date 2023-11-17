@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use arcana::{
+    edict::world::WorldLocal,
     game::Game,
     plugin::ArcanaPlugin,
     project::{
@@ -416,7 +417,7 @@ impl Plugins {
             }
         }
 
-        if world.view_mut::<With<Game>>().iter().count() == 0 {
+        if world.view::<With<Game>>().iter().count() == 0 {
             if let Some(lib) = plugins.pending.take() {
                 tracing::info!("New plugins lib version linked");
 
@@ -466,8 +467,7 @@ impl Plugins {
         }
     }
 
-    pub fn show(world: &mut World, ui: &mut Ui) {
-        let world = world.local();
+    pub fn show(world: &WorldLocal, ui: &mut Ui) {
         let plugins = &mut *world.expect_resource_mut::<Plugins>();
         let mut project = world.expect_resource_mut::<Project>();
         let mut sync = false;

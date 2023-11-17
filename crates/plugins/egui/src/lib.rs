@@ -7,7 +7,7 @@ use arcana::{
     offset_of,
     render::{Render, RenderBuilderContext, RenderContext, RenderError, RenderGraph, TargetId},
     texture::Texture,
-    Blink, EntityId, World,
+    Blink, Component, EntityId, World,
 };
 use egui::epaint::{ClippedShape, Primitive, Vertex};
 
@@ -40,6 +40,12 @@ pub struct Egui {
     shapes: Vec<ClippedShape>,
     textures: HashMap<u64, (mev::Image, Sampler)>,
     raw_input: egui::RawInput,
+}
+
+impl Component for Egui {
+    fn name() -> &'static str {
+        "Egui"
+    }
 }
 
 impl Egui {

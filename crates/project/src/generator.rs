@@ -23,6 +23,31 @@ impl fmt::Display for ArcanaDependency<'_> {
     }
 }
 
+struct ArcanaEdDependency<'a>(Option<&'a Dependency>);
+
+impl fmt::Display for ArcanaEdDependency<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            None => write!(f, "\"{}\"", env!("CARGO_PKG_VERSION")),
+            Some(Dependency::Crates(version)) => write!(f, "\"{}\"", version),
+            Some(Dependency::Git { git, branch }) => {
+                if let Some(branch) = branch {
+                    write!(f, "{{ git = \"{git}\", branch = \"{branch}\" }}")
+                } else {
+                    write!(f, "{{ git = \"{git}\" }}")
+                }
+            }
+            Some(Dependency::Path { path }) => {
+                write!(
+                    f,
+                    "{{ path = \"{}/../ed\" }}",
+                    path.as_str().escape_default()
+                )
+            }
+        }
+    }
+}
+
 struct PluginDependency<'a> {
     dep: &'a Dependency,
 }
@@ -158,9 +183,11 @@ members = ["plugins", "ed", "game"]
 
 [workspace.dependencies]
 arcana = {arcana}
+arcana-ed = {arcana_ed}
 "#,
         gh_issue = github_autogen_issue_template("workspace Cargo.toml"),
         arcana = ArcanaDependency(engine.as_ref()),
+        arcana_ed = ArcanaEdDependency(engine.as_ref()),
         // arcana_dyn = ArcanaDynDependency(engine.as_ref())
     );
 
@@ -214,7 +241,7 @@ publish = false
 edition = "2021"
 
 [dependencies]
-arcana = {{ workspace = true, features = ["client", "server", "ed"] }}
+arcana-ed = {{ workspace = true }}
 "#,
         gh_issue = github_autogen_issue_template("ed/Cargo.toml")
     );
@@ -242,7 +269,7 @@ arcana = {{ workspace = true, features = ["client", "server", "ed"] }}
 //! [{gh_issue}]
 
 fn main() {{
-    arcana::ed::run(env!("CARGO_MANIFEST_DIR").as_ref());
+    arcana_ed::run(env!("CARGO_MANIFEST_DIR").as_ref());
 }}
 "#,
         gh_issue = github_autogen_issue_template("ed/src/main.rs")
@@ -286,7 +313,7 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-arcana = {{ workspace = true, features = ["client", "server", "ed"] }}
+arcana = {{ workspace = true, features = ["client", "server"] }}
 "#,
         gh_issue = github_autogen_issue_template("plugins/Cargo.toml")
     );

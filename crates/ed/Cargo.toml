@@ -1,5 +1,5 @@
 [package]
-name = "arcana-editor"
+name = "arcana-ed"
 edition.workspace = true
 authors.workspace = true
 readme.workspace = true
