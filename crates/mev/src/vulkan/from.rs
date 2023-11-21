@@ -36,7 +36,7 @@ impl<T, A> AshInto<T> for A
 where
     T: FromAsh<A>,
 {
-    #[inline(always)]
+    #[inline(never)]
     fn ash_into(self) -> T {
         T::from_ash(self)
     }
@@ -54,7 +54,7 @@ impl<A, T> IntoAsh<A> for T
 where
     A: AshFrom<T>,
 {
-    #[inline(always)]
+    #[inline(never)]
     fn into_ash(self) -> A {
         A::ash_from(self)
     }
@@ -72,7 +72,7 @@ impl<T, U> TryAshInto<U> for T
 where
     U: TryFromAsh<T>,
 {
-    #[inline(always)]
+    #[inline(never)]
     fn try_ash_into(self) -> Option<U> {
         U::try_from_ash(self)
     }
@@ -90,14 +90,14 @@ impl<T, U> TryIntoAsh<U> for T
 where
     U: TryAshFrom<T>,
 {
-    #[inline(always)]
+    #[inline(never)]
     fn try_into_ash(self) -> Option<U> {
         U::try_ash_from(self)
     }
 }
 
 impl FromAsh<vk::QueueFamilyProperties> for FamilyCapabilities {
-    #[inline(always)]
+    #[inline(never)]
     fn from_ash(value: vk::QueueFamilyProperties) -> Self {
         FamilyCapabilities {
             queue_flags: value.queue_flags.ash_into(),
@@ -107,14 +107,14 @@ impl FromAsh<vk::QueueFamilyProperties> for FamilyCapabilities {
 }
 
 impl FromAsh<vk::QueueFamilyProperties2> for FamilyCapabilities {
-    #[inline(always)]
+    #[inline(never)]
     fn from_ash(value: vk::QueueFamilyProperties2) -> Self {
         value.queue_family_properties.ash_into()
     }
 }
 
 impl FromAsh<vk::QueueFlags> for QueueFlags {
-    #[inline(always)]
+    #[inline(never)]
     fn from_ash(value: vk::QueueFlags) -> Self {
         // from_flags!(vk::QueueFlags => QueueFlags, [GRAPHICS, COMPUTE, TRANSFER], value)
 
@@ -131,7 +131,7 @@ impl FromAsh<vk::QueueFlags> for QueueFlags {
 }
 
 impl AshFrom<BufferUsage> for vk::BufferUsageFlags {
-    #[inline(always)]
+    #[inline(never)]
     fn ash_from(value: BufferUsage) -> Self {
         from_flags!(BufferUsage => vk::BufferUsageFlags, [
             TRANSFER_SRC => TRANSFER_SRC,
@@ -146,12 +146,23 @@ impl AshFrom<BufferUsage> for vk::BufferUsageFlags {
 }
 
 impl AshFrom<ImageDimensions> for vk::ImageType {
-    #[inline(always)]
+    #[inline(never)]
     fn ash_from(value: ImageDimensions) -> Self {
         match value {
             ImageDimensions::D1(_) => vk::ImageType::TYPE_1D,
-            ImageDimensions::D2(_, _) => vk::ImageType::TYPE_2D,
-            ImageDimensions::D3(_, _, _) => vk::ImageType::TYPE_3D,
+            ImageDimensions::D2(_) => vk::ImageType::TYPE_2D,
+            ImageDimensions::D3(_) => vk::ImageType::TYPE_3D,
+        }
+    }
+}
+
+impl AshFrom<ImageDimensions> for vk::ImageViewType {
+    #[inline(never)]
+    fn ash_from(value: ImageDimensions) -> Self {
+        match value {
+            ImageDimensions::D1(_) => vk::ImageViewType::TYPE_1D,
+            ImageDimensions::D2(_) => vk::ImageViewType::TYPE_2D,
+            ImageDimensions::D3(_) => vk::ImageViewType::TYPE_3D,
         }
     }
 }

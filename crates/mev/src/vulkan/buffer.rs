@@ -45,7 +45,7 @@ impl Drop for Inner {
 }
 
 impl DeviceOwned for Buffer {
-    #[inline(always)]
+    #[inline(never)]
     fn owner(&self) -> &WeakDevice {
         &self.inner.owner
     }
@@ -72,7 +72,7 @@ impl Buffer {
         }
     }
 
-    #[inline(always)]
+    #[inline(never)]
     pub fn handle(&self) -> vk::Buffer {
         self.handle
     }
@@ -80,18 +80,18 @@ impl Buffer {
 
 #[hidden_trait::expose]
 impl crate::traits::Buffer for Buffer {
-    #[inline(always)]
+    #[inline(never)]
     fn size(&self) -> usize {
         self.inner.size
     }
 
-    #[inline(always)]
+    #[inline(never)]
     fn detached(&self) -> bool {
         debug_assert_eq!(Arc::weak_count(&self.inner), 0, "No weak refs allowed");
         Arc::strong_count(&self.inner) == 1
     }
 
-    #[inline(always)]
+    #[inline(never)]
     unsafe fn write_unchecked(&mut self, offset: usize, data: &[u8]) {
         let inner = Arc::get_mut(&mut self.inner).unwrap();
         if let Some(device) = inner.owner.upgrade() {
@@ -114,12 +114,12 @@ impl ArgumentsField<Automatic> for Buffer {
 
     type Update = <Self as ArgumentsField<Uniform>>::Update;
 
-    #[inline(always)]
+    #[inline(never)]
     fn update(&self) -> <Self as ArgumentsField<Uniform>>::Update {
         <Self as ArgumentsField<Uniform>>::update(self)
     }
 
-    #[inline(always)]
+    #[inline(never)]
     fn add_refs(&self, refs: &mut Refs) {
         refs.add_buffer(self.clone());
     }
@@ -133,7 +133,7 @@ impl ArgumentsField<Uniform> for Buffer {
 
     type Update = vk::DescriptorBufferInfo;
 
-    #[inline(always)]
+    #[inline(never)]
     fn update(&self) -> vk::DescriptorBufferInfo {
         vk::DescriptorBufferInfo {
             buffer: self.handle,
@@ -142,7 +142,7 @@ impl ArgumentsField<Uniform> for Buffer {
         }
     }
 
-    #[inline(always)]
+    #[inline(never)]
     fn add_refs(&self, refs: &mut Refs) {
         refs.add_buffer(self.clone());
     }
@@ -156,7 +156,7 @@ impl ArgumentsField<Storage> for Buffer {
 
     type Update = vk::DescriptorBufferInfo;
 
-    #[inline(always)]
+    #[inline(never)]
     fn update(&self) -> vk::DescriptorBufferInfo {
         vk::DescriptorBufferInfo {
             buffer: self.handle,
@@ -165,7 +165,7 @@ impl ArgumentsField<Storage> for Buffer {
         }
     }
 
-    #[inline(always)]
+    #[inline(never)]
     fn add_refs(&self, refs: &mut Refs) {
         refs.add_buffer(self.clone());
     }

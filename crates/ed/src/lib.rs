@@ -1,14 +1,13 @@
 use std::{path::Path, process::Child};
 
-use arcana::{gametime::FrequencyNumExt, plugin::GLOBAL_CHECK, Clock, EntityId, FrequencyTicker};
-use arcana_project::Project;
+use arcana::{gametime::FrequencyNumExt, plugin::GLOBAL_CHECK, project::Project};
+use games::GamesTab;
 use parking_lot::Mutex;
-use winit::{
-    event::Event,
-    event_loop::{ControlFlow, EventLoopBuilder},
-};
+use winit::event_loop::{ControlFlow, EventLoopBuilder};
 
-use crate::app::{EventLoop, UserEvent};
+use crate::{app::UserEvent, games::Games};
+
+pub use arcana::*;
 
 /// Result::ok, but logs Err case.
 macro_rules! ok_log_err {
@@ -53,7 +52,10 @@ enum Tab {
     Console,
     Systems,
     Filters,
-    Game,
+    Game {
+        #[serde(skip)]
+        tab: GamesTab,
+    },
     // Memory,
 }
 
@@ -100,6 +102,11 @@ fn _run(path: &Path) -> miette::Result<()> {
         limiter.ticks(step);
 
         app.on_event(event, events);
+
+        if app.should_quit() {
+            *flow = ControlFlow::Exit;
+            return;
+        }
 
         let until = clock.stamp_instant(limiter.next_tick_stamp(clock.now()).unwrap());
         *flow = ControlFlow::WaitUntil(until)

@@ -2,103 +2,186 @@
 //! Game Tool is responsible for managing game's plugins
 //! and run instances of the game.
 
-use std::sync::Arc;
+use std::{cmp::Reverse, collections::BinaryHeap, sync::Arc};
 
 use arcana::{
-    edict::{action::LocalActionEncoder, world::WorldLocal},
+    const_format,
+    edict::world::WorldLocal,
     game::Game,
     mev,
     plugin::ArcanaPlugin,
     project::{Ident, Item, Project},
     texture::Texture,
-    ActionEncoder, ClockStep, Entities, EntityId, World,
+    ClockStep, Component, Entities, EntityId, World,
 };
 use parking_lot::Mutex;
-use winit::{
-    event::WindowEvent,
-    window::{WindowBuilder, WindowId},
-};
+use winit::{event::WindowEvent, window::WindowId};
 
-use crate::{
-    app::{EventLoop, EventLoopWindowTarget},
-    Tab,
-};
+use crate::Tab;
 
 use super::plugins::Plugins;
 
 /// Game instances.
-pub struct Games;
+pub struct Games {
+    free_ids: BinaryHeap<Reverse<u16>>,
+    last_id: u16,
+    name_offset: u16,
 
-pub struct LaunchGame;
+    /// List of games without viewer.
+    headless: Vec<GameId>,
+}
+
+#[must_use]
+pub struct GameId {
+    // Entity of the Game component.
+    // Expected to be alive.
+    entity: EntityId,
+
+    // Unique game id.
+    id: u16,
+}
+
+struct LaunchGame;
+
+impl Component for LaunchGame {
+    fn name() -> &'static str {
+        "LaunchGame"
+    }
+}
 
 impl Games {
-    /// Launches a new game instance in its own window.
-    pub fn launch(
-        events: &EventLoopWindowTarget,
-        world: &WorldLocal,
-        device: &mev::Device,
-        queue: &Arc<Mutex<mev::Queue>>,
-        windowed: bool,
-    ) -> Option<EntityId> {
-        let game = {
-            let project = world.expect_resource_mut::<Project>();
-            let plugins = world.expect_resource_mut::<Plugins>();
-            let active_plugins = plugins.active_plugins()?;
+    pub fn new() -> Self {
+        Games {
+            free_ids: BinaryHeap::new(),
+            last_id: 0,
+            name_offset: 0,
+            headless: Vec::new(),
+        }
+    }
 
-            let active = |exported: fn(&dyn ArcanaPlugin) -> &[&Ident]| {
-                let plugins = &plugins;
-                move |item: &&Item| {
-                    if !item.enabled {
-                        return false;
-                    }
-
-                    if !plugins.is_active(&item.plugin) {
-                        return false;
-                    }
-
-                    let plugin = plugins.get_plugin(&item.plugin).unwrap();
-                    if !exported(plugin).iter().any(|name| **name == *item.name) {
-                        return false;
-                    }
-                    true
+    fn alloc_id(&mut self) -> u16 {
+        match self.free_ids.pop() {
+            None => {
+                if self.last_id < u16::MAX {
+                    self.last_id += 1;
+                    self.last_id
+                } else {
+                    panic!("Can't allocate new game id");
                 }
-            };
+            }
+            Some(Reverse(id)) => id,
+        }
+    }
 
-            let active_systems = project
-                .manifest()
-                .systems
-                .iter()
-                .filter(active(|p| p.systems()))
-                .map(|i| (&*i.plugin, &*i.name));
+    fn free_id(&mut self, id: u16) {
+        debug_assert!(id <= self.last_id);
 
-            let active_filters = project
-                .manifest()
-                .filters
-                .iter()
-                .filter(active(|p| p.filters()))
-                .map(|i| (&*i.plugin, &*i.name));
+        if self.last_id == id {
+            self.last_id -= 1;
 
-            let window = match windowed {
-                false => None,
-                true => Some(
-                    WindowBuilder::new()
-                        .with_title("Arcana Game")
-                        .build(events)
-                        .unwrap(),
-                ),
-            };
+            // Remove free ids that are at the end of the range.
+            while let Some(Reverse(id)) = self.free_ids.peek() {
+                debug_assert!(*id <= self.last_id);
+                if *id != self.last_id {
+                    break;
+                }
+                self.free_ids.pop();
+                self.last_id -= 1;
+            }
+        } else {
+            self.free_ids.push(Reverse(id));
+        }
+    }
 
-            Game::launch(
-                active_plugins,
-                active_filters,
-                active_systems,
-                device.clone(),
-                queue.clone(),
-                window,
-            )
+    pub fn new_game(world: &WorldLocal) -> GameId {
+        let mut games = world.expect_resource_mut::<Games>();
+        let id = games.alloc_id();
+        let entity = world.allocate().id();
+        let game_id = GameId { entity, id };
+        world.insert_defer(entity, LaunchGame);
+        game_id
+    }
+
+    pub fn detach(world: &WorldLocal, id: GameId) {
+        let mut games = world.expect_resource_mut::<Games>();
+        games.headless.push(id);
+    }
+
+    pub fn stop(world: &WorldLocal, id: GameId) {
+        world.despawn_defer(id.entity);
+        let mut games = world.expect_resource_mut::<Games>();
+        games.free_id(id.id);
+    }
+
+    /// Launches a new game instance in its own window.
+    fn _launch(world: &mut World) {
+        let project = world.expect_resource_mut::<Project>();
+        let plugins = world.expect_resource_mut::<Plugins>();
+        let Some(active_plugins) = plugins.active_plugins() else {
+            return;
         };
 
-        Some(world.spawn_one_defer(game))
+        let active = |exported: fn(&dyn ArcanaPlugin) -> &[&Ident]| {
+            let plugins = &plugins;
+            move |item: &&Item| {
+                if !item.enabled {
+                    return false;
+                }
+
+                if !plugins.is_active(&item.plugin) {
+                    return false;
+                }
+
+                let plugin = plugins.get_plugin(&item.plugin).unwrap();
+                if !exported(plugin).iter().any(|name| **name == *item.name) {
+                    return false;
+                }
+                true
+            }
+        };
+
+        let active_systems = project
+            .manifest()
+            .systems
+            .iter()
+            .filter(active(|p| p.systems()))
+            .map(|i| (&*i.plugin, &*i.name));
+
+        let active_filters = project
+            .manifest()
+            .filters
+            .iter()
+            .filter(active(|p| p.filters()))
+            .map(|i| (&*i.plugin, &*i.name));
+
+        let device = world.clone_resource::<mev::Device>();
+        let queue = world.clone_resource::<Arc<Mutex<mev::Queue>>>();
+
+        let games = world
+            .view::<Entities>()
+            .with::<LaunchGame>()
+            .into_iter()
+            .map(|e| {
+                let game = Game::launch(
+                    active_plugins.clone(),
+                    active_filters.clone(),
+                    active_systems.clone(),
+                    device.clone(),
+                    queue.clone(),
+                    None,
+                );
+
+                (e.id(), game)
+            })
+            .collect::<Vec<_>>();
+
+        drop(project);
+        drop(plugins);
+
+        for (e, game) in games {
+            let _ = world.drop::<LaunchGame>(e);
+            let _ = world.insert(e, game);
+        }
     }
 
     pub fn handle_event<'a>(
@@ -117,13 +200,13 @@ impl Games {
 
     pub fn render(world: &mut World) {
         for game in world.view_mut::<&mut Game>() {
-            if game.window_id().is_some() {
-                return game.render();
-            }
+            return game.render();
         }
     }
 
     pub fn tick(world: &mut World, step: ClockStep) {
+        Self::_launch(world);
+
         let mut to_remove = Vec::new();
         for (e, game) in world.view_mut::<(Entities, &mut Game)>() {
             game.tick(step);
@@ -134,52 +217,67 @@ impl Games {
         }
 
         for e in to_remove {
-            world.despawn(e);
+            let _ = world.despawn(e);
         }
     }
 
-    pub fn show(world: &WorldLocal, ui: &mut egui::Ui) {
-        let mut id = None;
-        for (e, g) in world.view::<(Entities, &Game)>() {
-            if g.window_id().is_none() {
-                id = Some(e.id());
-                break;
-            }
+    pub fn tab() -> Tab {
+        Tab::Game {
+            tab: GamesTab::default(),
         }
+    }
+}
 
-        let Some(e) = id else {
-            let r = ui.horizontal_top(|ui| {
-                let r = ui.button(egui_phosphor::regular::PLAY);
-                if r.clicked() {
-                    world.insert_resource_defer(LaunchGame);
-                }
+enum OnTabClose {
+    Stop,
+    Detach,
+}
 
-                let was_enabled = ui.is_enabled();
-                ui.set_enabled(false);
-                let _ = ui.button(egui_phosphor::regular::PAUSE);
-                let _ = ui.button(egui_phosphor::regular::STOP);
-                let _ = ui.button(egui_phosphor::regular::FAST_FORWARD);
-                let mut rate = 0.0;
-                let value = egui::Slider::new(&mut rate, 0.0..=10.0);
-                ui.add(value);
-                ui.set_enabled(was_enabled);
-            });
-            return;
+pub struct GamesTab {
+    id: Option<GameId>,
+    on_close: OnTabClose,
+}
+
+impl Default for GamesTab {
+    fn default() -> Self {
+        Self {
+            id: None,
+            on_close: OnTabClose::Stop,
+        }
+    }
+}
+
+impl GamesTab {
+    pub fn new(world: &WorldLocal) -> Self {
+        let id = Games::new_game(world);
+        GamesTab {
+            id: Some(id),
+            on_close: OnTabClose::Stop,
+        }
+    }
+
+    pub fn show(&mut self, ui: &mut egui::Ui, world: &WorldLocal) {
+        let mut game_view;
+        let mut game: Option<&mut Game> = match &self.id {
+            None => None,
+            Some(id) => {
+                game_view = world.try_view_one::<&mut Game>(id.entity).unwrap();
+                game_view.get_mut()
+            }
         };
-
-        let mut game = world.try_view_one::<&mut Game>(e).unwrap();
-        let game = game.get_mut().unwrap();
 
         let r = ui.horizontal_top(|ui| {
             let mut stop = false;
+            let was_enabled = ui.is_enabled();
+            ui.set_enabled(game.is_some());
 
             let r = ui.button(egui_phosphor::regular::PLAY);
             if r.clicked() {
-                game.set_rate_ratio(1, 1);
+                game.as_mut().unwrap().set_rate_ratio(1, 1);
             }
             let r = ui.button(egui_phosphor::regular::PAUSE);
             if r.clicked() {
-                game.pause();
+                game.as_mut().unwrap().pause();
             }
             let r = ui.button(egui_phosphor::regular::STOP);
             if r.clicked() {
@@ -187,41 +285,78 @@ impl Games {
             }
             let r = ui.button(egui_phosphor::regular::FAST_FORWARD);
             if r.clicked() {
-                game.set_rate_ratio(2, 1);
+                game.as_mut().unwrap().set_rate_ratio(2, 1);
             }
 
-            let mut rate = game.get_rate();
+            let mut rate = game.as_ref().map_or(0.0, |g| g.get_rate());
 
             let value = egui::Slider::new(&mut rate, 0.0..=10.0);
             let r = ui.add(value);
             if r.changed() {
-                game.set_rate(rate as f32);
+                game.as_mut().unwrap().set_rate(rate as f32);
             }
+
+            ui.set_enabled(was_enabled);
             stop
         });
 
-        let size = ui.available_size();
-        let extent = mev::Extent2::new(size.x as u32, size.y as u32);
-        let Ok(image) = game.render_with_texture(extent) else {
-            ui.centered_and_justified(|ui| {
-                ui.label("GPU OOM");
-            });
-            return;
-        };
+        match game {
+            None => {
+                if self.id.is_none() {
+                    ui.vertical_centered(|ui| {
+                        ui.label("Game is not running");
+                        let r = ui.button(const_format!(
+                            "Launch new {}",
+                            egui_phosphor::regular::ROCKET_LAUNCH
+                        ));
+                        if r.clicked() {
+                            self.id = Some(Games::new_game(world));
+                        }
+                    });
+                } else {
+                    ui.centered_and_justified(|ui| {
+                        ui.spinner();
+                    });
+                }
+            }
+            Some(game) => {
+                let id = self.id.as_ref().unwrap();
 
-        world.insert_defer(e, Texture { image });
+                let size = ui.available_size();
+                let extent = mev::Extent2::new(size.x as u32, size.y as u32);
+                let Ok(image) = game.render_with_texture(extent) else {
+                    ui.centered_and_justified(|ui| {
+                        ui.label("GPU OOM");
+                    });
+                    return;
+                };
 
-        ui.add(egui::Image::new(egui::load::SizedTexture {
-            id: egui::TextureId::User(e.bits()),
-            size: size.into(),
-        }));
+                world.insert_defer(id.entity, Texture { image });
 
-        if r.inner {
-            world.despawn_defer(e);
+                ui.add(egui::Image::new(egui::load::SizedTexture {
+                    id: egui::TextureId::User(id.entity.bits()),
+                    size: size.into(),
+                }));
+
+                if r.inner {
+                    world.drop_defer::<Game>(id.entity);
+                }
+            }
         }
     }
 
-    pub fn tab() -> Tab {
-        Tab::Game
+    pub fn on_close(&mut self, world: &WorldLocal) {
+        match self.on_close {
+            OnTabClose::Stop => {
+                if let Some(id) = self.id.take() {
+                    Games::stop(world, id);
+                }
+            }
+            OnTabClose::Detach => {
+                if let Some(id) = self.id.take() {
+                    Games::detach(world, id);
+                }
+            }
+        }
     }
 }

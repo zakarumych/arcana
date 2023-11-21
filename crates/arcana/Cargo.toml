@@ -7,44 +7,17 @@ license.workspace = true
 version.workspace = true
 description = "Arcana Engine"
 
-[lib]
-crate-type = ["dylib"]
-
 [features]
 # Adds game client modules
-client = ["dep:winit", "dep:mev", "dep:gilrs"]
+client = ["arcana-impl/client"]
 
 # Adds game server modules
-server = []
+server = ["arcana-impl/server"]
+
+ed = ["arcana-impl/ed", "dynamic"]
+
+dynamic = ["dep:arcana-dyn"]
 
 [dependencies]
-arcana-proc = { path = "proc" }
-arcana-project = { path = "../project" }
-arcana-importers = { path = "../importers", optional = true }
-mev = { path = "../mev", optional = true }
-
-approx = { workspace = true }
-argosy = { workspace = true }
-argosy-store = { workspace = true, optional = true }
-base64 = { workspace = true }
-blink-alloc = { workspace = true }
-bit-vec = { workspace = true }
-bytemuck = { workspace = true }
-dirs = { workspace = true }
-dunce = { workspace = true }
-edict = { workspace = true }
-flume = { workspace = true }
-futures = { workspace = true }
-gametime = { workspace = true }
-gilrs = { workspace = true, optional = true }
-hashbrown = { workspace = true, features = ["serde"] }
-na = { workspace = true, features = ["libm"] }
-parking_lot = { workspace = true }
-rand = { workspace = true }
-rapid-qoi = { workspace = true }
-sha2 = { workspace = true }
-simba = { workspace = true }
-thiserror = { workspace = true }
-tokio = { workspace = true }
-tracing = { workspace = true }
-winit = { workspace = true, optional = true }
+arcana-impl = { path = "impl" }
+arcana-dyn = { path = "dyn", optional = true }

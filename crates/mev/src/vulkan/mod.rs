@@ -36,8 +36,6 @@ pub use self::{
 pub(crate) use self::{
     instance::{CreateErrorKind, LoadErrorKind},
     render_pipeline::CreatePipelineErrorKind,
-    shader::CreateLibraryErrorKind,
-    surface::SurfaceErrorKind,
 };
 
 #[track_caller]
@@ -90,7 +88,7 @@ impl Version {
 }
 
 impl fmt::Display for Version {
-    #[inline]
+    #[inline(never)]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}.{}.{}", self.major, self.minor, self.patch)
     }

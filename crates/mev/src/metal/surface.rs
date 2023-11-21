@@ -97,7 +97,7 @@ impl crate::traits::Surface for Surface {
         let drawable = self
             .layer
             .next_drawable()
-            .ok_or(SurfaceError(SurfaceErrorKind::SurfaceLost))?;
+            .ok_or(SurfaceError::SurfaceLost)?;
 
         let image = Image::new(drawable.texture().to_owned());
         Ok(Frame {
@@ -107,18 +107,6 @@ impl crate::traits::Surface for Surface {
     }
 }
 
-#[derive(Debug)]
-pub(crate) enum SurfaceErrorKind {
-    SurfaceLost,
-}
-
-impl fmt::Display for SurfaceErrorKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            SurfaceErrorKind::SurfaceLost => write!(f, "surface lost"),
-        }
-    }
-}
 
 pub struct Frame {
     drawable: metal::MetalDrawable,

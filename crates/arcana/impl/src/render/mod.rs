@@ -20,7 +20,7 @@ use winit::window::{Window, WindowId};
 
 // use crate::window::Windows;
 
-use crate::viewport::{self, ViewportTexture};
+use crate::viewport::{self, Viewport};
 
 use self::{render::RenderId, target::RenderTarget};
 
@@ -286,7 +286,7 @@ pub enum RenderError {
 }
 
 impl From<mev::OutOfMemory> for RenderError {
-    #[inline(always)]
+    #[inline(never)]
     fn from(err: mev::OutOfMemory) -> Self {
         RenderError::OutOfMemory(err)
     }
@@ -524,125 +524,48 @@ pub fn render<'a>(
 
     let mut frames = Vec::new_in(blink);
 
-    let mut insert_surfaces = Vec::new_in(blink);
-    let mut drop_surfaces = Vec::new_in(blink);
-
     for (&viewport, &tid) in graph.presents.iter() {
         // Target is guaranteed to exist.
         let rt = &graph.image_targets[&tid.0];
 
-        let Ok(tripple) = world.get::<(
-            Option<&Window>,
-            Option<&mut mev::Surface>,
-            Option<&ViewportTexture>,
-        )>(viewport) else {
+        let Ok(viewport) = world.get::<&mut Viewport>(viewport) else {
             continue;
         };
 
-        match tripple {
-            (None, surface, None) => {
-                if surface.is_some() {
-                    drop_surfaces.push(viewport);
-                }
-            }
-            (None, surface, Some(texture)) => {
-                if surface.is_some() {
-                    drop_surfaces.push(viewport);
-                }
-
+        match viewport.next_frame(device, queue, rt.writes(0)) {
+            Ok((image, frame)) => {
                 ctx.init_images.insert(tid.0);
-                ctx.images.insert(tid.0, texture.image.clone());
+                ctx.images.insert(tid.0, image);
+                if let Some(frame) = frame {
+                    frames.push((frame, rt.writes(tid.1) | rt.reads(tid.1)));
+                }
+                image_targets_to_update.push(tid);
             }
-            (Some(window), surface, _) => {
-                let window_id = window.id();
-                let mut new_surface = None;
-
-                let surface = match surface {
-                    None => new_surface.get_or_insert(device.new_surface(window, window).unwrap()),
-                    Some(surface) => surface,
-                };
-                match surface.next_frame(&mut *queue, rt.writes(0)) {
-                    Err(err) => {
-                        tracing::error!(err = ?err);
-                        if new_surface.is_none() {
-                            drop_surfaces.push(viewport);
-                        }
-                        new_surface = None;
-                        continue;
-                    }
-                    Ok(frame) => {
-                        let image = frame.image();
-                        ctx.init_images.insert(tid.0);
-                        ctx.images.insert(tid.0, image.clone());
-                        frames.push((frame, rt.writes(tid.1) | rt.reads(tid.1)));
-                    }
-                }
-                if let Some(surface) = new_surface {
-                    insert_surfaces.push((viewport, surface));
-                }
+            Err(err) => {
+                tracing::error!(?err);
             }
         }
-
-        image_targets_to_update.push(tid);
     }
 
-    for (viewport, surface) in insert_surfaces {
-        world.insert_external(viewport, surface);
-    }
-    for viewport in drop_surfaces {
-        world.remove::<mev::Surface>(viewport);
-    }
-
-    let mut new_main_surface = None;
-    let mut remove_main_surface = false;
     if let Some(tid) = graph.main_present {
-        // Target is guaranteed to exist.
-        let rt = &graph.image_targets[&tid.0];
+        if let Some(mut viewport) = world.get_resource_mut::<Viewport>() {
+            // Target must exist.
+            let rt = &graph.image_targets[&tid.0];
 
-        let window = world.get_resource::<Window>();
-        let mut surface = world.get_resource_mut::<mev::Surface>();
-        let texture = world.get_resource::<ViewportTexture>();
-
-        match (
-            window.as_deref(),
-            surface.as_deref_mut(),
-            texture.as_deref(),
-        ) {
-            (None, surface, None) => {
-                remove_main_surface = surface.is_some();
-            }
-            (None, surface, Some(texture)) => {
-                remove_main_surface = surface.is_some();
-
-                ctx.init_images.insert(tid.0);
-                ctx.images.insert(tid.0, texture.image.clone());
-            }
-            (Some(window), surface, _) => {
-                let window_id = window.id();
-
-                let surface = match surface {
-                    None => {
-                        new_main_surface.get_or_insert(device.new_surface(window, window).unwrap())
-                    }
-                    Some(surface) => surface,
-                };
-                match surface.next_frame(&mut *queue, rt.writes(0)) {
-                    Err(err) => {
-                        tracing::error!(err = ?err);
-                        remove_main_surface = new_main_surface.is_none();
-                        new_main_surface = None;
-                    }
-                    Ok(frame) => {
-                        let image = frame.image();
-                        ctx.init_images.insert(tid.0);
-                        ctx.images.insert(tid.0, image.clone());
+            match viewport.next_frame(device, queue, rt.writes(0)) {
+                Ok((image, frame)) => {
+                    ctx.init_images.insert(tid.0);
+                    ctx.images.insert(tid.0, image);
+                    if let Some(frame) = frame {
                         frames.push((frame, rt.writes(tid.1) | rt.reads(tid.1)));
                     }
+                    image_targets_to_update.push(tid);
+                }
+                Err(err) => {
+                    tracing::error!(?err);
                 }
             }
-        }
-
-        image_targets_to_update.push(tid);
+        };
     }
 
     // Find all renders to activate.

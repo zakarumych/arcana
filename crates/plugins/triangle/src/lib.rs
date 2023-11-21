@@ -3,14 +3,10 @@ arcana::not_feature_client! {
 }
 
 use arcana::{
-    blink_alloc::BlinkAlloc,
-    edict::{Res, ResMutNoSend, World},
-    egui::{EguiRender, EguiResource},
+    edict::World,
     gametime::ClockStep,
     mev::{self, Arguments, DeviceRepr},
-    project::{Dependency, Ident},
     render::{Render, RenderBuilderContext, RenderContext, RenderError, RenderGraph, TargetId},
-    winit::window::Window,
 };
 
 #[derive(mev::Arguments)]
@@ -193,32 +189,24 @@ impl Render for MainPass {
 arcana::export_arcana_plugin! {
     TrianglePlugin {
         dependencies: [dummy ...],
-        systems: [hello_triangle: |mut egui: ResMutNoSend<EguiResource>, window: Res<Window>| {
-            egui.run(&window, |ctx| {
-                arcana::egui::Window::new("Hello triangle!")
-                    .resizable(false)
-                    .collapsible(true)
-                    .show(ctx, |ui| {
-                        ui.label("Hello triangle!");
-                    });
-            });
-        }],
         in world => {
             let world = world.local();
 
-            let window = world.expect_resource::<Window>().id();
+            // let window = world.expect_resource::<Window>().id();
 
             let mut graph = world.expect_resource_mut::<RenderGraph>();
             // Create main pass.
             // It returns target id that it renders to.
             let mut target = MainPass::build(&mut graph);
 
-            if world.get_resource::<EguiResource>().is_some() {
-                target = EguiRender::build_overlay(target, &mut graph, window);
-            }
+            // let id = world.spawn_one(Egui::new()).id();
+
+            // if world.get_resource::<EguiResource>().is_some() {
+            //     target = EguiRender::build_overlay(id, target, &mut graph);
+            // }
 
             // Use window's surface for the render target.
-            graph.present(target, window);
+            graph.present(target);
             drop(graph);
         }
     }

@@ -1,14 +1,12 @@
 use std::collections::VecDeque;
 
 use arcana::{
-    _events::{
-        DeviceId, ElementState, Event, KeyboardInput, MouseButton, ScanCode, VirtualKeyCode,
-        WindowEvent,
-    },
     blink_alloc::Blink,
     edict::{EntityId, NoSuchEntity, World},
-    events::EventFilter,
-    winit::window::WindowId,
+    events::{
+        DeviceId, ElementState, Event, EventFilter, KeyboardInput, MouseButton, ScanCode,
+        ViewportEvent, VirtualKeyCode,
+    },
 };
 use hashbrown::HashMap;
 
@@ -19,7 +17,7 @@ pub struct InputFilter {
     device: HashMap<DeviceId, Box<dyn Controller>>,
 
     /// Dispatch events from this window to this controller.
-    window: HashMap<WindowId, Box<dyn Controller>>,
+    viewport: HashMap<EntityId, Box<dyn Controller>>,
 
     /// Dispatch any input event to this controller if
     /// no more specific controller is found for it.
@@ -27,7 +25,7 @@ pub struct InputFilter {
 }
 
 impl EventFilter for InputFilter {
-    fn filter(&mut self, _: &Blink, world: &mut World, event: Event) -> Option<Event> {
+    fn filter(&mut self, _: &Blink, world: &mut World, event: &Event) -> bool {
         self.add_controllers(world);
         self.handle(world, event)
     }
@@ -37,7 +35,7 @@ impl InputFilter {
     pub fn new() -> Self {
         InputFilter {
             device: HashMap::new(),
-            window: HashMap::new(),
+            viewport: HashMap::new(),
             global: None,
         }
     }
@@ -51,36 +49,38 @@ impl InputFilter {
                 ControllerBind::Device(device) => {
                     self.device.insert(device, controller);
                 }
-                ControllerBind::Window(window) => {
-                    self.window.insert(window, controller);
+                ControllerBind::Viewport(viewport) => {
+                    self.viewport.insert(viewport, controller);
                 }
             }
         }
     }
 
-    pub fn handle(&mut self, world: &mut World, event: Event) -> Option<Event> {
-        match event {
-            Event::WindowEvent { window_id, event } => match event {
-                WindowEvent::KeyboardInput {
+    pub fn handle(&mut self, world: &mut World, event: &Event) -> bool {
+        match *event {
+            Event::ViewportEvent {
+                viewport,
+                ref event,
+            } => match *event {
+                ViewportEvent::KeyboardInput {
                     device_id, input, ..
                 } => {
-                    if let Some(controller) = self.device.get_mut(&DeviceId::from(device_id)) {
+                    if let Some(controller) = self.device.get_mut(&device_id) {
                         controller.on_keyboard_input(world, &input);
-                        None
-                    } else if let Some(controller) = self.window.get_mut(&window_id) {
+                        return true;
+                    } else if let Some(controller) = self.viewport.get_mut(&viewport) {
                         controller.on_keyboard_input(world, &input);
-                        None
+                        return true;
                     } else if let Some(controller) = &mut self.global {
                         controller.on_keyboard_input(world, &input);
-                        None
-                    } else {
-                        Some(Event::WindowEvent { window_id, event })
+                        return true;
                     }
                 }
-                _ => Some(Event::WindowEvent { window_id, event }),
+                _ => {}
             },
-            _ => Some(event),
+            _ => {}
         }
+        false
     }
 }
 
@@ -93,38 +93,38 @@ pub struct InputHandler {
 pub enum ControllerBind {
     Global,
     Device(DeviceId),
-    Window(WindowId),
+    Viewport(EntityId),
 }
 
 impl InputHandler {
-    #[inline]
+    #[inline(never)]
     pub fn new() -> Self {
         InputHandler {
             add_controller: HashMap::new(),
         }
     }
 
-    #[inline]
+    #[inline(never)]
     pub fn add_controller(&mut self, controller: Box<dyn Controller>, bind: ControllerBind) {
         self.add_controller.insert(bind, controller);
     }
 
-    #[inline]
+    #[inline(never)]
     pub fn add_global_controller(&mut self, controller: Box<dyn Controller>) {
         self.add_controller
             .insert(ControllerBind::Global, controller);
     }
 
-    #[inline]
+    #[inline(never)]
     pub fn add_device_controller(&mut self, device: DeviceId, controller: Box<dyn Controller>) {
         self.add_controller
             .insert(ControllerBind::Device(device), controller);
     }
 
-    #[inline]
-    pub fn add_window_controller(&mut self, window: WindowId, controller: Box<dyn Controller>) {
+    #[inline(never)]
+    pub fn add_viewport_controller(&mut self, viewport: EntityId, controller: Box<dyn Controller>) {
         self.add_controller
-            .insert(ControllerBind::Window(window), controller);
+            .insert(ControllerBind::Viewport(viewport), controller);
     }
 }
 

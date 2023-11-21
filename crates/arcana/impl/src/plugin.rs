@@ -261,7 +261,7 @@ macro_rules! export_arcana_plugin {
                         IDENTS
                     }
 
-                    fn get_dependency(&self, dep: &Ident) -> $crate::project::Dependency {
+                    fn get_dependency(&self, dep: &$crate::project::Ident) -> $crate::project::Dependency {
                         $(
                             if dep == $crate::project::ident!($dependency) {
                                 return $crate::get_dependency!($dependency $dep_kind);

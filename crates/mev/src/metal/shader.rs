@@ -69,16 +69,3 @@ impl Library {
         self.per_entry_point_bindings.get(entry).cloned()
     }
 }
-
-#[derive(Debug)]
-pub(crate) enum CreateLibraryErrorKind {
-    CompileError(ShaderCompileError),
-}
-
-impl fmt::Display for CreateLibraryErrorKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            CreateLibraryErrorKind::CompileError(err) => fmt::Display::fmt(err, f),
-        }
-    }
-}

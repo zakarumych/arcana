@@ -1,15 +1,33 @@
+use std::fmt;
+
 use blink_alloc::Blink;
 use edict::{EntityId, World};
-use winit::event::{
-    ElementState, KeyboardInput, ModifiersState, MouseButton, MouseScrollDelta, WindowEvent,
+use winit::event::WindowEvent;
+
+pub use winit::{
+    event::{
+        ElementState, KeyboardInput, ModifiersState, MouseButton, MouseScrollDelta, ScanCode,
+        VirtualKeyCode,
+    },
+    window::CursorIcon,
 };
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum DeviceIdKind {
     Winit(winit::event::DeviceId),
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DeviceId {
     kind: DeviceIdKind,
+}
+
+impl fmt::Debug for DeviceId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.kind {
+            DeviceIdKind::Winit(id) => write!(f, "winit::DeviceId({:?})", id),
+        }
+    }
 }
 
 impl From<winit::event::DeviceId> for DeviceId {
@@ -23,6 +41,7 @@ impl From<winit::event::DeviceId> for DeviceId {
 /// Event emitted from outside the game.
 ///
 /// Viewport and device events fall into this category.
+#[derive(Clone)]
 pub enum Event {
     /// Event emitted from a viewport.
     ViewportEvent {
@@ -37,6 +56,7 @@ pub enum Event {
     },
 }
 
+#[derive(Clone)]
 pub enum ViewportEvent {
     Resized {
         width: u32,
@@ -106,15 +126,45 @@ impl TryFrom<&WindowEvent<'_>> for ViewportEvent {
                 let y = position.y;
                 Ok(ViewportEvent::CursorMoved { device_id, x, y })
             }
-            WindowEvent::CursorEntered { device_id, .. } => {
+            WindowEvent::CursorEntered { device_id } => {
                 let device_id = DeviceId::from(device_id);
                 Ok(ViewportEvent::CursorEntered { device_id })
+            }
+            WindowEvent::CursorLeft { device_id } => {
+                let device_id = DeviceId::from(device_id);
+                Ok(ViewportEvent::CursorLeft { device_id })
+            }
+            WindowEvent::MouseWheel {
+                device_id,
+                delta,
+                phase,
+                modifiers,
+            } => {
+                let device_id = DeviceId::from(device_id);
+                let delta = delta;
+                Ok(ViewportEvent::MouseWheel { device_id, delta })
+            }
+            WindowEvent::MouseInput {
+                device_id,
+                state,
+                button,
+                modifiers,
+            } => {
+                let device_id = DeviceId::from(device_id);
+                let state = state;
+                let button = button;
+                Ok(ViewportEvent::MouseInput {
+                    device_id,
+                    state,
+                    button,
+                })
             }
             _ => Err(UnsupportedEvent),
         }
     }
 }
 
+#[derive(Clone)]
 pub enum DeviceEvent {}
 
 impl TryFrom<&winit::event::DeviceEvent> for DeviceEvent {
@@ -125,8 +175,8 @@ impl TryFrom<&winit::event::DeviceEvent> for DeviceEvent {
     }
 }
 
-pub trait EventFilter: Send + Sync + 'static {
-    fn filter(&mut self, blink: &Blink, world: &mut World, event: Event) -> Option<Event>;
+pub trait EventFilter: 'static {
+    fn filter(&mut self, blink: &Blink, world: &mut World, event: &Event) -> bool;
 }
 
 pub struct EventFunnel {
@@ -140,7 +190,7 @@ impl EventFunnel {
         }
     }
 
-    #[inline]
+    #[inline(never)]
     pub fn add<F>(&mut self, filter: F)
     where
         F: EventFilter,
@@ -148,23 +198,25 @@ impl EventFunnel {
         self.filters.push(Box::new(filter));
     }
 
-    #[inline]
+    #[inline(never)]
     pub fn add_boxed(&mut self, filter: Box<dyn EventFilter>) {
         self.filters.push(filter);
     }
 
-    #[inline]
-    pub fn filter(&mut self, blink: &Blink, world: &mut World, mut event: Event) -> Option<Event> {
+    #[inline(never)]
+    pub fn filter(&mut self, blink: &Blink, world: &mut World, event: &Event) -> bool {
         for filter in self.filters.iter_mut() {
-            event = filter.filter(blink, world, event)?;
+            if filter.filter(blink, world, event) {
+                return true;
+            }
         }
-        Some(event)
+        false
     }
 }
 
 impl EventFilter for EventFunnel {
-    #[inline]
-    fn filter(&mut self, blink: &Blink, world: &mut World, event: Event) -> Option<Event> {
+    #[inline(never)]
+    fn filter(&mut self, blink: &Blink, world: &mut World, event: &Event) -> bool {
         self.filter(blink, world, event)
     }
 }

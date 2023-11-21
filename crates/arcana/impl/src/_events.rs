@@ -94,12 +94,12 @@ struct EventLoopWaker {
 }
 
 impl std::task::Wake for EventLoopWaker {
-    #[inline]
+    #[inline(never)]
     fn wake(self: Arc<Self>) {
         EventLoopWaker::wake_by_ref(&self)
     }
 
-    #[inline]
+    #[inline(never)]
     fn wake_by_ref(self: &Arc<Self>) {
         // This send will never block.
         let _ = self.proxy.lock().send_event(UserEvent::Wake);

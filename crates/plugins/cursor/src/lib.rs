@@ -1,11 +1,10 @@
 use std::ops::{Deref, DerefMut};
 
 use arcana::{
-    _events::{Event, WindowEvent},
     blink_alloc::Blink,
     edict::World,
     events::EventFilter,
-    winit::window::Window,
+    events::{Event, ViewportEvent},
 };
 
 arcana::export_arcana_plugin! {
@@ -61,30 +60,19 @@ impl DerefMut for MainCursor {
 struct CursorFilter;
 
 impl EventFilter for CursorFilter {
-    fn filter(&mut self, _blink: &Blink, world: &mut World, event: Event) -> Option<Event> {
+    fn filter(&mut self, _blink: &Blink, world: &mut World, event: &Event) -> bool {
         let mut cursor = world.expect_resource_mut::<MainCursor>();
-        let window = world.expect_resource::<Window>();
 
-        match event {
-            Event::WindowEvent { event, window_id } => {
-                if window_id == window.id() {
-                    match event {
-                        WindowEvent::CursorMoved { position, .. } => {
-                            let inner_size = window.inner_size();
-                            let pos = na::Point2::new(
-                                position.x as f32 / inner_size.width as f32 * 2.0 - 1.0,
-                                1.0 - position.y as f32 / inner_size.height as f32 * 2.0,
-                            );
-
-                            cursor.0.pos = pos;
-                            return None;
-                        }
-                        _ => {}
-                    }
+        match *event {
+            Event::ViewportEvent { ref event, .. } => match *event {
+                ViewportEvent::CursorMoved { x, y, .. } => {
+                    let pos = na::Point2::new(x as f32, 1.0 - y as f32);
+                    cursor.0.pos = pos;
                 }
-                Some(Event::WindowEvent { window_id, event })
-            }
-            _ => Some(event),
+                _ => {}
+            },
+            _ => {}
         }
+        false
     }
 }

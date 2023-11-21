@@ -1,10 +1,5 @@
-use arcana::{
-    edict::world::WorldLocal,
-    project::{IdentBuf, Item, Project},
-    World,
-};
+use arcana::{edict::world::WorldLocal, project::Project};
 use egui::{Color32, Ui, WidgetText};
-use hashbrown::HashMap;
 
 use crate::move_element;
 
@@ -13,17 +8,13 @@ use super::{plugins::Plugins, Tab};
 pub struct Filters;
 
 impl Filters {
-    pub fn new() -> Self {
-        Filters
-    }
-
     pub fn tab() -> Tab {
         Tab::Filters
     }
 
     pub fn show(world: &WorldLocal, ui: &mut Ui) {
         let mut project = world.expect_resource_mut::<Project>();
-        let mut plugins = world.expect_resource_mut::<Plugins>();
+        let plugins = world.expect_resource::<Plugins>();
 
         let mut toggle_filter = None;
         let mut remove_filter = None;

@@ -17,6 +17,7 @@ use crate::generic::{
 use super::{
     arguments::ArgumentsField,
     device::{DeviceOwned, WeakDevice},
+    from::IntoAsh,
     refs::Refs,
     Device,
 };
@@ -90,13 +91,14 @@ impl Image {
         handle: vk::Image,
         view: vk::ImageView,
         view_idx: usize,
-        dimensions: ImageDimensions,
+        dimensions: impl Into<ImageDimensions>,
         format: PixelFormat,
         usage: ImageUsage,
         layers: u32,
         levels: u32,
         flavor: Flavor,
     ) -> Self {
+        let dimensions = dimensions.into();
         let desc = ViewDesc {
             format,
             base_layer: 0,
@@ -166,7 +168,7 @@ impl Image {
         handle: vk::Image,
         view: vk::ImageView,
         view_idx: usize,
-        dimensions: ImageDimensions,
+        dimensions: impl Into<ImageDimensions>,
         format: PixelFormat,
         usage: ImageUsage,
     ) -> Self {
@@ -200,7 +202,7 @@ impl Image {
             Entry::Occupied(entry) => entry.get().0,
             Entry::Vacant(entry) => {
                 let (view, idx) =
-                    device.new_image_view(self.handle, self.inner.dimensions, desc)?;
+                    device.new_image_view(self.handle, self.inner.dimensions.into_ash(), desc)?;
                 entry.insert((view, idx)).0
             }
         };

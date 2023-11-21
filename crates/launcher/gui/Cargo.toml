@@ -1,30 +1,25 @@
 [package]
-name = "arcana-ed"
+name = "arcana-launcher-gui"
 edition.workspace = true
 authors.workspace = true
 readme.workspace = true
 license.workspace = true
 version.workspace = true
-description = "Arcana Engine Editor"
+description = "Arcana Engine launcher"
 
 [dependencies]
-arcana = { path = "../arcana", features = ["ed"] }
-arcana-project = { path = "../project" }
-arcana-egui = { path = "../plugins/egui" }
+arcana = { path = "../../arcana", features = ["client"] }
+# arcana-project = { path = "../../project" }
+arcana-launcher = { path = ".." }
+arcana-egui = { path = "../../plugins/egui" }
 dirs = { workspace = true }
 egui = { workspace = true }
 egui_dnd = { workspace = true }
-egui_dock = { workspace = true, features = ["serde"] }
 egui-phosphor = { workspace = true }
 egui_tracing = { workspace = true }
 egui-winit = { workspace = true }
 hashbrown = { workspace = true }
-libloading = { workspace = true }
 miette = { workspace = true, features = ["fancy"] }
-nucleo = { workspace = true }
-parking_lot = { workspace = true }
-rand = { workspace = true }
-relevant = { workspace = true }
 rfd = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

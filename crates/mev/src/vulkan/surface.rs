@@ -7,8 +7,9 @@ use std::{
 
 use ash::vk;
 
-use crate::generic::{
-    ImageDimensions, OutOfMemory, PipelineStages, SurfaceError, Swizzle, ViewDesc,
+use crate::{
+    generic::{ImageDimensions, OutOfMemory, PipelineStages, SurfaceError, Swizzle, ViewDesc},
+    Extent2,
 };
 
 use super::{
@@ -17,28 +18,6 @@ use super::{
 };
 
 const SUBOPTIMAL_RETIRE_COOLDOWN: u64 = 10;
-
-#[derive(Debug)]
-pub(crate) enum SurfaceErrorKind {
-    OutOfMemory,
-    SurfaceLost,
-}
-
-impl From<OutOfMemory> for SurfaceErrorKind {
-    #[inline(always)]
-    fn from(_: OutOfMemory) -> Self {
-        SurfaceErrorKind::OutOfMemory
-    }
-}
-
-impl fmt::Display for SurfaceErrorKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            SurfaceErrorKind::OutOfMemory => write!(f, "{OutOfMemory}"),
-            SurfaceErrorKind::SurfaceLost => write!(f, "surface lost"),
-        }
-    }
-}
 
 struct Swapchain {
     handle: vk::SwapchainKHR,
@@ -155,7 +134,7 @@ impl Surface {
         self.handle_retired()?;
 
         if self.lost {
-            return Err(SurfaceError(SurfaceErrorKind::SurfaceLost));
+            return Err(SurfaceError::SurfaceLost);
         }
         self.suboptimal_retire = SuboptimalRetire::Cooldown(SUBOPTIMAL_RETIRE_COOLDOWN);
 
@@ -171,10 +150,10 @@ impl Surface {
         };
         self.caps = result.map_err(|err| match err {
             vk::Result::ERROR_OUT_OF_HOST_MEMORY => handle_host_oom(),
-            vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => SurfaceError(OutOfMemory.into()),
+            vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => SurfaceError::OutOfMemory,
             vk::Result::ERROR_SURFACE_LOST_KHR => {
                 self.lost = true;
-                SurfaceError(SurfaceErrorKind::SurfaceLost)
+                SurfaceError::SurfaceLost
             }
             _ => unexpected_error(err),
         })?;
@@ -206,10 +185,10 @@ impl Surface {
 
         let handle = result.map_err(|err| match err {
             vk::Result::ERROR_OUT_OF_HOST_MEMORY => handle_host_oom(),
-            vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => SurfaceError(OutOfMemory.into()),
+            vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => SurfaceError::OutOfMemory,
             vk::Result::ERROR_DEVICE_LOST | vk::Result::ERROR_SURFACE_LOST_KHR => {
                 self.lost = true;
-                SurfaceError(SurfaceErrorKind::SurfaceLost)
+                SurfaceError::SurfaceLost
             }
             vk::Result::ERROR_NATIVE_WINDOW_IN_USE_KHR => {
                 panic!("Native window is already in use.");
@@ -225,7 +204,7 @@ impl Surface {
                 unsafe { device.create_semaphore(&vk::SemaphoreCreateInfo::builder(), None) };
             result.map_err(|err| match err {
                 vk::Result::ERROR_OUT_OF_HOST_MEMORY => handle_host_oom(),
-                vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => SurfaceError(OutOfMemory.into()),
+                vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => SurfaceError::OutOfMemory,
                 _ => unexpected_error(err),
             })
         };
@@ -235,24 +214,20 @@ impl Surface {
         let result = unsafe { self.device.swapchain().get_swapchain_images(handle) };
         let images = result.map_err(|err| match err {
             vk::Result::ERROR_OUT_OF_HOST_MEMORY => handle_host_oom(),
-            vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => SurfaceError(OutOfMemory.into()),
+            vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => SurfaceError::OutOfMemory,
             _ => unexpected_error(err),
         })?;
 
         let pixel_format = self.preferred_format.format.try_ash_into().unwrap();
         let usage = self.preferred_usage.ash_into();
-        let dimensions = ImageDimensions::D2(
-            self.caps.current_extent.width,
-            self.caps.current_extent.height,
-        );
 
         let mut swapchain_images = Vec::new();
-        for image in &images {
+        for &handle in &images {
             let (view, view_idx) = self
                 .device
                 .new_image_view(
-                    *image,
-                    dimensions,
+                    handle,
+                    vk::ImageViewType::TYPE_2D,
                     ViewDesc {
                         format: pixel_format,
                         base_layer: 0,
@@ -269,10 +244,10 @@ impl Surface {
 
             let image = Image::from_swapchain_image(
                 self.device.weak(),
-                *image,
+                handle,
                 view,
                 view_idx,
-                ImageDimensions::D2(
+                Extent2::new(
                     self.caps.current_extent.width,
                     self.caps.current_extent.height,
                 ),
@@ -297,7 +272,7 @@ impl Surface {
         if self.retired.len() >= 8 {
             self.device
                 .wait_idle()
-                .map_err(|OutOfMemory| SurfaceError(OutOfMemory.into()))?;
+                .map_err(|OutOfMemory| SurfaceError::OutOfMemory)?;
 
             self.clear_retired();
             assert_eq!(
@@ -388,7 +363,7 @@ impl crate::traits::Surface for Surface {
                 }
                 Err(vk::Result::ERROR_OUT_OF_HOST_MEMORY) => handle_host_oom(),
                 Err(vk::Result::ERROR_OUT_OF_DEVICE_MEMORY) => {
-                    return Err(SurfaceError(OutOfMemory.into()))
+                    return Err(SurfaceError::OutOfMemory)
                 }
                 Err(
                     vk::Result::ERROR_DEVICE_LOST
@@ -396,7 +371,7 @@ impl crate::traits::Surface for Surface {
                     | vk::Result::ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT,
                 ) => {
                     self.lost = true;
-                    return Err(SurfaceError(SurfaceErrorKind::SurfaceLost));
+                    return Err(SurfaceError::SurfaceLost);
                 }
                 Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
                     self.current = None;

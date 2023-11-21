@@ -20,7 +20,7 @@ use crate::{
     init_mev,
     plugin::{ArcanaPlugin, PluginInit},
     render::{render_system, RenderGraph, RenderState},
-    viewport::ViewportTexture,
+    viewport::Viewport,
 };
 
 /// Marker resource.
@@ -95,7 +95,7 @@ impl GameClock {
         self.denom = denom;
     }
 
-    pub fn get_rate(&mut self) -> f64 {
+    pub fn get_rate(&self) -> f64 {
         self.nom as f64 / self.denom as f64
     }
 
@@ -214,7 +214,9 @@ impl Game {
         if let Some(window) = window {
             // If window is provided, register it as a resource.
             // Quit when the window is closed.
-            world.insert_resource(window);
+            world.insert_resource(Viewport::new_window(window));
+        } else {
+            world.insert_resource(Viewport::new_texture());
         }
 
         let blink = Blink::new();
@@ -294,7 +296,7 @@ impl Game {
         self.clock.set_rate(rate);
     }
 
-    pub fn get_rate(&mut self) -> f64 {
+    pub fn get_rate(&self) -> f64 {
         self.clock.get_rate()
     }
 
@@ -310,7 +312,7 @@ impl Game {
         self.world.get_resource::<Window>().map(|w| w.id())
     }
 
-    pub fn on_event(&mut self, event: Event) -> Option<Event> {
+    pub fn on_event(&mut self, event: &Event) -> bool {
         self.funnel.filter(&self.blink, &mut self.world, event)
     }
 
@@ -330,36 +332,37 @@ impl Game {
         &mut self,
         extent: mev::Extent2,
     ) -> Result<mev::Image, mev::OutOfMemory> {
-        let mut new_texture = None;
-        let image;
+        let mut viewport = self.world.expect_resource_mut::<Viewport>();
+
+        #[cold]
+        fn new_image(
+            viewport: &mut Viewport,
+            extent: mev::Extent2,
+            world: &World,
+        ) -> Result<(), mev::OutOfMemory> {
+            let device = world.expect_resource::<mev::Device>();
+            let image = device.new_image(mev::ImageDesc {
+                dimensions: extent.into(),
+                format: mev::PixelFormat::Rgba8Srgb,
+                usage: mev::ImageUsage::TARGET | mev::ImageUsage::SAMPLED,
+                layers: 1,
+                levels: 1,
+                name: "Game Viewport",
+            })?;
+            viewport.set_image(image);
+            Ok(())
+        }
+
+        if viewport
+            .get_image()
+            .map_or(true, |i| i.dimensions() != extent)
         {
-            match self.world.get_resource_mut::<ViewportTexture>() {
-                Some(t) if t.image.dimensions().to_2d() == extent => {
-                    image = t.image.clone();
-                }
-                _ => {
-                    let device = self.world.expect_resource::<mev::Device>();
-                    image = device.new_image(mev::ImageDesc {
-                        dimensions: extent.into(),
-                        format: mev::PixelFormat::Rgba8Srgb,
-                        usage: mev::ImageUsage::TARGET | mev::ImageUsage::SAMPLED,
-                        layers: 1,
-                        levels: 1,
-                        name: "Game Viewport",
-                    })?;
-                    new_texture = Some(ViewportTexture {
-                        image: image.clone(),
-                    });
-                }
-            };
+            tracing::debug!("Creating new image for viewport");
+
+            new_image(&mut *viewport, extent, &self.world)?;
         }
 
-        if let Some(t) = new_texture {
-            self.world.insert_resource(t);
-        }
-
-        render_system(&mut self.world, (&mut self.render_state).into());
-        Ok(image)
+        Ok(viewport.get_image().unwrap().clone())
     }
 
     pub fn tick(&mut self, step: ClockStep) {

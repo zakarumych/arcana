@@ -25,7 +25,7 @@ pub(super) struct WeakSampler {
 }
 
 impl WeakSampler {
-    #[inline]
+    #[inline(never)]
     pub(super) fn upgrade(&self) -> Option<Sampler> {
         let inner = self.inner.upgrade()?;
         Some(Sampler {
@@ -34,7 +34,7 @@ impl WeakSampler {
         })
     }
 
-    #[inline]
+    #[inline(never)]
     pub(super) fn unused(&self) -> bool {
         self.inner.strong_count() == 0
     }
@@ -65,7 +65,7 @@ impl DeviceOwned for Sampler {
 }
 
 impl Sampler {
-    #[inline]
+    #[inline(never)]
     pub(super) fn new(owner: WeakDevice, handle: vk::Sampler, desc: SamplerDesc) -> Self {
         Sampler {
             handle,
@@ -73,7 +73,7 @@ impl Sampler {
         }
     }
 
-    #[inline]
+    #[inline(never)]
     pub(super) fn downgrade(&self) -> WeakSampler {
         WeakSampler {
             handle: self.handle,

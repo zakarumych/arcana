@@ -27,8 +27,8 @@ use crate::{
 use super::{
     from::{IntoMetal, TryIntoMetal},
     shader::Bindings,
-    Buffer, CreateLibraryErrorKind, CreatePipelineErrorKind, Image, Library, RenderPipeline,
-    Sampler, Surface, MAX_VERTEX_BUFFERS,
+    Buffer, CreatePipelineErrorKind, Image, Library, RenderPipeline, Sampler, Surface,
+    MAX_VERTEX_BUFFERS,
 };
 
 #[derive(Clone)]
@@ -56,9 +56,7 @@ impl crate::traits::Device for Device {
                 match source.language {
                     ShaderLanguage::Msl => {
                         let source = std::str::from_utf8(&*source.code).map_err(|err| {
-                            CreateLibraryError(CreateLibraryErrorKind::CompileError(
-                                ShaderCompileError::NonUtf8(err),
-                            ))
+                            CreateLibraryError::CompileError(ShaderCompileError::NonUtf8(err))
                         })?;
 
                         let library = self
@@ -70,10 +68,8 @@ impl crate::traits::Device for Device {
                     }
 
                     src => {
-                        let compiled =
-                            compile_shader(&source.code, source.filename, src).map_err(|err| {
-                                CreateLibraryError(CreateLibraryErrorKind::CompileError(err))
-                            })?;
+                        let compiled = compile_shader(&source.code, source.filename, src)
+                            .map_err(|err| CreateLibraryError::CompileError(err))?;
 
                         let library = self
                             .device

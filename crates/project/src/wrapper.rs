@@ -39,6 +39,7 @@ pub fn run_editor(root: &Path) -> Command {
     cmd.arg("run")
         .arg("--package=ed")
         // .arg("--release")
+        // .arg("--verbose")
         .env("RUSTFLAGS", "-Zshare-generics=off -Cprefer-dynamic=yes")
         .current_dir(&workspace);
     cmd

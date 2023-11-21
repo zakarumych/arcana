@@ -1,8 +1,7 @@
-use std::mem::size_of_val;
+use std::{mem::size_of_val, sync::OnceLock};
 
 use arcana::{
     bytemuck,
-    events::ViewportEvent,
     mev::{self, Arguments, DeviceRepr},
     offset_of,
     render::{Render, RenderBuilderContext, RenderContext, RenderError, RenderGraph, TargetId},
@@ -11,8 +10,11 @@ use arcana::{
 };
 use egui::epaint::{ClippedShape, Primitive, Vertex};
 
-pub use egui::*;
 use hashbrown::{hash_map::Entry, HashMap};
+
+mod event;
+
+pub use egui::*;
 
 #[derive(Clone, Copy)]
 enum Sampler {
@@ -40,6 +42,9 @@ pub struct Egui {
     shapes: Vec<ClippedShape>,
     textures: HashMap<u64, (mev::Image, Sampler)>,
     raw_input: egui::RawInput,
+    mouse_pos: Pos2,
+    pixel_per_point: f32,
+    size: Vec2,
 }
 
 impl Component for Egui {
@@ -48,18 +53,37 @@ impl Component for Egui {
     }
 }
 
+static GLOBAL_FONTS: OnceLock<FontDefinitions> = OnceLock::new();
+
+fn fonts() -> FontDefinitions {
+    GLOBAL_FONTS
+        .get_or_init(|| {
+            let mut fonts = egui::FontDefinitions::default();
+            egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
+            fonts
+        })
+        .clone()
+}
+
 impl Egui {
-    pub fn new(world: &World) -> Self {
-        let res = world.expect_resource::<EguiResource>();
-        let cx = Context::default();
-        cx.set_fonts(res.fonts.clone());
+    pub fn new(size: Vec2, scale_factor: f32) -> Self {
+        let fonts = fonts();
+        let cx: Context = Context::default();
+        cx.set_fonts(fonts);
+
+        let mut raw_input = egui::RawInput::default();
+        raw_input.screen_rect = Some(Rect::from_min_size(Default::default(), size / scale_factor));
+        raw_input.pixels_per_point = Some(scale_factor);
 
         Egui {
             cx,
             textures_delta: TexturesDelta::default(),
             shapes: Vec::new(),
             textures: HashMap::new(),
-            raw_input: egui::RawInput::default(),
+            mouse_pos: Pos2::ZERO,
+            raw_input,
+            pixel_per_point: scale_factor,
+            size,
         }
     }
 
@@ -74,22 +98,6 @@ impl Egui {
         self.textures_delta.append(output.textures_delta);
         self.shapes = output.shapes;
         Some(ret)
-    }
-
-    fn handle_event(&mut self, event: &ViewportEvent) -> bool {
-        false
-    }
-}
-
-pub struct EguiResource {
-    fonts: FontDefinitions,
-}
-
-impl EguiResource {
-    pub fn new() -> Self {
-        let mut fonts = egui::FontDefinitions::default();
-        egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
-        EguiResource { fonts }
     }
 }
 
@@ -164,11 +172,7 @@ impl EguiRender {
 }
 
 impl Render for EguiRender {
-    fn render(
-        &mut self,
-        world: &mut World,
-        mut cx: RenderContext<'_, '_>,
-    ) -> Result<(), RenderError> {
+    fn render(&mut self, world: &World, mut cx: RenderContext<'_, '_>) -> Result<(), RenderError> {
         let Ok(mut egui) = world.try_view_one::<&mut Egui>(self.id) else {
             return Ok(());
         };
@@ -271,10 +275,8 @@ impl Render for EguiRender {
                     match egui.textures.entry(*id) {
                         Entry::Vacant(entry) => {
                             let mut new_image = cx.device().new_image(mev::ImageDesc {
-                                dimensions: mev::ImageDimensions::D2(
-                                    size[0] as u32,
-                                    size[1] as u32,
-                                ),
+                                dimensions: mev::Extent2::new(size[0] as u32, size[1] as u32)
+                                    .into(),
                                 format,
                                 usage: mev::ImageUsage::SAMPLED | mev::ImageUsage::TRANSFER_DST,
                                 layers: 1,
@@ -308,10 +310,8 @@ impl Render for EguiRender {
                                 || (extent.height() as usize) < size[1]
                             {
                                 let mut new_image = cx.device().new_image(mev::ImageDesc {
-                                    dimensions: mev::ImageDimensions::D2(
-                                        size[0] as u32,
-                                        size[1] as u32,
-                                    ),
+                                    dimensions: mev::Extent2::new(size[0] as u32, size[1] as u32)
+                                        .into(),
                                     format,
                                     usage: mev::ImageUsage::SAMPLED | mev::ImageUsage::TRANSFER_DST,
                                     layers: 1,
@@ -676,23 +676,18 @@ impl Render for EguiRender {
 pub struct EguiFilter;
 
 impl arcana::events::EventFilter for EguiFilter {
-    fn filter(
-        &mut self,
-        _blink: &Blink,
-        world: &mut World,
-        event: arcana::events::Event,
-    ) -> Option<arcana::events::Event> {
+    fn filter(&mut self, _blink: &Blink, world: &mut World, event: &arcana::events::Event) -> bool {
         let world = world.local();
 
-        if let arcana::events::Event::ViewportEvent { viewport, event } = &event {
+        if let arcana::events::Event::ViewportEvent { viewport, event } = event {
             if let Ok(egui) = world.get::<&mut Egui>(*viewport) {
                 if egui.handle_event(event) {
                     // Egui consumed this event.
-                    return None;
+                    return true;
                 }
             }
         }
 
-        Some(event)
+        false
     }
 }

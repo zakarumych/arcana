@@ -1,13 +1,5 @@
 use amity::flip_queue::FlipQueue;
-use arcana::{
-    edict::{self, Component, EntityId, ResMut, State, View},
-    plugin::ArcanaPlugin,
-    project::Ident,
-};
-
-arcana::feature_ed! {
-    use arcana::project::Dependency;
-}
+use arcana::edict::{self, Component, EntityId, ResMut, State, View};
 
 use rapier2d::{
     dynamics::{
@@ -73,6 +65,7 @@ pub struct PhysicsResource {
     impulse_joints: ImpulseJointSet,
     multibody_joints: MultibodyJointSet,
     ccd_solver: CCDSolver,
+    this_is_valid: &'static str,
 }
 
 impl PhysicsResource {
@@ -88,6 +81,7 @@ impl PhysicsResource {
             impulse_joints: ImpulseJointSet::new(),
             multibody_joints: MultibodyJointSet::new(),
             ccd_solver: CCDSolver::new(),
+            this_is_valid: "this is valid",
         }
     }
 
@@ -144,9 +138,6 @@ impl PhysicsResource {
         self.bodies.get_mut(body.handle).unwrap()
     }
 }
-
-fn assert_send<T: Send>() {}
-fn assert_sync<T: Sync>() {}
 
 #[derive(Default)]
 pub struct PhysicsState {

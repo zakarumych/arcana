@@ -68,14 +68,14 @@ pub enum DeviceError<T = ()> {
 }
 
 impl From<OutOfMemory> for DeviceError {
-    #[inline]
+    #[inline(never)]
     fn from(_: OutOfMemory) -> Self {
         DeviceError::OutOfMemory(())
     }
 }
 
 impl<T> fmt::Debug for DeviceError<T> {
-    #[inline]
+    #[inline(never)]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             DeviceError::OutOfMemory(_) => write!(f, "DeviceError::OutOfMemory"),
@@ -85,7 +85,7 @@ impl<T> fmt::Debug for DeviceError<T> {
 }
 
 impl<T> fmt::Display for DeviceError<T> {
-    #[inline]
+    #[inline(never)]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             DeviceError::OutOfMemory(_) => write!(f, "out of memory"),

@@ -438,7 +438,7 @@ impl Plugins {
                         plugins.linked = Some(lib);
                     }
                     Err(err) => {
-                        for (name) in err.not_linked {
+                        for name in err.not_linked {
                             tracing::info!("Plugin '{name}' is not linked", name = name);
                         }
                         for (name, dep) in err.missing_dependencies {
@@ -634,16 +634,4 @@ impl Plugins {
 fn add_plugin_with_path(path: &Path, project: &mut Project) -> bool {
     let (name, dep) = try_log_err!(plugin_with_path(path); false);
     project.add_plugin(name, dep)
-}
-
-fn all_dependencies_enabled(plugin: &dyn ArcanaPlugin, project: &ProjectManifest) -> bool {
-    for &dep in plugin.dependencies() {
-        let enabled = project.get_plugin(dep).map_or(false, |p| p.enabled);
-
-        if !enabled {
-            return false;
-        }
-    }
-
-    true
 }

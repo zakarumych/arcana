@@ -1,13 +1,10 @@
 use arcana::{
-    _events::{ElementState, KeyboardInput, VirtualKeyCode},
     edict::{self, spawn_block, ActionEncoder, Component, Entities, Res, View, World},
-    egui::{EguiRender, EguiResource},
+    events::{ElementState, KeyboardInput, VirtualKeyCode},
     flow::sleep,
     gametime::timespan,
     na,
-    project::Ident,
-    render::{RenderGraph, Viewport},
-    winit::window::Window,
+    render::RenderGraph,
 };
 use camera::Camera2;
 use cursor::MainCursor;
@@ -27,24 +24,23 @@ arcana::export_arcana_plugin! {
             motion ...,
             cursor ...,
         ],
-
         systems: [
             target_cursor: move |cursor: Res<MainCursor>,
-                window: Res<Window>,
+                // window: Res<Window>,
                 mut move_to: View<&mut MoveTo2>,
                 cameras: View<(&Camera2, &Global2)>| {
-                    let inner_position = window.inner_size();
-                    let ratio = inner_position.width as f32 / inner_position.height as f32;
+                    // let inner_position = window.inner_size();
+                    // let ratio = inner_position.width as f32 / inner_position.height as f32;
 
-                    let (camera, camera_global) = cameras.try_get(camera).unwrap();
+                    // let (camera, camera_global) = cameras.try_get(camera).unwrap();
 
-                    let position = camera
-                        .viewport
-                        .transform(1.0, ratio)
-                        .transform_point(&cursor.position());
+                    // let position = camera
+                    //     .viewport
+                    //     .transform(1.0, ratio)
+                    //     .transform_point(&cursor.position());
 
-                    let position = camera_global.iso.transform_point(&position);
-                    move_to.try_get_mut(target).unwrap().target = position;
+                    // let position = camera_global.iso.transform_point(&position);
+                    // move_to.try_get_mut(target).unwrap().target = position;
                 },
             paddle_system,
         ],
@@ -56,7 +52,6 @@ arcana::export_arcana_plugin! {
 
             {
                 let world = world.local();
-                let viewport = world.copy_resource::<Viewport>();
                 let mut graph = world.expect_resource_mut::<RenderGraph>();
 
                 // Create main pass.
@@ -68,7 +63,7 @@ arcana::export_arcana_plugin! {
                 // }
 
                 // Use window's surface for the render target.
-                graph.present(target, viewport);
+                graph.present(target);
             }
 
             let body = {

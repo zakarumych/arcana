@@ -51,7 +51,7 @@ pub struct SamplerDesc {
 }
 
 impl PartialEq for SamplerDesc {
-    #[inline]
+    #[inline(never)]
     fn eq(&self, other: &Self) -> bool {
         self.min_filter == other.min_filter
             && self.mag_filter == other.mag_filter
@@ -71,7 +71,7 @@ impl PartialEq for SamplerDesc {
 impl Eq for SamplerDesc {}
 
 impl Hash for SamplerDesc {
-    #[inline]
+    #[inline(never)]
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.min_filter.hash(state);
         self.mag_filter.hash(state);

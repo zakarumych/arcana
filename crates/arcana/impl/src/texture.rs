@@ -37,7 +37,7 @@ impl argosy::AssetBuild<BobBuilder<'_>> for Texture {
 
         let image = builder.device.new_image(mev::ImageDesc {
             name: "texture",
-            dimensions: mev::ImageDimensions::D2(qoi.width, qoi.height),
+            dimensions: mev::ImageDimensions::D2(mev::Extent2::new(qoi.width, qoi.height)),
             format: mev::PixelFormat::Rgba8Srgb,
             usage: mev::ImageUsage::SAMPLED | mev::ImageUsage::TRANSFER_DST,
             levels: 1,

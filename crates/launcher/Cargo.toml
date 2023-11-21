@@ -1,0 +1,18 @@
+[package]
+name = "arcana-launcher"
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+license.workspace = true
+version.workspace = true
+description = "Arcana Engine launcher library"
+
+[dependencies]
+arcana-project = { path = "../project" }
+denvars = { workspace = true, features = ["toml"] }
+dirs = { workspace = true }
+figa = { workspace = true, features = ["derive"] }
+miette = { workspace = true, features = ["fancy"] }
+serde = { workspace = true, features = ["derive"] }
+toml = { workspace = true }
+tracing = { workspace = true }

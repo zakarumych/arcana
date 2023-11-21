@@ -90,14 +90,14 @@ impl<T: ?Sized> Hash for TargetId<T> {
 pub struct RenderId(NonZeroU64);
 
 pub trait Render: Send + 'static {
-    fn render(&mut self, world: &mut World, ctx: RenderContext<'_, '_>) -> Result<(), RenderError>;
+    fn render(&mut self, world: &World, ctx: RenderContext<'_, '_>) -> Result<(), RenderError>;
 }
 
 impl<F> Render for F
 where
     F: for<'a, 'b> FnMut(&World, RenderContext<'a, 'b>) -> Result<(), RenderError> + Send + 'static,
 {
-    fn render(&mut self, world: &mut World, ctx: RenderContext<'_, '_>) -> Result<(), RenderError> {
+    fn render(&mut self, world: &World, ctx: RenderContext<'_, '_>) -> Result<(), RenderError> {
         (self)(world, ctx)
     }
 }

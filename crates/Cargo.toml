@@ -1,5 +1,13 @@
 [workspace]
-members = ["project", "mev", "arcana", "ed", "start", "plugins/*"]
+members = [
+    "project",
+    "mev",
+    "arcana",
+    "ed",
+    "launcher/cli",
+    "launcher/gui",
+    "plugins/*",
+]
 resolver = "2"
 
 
@@ -48,13 +56,14 @@ futures = "0.3"
 gametime = "0.2.1"
 gilrs = { version = "0.10" }
 gpu-alloc = { version = "0.6" }
-hashbrown = { version = "0.14", features = ["nightly"] }
+hashbrown = { version = "=0.14.0", features = ["nightly"] }
 hidden-trait = "0.1"
 libloading = "0.8"
 metal = { version = "0.26.0" }
 miette = "5.9"
 na = { package = "nalgebra", version = "0.32", features = ["libm"] }
 naga = { version = "0.13", features = ["spv-in", "wgsl-in", "glsl-in"] }
+nucleo = { version = "0.2" }
 objc = { version = "0.2" }
 parking_lot = "0.12"
 percent-encoding = "2.3"
@@ -65,6 +74,7 @@ rapier2d = "0.17"
 parry2d = "0.13"
 quote = "1.0"
 raw-window-handle = "0.5"
+relevant = "0.4"
 rfd = "0.12"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0" }

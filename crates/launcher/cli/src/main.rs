@@ -118,7 +118,7 @@ fn main() -> miette::Result<()> {
     install_tracing_subscriber();
 
     let cli = Cli::parse();
-    let start = arcana_start::Start::new()?;
+    let start = arcana_launcher::Start::new()?;
 
     match cli.command.unwrap_or_else(|| Command::Ed {
         path: PathBuf::from("."),

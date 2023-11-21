@@ -152,7 +152,7 @@ pub struct CopyCommandEncoder<'a> {
 }
 
 impl Drop for CopyCommandEncoder<'_> {
-    #[inline]
+    #[inline(never)]
     fn drop(&mut self) {
         self.encoder.end_encoding();
     }
@@ -160,13 +160,13 @@ impl Drop for CopyCommandEncoder<'_> {
 
 #[hidden_trait::expose]
 impl crate::traits::CopyCommandEncoder for CopyCommandEncoder<'_> {
-    #[inline]
+    #[inline(never)]
     fn barrier(&mut self, _after: PipelineStages, _before: PipelineStages) {}
 
-    #[inline]
+    #[inline(never)]
     fn init_image(&mut self, _after: PipelineStages, _before: PipelineStages, _image: &Image) {}
 
-    #[inline]
+    #[inline(never)]
     fn copy_buffer_to_image(
         &mut self,
         src: &Buffer,
@@ -204,7 +204,7 @@ impl crate::traits::CopyCommandEncoder for CopyCommandEncoder<'_> {
         );
     }
 
-    #[inline]
+    #[inline(never)]
     fn copy_image_region(
         &mut self,
         src: &Image,
@@ -243,7 +243,7 @@ impl crate::traits::CopyCommandEncoder for CopyCommandEncoder<'_> {
         }
     }
 
-    #[inline]
+    #[inline(never)]
     fn write_buffer_raw(&mut self, buffer: &Buffer, offset: usize, data: &[u8]) {
         if data.is_empty() {
             return;
@@ -275,7 +275,7 @@ impl crate::traits::CopyCommandEncoder for CopyCommandEncoder<'_> {
             .copy_from_buffer(&staged, 0, buffer.metal(), offset as NSUInteger, data_len);
     }
 
-    #[inline]
+    #[inline(never)]
     fn write_buffer(
         &mut self,
         buffer: &crate::backend::Buffer,
@@ -285,7 +285,7 @@ impl crate::traits::CopyCommandEncoder for CopyCommandEncoder<'_> {
         self.write_buffer_raw(buffer, offset, bytemuck::bytes_of(data))
     }
 
-    #[inline]
+    #[inline(never)]
     fn write_buffer_slice(
         &mut self,
         buffer: &crate::backend::Buffer,
@@ -325,7 +325,7 @@ impl RenderCommandEncoder<'_> {
 }
 
 impl Drop for RenderCommandEncoder<'_> {
-    #[inline]
+    #[inline(never)]
     fn drop(&mut self) {
         self.encoder.end_encoding();
     }
