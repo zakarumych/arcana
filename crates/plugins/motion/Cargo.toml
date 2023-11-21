@@ -1,0 +1,14 @@
+[package]
+name = "motion"
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+arcana = { path = "../../arcana" }
+scene = { path = "../scene" }
+physics = { path = "../physics" }
+na = { workspace = true }
+tracing = { workspace = true }

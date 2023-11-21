@@ -1,0 +1,16 @@
+[package]
+name = "arcanoid"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+arcana = { path = "../../arcana" }
+scene = { path = "../scene" }
+physics = { path = "../physics" }
+sdf = { path = "../sdf" }
+input = { path = "../input" }
+camera = { path = "../camera" }
+motion = { path = "../motion" }
+cursor = { path = "../cursor" }
+rand = { workspace = true }

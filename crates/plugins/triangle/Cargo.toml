@@ -1,0 +1,10 @@
+[package]
+name = "triangle"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+arcana = { path = "../../arcana" }
+dummy = { path = "../dummy" }
+arcana-egui = { path = "../egui" }

@@ -1,0 +1,23 @@
+[package]
+name = "arcana-launcher-cli"
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+license.workspace = true
+version.workspace = true
+description = "Arcana Engine launcher"
+
+[[bin]]
+name = "arcn"
+path = "src/main.rs"
+
+[dependencies]
+arcana-project = { path = "../../project" }
+arcana-launcher = { path = ".." }
+clap = { workspace = true }
+miette = { workspace = true, features = ["fancy"] }
+serde = { workspace = true, features = ["derive"] }
+toml = { workspace = true }
+tracing = { workspace = true }
+tracing-error = { workspace = true }
+tracing-subscriber = { workspace = true }

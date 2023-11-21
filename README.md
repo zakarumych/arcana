@@ -1,2 +1,3 @@
-# nothing
-There's nothing here
+# Nothing to see here, move along
+
+![Components](components.svg)

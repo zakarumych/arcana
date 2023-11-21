@@ -1,0 +1,23 @@
+[package]
+name = "arcana"
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+license.workspace = true
+version.workspace = true
+description = "Arcana Engine"
+
+[features]
+# Adds game client modules
+client = ["arcana-impl/client"]
+
+# Adds game server modules
+server = ["arcana-impl/server"]
+
+ed = ["arcana-impl/ed", "dynamic"]
+
+dynamic = ["dep:arcana-dyn"]
+
+[dependencies]
+arcana-impl = { path = "impl" }
+arcana-dyn = { path = "dyn", optional = true }

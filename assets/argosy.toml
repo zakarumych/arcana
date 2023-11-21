@@ -1,0 +1,3 @@
+artifacts = "../target/artifacts"
+external = "../target/external"
+temp = "../target/temp"

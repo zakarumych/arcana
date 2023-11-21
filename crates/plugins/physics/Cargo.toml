@@ -1,0 +1,14 @@
+[package]
+name = "physics"
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+arcana = { path = "../../arcana" }
+scene = { path = "../scene" }
+rapier2d = "0.17"
+na = { workspace = true }
+amity = { workspace = true }
