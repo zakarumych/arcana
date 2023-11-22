@@ -5,6 +5,7 @@ use arcana::{
     gametime::timespan,
     na,
     render::RenderGraph,
+    viewport::Viewport,
 };
 use camera::Camera2;
 use cursor::MainCursor;
@@ -26,21 +27,29 @@ arcana::export_arcana_plugin! {
         ],
         systems: [
             target_cursor: move |cursor: Res<MainCursor>,
-                // window: Res<Window>,
+                viewport: Res<Viewport>,
                 mut move_to: View<&mut MoveTo2>,
                 cameras: View<(&Camera2, &Global2)>| {
-                    // let inner_position = window.inner_size();
-                    // let ratio = inner_position.width as f32 / inner_position.height as f32;
+                    let extent = viewport.extent();
 
-                    // let (camera, camera_global) = cameras.try_get(camera).unwrap();
+                    // Ignore when viewport is zero-sized.
+                    if extent.width() == 0 || extent.height() == 0 {
+                        return;
+                    }
 
-                    // let position = camera
-                    //     .viewport
-                    //     .transform(1.0, ratio)
-                    //     .transform_point(&cursor.position());
+                    let point = na::Point2::new(cursor.x / extent.width() as f32 * 2.0 - 1.0, 1.0 - cursor.y / extent.height() as f32 * 2.0);
 
-                    // let position = camera_global.iso.transform_point(&position);
-                    // move_to.try_get_mut(target).unwrap().target = position;
+                    let ratio = extent.width() as f32 / extent.height() as f32;
+
+                    let (camera, camera_global) = cameras.try_get(camera).unwrap();
+
+                    let position = camera
+                        .viewport
+                        .transform(1.0, ratio)
+                        .transform_point(&point);
+
+                    let position = camera_global.iso.transform_point(&position);
+                    move_to.try_get_mut(target).unwrap().target = position;
                 },
             paddle_system,
         ],

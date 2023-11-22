@@ -5,7 +5,7 @@ use std::{any::TypeId, marker::PhantomData, process::Command, ptr::NonNull};
 use edict::{
     archetype::Archetype,
     query::{Fetch, IntoQuery, WriteAlias},
-    Access, Component, Query,
+    Access, Component, EntityId, Query,
 };
 use mev::{Extent2, Surface};
 use winit::window::Window;
@@ -93,9 +93,14 @@ impl Viewport {
         device: &mev::Device,
         queue: &mut mev::Queue,
         before: mev::PipelineStages,
-    ) -> Result<(mev::Image, Option<mev::Frame>), mev::SurfaceError> {
+    ) -> Result<Option<(mev::Image, Option<mev::Frame>)>, mev::SurfaceError> {
         match &mut self.kind {
             ViewportKind::Window { surface, window } => {
+                if window.inner_size().width == 0 || window.inner_size().height == 0 {
+                    surface.take();
+                    return Ok(None);
+                }
+
                 for _ in 0..SURFACE_RECREATE_TRIES {
                     let s = match surface {
                         Some(surface) => surface,
@@ -112,14 +117,14 @@ impl Viewport {
                         }
                         Err(err) => return Err(err),
                     };
-                    return Ok((frame.image().clone(), Some(frame)));
+                    return Ok(Some((frame.image().clone(), Some(frame))));
                 }
                 Err(mev::SurfaceError::SurfaceLost)
             }
-            ViewportKind::Texture { image } => {
-                let image = image.clone().ok_or(mev::SurfaceError::SurfaceLost)?;
-                Ok((image, None))
-            }
+            ViewportKind::Texture { image } => match image.clone() {
+                Some(image) => Ok(Some((image, None))),
+                None => Ok(None),
+            },
         }
     }
 

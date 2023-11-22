@@ -533,7 +533,10 @@ pub fn render<'a>(
         };
 
         match viewport.next_frame(device, queue, rt.writes(0)) {
-            Ok((image, frame)) => {
+            Ok(None) => {
+                // Don't need to render to this target.
+            }
+            Ok(Some((image, frame))) => {
                 ctx.init_images.insert(tid.0);
                 ctx.images.insert(tid.0, image);
                 if let Some(frame) = frame {
@@ -548,24 +551,28 @@ pub fn render<'a>(
     }
 
     if let Some(tid) = graph.main_present {
-        if let Some(mut viewport) = world.get_resource_mut::<Viewport>() {
-            // Target must exist.
-            let rt = &graph.image_targets[&tid.0];
+        // Expect main viewport to exist.
+        let mut viewport = world.expect_resource_mut::<Viewport>();
 
-            match viewport.next_frame(device, queue, rt.writes(0)) {
-                Ok((image, frame)) => {
-                    ctx.init_images.insert(tid.0);
-                    ctx.images.insert(tid.0, image);
-                    if let Some(frame) = frame {
-                        frames.push((frame, rt.writes(tid.1) | rt.reads(tid.1)));
-                    }
-                    image_targets_to_update.push(tid);
-                }
-                Err(err) => {
-                    tracing::error!(?err);
-                }
+        // Target must exist.
+        let rt = &graph.image_targets[&tid.0];
+
+        match viewport.next_frame(device, queue, rt.writes(0)) {
+            Ok(None) => {
+                // Don't need to render to this target.
             }
-        };
+            Ok(Some((image, frame))) => {
+                ctx.init_images.insert(tid.0);
+                ctx.images.insert(tid.0, image);
+                if let Some(frame) = frame {
+                    frames.push((frame, rt.writes(tid.1) | rt.reads(tid.1)));
+                }
+                image_targets_to_update.push(tid);
+            }
+            Err(err) => {
+                tracing::error!(?err);
+            }
+        }
     }
 
     // Find all renders to activate.

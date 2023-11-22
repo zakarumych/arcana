@@ -166,7 +166,8 @@ impl Project {
             name: name.to_owned(),
             engine,
             plugins: Vec::new(),
-            systems: Vec::new(),
+            var_systems: Vec::new(),
+            fix_systems: Vec::new(),
             filters: Vec::new(),
         };
 

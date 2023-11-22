@@ -20,7 +20,7 @@ use parking_lot::Mutex;
 use winit::{
     dpi,
     event::WindowEvent,
-    window::{WindowBuilder, WindowId},
+    window::{Window, WindowBuilder, WindowId},
 };
 
 use crate::games::GamesTab;
@@ -126,7 +126,8 @@ impl App {
             );
             let id = world.spawn((Viewport::new_window(window), egui)).id();
 
-            let target = EguiRender::build(id, mev::ClearColor(0.2, 0.2, 0.2, 1.0), &mut graph);
+            let target =
+                EguiRender::build(Some(id), mev::ClearColor(0.2, 0.2, 0.2, 1.0), &mut graph);
             graph.present_to(target, id);
         }
 
@@ -152,7 +153,8 @@ impl App {
             );
             let id = world.spawn((Viewport::new_window(window), egui)).id();
 
-            let target = EguiRender::build(id, mev::ClearColor(0.2, 0.2, 0.2, 1.0), &mut graph);
+            let target =
+                EguiRender::build(Some(id), mev::ClearColor(0.2, 0.2, 0.2, 1.0), &mut graph);
             graph.present_to(target, id);
         }
 
@@ -173,14 +175,16 @@ impl App {
             Event::WindowEvent { window_id, event } => {
                 let world = self.world.local();
 
-                let Some(event) = Games::handle_event(world, window_id, event) else {
+                if Games::handle_event(world, window_id, &event) {
                     return;
                 };
 
                 for (v, egui) in world.view_mut::<(&Viewport, &mut Egui)>() {
                     if v.window().id() == window_id {
                         if let Ok(event) = ViewportEvent::try_from(&event) {
-                            egui.handle_event(&event);
+                            if egui.handle_event(&event) {
+                                return;
+                            }
                         }
                     }
                 }
@@ -223,15 +227,21 @@ impl App {
             return;
         }
 
-        let step = self.clock.step();
-
-        Games::tick(&mut self.world, step);
+        // Update plugins state.
         Plugins::tick(&mut self.world);
 
+        // Try to launch games requested on last tick.
+        Games::launch_games(&mut self.world);
+
+        // Simulate games.
+        let step = self.clock.step();
+        Games::tick(&mut self.world, step);
+
         for (viewport, egui) in self.world.view::<(&Viewport, &mut Egui)>() {
+            let window = viewport.window();
             let dock_state = self
                 .dock_states
-                .entry(viewport.window().id())
+                .entry(window.id())
                 .or_insert_with(|| DockState::new(vec![]));
 
             egui.run(|cx| {
@@ -277,9 +287,17 @@ impl App {
                         });
                     });
                 });
-                egui_dock::DockArea::new(dock_state).show(cx, &mut AppModel { world: &self.world })
+                egui_dock::DockArea::new(dock_state).show(
+                    cx,
+                    &mut AppModel {
+                        world: &self.world,
+                        window,
+                    },
+                )
             });
         }
+
+        // Run actions encoded by UI.
         self.world.run_deferred();
 
         let mut subprocesses = super::SUBPROCESSES.lock();
@@ -334,9 +352,9 @@ struct AppState {
     windows: Vec<AppWindowState>,
 }
 
-#[repr(transparent)]
 struct AppModel<'a> {
     world: &'a WorldLocal,
+    window: &'a Window,
 }
 
 impl TabViewer for AppModel<'_> {
@@ -348,7 +366,7 @@ impl TabViewer for AppModel<'_> {
             Tab::Console => Console::show(self.world, ui),
             Tab::Systems => Systems::show(self.world, ui),
             Tab::Filters => Filters::show(self.world, ui),
-            Tab::Game { ref mut tab } => tab.show(ui, self.world),
+            Tab::Game { ref mut tab } => tab.show(ui, self.world, self.window),
             // Tab::Memory => Memory::show(&mut self.world, ui),
         }
     }

@@ -16,9 +16,6 @@ pub struct InputFilter {
     /// Dispatch events from this device to this controller.
     device: HashMap<DeviceId, Box<dyn Controller>>,
 
-    /// Dispatch events from this window to this controller.
-    viewport: HashMap<EntityId, Box<dyn Controller>>,
-
     /// Dispatch any input event to this controller if
     /// no more specific controller is found for it.
     global: Option<Box<dyn Controller>>,
@@ -35,7 +32,6 @@ impl InputFilter {
     pub fn new() -> Self {
         InputFilter {
             device: HashMap::new(),
-            viewport: HashMap::new(),
             global: None,
         }
     }
@@ -49,26 +45,17 @@ impl InputFilter {
                 ControllerBind::Device(device) => {
                     self.device.insert(device, controller);
                 }
-                ControllerBind::Viewport(viewport) => {
-                    self.viewport.insert(viewport, controller);
-                }
             }
         }
     }
 
     pub fn handle(&mut self, world: &mut World, event: &Event) -> bool {
         match *event {
-            Event::ViewportEvent {
-                viewport,
-                ref event,
-            } => match *event {
+            Event::ViewportEvent { ref event } => match *event {
                 ViewportEvent::KeyboardInput {
                     device_id, input, ..
                 } => {
                     if let Some(controller) = self.device.get_mut(&device_id) {
-                        controller.on_keyboard_input(world, &input);
-                        return true;
-                    } else if let Some(controller) = self.viewport.get_mut(&viewport) {
                         controller.on_keyboard_input(world, &input);
                         return true;
                     } else if let Some(controller) = &mut self.global {
@@ -93,7 +80,6 @@ pub struct InputHandler {
 pub enum ControllerBind {
     Global,
     Device(DeviceId),
-    Viewport(EntityId),
 }
 
 impl InputHandler {
@@ -119,12 +105,6 @@ impl InputHandler {
     pub fn add_device_controller(&mut self, device: DeviceId, controller: Box<dyn Controller>) {
         self.add_controller
             .insert(ControllerBind::Device(device), controller);
-    }
-
-    #[inline(never)]
-    pub fn add_viewport_controller(&mut self, viewport: EntityId, controller: Box<dyn Controller>) {
-        self.add_controller
-            .insert(ControllerBind::Viewport(viewport), controller);
     }
 }
 

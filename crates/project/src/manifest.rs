@@ -142,7 +142,11 @@ pub struct ProjectManifest {
 
     /// List of systems in order they should be added to scheduler.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub systems: Vec<Item>,
+    pub var_systems: Vec<Item>,
+
+    /// List of systems in order they should be added to scheduler.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub fix_systems: Vec<Item>,
 
     /// List of systems in order they should be added to scheduler.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
@@ -182,27 +186,55 @@ impl ProjectManifest {
         self.plugins.remove(idx);
     }
 
-    pub fn get_system(&self, plugin: &Ident, name: &Ident) -> Option<&Item> {
-        self.systems
+    pub fn get_var_system(&self, plugin: &Ident, name: &Ident) -> Option<&Item> {
+        self.var_systems
             .iter()
             .find(|s| *s.plugin == *plugin && *s.name == *name)
     }
 
-    pub fn get_system_mut(&mut self, plugin: &Ident, name: &Ident) -> Option<&mut Item> {
-        self.systems
+    pub fn get_var_system_mut(&mut self, plugin: &Ident, name: &Ident) -> Option<&mut Item> {
+        self.var_systems
             .iter_mut()
             .find(|s| *s.plugin == *plugin && *s.name == *name)
     }
 
-    pub fn has_system(&self, plugin: &Ident, name: &Ident) -> bool {
-        self.systems
+    pub fn has_var_system(&self, plugin: &Ident, name: &Ident) -> bool {
+        self.var_systems
             .iter()
             .any(|s| *s.plugin == *plugin && *s.name == *name)
     }
 
-    pub fn add_system(&mut self, plugin: &Ident, name: &Ident, enabled: bool) {
-        if !self.has_system(plugin, name) {
-            self.systems.push(Item {
+    pub fn add_var_system(&mut self, plugin: &Ident, name: &Ident, enabled: bool) {
+        if !self.has_var_system(plugin, name) {
+            self.var_systems.push(Item {
+                plugin: plugin.to_buf(),
+                name: name.to_buf(),
+                enabled,
+            });
+        }
+    }
+
+    pub fn get_fix_system(&self, plugin: &Ident, name: &Ident) -> Option<&Item> {
+        self.fix_systems
+            .iter()
+            .find(|s| *s.plugin == *plugin && *s.name == *name)
+    }
+
+    pub fn get_fix_system_mut(&mut self, plugin: &Ident, name: &Ident) -> Option<&mut Item> {
+        self.fix_systems
+            .iter_mut()
+            .find(|s| *s.plugin == *plugin && *s.name == *name)
+    }
+
+    pub fn has_fix_system(&self, plugin: &Ident, name: &Ident) -> bool {
+        self.fix_systems
+            .iter()
+            .any(|s| *s.plugin == *plugin && *s.name == *name)
+    }
+
+    pub fn add_fix_system(&mut self, plugin: &Ident, name: &Ident, enabled: bool) {
+        if !self.has_fix_system(plugin, name) {
+            self.fix_systems.push(Item {
                 plugin: plugin.to_buf(),
                 name: name.to_buf(),
                 enabled,

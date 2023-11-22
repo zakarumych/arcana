@@ -117,7 +117,7 @@ struct EguiConstants {
 }
 
 pub struct EguiRender {
-    id: EntityId,
+    id: Option<EntityId>,
     target: TargetId<mev::Image>,
     samplers: Option<[mev::Sampler; 4]>,
     library: Option<mev::Library>,
@@ -131,7 +131,7 @@ pub struct EguiRender {
 
 impl EguiRender {
     fn new(
-        id: EntityId,
+        id: Option<EntityId>,
         target: TargetId<mev::Image>,
         load_op: mev::LoadOp<mev::ClearColor>,
     ) -> Self {
@@ -149,7 +149,7 @@ impl EguiRender {
     }
 
     pub fn build_overlay(
-        id: EntityId,
+        id: Option<EntityId>,
         target: TargetId<mev::Image>,
         graph: &mut RenderGraph,
     ) -> TargetId<mev::Image> {
@@ -160,7 +160,7 @@ impl EguiRender {
     }
 
     pub fn build(
-        id: EntityId,
+        id: Option<EntityId>,
         color: mev::ClearColor,
         graph: &mut RenderGraph,
     ) -> TargetId<mev::Image> {
@@ -173,11 +173,26 @@ impl EguiRender {
 
 impl Render for EguiRender {
     fn render(&mut self, world: &World, mut cx: RenderContext<'_, '_>) -> Result<(), RenderError> {
-        let Ok(mut egui) = world.try_view_one::<&mut Egui>(self.id) else {
-            return Ok(());
-        };
-        let Some(egui) = egui.get_mut() else {
-            return Ok(());
+        let mut egui_res;
+        let mut egui_view;
+        let egui = match self.id {
+            None => {
+                egui_res = match world.get_resource_mut::<Egui>() {
+                    Some(egui) => egui,
+                    None => return Ok(()),
+                };
+                &mut *egui_res
+            }
+            Some(id) => {
+                egui_view = match world.try_view_one::<&mut Egui>(id) {
+                    Ok(egui) => egui,
+                    Err(_) => return Ok(()),
+                };
+                match egui_view.get_mut() {
+                    Some(egui) => egui,
+                    None => return Ok(()),
+                }
+            }
         };
 
         let samplers = match &mut self.samplers {
@@ -679,8 +694,8 @@ impl arcana::events::EventFilter for EguiFilter {
     fn filter(&mut self, _blink: &Blink, world: &mut World, event: &arcana::events::Event) -> bool {
         let world = world.local();
 
-        if let arcana::events::Event::ViewportEvent { viewport, event } = event {
-            if let Ok(egui) = world.get::<&mut Egui>(*viewport) {
+        if let arcana::events::Event::ViewportEvent { event } = event {
+            if let Some(mut egui) = world.get_resource_mut::<Egui>() {
                 if egui.handle_event(event) {
                     // Egui consumed this event.
                     return true;

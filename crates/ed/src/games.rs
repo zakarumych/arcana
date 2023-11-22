@@ -7,6 +7,7 @@ use std::{cmp::Reverse, collections::BinaryHeap, sync::Arc};
 use arcana::{
     const_format,
     edict::world::WorldLocal,
+    events::{Event, ViewportEvent},
     game::Game,
     mev,
     plugin::ArcanaPlugin,
@@ -15,7 +16,10 @@ use arcana::{
     ClockStep, Component, Entities, EntityId, World,
 };
 use parking_lot::Mutex;
-use winit::{event::WindowEvent, window::WindowId};
+use winit::{
+    event::WindowEvent,
+    window::{Window, WindowId},
+};
 
 use crate::Tab;
 
@@ -29,6 +33,21 @@ pub struct Games {
 
     /// List of games without viewer.
     headless: Vec<GameId>,
+
+    /// Currently focused game.
+    ///
+    /// If set, consumes viewport events and sends them to the game.
+    /// Cursor events are transformed and ingored if outside of the game's viewport.
+    focus: Option<GameFocus>,
+}
+
+struct GameFocus {
+    window_id: WindowId,
+    rect: egui::Rect,
+    pixel_per_point: f32,
+    entity: EntityId,
+    cursor_inside: bool,
+    lock_pointer: bool,
 }
 
 #[must_use]
@@ -56,6 +75,7 @@ impl Games {
             last_id: 0,
             name_offset: 0,
             headless: Vec::new(),
+            focus: None,
         }
     }
 
@@ -93,28 +113,55 @@ impl Games {
         }
     }
 
+    fn is_focused(&self, entity: EntityId) -> bool {
+        self.focus.as_ref().map_or(false, |f| f.entity == entity)
+    }
+
     pub fn new_game(world: &WorldLocal) -> GameId {
         let mut games = world.expect_resource_mut::<Games>();
-        let id = games.alloc_id();
+        games._new_game(world)
+    }
+
+    fn _new_game(&mut self, world: &WorldLocal) -> GameId {
+        let id = self.alloc_id();
         let entity = world.allocate().id();
         let game_id = GameId { entity, id };
         world.insert_defer(entity, LaunchGame);
+        tracing::info!("Game {} starting", id);
         game_id
     }
 
     pub fn detach(world: &WorldLocal, id: GameId) {
         let mut games = world.expect_resource_mut::<Games>();
+
+        if games.is_focused(id.entity) {
+            games.focus = None;
+        }
+
         games.headless.push(id);
     }
 
     pub fn stop(world: &WorldLocal, id: GameId) {
-        world.despawn_defer(id.entity);
         let mut games = world.expect_resource_mut::<Games>();
-        games.free_id(id.id);
+        games._stop(world, id);
     }
 
-    /// Launches a new game instance in its own window.
-    fn _launch(world: &mut World) {
+    fn _stop(&mut self, world: &WorldLocal, id: GameId) {
+        if self.is_focused(id.entity) {
+            self.focus = None;
+        }
+
+        world.despawn_defer(id.entity);
+        self.free_id(id.id);
+        tracing::info!("Game {} stopped", id.id);
+    }
+
+    /// Launches requested games.
+    pub fn launch_games(world: &mut World) {
+        if world.new_view_mut().with::<LaunchGame>().iter().count() == 0 {
+            return;
+        }
+
         let project = world.expect_resource_mut::<Project>();
         let plugins = world.expect_resource_mut::<Plugins>();
         let Some(active_plugins) = plugins.active_plugins() else {
@@ -140,9 +187,16 @@ impl Games {
             }
         };
 
-        let active_systems = project
+        let active_var_systems = project
             .manifest()
-            .systems
+            .var_systems
+            .iter()
+            .filter(active(|p| p.systems()))
+            .map(|i| (&*i.plugin, &*i.name));
+
+        let active_fix_systems = project
+            .manifest()
+            .fix_systems
             .iter()
             .filter(active(|p| p.systems()))
             .map(|i| (&*i.plugin, &*i.name));
@@ -165,7 +219,8 @@ impl Games {
                 let game = Game::launch(
                     active_plugins.clone(),
                     active_filters.clone(),
-                    active_systems.clone(),
+                    active_var_systems.clone(),
+                    active_fix_systems.clone(),
                     device.clone(),
                     queue.clone(),
                     None,
@@ -187,15 +242,90 @@ impl Games {
     pub fn handle_event<'a>(
         world: &mut World,
         window_id: WindowId,
-        event: WindowEvent<'a>,
-    ) -> Option<WindowEvent<'a>> {
+        event: &WindowEvent<'a>,
+    ) -> bool {
+        let world = world.local();
         for game in world.view_mut::<&mut Game>() {
             if game.window_id() == Some(window_id) {
-                // return game.handle_event(event);
-                return None;
+                if let Ok(event) = ViewportEvent::try_from(event) {
+                    if game.on_event(&Event::ViewportEvent { event }) {
+                        return true;
+                    }
+                }
+
+                if let WindowEvent::CloseRequested = event {
+                    game.quit();
+                    return true;
+                }
             }
         }
-        Some(event)
+
+        let mut games = world.expect_resource_mut::<Games>();
+        if let Some(focus) = &mut games.focus {
+            if focus.window_id == window_id {
+                if let Ok(event) = ViewportEvent::try_from(event) {
+                    let mut consume = true;
+                    let mut game_view = world.try_view_one::<&mut Game>(focus.entity).unwrap();
+                    let game = game_view.get_mut().unwrap();
+
+                    match event {
+                        ViewportEvent::CursorEntered { .. } => return false,
+                        ViewportEvent::CursorLeft { .. } => return false,
+                        ViewportEvent::CursorMoved { device_id, x, y } => {
+                            let px = x / focus.pixel_per_point;
+                            let py = y / focus.pixel_per_point;
+
+                            let gx = px - focus.rect.min.x;
+                            let gy = py - focus.rect.min.y;
+
+                            if focus.rect.contains(egui::pos2(px, py)) {
+                                if !focus.cursor_inside {
+                                    focus.cursor_inside = true;
+
+                                    game.on_event(&Event::ViewportEvent {
+                                        event: ViewportEvent::CursorEntered { device_id },
+                                    });
+                                }
+
+                                game.on_event(&Event::ViewportEvent {
+                                    event: ViewportEvent::CursorMoved {
+                                        device_id,
+                                        x: gx,
+                                        y: gy,
+                                    },
+                                });
+                            } else {
+                                consume = false;
+
+                                if focus.cursor_inside {
+                                    focus.cursor_inside = false;
+                                    game.on_event(&Event::ViewportEvent {
+                                        event: ViewportEvent::CursorLeft { device_id },
+                                    });
+                                }
+                            }
+                        }
+                        ViewportEvent::MouseWheel { .. } if !focus.cursor_inside => {
+                            consume = false;
+                        }
+                        ViewportEvent::MouseInput { .. } if !focus.cursor_inside => {
+                            consume = false;
+                        }
+                        ViewportEvent::Resized { .. }
+                        | ViewportEvent::ScaleFactorChanged { .. } => {
+                            consume = false;
+                        }
+                        event => {
+                            game.on_event(&Event::ViewportEvent { event });
+                        }
+                    }
+
+                    return consume;
+                }
+            }
+        }
+
+        false
     }
 
     pub fn render(world: &mut World) {
@@ -205,8 +335,6 @@ impl Games {
     }
 
     pub fn tick(world: &mut World, step: ClockStep) {
-        Self::_launch(world);
-
         let mut to_remove = Vec::new();
         for (e, game) in world.view_mut::<(Entities, &mut Game)>() {
             game.tick(step);
@@ -256,7 +384,9 @@ impl GamesTab {
         }
     }
 
-    pub fn show(&mut self, ui: &mut egui::Ui, world: &WorldLocal) {
+    pub fn show(&mut self, ui: &mut egui::Ui, world: &WorldLocal, window: &Window) {
+        let mut games = world.expect_resource_mut::<Games>();
+
         let mut game_view;
         let mut game: Option<&mut Game> = match &self.id {
             None => None,
@@ -300,6 +430,23 @@ impl GamesTab {
             stop
         });
 
+        if r.inner {
+            games._stop(world, self.id.take().unwrap());
+            game = None;
+        }
+
+        // let r = ui.horizontal_top(|ui| {
+        //     let r = ui.button(const_format!(
+        //         "{} {}",
+        //         egui_phosphor::regular::CURSOR,
+        //         egui_phosphor::regular::LOCK
+        //     ));
+
+        //     if r.clicked() {
+
+        //     }
+        // });
+
         match game {
             None => {
                 if self.id.is_none() {
@@ -310,7 +457,7 @@ impl GamesTab {
                             egui_phosphor::regular::ROCKET_LAUNCH
                         ));
                         if r.clicked() {
-                            self.id = Some(Games::new_game(world));
+                            self.id = Some(games._new_game(world));
                         }
                     });
                 } else {
@@ -322,25 +469,75 @@ impl GamesTab {
             Some(game) => {
                 let id = self.id.as_ref().unwrap();
 
-                let size = ui.available_size();
-                let extent = mev::Extent2::new(size.x as u32, size.y as u32);
-                let Ok(image) = game.render_with_texture(extent) else {
-                    ui.centered_and_justified(|ui| {
-                        ui.label("GPU OOM");
+                let focused = games.is_focused(id.entity);
+
+                let game_frame = egui::Frame::none()
+                    .rounding(egui::Rounding::same(5.0))
+                    .stroke(egui::Stroke::new(
+                        1.0,
+                        if focused {
+                            egui::Color32::LIGHT_GRAY
+                        } else {
+                            egui::Color32::DARK_GRAY
+                        },
+                    ))
+                    .inner_margin(egui::Margin::same(10.0));
+
+                game_frame.show(ui, |ui| {
+                    let size = ui.available_size();
+                    let extent = mev::Extent2::new(size.x as u32, size.y as u32);
+                    let Ok(image) = game.render_with_texture(extent) else {
+                        ui.centered_and_justified(|ui| {
+                            ui.label("GPU OOM");
+                        });
+                        return;
+                    };
+
+                    world.insert_defer(id.entity, Texture { image });
+
+                    let image = egui::Image::new(egui::load::SizedTexture {
+                        id: egui::TextureId::User(id.entity.bits()),
+                        size: size.into(),
                     });
-                    return;
-                };
 
-                world.insert_defer(id.entity, Texture { image });
+                    let r = ui.add(image.sense(egui::Sense::click()));
 
-                ui.add(egui::Image::new(egui::load::SizedTexture {
-                    id: egui::TextureId::User(id.entity.bits()),
-                    size: size.into(),
-                }));
+                    if focused {
+                        if !r.has_focus() {
+                            tracing::info!("Game {} lost focus", id.id);
+                            games.focus = None;
+                        } else {
+                            let focus = games.focus.as_mut().unwrap();
 
-                if r.inner {
-                    world.drop_defer::<Game>(id.entity);
-                }
+                            focus.rect = r.rect;
+                            focus.pixel_per_point = ui.ctx().pixels_per_point();
+                        }
+                    } else {
+                        let make_focused = if r.has_focus() {
+                            !focused
+                        } else {
+                            if r.clicked() {
+                                r.request_focus();
+                                !focused
+                            } else {
+                                false
+                            }
+                        };
+
+                        if make_focused {
+                            tracing::info!("Game {} focused", id.id);
+
+                            games.focus = Some(GameFocus {
+                                window_id: window.id(),
+                                rect: r.rect,
+                                pixel_per_point: ui.ctx().pixels_per_point(),
+                                entity: id.entity,
+                                cursor_inside: false,
+                                lock_pointer: false,
+                            });
+                        }
+                    }
+                });
             }
         }
     }

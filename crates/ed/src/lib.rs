@@ -5,7 +5,7 @@ use games::GamesTab;
 use parking_lot::Mutex;
 use winit::event_loop::{ControlFlow, EventLoopBuilder};
 
-use crate::{app::UserEvent, games::Games};
+use crate::app::UserEvent;
 
 pub use arcana::*;
 
@@ -92,7 +92,8 @@ fn _run(path: &Path) -> miette::Result<()> {
     }
 
     let mut clock = Clock::new();
-    let mut limiter = FrequencyTicker::new(120u64.hz());
+
+    let mut limiter = clock.ticker(120.hz());
 
     let events = EventLoopBuilder::<UserEvent>::with_user_event().build();
     let mut app = app::App::new(&events, event_collector, project);
@@ -108,7 +109,7 @@ fn _run(path: &Path) -> miette::Result<()> {
             return;
         }
 
-        let until = clock.stamp_instant(limiter.next_tick_stamp(clock.now()).unwrap());
+        let until = clock.stamp_instant(limiter.next_tick().unwrap());
         *flow = ControlFlow::WaitUntil(until)
     })
 }

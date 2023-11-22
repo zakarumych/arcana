@@ -14,6 +14,7 @@ pub use winit::{
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum DeviceIdKind {
+    Emulated,
     Winit(winit::event::DeviceId),
 }
 
@@ -25,6 +26,7 @@ pub struct DeviceId {
 impl fmt::Debug for DeviceId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.kind {
+            DeviceIdKind::Emulated => write!(f, "Emulated"),
             DeviceIdKind::Winit(id) => write!(f, "winit::DeviceId({:?})", id),
         }
     }
@@ -38,16 +40,21 @@ impl From<winit::event::DeviceId> for DeviceId {
     }
 }
 
+impl DeviceId {
+    pub fn emulated() -> Self {
+        DeviceId {
+            kind: DeviceIdKind::Emulated,
+        }
+    }
+}
+
 /// Event emitted from outside the game.
 ///
 /// Viewport and device events fall into this category.
 #[derive(Clone)]
 pub enum Event {
     /// Event emitted from a viewport.
-    ViewportEvent {
-        viewport: EntityId,
-        event: ViewportEvent,
-    },
+    ViewportEvent { event: ViewportEvent },
 
     /// Event emitted from a device.
     DeviceEvent {
@@ -63,7 +70,7 @@ pub enum ViewportEvent {
         height: u32,
     },
     ScaleFactorChanged {
-        scale_factor: f64,
+        scale_factor: f32,
     },
     KeyboardInput {
         device_id: DeviceId,
@@ -72,8 +79,8 @@ pub enum ViewportEvent {
     ModifiersChanged(ModifiersState),
     CursorMoved {
         device_id: DeviceId,
-        x: f64,
-        y: f64,
+        x: f32,
+        y: f32,
     },
     CursorEntered {
         device_id: DeviceId,
@@ -105,7 +112,9 @@ impl TryFrom<&WindowEvent<'_>> for ViewportEvent {
                 Ok(ViewportEvent::Resized { width, height })
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                Ok(ViewportEvent::ScaleFactorChanged { scale_factor })
+                Ok(ViewportEvent::ScaleFactorChanged {
+                    scale_factor: scale_factor as f32,
+                })
             }
             WindowEvent::KeyboardInput {
                 device_id, input, ..
@@ -122,8 +131,8 @@ impl TryFrom<&WindowEvent<'_>> for ViewportEvent {
                 ..
             } => {
                 let device_id = DeviceId::from(device_id);
-                let x = position.x;
-                let y = position.y;
+                let x = position.x as f32;
+                let y = position.y as f32;
                 Ok(ViewportEvent::CursorMoved { device_id, x, y })
             }
             WindowEvent::CursorEntered { device_id } => {

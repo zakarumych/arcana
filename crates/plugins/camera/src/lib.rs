@@ -12,26 +12,26 @@ export_arcana_plugin! {
 #[derive(Clone, Copy, Component)]
 pub struct Camera2 {
     /// Viewport of the camera.
-    pub viewport: Viewport2,
+    pub viewport: ViewRect,
 
     /// Parallax applied to the layers this camera renders.
     pub parallax: f32,
 }
 
 #[derive(Clone, Copy)]
-pub enum Viewport2 {
-    /// Viewport that honors aspect ratio of the target resolution.
+pub enum ViewRect {
+    /// ViewRect that honors aspect ratio of the target resolution.
     FovY(f32),
 
-    /// Viewport with fixed aspect ratio.
+    /// ViewRect with fixed aspect ratio.
     FovXY(f32, f32),
 }
 
-impl Viewport2 {
+impl ViewRect {
     pub fn transform(&self, scale: f32, ratio: f32) -> na::Affine2<f32> {
         let (x, y) = match *self {
-            Viewport2::FovY(y) => (y * ratio, y),
-            Viewport2::FovXY(x, y) => (x, y),
+            ViewRect::FovY(y) => (y * ratio, y),
+            ViewRect::FovXY(x, y) => (x, y),
         };
 
         let scaling = na::Vector3::new(x * scale, y * scale, 1.0);
@@ -43,22 +43,22 @@ impl Viewport2 {
 impl Camera2 {
     pub const fn new() -> Self {
         Self {
-            viewport: Viewport2::FovY(1.0),
+            viewport: ViewRect::FovY(1.0),
             parallax: 1.0,
         }
     }
 
     pub const fn with_fovy(mut self, fov_y: f32) -> Self {
-        self.viewport = Viewport2::FovY(fov_y);
+        self.viewport = ViewRect::FovY(fov_y);
         self
     }
 
     pub const fn with_fovxy(mut self, fov_x: f32, fov_y: f32) -> Self {
-        self.viewport = Viewport2::FovXY(fov_x, fov_y);
+        self.viewport = ViewRect::FovXY(fov_x, fov_y);
         self
     }
 
-    pub const fn with_viewport(mut self, viewport: Viewport2) -> Self {
+    pub const fn with_viewport(mut self, viewport: ViewRect) -> Self {
         self.viewport = viewport;
         self
     }

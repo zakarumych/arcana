@@ -338,11 +338,11 @@ impl crate::traits::Surface for Surface {
             }
         }
 
-        loop {
-            if self.current.is_none() {
-                self.init()?;
-            }
+        if self.current.is_none() {
+            self.init()?;
+        }
 
+        loop {
             let current = self.current.as_mut().unwrap();
 
             let result = unsafe {
@@ -374,7 +374,7 @@ impl crate::traits::Surface for Surface {
                     return Err(SurfaceError::SurfaceLost);
                 }
                 Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
-                    self.current = None;
+                    self.init()?;
                     continue;
                 }
                 Err(err) => unexpected_error(err),

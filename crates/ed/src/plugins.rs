@@ -427,7 +427,8 @@ impl Plugins {
 
                         for (name, plugin) in lib.list() {
                             for system in plugin.systems() {
-                                project.manifest_mut().add_system(name, system, true);
+                                project.manifest_mut().add_var_system(name, system, true);
+                                project.manifest_mut().add_fix_system(name, system, false);
                             }
                             for filter in plugin.filters() {
                                 project.manifest_mut().add_filter(name, filter, true);
