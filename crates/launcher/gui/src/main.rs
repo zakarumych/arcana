@@ -1,4 +1,4 @@
-use std::{process::Child, time::Duration};
+use std::{fs::File, process::Child, time::Duration};
 
 use arcana::{
     blink_alloc::BlinkAlloc,
@@ -9,12 +9,14 @@ use arcana::{
     init_mev, mev,
     project::{Dependency, Ident, IdentBuf, Project},
     render::{render, RenderGraph, RenderResources},
+    tokio::time::error::Error,
     viewport::Viewport,
     Clock, ClockStep, WorldBuilder,
 };
 use arcana_egui::{Egui, EguiRender};
 use arcana_launcher::Start;
 use egui::vec2;
+use egui_file::FileDialog;
 use winit::{
     event::WindowEvent,
     event_loop::{ControlFlow, EventLoopBuilder},
@@ -53,6 +55,7 @@ impl ErrorDialog {
 
 enum AppDialog {
     NewProject(NewProject),
+    OpenProject(FileDialog),
     Error(ErrorDialog),
 }
 
@@ -170,7 +173,7 @@ impl App {
             Some(AppChild::EditorBuilding(ref mut child, _)) => match child.try_wait() {
                 Err(err) => {
                     self.dialog = Some(AppDialog::Error(ErrorDialog {
-                        title: "Failed to check if editor closed".to_owned(),
+                        title: "Failed to check if build finished".to_owned(),
                         message: err.to_string(),
                     }));
                     self.child = None;
@@ -182,7 +185,7 @@ impl App {
                                 match project.run_editor_non_blocking() {
                                     Err(err) => {
                                         self.dialog = Some(AppDialog::Error(ErrorDialog {
-                                            title: "Failed to run editor".to_owned(),
+                                            title: "Failed to run Arcana Ed".to_owned(),
                                             message: err.to_string(),
                                         }));
                                         self.child = None;
@@ -198,7 +201,7 @@ impl App {
                         }
                     } else {
                         self.dialog = Some(AppDialog::Error(ErrorDialog {
-                            title: "Editor exited with error".to_owned(),
+                            title: "Failed to build Arcana Ed".to_owned(),
                             message: format!("{}", status),
                         }));
                         self.child = None;
@@ -210,7 +213,7 @@ impl App {
                 match child.try_wait() {
                     Err(err) => {
                         self.dialog = Some(AppDialog::Error(ErrorDialog {
-                            title: "Failed to check if editor closed".to_owned(),
+                            title: "Failed to check if Arcana Ed closed".to_owned(),
                             message: err.to_string(),
                         }));
                         self.child = None;
@@ -219,7 +222,7 @@ impl App {
                     Ok(Some(status)) => {
                         if !status.success() {
                             self.dialog = Some(AppDialog::Error(ErrorDialog {
-                                title: "Editor exited with error".to_owned(),
+                                title: "Arcana Ed exited with error".to_owned(),
                                 message: format!("{}", status),
                             }));
                         }
@@ -260,20 +263,10 @@ impl App {
 
                     let r = ui.button("Open Project");
                     if r.clicked() {
-                        if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                            match Project::open(&path) {
-                                Err(err) => {
-                                    self.dialog = Some(AppDialog::Error(ErrorDialog {
-                                        title: "Failed to open project".to_owned(),
-                                        message: err.to_string(),
-                                    }));
-                                }
-                                Ok(project) => {
-                                    action = Some(Action::RunEditor(project));
-                                    ui.close_menu();
-                                }
-                            }
-                        }
+                        let mut dialog: FileDialog =
+                            FileDialog::select_folder(None).title("Open project");
+                        dialog.open();
+                        self.dialog = Some(AppDialog::OpenProject(dialog));
 
                         ui.close_menu();
                     } else {
@@ -396,6 +389,31 @@ impl App {
                             window.request_redraw();
                         }
                     }
+                    Some(AppDialog::OpenProject(ref mut file_dialog)) => {
+                        match file_dialog.show(cx).state() {
+                            egui_file::State::Open => {}
+                            egui_file::State::Closed | egui_file::State::Cancelled => {
+                                self.dialog = None;
+                            }
+                            egui_file::State::Selected => match file_dialog.path() {
+                                None => {
+                                    self.dialog = None;
+                                }
+                                Some(path) => match Project::open(path) {
+                                    Err(err) => {
+                                        self.dialog = Some(AppDialog::Error(ErrorDialog {
+                                            title: "Failed to open project".to_owned(),
+                                            message: err.to_string(),
+                                        }));
+                                    }
+                                    Ok(project) => {
+                                        action = Some(Action::RunEditor(project));
+                                        self.dialog = None;
+                                    }
+                                },
+                            },
+                        }
+                    }
                     Some(AppDialog::NewProject(ref mut new_project)) => {
                         match new_project.show(&self.start, cx) {
                             None => {}
@@ -506,6 +524,11 @@ fn main() {
     })
 }
 
+enum NewProjectDialog {
+    Error(ErrorDialog),
+    PickPath(FileDialog),
+}
+
 /// This widget is used to configure and create new project.
 struct NewProject {
     /// Name of new project.
@@ -528,9 +551,8 @@ struct NewProject {
     /// Pluings list may be modified later.
     plugins: Vec<Dependency>,
 
-    /// Error preventing project creation.
-    /// Empty if no error.
-    error: String,
+    /// Current dialog.
+    dialog: Option<NewProjectDialog>,
 }
 
 impl NewProject {
@@ -541,7 +563,7 @@ impl NewProject {
             path: String::new(),
             engine: None,
             plugins: Vec::new(),
-            error: String::new(),
+            dialog: None,
         }
     }
 
@@ -558,6 +580,8 @@ impl NewProject {
             // .default_pos(egui::pos2(50.0, 50.0))
             // .collapsible(false)
             .show(cx, |ui| {
+                ui.set_enabled(self.dialog.is_none());
+
                 egui::Grid::new("new-project-settings")
                     .num_columns(2)
                     .striped(true)
@@ -572,9 +596,10 @@ impl NewProject {
                             ui.text_edit_singleline(&mut self.path);
                             let r = ui.small_button(egui_phosphor::regular::DOTS_THREE);
                             if r.clicked() {
-                                if let Some(path) = rfd::FileDialog::new().save_file() {
-                                    self.path = path.to_string_lossy().to_string();
-                                }
+                                let mut dialog =
+                                    FileDialog::select_folder(None).title("Select project path");
+                                dialog.open();
+                                self.dialog = Some(NewProjectDialog::PickPath(dialog));
                             }
                         });
                         ui.end_row();
@@ -605,16 +630,30 @@ impl NewProject {
                     let r = ui.add(egui::Button::new("Cancel"));
                     close_dialog = r.clicked();
                 });
+            });
 
-                if !self.error.is_empty() {
-                    ui.separator();
-                    ui.label(egui::RichText::new(self.error.clone()).color(egui::Color32::RED));
-                    let r = ui.small_button(egui_phosphor::regular::COPY);
-                    if r.clicked() {
-                        ui.ctx().copy_text(self.error.clone());
+        match self.dialog {
+            None => {}
+            Some(NewProjectDialog::Error(ref error)) => {
+                if error.show(cx) {
+                    self.dialog = None;
+                }
+            }
+            Some(NewProjectDialog::PickPath(ref mut file_dialog)) => {
+                match file_dialog.show(cx).state() {
+                    egui_file::State::Open => {}
+                    egui_file::State::Closed | egui_file::State::Cancelled => {
+                        self.dialog = None;
+                    }
+                    egui_file::State::Selected => {
+                        if let Some(path) = file_dialog.path() {
+                            self.path = path.display().to_string();
+                        }
+                        self.dialog = None;
                     }
                 }
-            });
+            }
+        }
 
         if close_dialog {
             return Some(None);
@@ -633,7 +672,10 @@ impl NewProject {
                     return Some(Some(project));
                 }
                 Err(err) => {
-                    self.error = err.to_string();
+                    self.dialog = Some(NewProjectDialog::Error(ErrorDialog {
+                        title: "Failed to create project".to_owned(),
+                        message: err.to_string(),
+                    }));
                 }
             }
         }

@@ -16,11 +16,11 @@ camino = { workspace = true }
 dirs = { workspace = true }
 egui = { workspace = true }
 egui_dnd = { workspace = true }
+egui_file = { workspace = true }
 egui-phosphor = { workspace = true }
 egui_tracing = { workspace = true }
 hashbrown = { workspace = true }
 miette = { workspace = true, features = ["fancy"] }
-rfd = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }

@@ -15,6 +15,7 @@ dirs = { workspace = true }
 egui = { workspace = true }
 egui_dnd = { workspace = true }
 egui_dock = { workspace = true, features = ["serde"] }
+egui_file = { workspace = true }
 egui-phosphor = { workspace = true }
 egui_tracing = { workspace = true }
 hashbrown = { workspace = true }
@@ -24,7 +25,6 @@ nucleo = { workspace = true }
 parking_lot = { workspace = true }
 rand = { workspace = true }
 relevant = { workspace = true }
-rfd = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }

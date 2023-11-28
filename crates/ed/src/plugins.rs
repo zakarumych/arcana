@@ -10,6 +10,7 @@ use arcana::{
     With, World,
 };
 use egui::{Color32, Ui, WidgetText};
+use egui_file::FileDialog;
 use hashbrown::HashSet;
 
 use super::Tab;
@@ -331,6 +332,13 @@ pub(super) struct Plugins {
 
     /// Set of active plugins.
     active_plugins: HashSet<IdentBuf>,
+
+    dialog: Option<PluginsDialog>,
+}
+
+enum PluginsDialog {
+    NewPlugin(FileDialog),
+    FindPlugin(FileDialog),
 }
 
 impl Plugins {
@@ -341,6 +349,7 @@ impl Plugins {
             failure: None,
             build: None,
             active_plugins: HashSet::new(),
+            dialog: None,
         }
     }
 
@@ -507,12 +516,13 @@ impl Plugins {
             let r = ui.button(egui_phosphor::regular::PLUS);
 
             if r.clicked() {
-                if let Some(path) = rfd::FileDialog::new().save_file() {
-                    if add_plugin_with_path(&path, &mut project) {
-                        sync = true;
-                        rebuild = true;
-                    }
-                }
+                // if let Some(path) = rfd::FileDialog::new().save_file() {
+                //     if add_plugin_with_path(&path, &mut project) {
+                //         sync = true;
+                //         rebuild = true;
+                //     }
+                // }
+                todo!()
             } else {
                 r.on_hover_ui(|ui| {
                     ui.label("New plugin");
@@ -521,15 +531,16 @@ impl Plugins {
 
             let r = ui.button(egui_phosphor::regular::FOLDER_OPEN);
             if r.clicked() {
-                if let Some(path) = rfd::FileDialog::new()
-                    .set_file_name("Cargo.toml")
-                    .pick_file()
-                {
-                    if add_plugin_with_path(&path, &mut project) {
-                        sync = true;
-                        rebuild = true;
-                    }
-                }
+                // if let Some(path) = rfd::FileDialog::new()
+                //     .set_file_name("Cargo.toml")
+                //     .pick_file()
+                // {
+                //     if add_plugin_with_path(&path, &mut project) {
+                //         sync = true;
+                //         rebuild = true;
+                //     }
+                // }
+                todo!()
             } else {
                 r.on_hover_ui(|ui| {
                     ui.label("Add plugin");
