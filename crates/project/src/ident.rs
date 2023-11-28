@@ -21,12 +21,12 @@ pub struct Ident {
 }
 
 impl Ident {
-    pub fn from_str<S>(s: &S) -> miette::Result<&Self>
+    pub fn from_str<S>(s: &S) -> Result<&Self, IdentError>
     where
         S: AsRef<str> + ?Sized,
     {
         let s = s.as_ref();
-        validate(s)?;
+        validate_ident(s)?;
         Ok(Ident::from_ident_str(s))
     }
 
@@ -149,6 +149,16 @@ impl<'de> serde::Deserialize<'de> for &'de Ident {
     }
 }
 
+impl ToOwned for Ident {
+    type Owned = IdentBuf;
+
+    fn to_owned(&self) -> Self::Owned {
+        IdentBuf {
+            s: self.s.to_owned(),
+        }
+    }
+}
+
 /// String wrapper that ensures it is a valid unicode identifier.
 #[derive(Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
@@ -157,17 +167,17 @@ pub struct IdentBuf {
 }
 
 impl IdentBuf {
-    pub fn from_string(s: String) -> miette::Result<Self> {
-        validate(&s)?;
+    pub fn from_string(s: String) -> Result<Self, IdentError> {
+        validate_ident(&s)?;
         Ok(IdentBuf { s })
     }
 
-    pub fn from_str<S>(s: S) -> miette::Result<Self>
+    pub fn from_str<S>(s: S) -> Result<Self, IdentError>
     where
         S: AsRef<str>,
     {
         let s = s.as_ref();
-        validate(s)?;
+        validate_ident(s)?;
         Ok(IdentBuf { s: s.to_owned() })
     }
 
@@ -291,27 +301,81 @@ impl<'de> serde::Deserialize<'de> for IdentBuf {
     }
 }
 
+// /// Validates that string is a valid unicode identifier.
+// /// Returns error if it is not.
+// fn validate(s: &str) -> miette::Result<()> {
+
+//     if s.is_empty() {
+//         miette::bail!("Ident must not be empty");
+//     }
+
+//     let bad_first = |c: char| !unicode_ident::is_xid_start(c);
+
+//     if s.starts_with(bad_first) {
+//         miette::bail!("'{s}' is not valid Ident. First char must have XID_Start property");
+//     }
+
+//     let bad = |c: char| !unicode_ident::is_xid_continue(c);
+
+//     match s.matches(bad).next() {
+//         None => Ok(()),
+//         Some(c) => {
+//             miette::bail!(
+//                 "'{s}' is not valid Ident. 2nd and later chars must have XID_Continue property. '{c}' doesn't"
+//             );
+//         }
+//     }
+// }
+
+pub enum IdentError {
+    Empty,
+    BadFirst(char),
+    Bad(char),
+}
+
+impl fmt::Debug for IdentError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(self, f)
+    }
+}
+
+impl fmt::Display for IdentError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            IdentError::Empty => write!(f, "Ident must not be empty"),
+            IdentError::BadFirst(c) => write!(
+                f,
+                "'{}' is not valid Ident. First char must have XID_Start property. Try latin letter",
+                c
+            ),
+            IdentError::Bad(c) => write!(
+                f,
+                "'{}' is not valid Ident. 2nd and later chars must have XID_Continue property. Try latin letter or digit",
+                c
+            ),
+        }
+    }
+}
+
 /// Validates that string is a valid unicode identifier.
 /// Returns error if it is not.
-fn validate(s: &str) -> miette::Result<()> {
+pub fn validate_ident(s: &str) -> Result<(), IdentError> {
     if s.is_empty() {
-        miette::bail!("Ident must not be empty");
+        return Err(IdentError::Empty);
     }
 
     let bad_first = |c: char| !unicode_ident::is_xid_start(c);
 
     if s.starts_with(bad_first) {
-        miette::bail!("'{s}' is not valid Ident. First char must have XID_Start property");
+        return Err(IdentError::BadFirst(s.chars().next().unwrap()));
     }
 
     let bad = |c: char| !unicode_ident::is_xid_continue(c);
 
-    match s.matches(bad).next() {
+    match s.find(bad) {
         None => Ok(()),
-        Some(c) => {
-            miette::bail!(
-                "'{s}' is not valid Ident. 2nd and later chars must have XID_Continue property. '{c}' doesn't"
-            );
+        Some(pos) => {
+            return Err(IdentError::Bad(s[pos..].chars().next().unwrap()));
         }
     }
 }

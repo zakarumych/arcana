@@ -43,9 +43,8 @@ impl Dependency {
         match &self {
             Dependency::Path { path } => {
                 let rel_path = make_relative(path.as_std_path(), base.as_ref());
-                let Ok(utf8_path) = Utf8PathBuf::from_path_buf(rel_path) else {
-                    return self;
-                };
+                let utf8_path =
+                    Utf8PathBuf::from_path_buf(rel_path).expect("Dependency path is not UTF-8");
                 Dependency::Path { path: utf8_path }
             }
             _ => self,

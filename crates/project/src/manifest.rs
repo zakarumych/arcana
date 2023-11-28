@@ -133,8 +133,7 @@ pub struct ProjectManifest {
 
     /// How to fetch engine dependency.
     /// Defaults to `Dependency::Crates(version())`.
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub engine: Option<Dependency>,
+    pub engine: Dependency,
 
     /// List of plugin libraries this project depends on.
     #[serde(skip_serializing_if = "Vec::is_empty", default, with = "plugins_serde")]

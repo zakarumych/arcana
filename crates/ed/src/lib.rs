@@ -99,18 +99,18 @@ fn _run(path: &Path) -> miette::Result<()> {
     let mut app = app::App::new(&events, event_collector, project);
 
     events.run(move |event, events, flow| {
-        let step = clock.step().step;
-        limiter.ticks(step);
+        let step = clock.step();
 
-        app.on_event(event, events);
+        app.on_event(event, events, step);
 
         if app.should_quit() {
             *flow = ControlFlow::Exit;
             return;
         }
 
+        limiter.ticks(step.step);
         let until = clock.stamp_instant(limiter.next_tick().unwrap());
-        *flow = ControlFlow::WaitUntil(until)
+        flow.set_wait_until(until);
     })
 }
 

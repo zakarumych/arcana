@@ -9,6 +9,7 @@ description = "Arcana Engine launcher library"
 
 [dependencies]
 arcana-project = { path = "../project" }
+camino = { workspace = true, features = ["serde1"] }
 denvars = { workspace = true, features = ["toml"] }
 dirs = { workspace = true }
 figa = { workspace = true, features = ["derive"] }

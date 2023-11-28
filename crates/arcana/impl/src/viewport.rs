@@ -129,8 +129,16 @@ impl Viewport {
     }
 
     #[doc(hidden)]
-    pub fn window(&self) -> &Window {
+    pub fn get_window(&self) -> &Window {
         match &self.kind {
+            ViewportKind::Window { window, .. } => window,
+            _ => panic!("Cannot get window from texture viewport"),
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn get_window_mut(&mut self) -> &mut Window {
+        match &mut self.kind {
             ViewportKind::Window { window, .. } => window,
             _ => panic!("Cannot get window from texture viewport"),
         }

@@ -97,6 +97,9 @@ pub enum ViewportEvent {
         state: ElementState,
         button: MouseButton,
     },
+    Text {
+        text: String,
+    },
 }
 
 pub struct UnsupportedEvent;
@@ -168,6 +171,10 @@ impl TryFrom<&WindowEvent<'_>> for ViewportEvent {
                     button,
                 })
             }
+            WindowEvent::ReceivedCharacter(ch) if is_printable_char(ch) => {
+                let text = ch.to_string();
+                Ok(ViewportEvent::Text { text })
+            }
             _ => Err(UnsupportedEvent),
         }
     }
@@ -228,4 +235,12 @@ impl EventFilter for EventFunnel {
     fn filter(&mut self, blink: &Blink, world: &mut World, event: &Event) -> bool {
         self.filter(blink, world, event)
     }
+}
+
+fn is_printable_char(chr: char) -> bool {
+    let is_in_private_use_area = '\u{e000}' <= chr && chr <= '\u{f8ff}'
+        || '\u{f0000}' <= chr && chr <= '\u{ffffd}'
+        || '\u{100000}' <= chr && chr <= '\u{10fffd}';
+
+    !is_in_private_use_area && !chr.is_ascii_control()
 }

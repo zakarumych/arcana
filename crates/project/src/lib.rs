@@ -7,6 +7,7 @@ use std::{
     io::{Read, Seek, SeekFrom, Write},
     ops::Deref,
     path::{Path, PathBuf, MAIN_SEPARATOR},
+    process::Child,
 };
 
 use camino::{Utf8Path, Utf8PathBuf};
@@ -34,7 +35,7 @@ pub use self::{
 };
 
 const MANIFEST_NAME: &'static str = "Arcana.toml";
-const CARGO_TOML_NAME: &'static str = "Arcana.toml";
+const CARGO_TOML_NAME: &'static str = "Cargo.toml";
 const WORKSPACE_DIR_NAME: &'static str = "crates";
 
 /// Open project object.
@@ -76,11 +77,10 @@ impl Project {
     /// * If `path` is occupied.
     pub fn new(
         name: IdentBuf,
-        mut engine: Option<Dependency>,
+        mut engine: Dependency,
         path: PathBuf,
         new: bool,
     ) -> miette::Result<Self> {
-        if path.exists() {}
         if let Ok(m) = path.metadata() {
             if new {
                 miette::bail!(
@@ -114,53 +114,59 @@ impl Project {
             }
         };
 
-        if let Some(Dependency::Path { path: engine_path }) = &engine {
-            let real_engine_path = match real_path(engine_path.as_std_path()) {
-                Some(path) => path,
-                None => {
-                    miette::bail!(
-                        "Cannot create new project. Failed to resolve engine path '{engine_path}'"
-                    );
+        let engine = match engine {
+            Dependency::Path { path: engine_path } if !engine_path.is_absolute() => {
+                let real_engine_path = match real_path(engine_path.as_std_path()) {
+                    Some(path) => path,
+                    None => {
+                        miette::bail!(
+                            "Cannot create new project. Failed to resolve engine path '{engine_path}'"
+                        );
+                    }
+                };
+
+                let relative_engine_path = make_relative(&real_engine_path, &path);
+
+                let relative_engine_path = match Utf8PathBuf::from_path_buf(relative_engine_path) {
+                    Ok(path) => path,
+                    Err(err) => {
+                        miette::bail!(
+                            "Cannot create new project. Resolved engine path contains non-utf8 symbols '{engine_path}'",
+                        );
+                    }
+                };
+
+                let cargo_toml_path = real_engine_path.join(CARGO_TOML_NAME);
+
+                let manifest = match cargo_toml::Manifest::from_path(cargo_toml_path) {
+                    Ok(manifest) => manifest,
+                    Err(err) => {
+                        miette::bail!(
+                            "Failed to read engine manifest '{engine_path}/{CARGO_TOML_NAME}': {err}",
+                        );
+                    }
+                };
+
+                let package = match &manifest.package {
+                    Some(package) => package,
+                    None => {
+                        miette::bail!(
+                            "'{engine_path}/{CARGO_TOML_NAME}' does not contain package section",
+                        );
+                    }
+                };
+
+                if package.name != "arcana" {
+                    miette::bail!("'{engine_path}' is not an Arcana engine");
                 }
-            };
 
-            let relative_engine_path = make_relative(&real_engine_path, &path);
-
-            let relative_engine_path = match Utf8PathBuf::from_path_buf(relative_engine_path) {
-                Ok(path) => path,
-                Err(err) => {
-                    miette::bail!(
-                        "Cannot create new project. Resolved engine path contains non-utf8 symbols '{engine_path}'",
-                    );
+                // Rewrite engine dependency to relative path.
+                Dependency::Path {
+                    path: relative_engine_path,
                 }
-            };
-
-            let cargo_toml_path = real_engine_path.join(CARGO_TOML_NAME);
-
-            let manifest = match cargo_toml::Manifest::from_path(cargo_toml_path) {
-                Ok(manifest) => manifest,
-                Err(err) => {
-                    miette::bail!("Failed to read engine manifest '{engine_path}': {err}",);
-                }
-            };
-
-            let package = match &manifest.package {
-                Some(package) => package,
-                None => {
-                    miette::bail!("Cargo.toml in '{engine_path}' does not contain package section",);
-                }
-            };
-
-            if package.name != "arcana" {
-                miette::bail!("'{engine_path}' is not an Arcana engine");
             }
-
-            // Rewrite engine dependency to relative path.
-            engine = Some(Dependency::Path {
-                path: relative_engine_path,
-            });
-        }
-
+            engine => engine,
+        };
         /// Construct project manifest.
         let manifest = ProjectManifest {
             name: name.to_owned(),
@@ -186,7 +192,7 @@ impl Project {
         }
 
         let manifest_path = path.join(MANIFEST_NAME);
-        if let Err(err) = std::fs::write(&path, &manifest_str) {
+        if let Err(err) = std::fs::write(&*manifest_path, &*manifest_str) {
             miette::bail!(
                 "Cannot create new project. Failed to write manifest to '{}': {err}",
                 manifest_path.display()
@@ -322,6 +328,11 @@ impl Project {
         self.manifest.name = name.into();
     }
 
+    /// Returns path to the project.
+    pub fn root_path(&self) -> &Path {
+        &self.root_path
+    }
+
     pub fn sync(&mut self) -> miette::Result<()> {
         // let serialized_manifest = toml::to_string(&self.manifest).map_err(|err| {
         //     miette::miette!("Cannot serialize project manifest to \"Arcana.toml\": {err}")
@@ -347,7 +358,7 @@ impl Project {
         init_workspace(
             &self.root_path,
             &self.manifest.name,
-            self.manifest.engine.as_ref(),
+            &self.manifest.engine,
             &self.manifest.plugins,
         )
     }
@@ -380,6 +391,32 @@ impl Project {
             Some(0) => Ok(()),
             Some(code) => miette::bail!("\"ed\" exited with code {}", code),
             None => miette::bail!("\"ed\" terminated by signal"),
+        }
+    }
+
+    pub fn build_editor_non_blocking(&self) -> miette::Result<Child> {
+        self.init_workspace()?;
+        match wrapper::build_editor(&self.root_path).spawn() {
+            Ok(child) => Ok(child),
+            Err(err) => {
+                miette::bail!(
+                    "Cannot build \"ed\" on \"{}\": {err}",
+                    self.root_path.display()
+                )
+            }
+        }
+    }
+
+    pub fn run_editor_non_blocking(self) -> miette::Result<Child> {
+        self.init_workspace()?;
+        match wrapper::run_editor(&self.root_path).spawn() {
+            Ok(child) => Ok(child),
+            Err(err) => {
+                miette::bail!(
+                    "Cannot run \"ed\" on \"{}\": {err}",
+                    self.root_path.display()
+                )
+            }
         }
     }
 

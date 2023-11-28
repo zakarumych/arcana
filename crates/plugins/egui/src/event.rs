@@ -172,19 +172,27 @@ impl Egui {
         match *event {
             ViewportEvent::Resized { width, height } => {
                 self.size = vec2(width as f32, height as f32);
-                self.raw_input.screen_rect = Some(egui::Rect::from_min_size(
-                    egui::Pos2::ZERO,
-                    self.size / self.pixel_per_point,
-                ));
+                let rect =
+                    egui::Rect::from_min_size(egui::Pos2::ZERO, self.size / self.scale_factor);
+                self.raw_input.screen_rect = Some(rect);
+                self.raw_input
+                    .viewports
+                    .get_mut(&self.raw_input.viewport_id)
+                    .unwrap()
+                    .inner_rect = Some(rect);
                 false
             }
             ViewportEvent::ScaleFactorChanged { scale_factor } => {
-                self.pixel_per_point = scale_factor as f32;
-                self.raw_input.pixels_per_point = Some(self.pixel_per_point);
+                self.scale_factor = scale_factor;
                 self.raw_input.screen_rect = Some(egui::Rect::from_min_size(
                     egui::Pos2::ZERO,
-                    self.size / self.pixel_per_point,
+                    self.size / self.scale_factor,
                 ));
+                self.raw_input
+                    .viewports
+                    .get_mut(&self.raw_input.viewport_id)
+                    .unwrap()
+                    .native_pixels_per_point = Some(scale_factor);
                 false
             }
             ViewportEvent::KeyboardInput { input, .. } => {
@@ -203,6 +211,10 @@ impl Egui {
 
                 self.cx.wants_keyboard_input()
             }
+            ViewportEvent::Text { ref text } => {
+                self.raw_input.events.push(egui::Event::Text(text.clone()));
+                self.cx.wants_keyboard_input()
+            }
             ViewportEvent::ModifiersChanged(modifiers) => {
                 self.raw_input.modifiers = egui::Modifiers {
                     alt: modifiers.alt(),
@@ -218,10 +230,7 @@ impl Egui {
                 false
             }
             ViewportEvent::CursorMoved { x, y, .. } => {
-                self.mouse_pos = pos2(
-                    x as f32 / self.pixel_per_point,
-                    y as f32 / self.pixel_per_point,
-                );
+                self.mouse_pos = pos2(x as f32 / self.scale_factor, y as f32 / self.scale_factor);
                 self.raw_input
                     .events
                     .push(egui::Event::PointerMoved(self.mouse_pos));
@@ -237,7 +246,7 @@ impl Egui {
                     MouseScrollDelta::LineDelta(x, y) => (MouseWheelUnit::Line, egui::vec2(x, y)),
                     MouseScrollDelta::PixelDelta(pos) => (
                         MouseWheelUnit::Point,
-                        vec2(pos.x as f32, pos.y as f32) / self.pixel_per_point,
+                        vec2(pos.x as f32, pos.y as f32) / self.scale_factor,
                     ),
                 };
                 self.raw_input.events.push(egui::Event::MouseWheel {

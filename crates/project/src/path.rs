@@ -50,6 +50,10 @@ pub fn real_path(path: &Path) -> Option<PathBuf> {
     }
 
     let cd = std::env::current_dir().ok()?;
+    if !cd.is_absolute() {
+        return None;
+    }
+
     let path = normalizing_join(cd, path)?;
 
     // Current directory was canonicalized
@@ -95,12 +99,18 @@ pub fn make_relative(path: &Path, base: &Path) -> PathBuf {
                     return path.to_owned();
                 }
             }
-            (Some(Component::Prefix(_)), _) | (_, Some(Component::Prefix(_))) => {
+            (Some(Component::Prefix(_)), _) => {
                 return path.to_owned();
             }
+            (_, Some(Component::Prefix(_))) => {
+                panic!("Path must be absolute if base is absolute");
+            }
             (Some(Component::RootDir), Some(Component::RootDir)) => {}
-            (Some(Component::RootDir), _) | (_, Some(Component::RootDir)) => {
+            (Some(Component::RootDir), _) => {
                 return path.to_owned();
+            }
+            (_, Some(Component::RootDir)) => {
+                panic!("Path must be absolute if base is absolute");
             }
             (Some(path_component), Some(base_component)) => {
                 if path_component != base_component {

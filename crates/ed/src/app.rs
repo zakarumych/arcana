@@ -9,7 +9,7 @@ use arcana::{
     project::Project,
     render::{render, RenderGraph, RenderResources},
     viewport::Viewport,
-    Clock, Entities, With, WorldBuilder,
+    ClockStep, Entities, With, WorldBuilder,
 };
 use arcana_egui::{Egui, EguiRender, TopBottomPanel, Ui, WidgetText};
 use egui::vec2;
@@ -48,7 +48,6 @@ pub struct App {
     resources: RenderResources,
 
     blink: BlinkAlloc,
-    clock: Clock,
 
     device: mev::Device,
     queue: Arc<Mutex<mev::Queue>>,
@@ -62,7 +61,7 @@ impl Drop for App {
                 .view_mut::<&Viewport>()
                 .iter()
                 .map(|viewport| {
-                    let window = viewport.window();
+                    let window = viewport.get_window();
                     let scale_factor = window.scale_factor();
                     AppWindowState {
                         pos: window
@@ -126,8 +125,7 @@ impl App {
             );
             let id = world.spawn((Viewport::new_window(window), egui)).id();
 
-            let target =
-                EguiRender::build(Some(id), mev::ClearColor(0.2, 0.2, 0.2, 1.0), &mut graph);
+            let target = EguiRender::build(Some(id), &mut graph);
             graph.present_to(target, id);
         }
 
@@ -153,8 +151,7 @@ impl App {
             );
             let id = world.spawn((Viewport::new_window(window), egui)).id();
 
-            let target =
-                EguiRender::build(Some(id), mev::ClearColor(0.2, 0.2, 0.2, 1.0), &mut graph);
+            let target = EguiRender::build(Some(id), &mut graph);
             graph.present_to(target, id);
         }
 
@@ -164,13 +161,17 @@ impl App {
             graph,
             resources: RenderResources::default(),
             blink: BlinkAlloc::new(),
-            clock: Clock::new(),
             device,
             queue,
         }
     }
 
-    pub fn on_event<'a>(&mut self, event: Event<'a>, _events: &EventLoopWindowTarget) {
+    pub fn on_event<'a>(
+        &mut self,
+        event: Event<'a>,
+        _events: &EventLoopWindowTarget,
+        step: ClockStep,
+    ) {
         match event {
             Event::WindowEvent { window_id, event } => {
                 let world = self.world.local();
@@ -180,7 +181,7 @@ impl App {
                 };
 
                 for (v, egui) in world.view_mut::<(&Viewport, &mut Egui)>() {
-                    if v.window().id() == window_id {
+                    if v.get_window().id() == window_id {
                         if let Ok(event) = ViewportEvent::try_from(&event) {
                             if egui.handle_event(&event) {
                                 return;
@@ -195,7 +196,7 @@ impl App {
                         let mut window_entity = None;
                         for (e, v) in world.view_mut::<(Entities, &Viewport)>() {
                             windows_count += 1;
-                            if v.window().id() == window_id {
+                            if v.get_window().id() == window_id {
                                 window_entity = Some(e.id());
                             }
                         }
@@ -211,7 +212,7 @@ impl App {
                 }
             }
             Event::MainEventsCleared => {
-                self.tick();
+                self.tick(step);
             }
             Event::RedrawEventsCleared => {
                 self.render();
@@ -220,7 +221,7 @@ impl App {
         }
     }
 
-    pub fn tick(&mut self) {
+    pub fn tick(&mut self, step: ClockStep) {
         // Quit if last window was closed.
         if self.world.view_mut::<With<Viewport>>().into_iter().count() == 0 {
             self.world.insert_resource(Quit);
@@ -234,17 +235,16 @@ impl App {
         Games::launch_games(&mut self.world);
 
         // Simulate games.
-        let step = self.clock.step();
         Games::tick(&mut self.world, step);
 
         for (viewport, egui) in self.world.view::<(&Viewport, &mut Egui)>() {
-            let window = viewport.window();
+            let window = viewport.get_window();
             let dock_state = self
                 .dock_states
                 .entry(window.id())
                 .or_insert_with(|| DockState::new(vec![]));
 
-            egui.run(|cx| {
+            egui.run(step.now, |cx| {
                 let tabs = dock_state.main_surface_mut();
                 TopBottomPanel::top("Menu").show(cx, |ui| {
                     ui.horizontal(|ui| {

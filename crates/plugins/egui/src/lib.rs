@@ -2,6 +2,7 @@ use std::{mem::size_of_val, sync::OnceLock};
 
 use arcana::{
     bytemuck,
+    gametime::TimeStamp,
     mev::{self, Arguments, DeviceRepr},
     offset_of,
     render::{Render, RenderBuilderContext, RenderContext, RenderError, RenderGraph, TargetId},
@@ -43,7 +44,7 @@ pub struct Egui {
     textures: HashMap<u64, (mev::Image, Sampler)>,
     raw_input: egui::RawInput,
     mouse_pos: Pos2,
-    pixel_per_point: f32,
+    scale_factor: f32,
     size: Vec2,
 }
 
@@ -72,8 +73,13 @@ impl Egui {
         cx.set_fonts(fonts);
 
         let mut raw_input = egui::RawInput::default();
-        raw_input.screen_rect = Some(Rect::from_min_size(Default::default(), size / scale_factor));
-        raw_input.pixels_per_point = Some(scale_factor);
+        let rect = Rect::from_min_size(Default::default(), size / scale_factor);
+        raw_input.screen_rect = Some(rect);
+
+        let viewport = raw_input.viewports.get_mut(&raw_input.viewport_id).unwrap();
+
+        viewport.inner_rect = Some(rect);
+        viewport.native_pixels_per_point = Some(scale_factor);
 
         Egui {
             cx,
@@ -82,12 +88,14 @@ impl Egui {
             textures: HashMap::new(),
             mouse_pos: Pos2::ZERO,
             raw_input,
-            pixel_per_point: scale_factor,
+            scale_factor,
             size,
         }
     }
 
-    pub fn run<R>(&mut self, run_ui: impl FnOnce(&Context) -> R) -> Option<R> {
+    pub fn run<R>(&mut self, time: TimeStamp, run_ui: impl FnOnce(&Context) -> R) -> Option<R> {
+        self.raw_input.time = Some(time.elapsed_since_start().as_secs_f64());
+
         self.cx.begin_frame(self.raw_input.take());
         let ret = run_ui(&self.cx);
         let output = self.cx.end_frame();
@@ -159,14 +167,10 @@ impl EguiRender {
         new_target
     }
 
-    pub fn build(
-        id: Option<EntityId>,
-        color: mev::ClearColor,
-        graph: &mut RenderGraph,
-    ) -> TargetId<mev::Image> {
+    pub fn build(id: Option<EntityId>, graph: &mut RenderGraph) -> TargetId<mev::Image> {
         let mut builder = RenderBuilderContext::new("egui", graph);
         let new_target = builder.create_target("egui-surface", mev::PipelineStages::COLOR_OUTPUT);
-        builder.build(EguiRender::new(id, new_target, mev::LoadOp::Clear(color)));
+        builder.build(EguiRender::new(id, new_target, mev::LoadOp::DontCare));
         new_target
     }
 }
@@ -384,7 +388,9 @@ impl Render for EguiRender {
             }
 
             if !egui.shapes.is_empty() {
-                let primitives = egui.cx.tessellate(std::mem::take(&mut egui.shapes));
+                let primitives = egui
+                    .cx
+                    .tessellate(std::mem::take(&mut egui.shapes), egui.scale_factor);
 
                 if !primitives.is_empty() {
                     let mut total_vertex_size = 0;

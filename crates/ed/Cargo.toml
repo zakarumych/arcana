@@ -17,7 +17,6 @@ egui_dnd = { workspace = true }
 egui_dock = { workspace = true, features = ["serde"] }
 egui-phosphor = { workspace = true }
 egui_tracing = { workspace = true }
-egui-winit = { workspace = true }
 hashbrown = { workspace = true }
 libloading = { workspace = true }
 miette = { workspace = true, features = ["fancy"] }

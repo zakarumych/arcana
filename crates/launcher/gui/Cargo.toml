@@ -12,12 +12,12 @@ arcana = { path = "../../arcana", features = ["client"] }
 # arcana-project = { path = "../../project" }
 arcana-launcher = { path = ".." }
 arcana-egui = { path = "../../plugins/egui" }
+camino = { workspace = true }
 dirs = { workspace = true }
 egui = { workspace = true }
 egui_dnd = { workspace = true }
 egui-phosphor = { workspace = true }
 egui_tracing = { workspace = true }
-egui-winit = { workspace = true }
 hashbrown = { workspace = true }
 miette = { workspace = true, features = ["fancy"] }
 rfd = { workspace = true }
