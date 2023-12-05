@@ -139,12 +139,14 @@ impl GameClock {
                 step: TimeSpan::ZERO,
             };
         }
+
         let game_nanos = (nom_nanos - self.until_next) / self.denom;
         let nom_nanos_left = (nom_nanos - self.until_next) % self.denom;
         self.until_next = self.denom - nom_nanos_left;
 
         let game_span = TimeSpan::new(game_nanos);
         self.now += game_span;
+
         ClockStep {
             now: self.now,
             step: game_span,
@@ -155,14 +157,15 @@ impl GameClock {
 pub struct Game {
     clock: GameClock,
     world: World,
-    #[cfg(feature = "client")]
-    funnel: EventFunnel,
     blink: Blink,
     fixed_now: TimeStamp,
-    fix_scheduler: Scheduler,
+    fix_scheduler: Box<dyn FnMut(&mut World)>,
 
     #[cfg(feature = "client")]
-    var_scheduler: Scheduler,
+    funnel: EventFunnel,
+
+    #[cfg(feature = "client")]
+    var_scheduler: Box<dyn FnMut(&mut World)>,
 
     #[cfg(feature = "client")]
     render_state: RenderState,
@@ -176,10 +179,9 @@ impl Component for Game {
 
 impl Game {
     pub fn launch<'a>(
-        plugins: impl IntoIterator<Item = (&'a Ident, &'a dyn ArcanaPlugin)>,
-        filters: impl IntoIterator<Item = (&'a Ident, &'a Ident)>,
-        var_systems: impl IntoIterator<Item = (&'a Ident, &'a Ident)>,
-        fix_systems: impl IntoIterator<Item = (&'a Ident, &'a Ident)>,
+        fix_scheduler: Box<dyn FnMut(&mut World)>,
+        #[cfg(feature = "client")] var_scheduler: Box<dyn FnMut(&mut World)>,
+        #[cfg(feature = "client")] funnel: EventFunnel,
         #[cfg(feature = "client")] device: mev::Device,
         #[cfg(feature = "client")] queue: Arc<Mutex<mev::Queue>>,
         #[cfg(feature = "client")] window: Option<Window>,
@@ -203,7 +205,7 @@ impl Game {
             step: TimeSpan::ZERO,
         });
 
-        world.insert_resource(FixedTicker(clocks.ticker(30.hz())));
+        world.insert_resource(FixedTicker(clocks.ticker(120.hz())));
 
         #[cfg(feature = "client")]
         {
@@ -225,101 +227,18 @@ impl Game {
         let blink = Blink::new();
         let fixed_now = TimeStamp::start();
 
-        struct PluginInit<'a> {
-            plugin: &'a Ident,
-            systems: Vec<(&'a Ident, Box<dyn System + Send>)>,
-            #[cfg(feature = "client")]
-            filters: Vec<(&'a Ident, Box<dyn EventFilter>)>,
-        }
-
-        let mut init_plugins = plugins
-            .into_iter()
-            .map(|(name, plugin)| {
-                let init = plugin.init(&mut world);
-                PluginInit {
-                    plugin: name,
-                    systems: init.systems,
-                    #[cfg(feature = "client")]
-                    filters: init.filters,
-                }
-            })
-            .collect::<Vec<PluginInit>>();
-
-        #[cfg(feature = "client")]
-        let mut var_scheduler = Scheduler::new();
-
-        let mut fix_scheduler = Scheduler::new();
-
-        init_flows(&mut world, &mut fix_scheduler);
-
-        #[cfg(not(feature = "client"))]
-        let var_scheduler = &mut fix_scheduler;
-
-        for (plugin, name) in var_systems {
-            let p = init_plugins
-                .iter_mut()
-                .find(|p| p.plugin == plugin)
-                .expect("Plugin not found");
-
-            let idx = p
-                .systems
-                .iter()
-                .position(|(system, _)| *system == name)
-                .expect("System not found");
-
-            let system = p.systems.swap_remove(idx).1;
-            var_scheduler.add_boxed_system(system);
-        }
-
-        for (plugin, name) in fix_systems {
-            let p = init_plugins
-                .iter_mut()
-                .find(|p| p.plugin == plugin)
-                .expect("Plugin not found");
-
-            let idx = p
-                .systems
-                .iter()
-                .position(|(system, _)| *system == name)
-                .expect("System not found");
-
-            let system = p.systems.swap_remove(idx).1;
-            fix_scheduler.add_boxed_system(system);
-        }
-
-        // Setup the funnel
-        #[cfg(feature = "client")]
-        let mut funnel = EventFunnel::new();
-
-        #[cfg(feature = "client")]
-        {
-            for (plugin, name) in filters {
-                let p = init_plugins
-                    .iter_mut()
-                    .find(|p| p.plugin == plugin)
-                    .expect("Plugin not found");
-
-                let idx = p
-                    .filters
-                    .iter()
-                    .position(|(filter, _)| *filter == name)
-                    .expect("System not found");
-
-                let filter = p.filters.swap_remove(idx).1;
-                funnel.add_boxed(filter);
-            }
-        }
+        init_flows(&mut world);
 
         Game {
             clock: GameClock::new(),
             world,
-            #[cfg(feature = "client")]
-            funnel,
             blink,
             fixed_now,
             fix_scheduler,
             #[cfg(feature = "client")]
             var_scheduler,
+            #[cfg(feature = "client")]
+            funnel,
             #[cfg(feature = "client")]
             render_state: RenderState::default(),
         }
@@ -428,7 +347,7 @@ impl Game {
 
             *self.world.expect_resource_mut::<ClockStep>() = fixed_step;
             // if cfg!(debug_assertions) {
-            self.fix_scheduler.run_sequential(&mut self.world);
+            (self.fix_scheduler)(&mut self.world);
             // } else {
             //     self.fix_scheduler.run_rayon(&mut self.world);
             // }
@@ -446,7 +365,7 @@ impl Game {
             *self.world.expect_resource_mut::<ClockStep>() = step;
 
             // if cfg!(debug_assertions) {
-            self.var_scheduler.run_sequential(&mut self.world);
+            (self.var_scheduler)(&mut self.world);
             // } else {
             //     self.var_scheduler.run_rayon(&mut self.world);
             // }

@@ -29,8 +29,9 @@ pub use self::{
     dependency::Dependency,
     generator::new_plugin_crate,
     ident::{Ident, IdentBuf},
-    manifest::{Item, Plugin, ProjectManifest},
+    manifest::ProjectManifest,
     path::{make_relative, real_path},
+    plugin::Plugin,
     wrapper::{game_bin_path, BuildProcess},
 };
 
@@ -78,7 +79,7 @@ impl Project {
     pub fn new(
         name: IdentBuf,
         mut engine: Dependency,
-        path: PathBuf,
+        path: &Path,
         new: bool,
     ) -> miette::Result<Self> {
         if let Ok(m) = path.metadata() {
@@ -151,7 +152,7 @@ impl Project {
                     Some(package) => package,
                     None => {
                         miette::bail!(
-                            "'{engine_path}/{CARGO_TOML_NAME}' does not contain package section",
+                            "Engine manifest '{engine_path}/{CARGO_TOML_NAME}' does not contain package section",
                         );
                     }
                 };
@@ -172,9 +173,6 @@ impl Project {
             name: name.to_owned(),
             engine,
             plugins: Vec::new(),
-            var_systems: Vec::new(),
-            fix_systems: Vec::new(),
-            filters: Vec::new(),
         };
 
         let manifest_str = match toml::to_string(&manifest) {
@@ -450,22 +448,21 @@ impl Project {
         }
     }
 
-    pub fn add_plugin(&mut self, name: IdentBuf, dep: Dependency) -> bool {
-        if self.manifest.has_plugin(&name) {
-            return false;
+    pub fn has_plugin(&self, name: &Ident) -> bool {
+        self.manifest.has_plugin(name)
+    }
+
+    pub fn add_plugin(&mut self, mut plugin: Plugin) -> miette::Result<bool> {
+        if self.manifest.has_plugin(&plugin.name) {
+            return Ok(false);
         }
 
-        let dep = dep.make_relative(&self.root_path);
+        plugin.dependency = plugin.dependency.make_relative(&self.root_path)?;
 
-        tracing::info!("Plugin '{} added", name);
-        let plugin = Plugin {
-            name,
-            dep,
-            enabled: true,
-        };
+        tracing::info!("Plugin '{} added", plugin.name);
 
         self.manifest.plugins.push(plugin);
-        true
+        Ok(true)
     }
 }
 
@@ -490,60 +487,39 @@ fn is_in_cargo_workspace(path: &Path) -> bool {
     false
 }
 
-pub fn plugin_with_path(plugin_path: &Path) -> miette::Result<(IdentBuf, Dependency)> {
-    let real_plugin_path = match real_path(plugin_path) {
+pub fn process_path_name(path: &Path, name: Option<&Ident>) -> miette::Result<(PathBuf, IdentBuf)> {
+    let path = match real_path(&path) {
         Some(path) => path,
-        None => {
-            miette::bail!(
-                "Cannot search plugin at \"{}\": failed to resolve path",
-                plugin_path.display()
-            );
-        }
+        None => miette::bail!(
+            "Failed to get project destination path from {}",
+            path.display()
+        ),
     };
 
-    let lib_path: &Path;
-    let cargo_toml_path;
-
-    if real_plugin_path.file_name() == Some("Cargo.toml".as_ref()) {
-        cargo_toml_path = real_plugin_path;
-        lib_path = cargo_toml_path.parent().unwrap();
-    } else {
-        cargo_toml_path = real_plugin_path.join("Cargo.toml");
-        lib_path = real_plugin_path.as_ref();
-    }
-
-    let lib_path = match Utf8Path::from_path(lib_path) {
-        Some(path) => path,
+    let name = match name {
         None => {
-            miette::bail!(
-                "Cannot add library path \"{}\": path is not valid UTF-8",
-                plugin_path.display()
-            )
+            let Some(file_name) = path.file_name() else {
+                miette::bail!("Failed to get project name destination path");
+            };
+
+            if file_name.is_empty() || file_name == "." || file_name == ".." {
+                miette::bail!("Failed to get project name destination path");
+            }
+
+            let Some(file_name) = file_name.to_str() else {
+                miette::bail!("Failed to get project name destination path");
+            };
+
+            let Ok(file_name) = Ident::from_str(file_name) else {
+                miette::bail!(
+                    "Project's directory name cannot be used as project name is it is not valid identifier. Specify name manually"
+                );
+            };
+
+            file_name.to_owned()
         }
+        Some(name) => name.to_owned(),
     };
 
-    let cargo_toml = std::fs::read_to_string(&cargo_toml_path).map_err(|err| {
-        miette::miette!(
-            "Cannot read Cargo.toml from \"{}\": {err}",
-            cargo_toml_path.display()
-        )
-    })?;
-
-    let manifest = cargo_toml::Manifest::from_str(&cargo_toml).map_err(|err| {
-        miette::miette!(
-            "Cannot read Cargo.toml from \"{}\": {err}",
-            cargo_toml_path.display()
-        )
-    })?;
-
-    let package = manifest.package.ok_or_else(|| {
-        miette::miette!("Not a package manifest: \"{}\"", cargo_toml_path.display())
-    })?;
-
-    Ok((
-        IdentBuf::from_string(package.name).expect("Package name is not valid ident"),
-        Dependency::Path {
-            path: lib_path.to_path_buf(),
-        },
-    ))
+    Ok((path, name))
 }

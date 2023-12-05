@@ -253,7 +253,8 @@ impl App {
                 ui.menu_button("File", |ui| {
                     let r = ui.button("New Project");
                     if r.clicked() {
-                        self.dialog = Some(AppDialog::NewProject(NewProject::new()));
+                        let engine = self.start.list_engine_versions().first().cloned();
+                        self.dialog = Some(AppDialog::NewProject(NewProject::new(engine)));
                         ui.close_menu();
                     } else {
                         r.on_hover_ui(|ui| {
@@ -294,16 +295,27 @@ impl App {
                 let recent = self.start.recent();
 
                 if recent.len() == 0 {
-                    ui.centered_and_justified(|ui| {
+                    ui.vertical_centered(|ui| {
+                        ui.allocate_space(egui::vec2(0.0, ui.available_height() * 0.5));
                         ui.label("No recent projects");
+
+                        let r = ui.button("New Project");
+                        if r.clicked() {
+                            let engine = self.start.list_engine_versions().first().cloned();
+                            self.dialog = Some(AppDialog::NewProject(NewProject::new(engine)));
+                            ui.close_menu();
+                        } else {
+                            r.on_hover_ui(|ui| {
+                                ui.label("Create new project");
+                            });
+                        }
                     });
                 } else {
                     ui.vertical(|ui| {
                         for path in recent {
                             match Project::open(&path) {
                                 Err(err) => {
-                                    egui::Frame::none()
-                                        .outer_margin(3.0)
+                                    egui::Frame::group(ui.style())
                                         .stroke(egui::Stroke::new(1.0, egui::Color32::DARK_RED))
                                         .show(ui, |ui| {
                                             ui.horizontal(|ui| {
@@ -331,44 +343,38 @@ impl App {
                                         });
                                 }
                                 Ok(project) => {
-                                    egui::Frame::none()
-                                        .outer_margin(3.0)
-                                        .inner_margin(5.0)
-                                        .stroke(egui::Stroke::new(1.0, egui::Color32::GRAY))
-                                        .show(ui, |ui| {
-                                            ui.horizontal(|ui| {
-                                                let r = ui.add(egui::Button::new(
-                                                    egui::RichText::from(
-                                                        egui_phosphor::regular::FOLDER_NOTCH_OPEN,
-                                                    )
-                                                    .size(30.0),
-                                                ));
+                                    egui::Frame::group(ui.style()).show(ui, |ui| {
+                                        ui.horizontal(|ui| {
+                                            let r = ui.add(egui::Button::new(
+                                                egui::RichText::from(
+                                                    egui_phosphor::regular::FOLDER_NOTCH_OPEN,
+                                                )
+                                                .size(30.0),
+                                            ));
 
-                                                ui.vertical(|ui| {
-                                                    ui.label(project.name().as_str());
-                                                    ui.label(
-                                                        project.root_path().display().to_string(),
-                                                    );
-                                                });
-
-                                                if r.clicked() {
-                                                    action = Some(Action::RunEditor(project));
-                                                } else {
-                                                    r.on_hover_ui(|ui| {
-                                                        ui.label("Open this project");
-                                                    });
-                                                }
-                                                let r = ui.button(egui_phosphor::regular::X);
-
-                                                if r.clicked() {
-                                                    remove_recent = Some(path.to_owned());
-                                                } else {
-                                                    r.on_hover_ui(|ui| {
-                                                        ui.label("Remove from thisl list");
-                                                    });
-                                                }
+                                            ui.vertical(|ui| {
+                                                ui.label(project.name().as_str());
+                                                ui.label(project.root_path().display().to_string());
                                             });
+
+                                            if r.clicked() {
+                                                action = Some(Action::RunEditor(project));
+                                            } else {
+                                                r.on_hover_ui(|ui| {
+                                                    ui.label("Open this project");
+                                                });
+                                            }
+                                            let r = ui.button(egui_phosphor::regular::X);
+
+                                            if r.clicked() {
+                                                remove_recent = Some(path.to_owned());
+                                            } else {
+                                                r.on_hover_ui(|ui| {
+                                                    ui.label("Remove from thisl list");
+                                                });
+                                            }
                                         });
+                                    });
                                 }
                             }
                         }
@@ -542,14 +548,17 @@ struct NewProject {
     /// If empty, project may not be created.
     path: String,
 
+    /// List of plugins to add to new project.
+    /// Pluings list may be modified later.
+    plugins: Vec<Dependency>,
+
+    /// If true, advanced options are shown.
+    advanced: bool,
+
     /// Chosen engine version.
     ///
     /// If none, project may not be created.
     engine: Option<Dependency>,
-
-    /// List of plugins to add to new project.
-    /// Pluings list may be modified later.
-    plugins: Vec<Dependency>,
 
     /// Current dialog.
     dialog: Option<NewProjectDialog>,
@@ -557,12 +566,13 @@ struct NewProject {
 
 impl NewProject {
     /// Creates new `NewProject` widget.
-    fn new() -> Self {
+    fn new(engine: Option<Dependency>) -> Self {
         NewProject {
             name: String::new(),
             path: String::new(),
-            engine: None,
             plugins: Vec::new(),
+            advanced: false,
+            engine,
             dialog: None,
         }
     }
@@ -576,9 +586,9 @@ impl NewProject {
         let mut close_dialog = false;
 
         egui::Window::new("New project")
-            // .auto_sized()
-            // .default_pos(egui::pos2(50.0, 50.0))
-            // .collapsible(false)
+            .auto_sized()
+            .default_pos(egui::pos2(50.0, 50.0))
+            .collapsible(false)
             .show(cx, |ui| {
                 ui.set_enabled(self.dialog.is_none());
 
@@ -604,23 +614,31 @@ impl NewProject {
                         });
                         ui.end_row();
 
-                        ui.with_layout(cfg_name_layout, |ui| ui.label("Engine"));
-                        let mut cbox = egui::ComboBox::from_id_source("versions").width(300.0);
+                        ui.label("Plugins");
+                        ui.vertical(|ui| {});
 
-                        if let Some(v) = &self.engine {
-                            cbox = cbox.selected_text(display_dependency(v));
-                        }
-
-                        cbox.show_ui(ui, |ui| {
-                            for v in start.list_engine_versions() {
-                                ui.selectable_value(
-                                    &mut self.engine,
-                                    Some(v.clone()),
-                                    display_dependency(v),
-                                );
-                            }
-                        });
+                        ui.checkbox(&mut self.advanced, "Advanced");
                         ui.end_row();
+
+                        if self.advanced {
+                            ui.with_layout(cfg_name_layout, |ui| ui.label("Engine"));
+                            let mut cbox = egui::ComboBox::from_id_source("versions").width(300.0);
+
+                            if let Some(v) = &self.engine {
+                                cbox = cbox.selected_text(display_dependency(v));
+                            }
+
+                            cbox.show_ui(ui, |ui| {
+                                for v in start.list_engine_versions() {
+                                    ui.selectable_value(
+                                        &mut self.engine,
+                                        Some(v.clone()),
+                                        display_dependency(v),
+                                    );
+                                }
+                            });
+                            ui.end_row();
+                        }
                     });
 
                 ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
@@ -663,7 +681,7 @@ impl NewProject {
             let result = Project::new(
                 IdentBuf::from_string(self.name.clone()).unwrap(),
                 self.engine.clone().unwrap(),
-                self.path.clone().into(),
+                self.path.as_ref(),
                 true,
             );
 

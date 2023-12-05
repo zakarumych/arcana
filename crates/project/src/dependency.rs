@@ -3,7 +3,7 @@ use std::{fmt, path::Path};
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::Deserializer;
 
-use crate::path::make_relative;
+use crate::{path::make_relative, real_path};
 
 /// Project dependency.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -36,18 +36,23 @@ impl Dependency {
         })
     }
 
-    pub fn make_relative<P>(self, base: P) -> Self
+    pub fn make_relative<P>(self, base: P) -> miette::Result<Self>
     where
         P: AsRef<Path>,
     {
         match &self {
-            Dependency::Path { path } => {
-                let rel_path = make_relative(path.as_std_path(), base.as_ref());
-                let utf8_path =
-                    Utf8PathBuf::from_path_buf(rel_path).expect("Dependency path is not UTF-8");
-                Dependency::Path { path: utf8_path }
+            Dependency::Path { path } if !path.is_absolute() => {
+                let Some(real_path) = real_path(path.as_std_path()) else {
+                    miette::bail!("Failed to resolve dependency path: {}", path);
+                };
+
+                let rel_path = make_relative(&real_path, base.as_ref());
+                let Ok(utf8_path) = Utf8PathBuf::from_path_buf(rel_path) else {
+                    miette::bail!("Dependency path is not UTF-8");
+                };
+                Ok(Dependency::Path { path: utf8_path })
             }
-            _ => self,
+            _ => Ok(self),
         }
     }
 }

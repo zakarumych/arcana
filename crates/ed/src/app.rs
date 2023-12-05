@@ -23,7 +23,7 @@ use winit::{
     window::{Window, WindowBuilder, WindowId},
 };
 
-use crate::games::GamesTab;
+use crate::{data::ProjectData, games::GamesTab};
 
 use super::{
     console::Console, filters::Filters, games::Games, plugins::Plugins, systems::Systems, Tab,
@@ -100,6 +100,7 @@ impl App {
         world.insert_resource(Games::new());
         world.insert_resource(device.clone());
         world.insert_resource(queue.clone());
+        world.insert_resource(ProjectData::default());
 
         let mut graph = RenderGraph::new();
 
@@ -166,56 +167,40 @@ impl App {
         }
     }
 
-    pub fn on_event<'a>(
-        &mut self,
-        event: Event<'a>,
-        _events: &EventLoopWindowTarget,
-        step: ClockStep,
-    ) {
+    pub fn on_event<'a>(&mut self, window_id: WindowId, event: WindowEvent<'a>) {
+        let world = self.world.local();
+
+        if Games::handle_event(world, window_id, &event) {
+            return;
+        };
+
+        for (v, egui) in world.view_mut::<(&Viewport, &mut Egui)>() {
+            if v.get_window().id() == window_id {
+                if let Ok(event) = ViewportEvent::try_from(&event) {
+                    if egui.handle_event(&event) {
+                        return;
+                    }
+                }
+            }
+        }
+
         match event {
-            Event::WindowEvent { window_id, event } => {
-                let world = self.world.local();
-
-                if Games::handle_event(world, window_id, &event) {
-                    return;
-                };
-
-                for (v, egui) in world.view_mut::<(&Viewport, &mut Egui)>() {
+            WindowEvent::CloseRequested => {
+                let mut windows_count = 0;
+                let mut window_entity = None;
+                for (e, v) in world.view_mut::<(Entities, &Viewport)>() {
+                    windows_count += 1;
                     if v.get_window().id() == window_id {
-                        if let Ok(event) = ViewportEvent::try_from(&event) {
-                            if egui.handle_event(&event) {
-                                return;
-                            }
-                        }
+                        window_entity = Some(e.id());
                     }
                 }
-
-                match event {
-                    WindowEvent::CloseRequested => {
-                        let mut windows_count = 0;
-                        let mut window_entity = None;
-                        for (e, v) in world.view_mut::<(Entities, &Viewport)>() {
-                            windows_count += 1;
-                            if v.get_window().id() == window_id {
-                                window_entity = Some(e.id());
-                            }
-                        }
-                        if let Some(window_entity) = window_entity {
-                            if windows_count < 2 {
-                                world.insert_resource(Quit);
-                            } else {
-                                let _ = world.despawn(window_entity);
-                            }
-                        }
+                if let Some(window_entity) = window_entity {
+                    if windows_count < 2 {
+                        world.insert_resource(Quit);
+                    } else {
+                        let _ = world.despawn(window_entity);
                     }
-                    _ => {}
                 }
-            }
-            Event::MainEventsCleared => {
-                self.tick(step);
-            }
-            Event::RedrawEventsCleared => {
-                self.render();
             }
             _ => {}
         }

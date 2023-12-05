@@ -7,7 +7,7 @@ use std::{
     process::{Child, Command},
 };
 
-use crate::{path::make_relative, Plugin, WORKSPACE_DIR_NAME};
+use crate::{path::make_relative, WORKSPACE_DIR_NAME};
 
 use super::Dependency;
 

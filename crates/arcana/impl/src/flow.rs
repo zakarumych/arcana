@@ -140,14 +140,15 @@ impl Timers {
     }
 }
 
-pub fn init_flows(world: &mut World, scheduler: &mut Scheduler) {
+pub fn init_flows(world: &mut World) {
     world.insert_resource(Timers::new());
+}
 
-    scheduler.add_system(|mut timers: ResMut<Timers>, clocks: Res<ClockStep>| {
-        timers.wake_until(clocks.now);
-    });
+pub fn run_flows(world: &mut World) {
+    let mut times = world.expect_resource_mut::<Timers>();
+    let clocks = world.expect_resource::<ClockStep>();
 
-    scheduler.add_system(flows_system);
+    times.wake_until(clocks.now);
 }
 
 pub trait FlowWorldExt {}

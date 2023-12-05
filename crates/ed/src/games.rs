@@ -11,7 +11,7 @@ use arcana::{
     game::Game,
     mev,
     plugin::ArcanaPlugin,
-    project::{Ident, Item, Project},
+    project::{Ident, Project},
     texture::Texture,
     ClockStep, Component, Entities, EntityId, World,
 };
@@ -158,85 +158,85 @@ impl Games {
 
     /// Launches requested games.
     pub fn launch_games(world: &mut World) {
-        if world.new_view_mut().with::<LaunchGame>().iter().count() == 0 {
-            return;
-        }
+        // if world.new_view_mut().with::<LaunchGame>().iter().count() == 0 {
+        //     return;
+        // }
 
-        let project = world.expect_resource_mut::<Project>();
-        let plugins = world.expect_resource_mut::<Plugins>();
-        let Some(active_plugins) = plugins.active_plugins() else {
-            return;
-        };
+        // let project = world.expect_resource_mut::<Project>();
+        // let plugins = world.expect_resource_mut::<Plugins>();
+        // let Some(active_plugins) = plugins.active_plugins() else {
+        //     return;
+        // };
 
-        let active = |exported: fn(&dyn ArcanaPlugin) -> &[&Ident]| {
-            let plugins = &plugins;
-            move |item: &&Item| {
-                if !item.enabled {
-                    return false;
-                }
+        // let active = |exported: fn(&dyn ArcanaPlugin) -> &[&Ident]| {
+        //     let plugins = &plugins;
+        //     move |item: &&Item| {
+        //         if !item.enabled {
+        //             return false;
+        //         }
 
-                if !plugins.is_active(&item.plugin) {
-                    return false;
-                }
+        //         if !plugins.is_active(&item.plugin) {
+        //             return false;
+        //         }
 
-                let plugin = plugins.get_plugin(&item.plugin).unwrap();
-                if !exported(plugin).iter().any(|name| **name == *item.name) {
-                    return false;
-                }
-                true
-            }
-        };
+        //         let plugin = plugins.get_plugin(&item.plugin).unwrap();
+        //         if !exported(plugin).iter().any(|name| **name == *item.name) {
+        //             return false;
+        //         }
+        //         true
+        //     }
+        // };
 
-        let active_var_systems = project
-            .manifest()
-            .var_systems
-            .iter()
-            .filter(active(|p| p.systems()))
-            .map(|i| (&*i.plugin, &*i.name));
+        // let active_var_systems = project
+        //     .manifest()
+        //     .var_systems
+        //     .iter()
+        //     .filter(active(|p| p.systems()))
+        //     .map(|i| (&*i.plugin, &*i.name));
 
-        let active_fix_systems = project
-            .manifest()
-            .fix_systems
-            .iter()
-            .filter(active(|p| p.systems()))
-            .map(|i| (&*i.plugin, &*i.name));
+        // let active_fix_systems = project
+        //     .manifest()
+        //     .fix_systems
+        //     .iter()
+        //     .filter(active(|p| p.systems()))
+        //     .map(|i| (&*i.plugin, &*i.name));
 
-        let active_filters = project
-            .manifest()
-            .filters
-            .iter()
-            .filter(active(|p| p.filters()))
-            .map(|i| (&*i.plugin, &*i.name));
+        // let active_filters = project
+        //     .manifest()
+        //     .filters
+        //     .iter()
+        //     .filter(active(|p| p.filters()))
+        //     .map(|i| (&*i.plugin, &*i.name));
 
-        let device = world.clone_resource::<mev::Device>();
-        let queue = world.clone_resource::<Arc<Mutex<mev::Queue>>>();
+        // let device = world.clone_resource::<mev::Device>();
+        // let queue = world.clone_resource::<Arc<Mutex<mev::Queue>>>();
 
-        let games = world
-            .view::<Entities>()
-            .with::<LaunchGame>()
-            .into_iter()
-            .map(|e| {
-                let game = Game::launch(
-                    active_plugins.clone(),
-                    active_filters.clone(),
-                    active_var_systems.clone(),
-                    active_fix_systems.clone(),
-                    device.clone(),
-                    queue.clone(),
-                    None,
-                );
+        // let games = world
+        //     .view::<Entities>()
+        //     .with::<LaunchGame>()
+        //     .into_iter()
+        //     .map(|e| {
+        //         let game = Game::launch(
+        //             active_plugins.clone(),
+        //             active_filters.clone(),
+        //             active_var_systems.clone(),
+        //             active_fix_systems.clone(),
+        //             device.clone(),
+        //             queue.clone(),
+        //             None,
+        //         );
 
-                (e.id(), game)
-            })
-            .collect::<Vec<_>>();
+        //         (e.id(), game)
+        //     })
+        //     .collect::<Vec<_>>();
 
-        drop(project);
-        drop(plugins);
+        // drop(project);
+        // drop(plugins);
 
-        for (e, game) in games {
-            let _ = world.drop::<LaunchGame>(e);
-            let _ = world.insert(e, game);
-        }
+        // for (e, game) in games {
+        //     let _ = world.drop::<LaunchGame>(e);
+        //     let _ = world.insert(e, game);
+        // }
     }
 
     pub fn handle_event<'a>(

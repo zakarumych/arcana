@@ -3,7 +3,10 @@ use std::{path::Path, process::Child};
 use arcana::{gametime::FrequencyNumExt, plugin::GLOBAL_CHECK, project::Project};
 use games::GamesTab;
 use parking_lot::Mutex;
-use winit::event_loop::{ControlFlow, EventLoopBuilder};
+use winit::{
+    event::Event,
+    event_loop::{ControlFlow, EventLoopBuilder},
+};
 
 use crate::app::UserEvent;
 
@@ -38,6 +41,7 @@ macro_rules! try_log_err {
 
 mod app;
 mod console;
+mod data;
 mod filters;
 mod games;
 mod ide;
@@ -83,7 +87,7 @@ fn _run(path: &Path) -> miette::Result<()> {
 
     if let Err(err) = tracing::subscriber::set_global_default(
         tracing_subscriber::fmt()
-            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            // .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
             .finish()
             .with(tracing_error::ErrorLayer::default())
             .with(event_collector.clone()),
@@ -98,19 +102,28 @@ fn _run(path: &Path) -> miette::Result<()> {
     let events = EventLoopBuilder::<UserEvent>::with_user_event().build();
     let mut app = app::App::new(&events, event_collector, project);
 
-    events.run(move |event, events, flow| {
-        let step = clock.step();
-
-        app.on_event(event, events, step);
-
-        if app.should_quit() {
-            *flow = ControlFlow::Exit;
-            return;
+    events.run(move |event, _events, flow| match event {
+        Event::WindowEvent { window_id, event } => {
+            app.on_event(window_id, event);
         }
+        Event::MainEventsCleared => {
+            let step = clock.step();
 
-        limiter.ticks(step.step);
-        let until = clock.stamp_instant(limiter.next_tick().unwrap());
-        flow.set_wait_until(until);
+            app.tick(step);
+
+            if app.should_quit() {
+                *flow = ControlFlow::Exit;
+                return;
+            }
+
+            limiter.ticks(step.step);
+            let until = clock.stamp_instant(limiter.next_tick().unwrap());
+            flow.set_wait_until(until);
+        }
+        Event::RedrawEventsCleared => {
+            app.render();
+        }
+        _ => {}
     })
 }
 

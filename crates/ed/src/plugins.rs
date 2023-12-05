@@ -1,17 +1,19 @@
-use std::path::Path;
+use std::hash::Hash;
 
 use arcana::{
     edict::world::WorldLocal,
     game::Game,
     plugin::ArcanaPlugin,
-    project::{
-        plugin_with_path, BuildProcess, Dependency, Ident, IdentBuf, Project, ProjectManifest,
-    },
+    project::{BuildProcess, Dependency, Ident, IdentBuf, Project, ProjectManifest},
     With, World,
 };
-use egui::{Color32, Ui, WidgetText};
+use arcana_project::{new_plugin_crate, process_path_name, Plugin};
+use camino::{Utf8Path, Utf8PathBuf};
+use egui::{Color32, RichText, Ui, WidgetText};
 use egui_file::FileDialog;
 use hashbrown::HashSet;
+
+use crate::{data::ProjectData, filters::Filters, systems::Systems};
 
 use super::Tab;
 
@@ -22,20 +24,20 @@ mod private {
         plugin::{ArcanaPlugin, GLOBAL_CHECK},
         project::{Dependency, Ident, IdentBuf, Plugin},
     };
-    use hashbrown::{HashMap, HashSet};
+    use hashbrown::HashSet;
 
     pub(super) struct PluginsLibrary {
         /// Linked library
         #[allow(unused)]
         lib: libloading::Library,
-        plugins: &'static [(&'static Ident, &'static dyn ArcanaPlugin)],
+        plugins: Vec<(&'static Ident, &'static dyn ArcanaPlugin)>,
     }
 
     impl fmt::Display for PluginsLibrary {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             if f.alternate() {
                 write!(f, "Plugins:\n")?;
-                for (name, _) in self.plugins {
+                for (name, _) in &self.plugins {
                     write!(f, "  {}\n", *name)?;
                 }
             } else {
@@ -54,16 +56,20 @@ mod private {
     }
 
     pub(super) struct SortError {
-        pub not_linked: Vec<IdentBuf>,
         pub circular_dependencies: Vec<(IdentBuf, IdentBuf)>,
         pub missing_dependencies: Vec<(IdentBuf, Dependency)>,
     }
 
     impl PluginsLibrary {
         pub fn get(&self, name: &Ident) -> Option<&dyn ArcanaPlugin> {
+            let (_, p) = self.get_static(name)?;
+            Some(p)
+        }
+
+        fn get_static(&self, name: &Ident) -> Option<(&'static Ident, &'static dyn ArcanaPlugin)> {
             self.plugins
                 .iter()
-                .find_map(|(n, p)| if **n == *name { Some(*p) } else { None })
+                .find_map(|(n, p)| if **n == *name { Some((*n, *p)) } else { None })
         }
 
         pub fn has(&self, name: &Ident) -> bool {
@@ -76,24 +82,16 @@ mod private {
 
         /// Sort plugins placing dependencies first.
         /// Errors on circular dependencies, missing dependencies and not linked plugins.
-        pub fn sort_plugins(&self, plugins: &[Plugin]) -> Result<Vec<Plugin>, SortError> {
+        pub fn sort_plugins(&mut self, plugins: &[Plugin]) -> Result<(), SortError> {
             let mut queue = VecDeque::new();
-            let mut items = HashMap::new();
 
             let mut error = SortError {
-                not_linked: Vec::new(),
                 circular_dependencies: Vec::new(),
                 missing_dependencies: Vec::new(),
             };
 
-            for plugin in plugins.iter() {
-                if !self.has(&*plugin.name) {
-                    error.not_linked.push(plugin.name.to_buf());
-                    continue;
-                }
-
-                queue.push_back(&*plugin.name);
-                items.insert(&*plugin.name, plugin);
+            for (name, plugin) in &self.plugins {
+                queue.push_back(*name);
             }
 
             let mut pending = HashSet::new();
@@ -106,7 +104,7 @@ mod private {
                 }
                 pending.insert(name);
 
-                let plugin = items[name];
+                let plugin = self.get(name).unwrap();
                 let a = self.get(name).unwrap();
 
                 let mut defer = false;
@@ -114,6 +112,7 @@ mod private {
                     if sorted.contains(dep) {
                         continue;
                     }
+
                     if pending.contains(dep) {
                         error
                             .circular_dependencies
@@ -121,7 +120,7 @@ mod private {
                         continue;
                     }
 
-                    if !items.contains_key(dep) {
+                    if !self.has(dep) {
                         error
                             .missing_dependencies
                             .push((dep.to_buf(), a.get_dependency(dep)));
@@ -138,100 +137,46 @@ mod private {
 
                 if !defer {
                     sorted.insert(name);
-                    result.push(plugin.clone());
+                    result.push(name);
                 }
             }
 
-            if error.not_linked.is_empty()
-                && error.circular_dependencies.is_empty()
-                && error.missing_dependencies.is_empty()
-            {
-                Ok(result)
-            } else {
-                Err(error)
+            if !error.circular_dependencies.is_empty() || !error.missing_dependencies.is_empty() {
+                return Err(error);
             }
+
+            let mut sorted_plugins = Vec::new();
+            for name in result {
+                let (name, plugin) = self.get_static(name).unwrap();
+                sorted_plugins.push((name, plugin));
+            }
+
+            self.plugins = sorted_plugins;
+            Ok(())
         }
 
-        /// List active plugins
+        /// Enumerate active plugins
         /// e.g. enabled plugins for which all dependencies are active
-        pub fn active_plugins<'a>(&self, plugins: &'a [Plugin]) -> HashSet<IdentBuf> {
-            let mut active = HashSet::new();
+        pub fn active_plugins<'a>(
+            &'a self,
+            enabled_plugins: &'a HashSet<IdentBuf>,
+        ) -> impl Iterator<Item = (&'a Ident, &'a dyn ArcanaPlugin)> + 'a {
             let mut inactive = HashSet::new();
 
-            'p: for plugin in plugins.iter() {
-                if !plugin.enabled {
-                    inactive.insert(&*plugin.name);
-                    continue;
-                }
-                let Some(a) = self.get(&*plugin.name) else {
-                    inactive.insert(&*plugin.name);
-                    continue;
-                };
-
-                let mut queue = VecDeque::new();
-                let mut pending = HashSet::new();
-
-                for &dep in a.dependencies() {
-                    if active.contains(dep) {
-                        continue;
-                    }
-                    if inactive.contains(dep) {
-                        inactive.insert(&*plugin.name);
-                        continue 'p;
-                    }
-                    queue.push_back(dep);
+            self.plugins.iter().filter_map(move |(name, plugin)| {
+                if !enabled_plugins.contains(*name) {
+                    inactive.insert(*name);
+                    return None;
                 }
 
-                while let Some(name) = queue.pop_front() {
-                    match plugins.iter().find(|p| *p.name == *name) {
-                        None => {
-                            inactive.insert(&*plugin.name);
-                            continue 'p;
-                        }
-                        Some(plugin) => {
-                            if !plugin.enabled {
-                                inactive.insert(&*plugin.name);
-                                continue 'p;
-                            }
-                        }
-                    }
-
-                    let Some(a) = self.get(name) else {
-                        inactive.insert(&*plugin.name);
-                        continue 'p;
-                    };
-                    pending.insert(name);
-
-                    let mut defer = false;
-                    for &dep in a.dependencies() {
-                        if active.contains(dep) {
-                            continue;
-                        }
-                        if inactive.contains(dep) {
-                            inactive.insert(&*plugin.name);
-                            continue 'p;
-                        }
-                        if pending.contains(dep) {
-                            inactive.insert(&*plugin.name);
-                            continue 'p;
-                        }
-
-                        if !defer {
-                            defer = true;
-                            queue.push_front(name);
-                        }
-                        queue.push_front(dep);
-                    }
-
-                    if !defer {
-                        active.insert(name);
+                for dep in plugin.dependencies() {
+                    if !inactive.contains(*dep) {
+                        return None;
                     }
                 }
 
-                active.insert(&*plugin.name);
-            }
-
-            active.into_iter().map(|name| name.to_buf()).collect()
+                Some((*name, *plugin))
+            })
         }
 
         pub fn load(path: &Path) -> miette::Result<Self> {
@@ -308,7 +253,10 @@ mod private {
                 }
             }
 
-            Ok(PluginsLibrary { lib, plugins })
+            Ok(PluginsLibrary {
+                lib,
+                plugins: plugins.to_vec(),
+            })
         }
     }
 }
@@ -330,10 +278,10 @@ pub(super) struct Plugins {
     // Running build process.
     build: Option<BuildProcess>,
 
+    dialog: Option<PluginsDialog>,
+
     /// Set of active plugins.
     active_plugins: HashSet<IdentBuf>,
-
-    dialog: Option<PluginsDialog>,
 }
 
 enum PluginsDialog {
@@ -348,11 +296,12 @@ impl Plugins {
             pending: None,
             failure: None,
             build: None,
-            active_plugins: HashSet::new(),
             dialog: None,
+            active_plugins: HashSet::new(),
         }
     }
 
+    /// Checks of all plugins from manifest are present in linked library.
     fn all_plugins_linked(&self, project: &ProjectManifest) -> bool {
         if let Some(linked) = &self.linked {
             return project.plugins.iter().all(|p| {
@@ -374,19 +323,27 @@ impl Plugins {
     // }
 
     /// Adds new plugin.
-    pub fn add_plugin(&mut self, name: IdentBuf, dep: Dependency, project: &mut Project) -> bool {
-        if project.add_plugin(name, dep) {
-            // Stop current build if there was one.
-            tracing::info!(
-                "Stopping current build process to re-build plugins library with new plugin"
-            );
-            self.build = None;
-
-            // Set of active plugins doesn't change yet.
-            true
-        } else {
-            false
+    pub fn add_plugin(
+        &mut self,
+        name: IdentBuf,
+        dep: Dependency,
+        project: &mut Project,
+    ) -> miette::Result<()> {
+        if project.has_plugin(&name) {
+            miette::bail!("Plugin '{}' already exists", name);
         }
+
+        let plugin = Plugin::from_dependency(name, dep)?;
+        project.add_plugin(plugin)?;
+
+        // Stop current build if there was one.
+        tracing::info!(
+            "Stopping current build process to re-build plugins library with new plugin"
+        );
+        self.build = None;
+
+        // Set of active plugins doesn't change yet.
+        Ok(())
     }
 
     pub fn get_plugin(&self, name: &Ident) -> Option<&dyn ArcanaPlugin> {
@@ -427,49 +384,52 @@ impl Plugins {
         }
 
         if world.view::<With<Game>>().iter().count() == 0 {
-            if let Some(lib) = plugins.pending.take() {
+            if let Some(mut lib) = plugins.pending.take() {
                 tracing::info!("New plugins lib version linked");
 
-                match lib.sort_plugins(&project.manifest().plugins) {
-                    Ok(sorted) => {
-                        project.manifest_mut().plugins = sorted;
-
-                        for (name, plugin) in lib.list() {
-                            for system in plugin.systems() {
-                                project.manifest_mut().add_var_system(name, system, true);
-                                project.manifest_mut().add_fix_system(name, system, false);
-                            }
-                            for filter in plugin.filters() {
-                                project.manifest_mut().add_filter(name, filter, true);
-                            }
+                if let Err(err) = lib.sort_plugins(&project.manifest().plugins) {
+                    for (name, dep) in err.missing_dependencies {
+                        tracing::info!("Missing dependency '{name}'");
+                        if let Err(err) = plugins.add_plugin(name.to_buf(), dep, &mut project) {
+                            tracing::error!("Failed to add missing dependency '{name}'. {err}");
                         }
-
-                        plugins.active_plugins = lib.active_plugins(&project.manifest().plugins);
-                        plugins.linked = Some(lib);
                     }
-                    Err(err) => {
-                        for name in err.not_linked {
-                            tracing::info!("Plugin '{name}' is not linked", name = name);
-                        }
-                        for (name, dep) in err.missing_dependencies {
-                            tracing::info!("Missing dependency '{name}'");
-                            plugins.add_plugin(name.to_buf(), dep, &mut project);
-                        }
-                        for (name, dep) in err.circular_dependencies {
-                            plugins.failure = Some(miette::miette!(
-                                "Circular dependency between '{name}' and '{dep}'",
-                                name = name,
-                                dep = dep
-                            ));
-                        }
+                    for (name, dep) in err.circular_dependencies {
+                        plugins.failure = Some(miette::miette!(
+                            "Circular dependency between '{name}' and '{dep}'",
+                            name = name,
+                            dep = dep
+                        ));
                     }
                 }
+
+                // Update systems and filters.
+                let mut data = world.expect_resource_mut::<ProjectData>();
+                let ProjectData {
+                    enabled_plugins,
+                    systems,
+                } = &mut *data;
+
+                plugins.active_plugins = lib
+                    .active_plugins(&*enabled_plugins)
+                    .map(|(name, _)| name.to_buf())
+                    .collect();
+
+                // Filters::update_plugins(&mut *data, active_plugins);
+                Systems::update_plugins(systems, lib.active_plugins(&*enabled_plugins));
+
+                // Lib is self-consistent.
+                // Replace old lib with new one.
+                plugins.linked = Some(lib);
             }
 
             if plugins.failure.is_none()
                 && plugins.build.is_none()
                 && !plugins.all_plugins_linked(project.manifest())
             {
+                // If not building and has no last-build error and not all plugins are linked
+                // - rebuild plugins library.
+
                 tracing::info!("Plugins lib is not linked. Building...");
                 let build = try_log_err!(project.build_plugins_library());
                 plugins.build = Some(build);
@@ -480,130 +440,214 @@ impl Plugins {
     pub fn show(world: &WorldLocal, ui: &mut Ui) {
         let plugins = &mut *world.expect_resource_mut::<Plugins>();
         let mut project = world.expect_resource_mut::<Project>();
+        let mut data = world.expect_resource_mut::<ProjectData>();
+
         let mut sync = false;
         let mut rebuild = false;
 
         // Building status
 
-        ui.allocate_ui_with_layout(
-            ui.style().spacing.interact_size,
-            egui::Layout::left_to_right(egui::Align::Center),
-            |ui| {
-                if plugins.build.is_some() {
-                    ui.spinner();
-                    ui.label("Building");
-                } else if let Some(failure) = &plugins.failure {
-                    let r = ui.label("Build failed");
-                    r.on_hover_ui(|ui| {
-                        ui.label(failure.to_string());
-                    });
-                } else {
-                    ui.label("Build succeeded");
+        ui.add_enabled_ui(plugins.dialog.is_none(), |ui| {
+            ui.allocate_ui_with_layout(
+                ui.style().spacing.interact_size,
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    if plugins.build.is_some() {
+                        ui.spinner();
+                        ui.label("Building");
+                    } else if let Some(failure) = &plugins.failure {
+                        let r = ui.label(
+                            egui::RichText::from("Plugins build: failed")
+                                .color(ui.visuals().error_fg_color),
+                        );
+                        r.on_hover_ui(|ui| {
+                            ui.label(failure.to_string());
+                        });
+                    } else {
+                        ui.label("Plugins build: Ok");
+                    }
+                },
+            );
+
+            // Top menu
+            ui.horizontal(|ui| {
+                let r = match plugins.build.is_none() {
+                    false => {
+                        ui.add_enabled(false, egui::Button::new(egui_phosphor::regular::HAMMER))
+                    }
+                    true => ui.button(egui_phosphor::regular::HAMMER),
+                };
+                if r.clicked() {
+                    let build = try_log_err!(project.build_plugins_library());
+                    plugins.build = Some(build);
                 }
-            },
-        );
+                let r = ui.button(egui_phosphor::regular::PLUS);
 
-        // Top menu
-        ui.horizontal(|ui| {
-            let r = match plugins.build.is_none() {
-                false => ui.add_enabled(false, egui::Button::new(egui_phosphor::regular::HAMMER)),
-                true => ui.button(egui_phosphor::regular::HAMMER),
-            };
-            if r.clicked() {
-                let build = try_log_err!(project.build_plugins_library());
-                plugins.build = Some(build);
-            }
-            let r = ui.button(egui_phosphor::regular::PLUS);
+                if r.clicked() {
+                    let mut dialog = FileDialog::select_folder(None);
+                    dialog.open();
+                    plugins.dialog = Some(PluginsDialog::NewPlugin(dialog));
+                } else {
+                    r.on_hover_ui(|ui| {
+                        ui.label("New plugin");
+                    });
+                }
 
-            if r.clicked() {
-                // if let Some(path) = rfd::FileDialog::new().save_file() {
-                //     if add_plugin_with_path(&path, &mut project) {
-                //         sync = true;
-                //         rebuild = true;
-                //     }
-                // }
-                todo!()
-            } else {
-                r.on_hover_ui(|ui| {
-                    ui.label("New plugin");
+                let r = ui.button(egui_phosphor::regular::FOLDER_OPEN);
+                if r.clicked() {
+                    let mut dialog = FileDialog::select_folder(None);
+                    dialog.open();
+                    plugins.dialog = Some(PluginsDialog::FindPlugin(dialog));
+                } else {
+                    r.on_hover_ui(|ui| {
+                        ui.label("Add plugin");
+                    });
+                }
+            });
+
+            // Plugins list
+            let mut remove_plugin = None;
+
+            for (idx, plugin) in project.manifest().plugins.iter().enumerate() {
+                let mut heading = RichText::from(plugin.name.as_str());
+
+                let mut tooltip = "";
+                if !plugins.is_linked(&plugin.name) {
+                    // Not linked plugin may not be active.
+                    if plugins.pending.is_some() || plugins.build.is_some() {
+                        tooltip = "Pending";
+                        heading = heading.color(ui.visuals().warn_fg_color);
+                    } else {
+                        tooltip = "Build failed";
+                        heading = heading.color(ui.visuals().error_fg_color);
+                    }
+                } else if !plugins.is_active(&plugin.name) {
+                    tooltip = "Dependencies are not enabled";
+                    heading = heading.color(ui.visuals().warn_fg_color);
+                } else {
+                    heading = heading.color(Color32::LIGHT_GREEN);
+                }
+
+                ui.horizontal(|ui| {
+                    let was_enabled = data.enabled_plugins.contains(&plugin.name);
+                    let mut enabled = was_enabled;
+                    let r = ui.checkbox(&mut enabled, heading);
+
+                    if was_enabled != enabled {
+                        data.enabled_plugins.insert(plugin.name.clone());
+                    }
+                    r.on_disabled_hover_text(tooltip);
+
+                    let r = ui.button(egui_phosphor::regular::TRASH);
+                    if r.clicked() {
+                        data.enabled_plugins.remove(&plugin.name);
+                        remove_plugin = Some(idx);
+                    }
                 });
             }
 
-            let r = ui.button(egui_phosphor::regular::FOLDER_OPEN);
-            if r.clicked() {
-                // if let Some(path) = rfd::FileDialog::new()
-                //     .set_file_name("Cargo.toml")
-                //     .pick_file()
-                // {
-                //     if add_plugin_with_path(&path, &mut project) {
-                //         sync = true;
-                //         rebuild = true;
-                //     }
-                // }
-                todo!()
-            } else {
-                r.on_hover_ui(|ui| {
-                    ui.label("Add plugin");
-                });
+            if let Some(idx) = remove_plugin {
+                project.manifest_mut().remove_plugin_idx(idx);
+                sync = true;
+                rebuild = true;
             }
         });
 
-        // Plugins list
-        let mut remove_plugin = None;
-        let mut toggle_plugin = None;
-
-        for (idx, plugin) in project.manifest().plugins.iter().enumerate() {
-            let mut heading = WidgetText::from(plugin.name.as_str());
-
-            let mut tooltip = "";
-            if !plugins.is_linked(&plugin.name) {
-                // Not linked plugin may not be active.
-                if plugins.pending.is_some() || plugins.build.is_some() {
-                    tooltip = "Pending";
-                    heading = heading.color(Color32::KHAKI);
-                } else {
-                    tooltip = "Build failed";
-                    heading = heading.color(Color32::DARK_RED);
+        match &mut plugins.dialog {
+            None => {}
+            Some(PluginsDialog::FindPlugin(dialog)) => match dialog.show(ui.ctx()).state() {
+                egui_file::State::Open => {}
+                egui_file::State::Closed | egui_file::State::Cancelled => {
+                    plugins.dialog = None;
                 }
-            } else if !plugins.is_active(&plugin.name) {
-                tooltip = "Dependencies are not enabled";
-                heading = heading.color(Color32::KHAKI);
-            } else {
-                heading = heading.color(Color32::GREEN);
-            }
-
-            ui.horizontal(|ui| {
-                let mut enabled = plugin.enabled;
-                let r = ui.checkbox(&mut enabled, heading);
-
-                if plugin.enabled != enabled {
-                    toggle_plugin = Some(idx);
+                egui_file::State::Selected => match dialog.path() {
+                    None => {
+                        plugins.dialog = None;
+                    }
+                    Some(path) => {
+                        match Utf8Path::from_path(path) {
+                            Some(path) => {
+                                match add_plugin_with_path(path.to_path_buf(), &mut project) {
+                                    Ok(true) => {
+                                        sync = true;
+                                        rebuild = true;
+                                    }
+                                    Ok(false) => {
+                                        tracing::warn!("Plugin already exists");
+                                    }
+                                    Err(err) => {
+                                        tracing::error!("Failed to add plugin. {err}");
+                                    }
+                                }
+                            }
+                            None => {
+                                tracing::error!("Invalid plugin path '{}'", path.display());
+                            }
+                        }
+                        plugins.dialog = None;
+                    }
+                },
+            },
+            Some(PluginsDialog::NewPlugin(dialog)) => match dialog.show(ui.ctx()).state() {
+                egui_file::State::Open => {}
+                egui_file::State::Closed | egui_file::State::Cancelled => {
+                    plugins.dialog = None;
                 }
-                r.on_disabled_hover_text(tooltip);
-
-                let r = ui.button(egui_phosphor::regular::TRASH);
-                if r.clicked() {
-                    remove_plugin = Some(idx);
-                }
-            });
-        }
-
-        if let Some(idx) = toggle_plugin {
-            let plugin = &mut project.manifest_mut().plugins[idx];
-            plugin.enabled = !plugin.enabled;
-            sync = true;
-        }
-
-        if let Some(idx) = remove_plugin {
-            project.manifest_mut().remove_plugin_idx(idx);
-            sync = true;
-            rebuild = true;
+                egui_file::State::Selected => match dialog.path() {
+                    None => {
+                        plugins.dialog = None;
+                    }
+                    Some(path) => {
+                        match Utf8Path::from_path(path) {
+                            Some(path) => match process_path_name(path.as_std_path(), None) {
+                                Ok((path, name)) => match Utf8PathBuf::from_path_buf(path) {
+                                    Ok(path) => {
+                                        match new_plugin_crate(
+                                            &name,
+                                            &path,
+                                            project.manifest().engine.clone(),
+                                        ) {
+                                            Ok(plugin) => match project.add_plugin(plugin) {
+                                                Ok(true) => {
+                                                    sync = true;
+                                                    rebuild = true;
+                                                }
+                                                Ok(false) => {
+                                                    tracing::warn!("Plugin already exists");
+                                                }
+                                                Err(err) => {
+                                                    tracing::error!("Failed to add plugin. {err}");
+                                                }
+                                            },
+                                            Err(err) => {
+                                                tracing::error!(
+                                                    "Failed to create new plugin. {err}"
+                                                );
+                                            }
+                                        }
+                                    }
+                                    Err(path) => {
+                                        tracing::error!(
+                                            "Plugin path is not UTF-8: {}",
+                                            path.display()
+                                        );
+                                    }
+                                },
+                                Err(err) => {
+                                    tracing::error!("Failed to process plugin path. {err}");
+                                }
+                            },
+                            None => {
+                                tracing::error!("Invalid plugin path '{}'", path.display());
+                            }
+                        }
+                        plugins.dialog = None;
+                    }
+                },
+            },
         }
 
         if sync {
-            if let Some(linked) = &plugins.linked {
-                plugins.active_plugins = linked.active_plugins(&project.manifest().plugins);
-            }
             try_log_err!(project.sync());
         }
 
@@ -627,23 +671,11 @@ impl Plugins {
     pub fn is_linked(&self, name: &Ident) -> bool {
         self.linked.as_ref().map_or(false, |lib| lib.has(name))
     }
-
-    /// List all active plugins
-    pub fn active_plugins<'a>(&'a self) -> Option<Vec<(&'a Ident, &'a dyn ArcanaPlugin)>> {
-        let linked = self.linked.as_ref()?;
-
-        let mut list = Vec::new();
-        for (name, plugin) in linked.list() {
-            if self.active_plugins.contains(name) {
-                list.push((name, plugin));
-            }
-        }
-        Some(list)
-    }
 }
 
-/// Adds new plugins library.
-fn add_plugin_with_path(path: &Path, project: &mut Project) -> bool {
-    let (name, dep) = try_log_err!(plugin_with_path(path); false);
-    project.add_plugin(name, dep)
+/// Adds new plugins library
+fn add_plugin_with_path(path: Utf8PathBuf, project: &mut Project) -> miette::Result<bool> {
+    let plugin = Plugin::open_local(path)?;
+
+    project.add_plugin(plugin)
 }

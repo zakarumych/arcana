@@ -5,7 +5,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use arcana_project::{new_plugin_crate, real_path, Dependency, Ident, IdentBuf, Project};
+use arcana_project::{
+    new_plugin_crate, process_path_name, real_path, Dependency, Ident, IdentBuf, Plugin, Project,
+};
+use camino::Utf8PathBuf;
 use figa::Figa;
 
 #[derive(Default, serde::Serialize, serde::Deserialize, figa::Figa)]
@@ -115,7 +118,7 @@ impl Start {
         new: bool,
     ) -> miette::Result<Project> {
         let (path, name) = process_path_name(path, name)?;
-        Project::new(name, engine, path, new)
+        Project::new(name, engine, &path, new)
     }
 
     pub fn open(&self, path: &Path) -> miette::Result<Project> {
@@ -136,8 +139,14 @@ impl Start {
         path: &Path,
         name: Option<&Ident>,
         engine: Dependency,
-    ) -> miette::Result<()> {
+    ) -> miette::Result<Plugin> {
         let (path, name) = process_path_name(path, name)?;
+        let path = match Utf8PathBuf::from_path_buf(path) {
+            Ok(path) => path,
+            Err(path) => {
+                miette::bail!("Plugin path is not UTF-8: {}", path.display());
+            }
+        };
         new_plugin_crate(&name, &path, engine)
     }
 
@@ -207,40 +216,3 @@ impl Start {
 //     let path = Utf8PathBuf::try_from(path).into_diagnostic()?;
 //     Ok(path)
 // }
-
-fn process_path_name(path: &Path, name: Option<&Ident>) -> miette::Result<(PathBuf, IdentBuf)> {
-    let path = match real_path(&path) {
-        Some(path) => path,
-        None => miette::bail!(
-            "Failed to get project destination path from {}",
-            path.display()
-        ),
-    };
-
-    let name = match name {
-        None => {
-            let Some(file_name) = path.file_name() else {
-                miette::bail!("Failed to get project name destination path");
-            };
-
-            if file_name.is_empty() || file_name == "." || file_name == ".." {
-                miette::bail!("Failed to get project name destination path");
-            }
-
-            let Some(file_name) = file_name.to_str() else {
-                miette::bail!("Failed to get project name destination path");
-            };
-
-            let Ok(file_name) = Ident::from_str(file_name) else {
-                miette::bail!(
-                    "Project's directory name cannot be used as project name is it is not valid identifier. Specify name manually"
-                );
-            };
-
-            file_name.to_owned()
-        }
-        Some(name) => name.to_owned(),
-    };
-
-    Ok((path, name))
-}

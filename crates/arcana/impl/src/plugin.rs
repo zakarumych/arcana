@@ -86,14 +86,13 @@ macro_rules! plugin_init {
 ///
 /// The easiest way to do this is to use [`export_arcana_plugin!`](`export_arcana_plugin`) macro.
 pub trait ArcanaPlugin: Any + Sync {
-    /// Returns list of plugins this plugin depends on.
+    /// Returns list of plugin names this plugin depends on.
     /// Dependencies must be initialized first and deinitialized last.
     fn dependencies(&self) -> &[&Ident] {
         &[]
     }
 
-    /// Returns list of plugins this plugin depends on.
-    /// Dependencies must be initialized first and deinitialized last.
+    /// Returns dependency by its name.
     fn get_dependency(&self, dep: &Ident) -> Dependency {
         unknown_dependency();
     }
