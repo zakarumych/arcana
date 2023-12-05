@@ -273,20 +273,20 @@ impl crate::traits::Device for Device {
         let texture_descriptor = metal::TextureDescriptor::new();
         texture_descriptor.set_pixel_format(desc.format.try_into_metal().unwrap());
         match desc.dimensions {
-            ImageDimensions::D1(size) => {
+            ImageDimensions::D1(extent) => {
                 texture_descriptor.set_texture_type(metal::MTLTextureType::D1);
-                texture_descriptor.set_width(size as _);
+                texture_descriptor.set_width(extent.width() as _);
             }
-            ImageDimensions::D2(width, height) => {
+            ImageDimensions::D2(extent) => {
                 texture_descriptor.set_texture_type(metal::MTLTextureType::D2);
-                texture_descriptor.set_width(width as _);
-                texture_descriptor.set_height(height as _);
+                texture_descriptor.set_width(extent.width() as _);
+                texture_descriptor.set_height(extent.height() as _);
             }
-            ImageDimensions::D3(width, height, depth) => {
+            ImageDimensions::D3(extent) => {
                 texture_descriptor.set_texture_type(metal::MTLTextureType::D3);
-                texture_descriptor.set_width(width as _);
-                texture_descriptor.set_height(height as _);
-                texture_descriptor.set_depth(depth as _);
+                texture_descriptor.set_width(extent.width() as _);
+                texture_descriptor.set_height(extent.height() as _);
+                texture_descriptor.set_depth(extent.depth() as _);
             }
         }
         texture_descriptor.set_mipmap_level_count(desc.levels as _);
