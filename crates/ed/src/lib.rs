@@ -1,6 +1,11 @@
-use std::{path::Path, process::Child};
+use std::{
+    io::{ErrorKind, Write},
+    path::Path,
+    process::Child,
+};
 
 use arcana::{gametime::FrequencyNumExt, plugin::GLOBAL_CHECK, project::Project};
+use data::ProjectData;
 use games::GamesTab;
 use parking_lot::Mutex;
 use winit::{
@@ -75,11 +80,15 @@ fn _run(path: &Path) -> miette::Result<()> {
     // This flag is checked in plugins to ensure they are linked to this arcana.
     GLOBAL_CHECK.store(true, std::sync::atomic::Ordering::SeqCst);
 
+    // `path` is `<project-dir>/crates/ed`
     let mut path = path.to_owned();
+    assert!(path.file_name().unwrap() == "ed");
     assert!(path.pop());
+    assert!(path.file_name().unwrap() == "crates");
     assert!(path.pop());
-    path.push("Arcana.toml");
-    let project = Project::open(&path)?;
+
+    // `path` is `<project-dir>`
+    let (project, data) = load_project(&path)?;
 
     let event_collector = egui_tracing::EventCollector::default();
 
@@ -100,7 +109,7 @@ fn _run(path: &Path) -> miette::Result<()> {
     let mut limiter = clock.ticker(120.hz());
 
     let events = EventLoopBuilder::<UserEvent>::with_user_event().build();
-    let mut app = app::App::new(&events, event_collector, project);
+    let mut app = app::App::new(&events, event_collector, project, data);
 
     events.run(move |event, _events, flow| match event {
         Event::WindowEvent { window_id, event } => {
@@ -140,4 +149,50 @@ fn move_element<T>(slice: &mut [T], from_index: usize, to_index: usize) {
         let sub = &mut slice[to_index..=from_index];
         sub.rotate_right(1);
     }
+}
+
+fn sync_project(project: &Project, data: &ProjectData) -> miette::Result<()> {
+    project.sync()?;
+
+    let path = project.root_path().join("Arcana.bin");
+
+    let mut file = match std::fs::File::create(path) {
+        Ok(file) => file,
+        Err(err) => {
+            miette::bail!("Failed to create Arcana.bin to store project data: {}", err);
+        }
+    };
+
+    match bincode::serialize(data) {
+        Ok(bytes) => match file.write_all(&bytes) {
+            Ok(()) => Ok(()),
+            Err(err) => {
+                miette::bail!("Failed to write project data: {}", err);
+            }
+        },
+        Err(err) => {
+            miette::bail!("Failed to serialize project data: {}", err);
+        }
+    }
+}
+
+fn load_project(path: &Path) -> miette::Result<(Project, ProjectData)> {
+    let project = Project::open(path)?;
+
+    let path = project.root_path().join("Arcana.bin");
+
+    let data = match std::fs::File::open(path) {
+        Err(err) if err.kind() == ErrorKind::NotFound => ProjectData::default(),
+        Ok(file) => match bincode::deserialize_from(file) {
+            Ok(data) => data,
+            Err(err) => {
+                miette::bail!("Failed to deserialize project data: {}", err);
+            }
+        },
+        Err(err) => {
+            miette::bail!("Failed to open Arcana.bin to load project data: {}", err);
+        }
+    };
+
+    Ok((project, data))
 }

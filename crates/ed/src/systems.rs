@@ -4,16 +4,36 @@ use arcana::{edict::world::WorldLocal, plugin::ArcanaPlugin, project::Project, W
 use arcana_project::{Ident, IdentBuf};
 use egui::{Color32, InnerResponse, Ui, WidgetText};
 use egui_snarl::{
-    ui::{Effects, Forbidden, InPin, OutPin, PinInfo, PinShape, SnarlViewer},
+    ui::{Effects, Forbidden, InPin, OutPin, PinInfo, PinShape, SnarlStyle, SnarlViewer},
     Snarl,
 };
 use hashbrown::HashSet;
 
-use crate::{data::ProjectData, move_element};
+use crate::{data::ProjectData, move_element, sync_project};
 
 use super::{plugins::Plugins, Tab};
 
-fn run_systems(world: &mut World, snarl: Snarl<SystemNode>) {}
+/// Walk over snarl and run fixed systems in order.
+fn run_fix_systems(world: &mut World, snarl: &Snarl<SystemNode>) {
+    for (idx, node) in snarl.node_indices() {}
+}
+
+/// Walk over snarl and run variable systems in order.
+fn run_var_systems(world: &mut World, snarl: &Snarl<SystemNode>) {}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+enum Category {
+    Fix,
+    Var,
+}
+
+fn pin_shape(category: Option<Category>) -> PinShape {
+    match category {
+        None => PinShape::Circle,
+        Some(Category::Fix) => PinShape::Square,
+        Some(Category::Var) => PinShape::Triangle,
+    }
+}
 
 pub struct Systems;
 
@@ -23,12 +43,16 @@ impl Systems {
     }
 
     pub fn show(world: &WorldLocal, ui: &mut Ui) {
-        let mut project = world.expect_resource_mut::<Project>();
-        let plugins = world.expect_resource::<Plugins>();
-
         let mut data = world.expect_resource_mut::<ProjectData>();
+        let project = world.expect_resource::<Project>();
 
-        // Update system graph;
+        const STYLE: SnarlStyle = SnarlStyle::new();
+
+        data.systems
+            .snarl
+            .show(&mut SystemViewer, &STYLE, "systems", ui);
+
+        try_log_err!(sync_project(&project, &mut data));
     }
 
     pub fn update_plugins<'a>(
@@ -46,11 +70,14 @@ impl Systems {
         }
 
         for (idx, node) in systems.snarl.nodes_indices_mut() {
-            match node {
-                SystemNode::System { plugin, system } => {
-                    if !all_systems.remove(&(&**plugin, &**system)) {
-                        effects.remove_node(idx);
-                    }
+            match *node {
+                SystemNode::System {
+                    ref plugin,
+                    ref system,
+                    ref mut active,
+                    ..
+                } => {
+                    *active = all_systems.remove(&(&**plugin, &**system));
                 }
                 _ => {}
             }
@@ -58,11 +85,14 @@ impl Systems {
 
         for (plugin, system) in all_systems {
             effects.insert_node(
+                Default::default(),
                 SystemNode::System {
                     plugin: plugin.to_buf(),
                     system: system.to_buf(),
+                    active: true,
+                    enabled: false,
+                    category: None,
                 },
-                Default::default(),
             );
         }
 
@@ -79,10 +109,18 @@ impl SystemGraph {
     pub fn new() -> Self {
         let mut snarl = Snarl::new();
 
-        snarl.add_node(SystemNode::Begin, egui::pos2(-100.0, -100.0));
-        snarl.add_node(SystemNode::FixedBegin, egui::pos2(-100.0, 0.0));
-        snarl.add_node(SystemNode::FixedEnd, egui::pos2(100.0, 0.0));
-        snarl.add_node(SystemNode::End, egui::pos2(100.0, 100.0));
+        snarl.insert_node(
+            egui::pos2(0.0, 0.0),
+            SystemNode::Begin {
+                category: Category::Fix,
+            },
+        );
+        snarl.insert_node(
+            egui::pos2(0.0, 100.0),
+            SystemNode::Begin {
+                category: Category::Var,
+            },
+        );
 
         SystemGraph { snarl }
     }
@@ -98,23 +136,26 @@ impl Default for SystemGraph {
 pub enum SystemNode {
     /// Exclusive node that represents beginning of the system graph.
     /// It has no inputs and one output.
-    Begin,
+    Begin { category: Category },
 
-    /// Exclusive node that represents beginning of the fixed systems.
-    /// It has two inputs and one output.
-    /// First input is connected to the `Begin` node.
-    /// Second input is connected to the `FixedEnd` node, creating a loop.
-    FixedBegin,
-
-    /// Exclusive node that represents end of the fixed systems and beginning of the variable systems.
-    /// It has exactly one
-    FixedEnd,
-
-    /// Exclusive node that represents end of the system graph.
-    End,
     /// Node that represents particular system.
     /// Addressed by plugin name and system name.
-    System { plugin: IdentBuf, system: IdentBuf },
+    System {
+        plugin: IdentBuf,
+        system: IdentBuf,
+        enabled: bool,
+        active: bool,
+        category: Option<Category>,
+    },
+}
+
+impl SystemNode {
+    fn category(&self) -> Option<Category> {
+        match *self {
+            SystemNode::Begin { category } => Some(category),
+            SystemNode::System { category, .. } => category,
+        }
+    }
 }
 
 struct SystemViewer;
@@ -122,42 +163,87 @@ struct SystemViewer;
 impl SnarlViewer<SystemNode> for SystemViewer {
     fn title<'a>(&'a mut self, node: &'a SystemNode) -> String {
         match node {
-            SystemNode::Begin => "Begin".to_owned(),
-            SystemNode::FixedBegin => "Fixed Begin".to_owned(),
-            SystemNode::FixedEnd => "Fixed End".to_owned(),
-            SystemNode::End => "End".to_owned(),
-            SystemNode::System { plugin, system } => {
-                format!("{}::{}", plugin, system)
+            SystemNode::Begin { .. } => "Begin".to_owned(),
+            SystemNode::System { plugin, system, .. } => {
+                format!("{}@{}", system, plugin)
+            }
+        }
+    }
+
+    fn show_header(
+        &mut self,
+        idx: usize,
+        node: &RefCell<SystemNode>,
+        _inputs: &[InPin<SystemNode>],
+        _utputs: &[OutPin<SystemNode>],
+        ui: &mut Ui,
+        _scale: f32,
+        effects: &mut Effects<SystemNode>,
+    ) -> egui::Response {
+        match *node.borrow_mut() {
+            SystemNode::Begin {
+                category: Category::Fix,
+            } => ui.label("Fix Begin"),
+            SystemNode::Begin {
+                category: Category::Var,
+            } => ui.label("Var Begin"),
+            SystemNode::System {
+                ref plugin,
+                ref system,
+                ref mut enabled,
+                active,
+                ..
+            } => {
+                ui.horizontal(|ui| {
+                    let cb = egui::Checkbox::new(enabled, system.as_str());
+                    let r = ui.add_enabled(active, cb);
+
+                    r.on_hover_text("Enable/disable system");
+
+                    ui.weak(egui_phosphor::regular::AT);
+                    ui.label(plugin.as_str());
+                    let r = ui.add_enabled(
+                        !active,
+                        egui::Button::new(egui_phosphor::regular::TRASH_SIMPLE).small(),
+                    );
+
+                    if r.clicked() {
+                        effects.remove_node(idx);
+                    }
+
+                    r.on_hover_ui(|ui| {
+                        ui.label("Remove system from graph");
+                        ui.label("The system is not found in active plugins");
+                        ui.label(
+                            "If plugins is reactivated and system is found, it will be added back",
+                        );
+                    });
+                })
+                .response
             }
         }
     }
 
     fn inputs(&mut self, node: &SystemNode) -> usize {
         match node {
-            SystemNode::Begin => 0,
-            SystemNode::FixedBegin => 2,
-            SystemNode::FixedEnd => 1,
-            SystemNode::End => 1,
+            SystemNode::Begin { .. } => 0,
             SystemNode::System { .. } => 1,
         }
     }
 
     fn outputs(&mut self, node: &SystemNode) -> usize {
         match node {
-            SystemNode::Begin => 1,
-            SystemNode::FixedBegin => 1,
-            SystemNode::FixedEnd => 2,
-            SystemNode::End => 0,
+            SystemNode::Begin { .. } => 1,
             SystemNode::System { .. } => 1,
         }
     }
 
-    fn input_color(&mut self, _: &InPin<SystemNode>, style: &egui::Style) -> Color32 {
-        style.visuals.widgets.noninteractive.bg_fill
+    fn input_color(&mut self, _: &InPin<SystemNode>, _style: &egui::Style) -> Color32 {
+        Color32::LIGHT_GRAY
     }
 
-    fn output_color(&mut self, _: &OutPin<SystemNode>, style: &egui::Style) -> Color32 {
-        style.visuals.widgets.noninteractive.bg_fill
+    fn output_color(&mut self, _: &OutPin<SystemNode>, _style: &egui::Style) -> Color32 {
+        Color32::LIGHT_GRAY
     }
 
     fn show_input(
@@ -167,33 +253,31 @@ impl SnarlViewer<SystemNode> for SystemViewer {
         _scale: f32,
         _effects: &mut Effects<SystemNode>,
     ) -> egui::InnerResponse<PinInfo> {
-        let pin_fill = ui.visuals().widgets.noninteractive.bg_fill;
-        let pin_stroke = ui.visuals().widgets.noninteractive.fg_stroke;
+        let pin_fill = Color32::LIGHT_GRAY;
+        let pin_stroke = ui.visuals().widgets.inactive.fg_stroke;
 
         let pin_info = PinInfo::default()
             .with_fill(pin_fill)
             .with_stroke(pin_stroke);
 
-        match (&*pin.node.borrow(), pin.id.input) {
-            (SystemNode::FixedBegin, 0) => {
+        match (&mut *pin.node.borrow_mut(), pin.id.input) {
+            (SystemNode::Begin { category }, 0) => {
                 let r = ui.allocate_response(egui::Vec2::ZERO, egui::Sense::hover());
-                InnerResponse::new(pin_info.with_shape(PinShape::Triangle), r)
+                InnerResponse::new(pin_info.with_shape(pin_shape(Some(*category))), r)
             }
-            (SystemNode::FixedBegin, 1) => {
+            (SystemNode::System { category, .. }, 0) => {
+                let pin_shape = pin_shape(*category);
+
+                *category = None;
+
+                for remote in &pin.remotes {
+                    if let Some(c) = remote.node.borrow().category() {
+                        *category = Some(c);
+                    }
+                }
+
                 let r = ui.allocate_response(egui::Vec2::ZERO, egui::Sense::hover());
-                InnerResponse::new(pin_info.with_shape(PinShape::Square), r)
-            }
-            (SystemNode::FixedEnd, 0) => {
-                let r = ui.allocate_response(egui::Vec2::ZERO, egui::Sense::hover());
-                InnerResponse::new(pin_info.with_shape(PinShape::Square), r)
-            }
-            (SystemNode::End, 0) => {
-                let r = ui.allocate_response(egui::Vec2::ZERO, egui::Sense::hover());
-                InnerResponse::new(pin_info.with_shape(PinShape::Triangle), r)
-            }
-            (SystemNode::System { .. }, 0) => {
-                let r = ui.allocate_response(egui::Vec2::ZERO, egui::Sense::hover());
-                InnerResponse::new(pin_info.with_shape(PinShape::Circle), r)
+                InnerResponse::new(pin_info.with_shape(pin_shape), r)
             }
             _ => unreachable!(),
         }
@@ -206,33 +290,29 @@ impl SnarlViewer<SystemNode> for SystemViewer {
         _scale: f32,
         _effects: &mut Effects<SystemNode>,
     ) -> egui::InnerResponse<PinInfo> {
-        let pin_fill = ui.visuals().widgets.noninteractive.bg_fill;
+        let pin_fill = Color32::LIGHT_GRAY;
         let pin_stroke = ui.visuals().widgets.noninteractive.fg_stroke;
 
         let pin_info = PinInfo::default()
             .with_fill(pin_fill)
             .with_stroke(pin_stroke);
 
-        match (&*pin.node.borrow(), pin.id.output) {
-            (SystemNode::Begin, 0) => {
+        match (&mut *pin.node.borrow_mut(), pin.id.output) {
+            (SystemNode::Begin { category }, 0) => {
                 let r = ui.allocate_response(egui::Vec2::ZERO, egui::Sense::hover());
-                InnerResponse::new(pin_info.with_shape(PinShape::Triangle), r)
+                InnerResponse::new(pin_info.with_shape(pin_shape(Some(*category))), r)
             }
-            (SystemNode::FixedBegin, 0) => {
+            (SystemNode::System { category, .. }, 0) => {
+                if category.is_none() {
+                    for remote in &pin.remotes {
+                        if let Some(c) = remote.node.borrow().category() {
+                            *category = Some(c);
+                        }
+                    }
+                }
+
                 let r = ui.allocate_response(egui::Vec2::ZERO, egui::Sense::hover());
-                InnerResponse::new(pin_info.with_shape(PinShape::Square), r)
-            }
-            (SystemNode::FixedEnd, 0) => {
-                let r = ui.allocate_response(egui::Vec2::ZERO, egui::Sense::hover());
-                InnerResponse::new(pin_info.with_shape(PinShape::Square), r)
-            }
-            (SystemNode::FixedEnd, 1) => {
-                let r = ui.allocate_response(egui::Vec2::ZERO, egui::Sense::hover());
-                InnerResponse::new(pin_info.with_shape(PinShape::Triangle), r)
-            }
-            (SystemNode::System { .. }, 0) => {
-                let r = ui.allocate_response(egui::Vec2::ZERO, egui::Sense::hover());
-                InnerResponse::new(pin_info.with_shape(PinShape::Circle), r)
+                InnerResponse::new(pin_info.with_shape(pin_shape(*category)), r)
             }
             _ => unreachable!(),
         }
@@ -244,24 +324,19 @@ impl SnarlViewer<SystemNode> for SystemViewer {
         to: &InPin<SystemNode>,
         effects: &mut Effects<SystemNode>,
     ) -> Result<(), Forbidden> {
-        match (
-            &*from.node.borrow(),
-            from.id.output,
-            &*to.node.borrow(),
-            to.id.input,
-        ) {
-            (SystemNode::FixedEnd, 1, SystemNode::System { .. }, 0) => {
-                effects.connect(from.id, to.id);
-            }
-            (SystemNode::System { .. }, 0, SystemNode::System { .. }, 0) => {
-                effects.connect(from.id, to.id);
-            }
-            (SystemNode::System { .. }, 0, SystemNode::End, 0) => {
-                effects.connect(from.id, to.id);
-            }
+        if from.id.node == to.id.node {
+            return Err(Forbidden);
+        }
+
+        let from_cat = from.node.borrow().category();
+        let to_cat = to.node.borrow().category();
+        match (from_cat, to_cat) {
+            (None, _) | (_, None) => {}
+            (Some(from), Some(to)) if from == to => {}
             _ => return Err(Forbidden),
         }
 
+        effects.connect(from.id, to.id);
         Ok(())
     }
 
@@ -271,7 +346,8 @@ impl SnarlViewer<SystemNode> for SystemViewer {
         to: &InPin<SystemNode>,
         effects: &mut Effects<SystemNode>,
     ) -> Result<(), Forbidden> {
-        Err(Forbidden)
+        effects.disconnect(from.id, to.id);
+        Ok(())
     }
 
     fn drop_outputs(
@@ -279,15 +355,7 @@ impl SnarlViewer<SystemNode> for SystemViewer {
         pin: &OutPin<SystemNode>,
         effects: &mut Effects<SystemNode>,
     ) -> Result<(), Forbidden> {
-        match (&*pin.node.borrow(), pin.id.output) {
-            (SystemNode::FixedEnd, 1) => {
-                effects.drop_outputs(pin.id);
-            }
-            (SystemNode::System { .. }, 0) => {
-                effects.drop_outputs(pin.id);
-            }
-            _ => return Err(Forbidden),
-        }
+        effects.drop_outputs(pin.id);
         Ok(())
     }
 
@@ -296,37 +364,28 @@ impl SnarlViewer<SystemNode> for SystemViewer {
         pin: &InPin<SystemNode>,
         effects: &mut Effects<SystemNode>,
     ) -> Result<(), Forbidden> {
-        match (&*pin.node.borrow(), pin.id.input) {
-            (SystemNode::End, 0) => {
-                effects.drop_inputs(pin.id);
-            }
-            (SystemNode::System { .. }, 0) => {
-                effects.drop_inputs(pin.id);
-            }
-            _ => return Err(Forbidden),
-        }
+        effects.drop_inputs(pin.id);
         Ok(())
     }
 
     fn graph_menu(
         &mut self,
-        pos: egui::Pos2,
-        ui: &mut Ui,
-        scale: f32,
-        effects: &mut Effects<SystemNode>,
+        _pos: egui::Pos2,
+        _ui: &mut Ui,
+        _scale: f32,
+        _effects: &mut Effects<SystemNode>,
     ) {
-        let _ = (pos, ui, scale, effects);
     }
 
     fn node_menu(
         &mut self,
-        idx: usize,
-        node: &RefCell<SystemNode>,
-        inputs: &[InPin<SystemNode>],
-        outputs: &[OutPin<SystemNode>],
-        ui: &mut Ui,
-        scale: f32,
-        effects: &mut Effects<SystemNode>,
+        _idx: usize,
+        _node: &RefCell<SystemNode>,
+        _inputs: &[InPin<SystemNode>],
+        _outputs: &[OutPin<SystemNode>],
+        _ui: &mut Ui,
+        _scale: f32,
+        _effects: &mut Effects<SystemNode>,
     ) {
     }
 }

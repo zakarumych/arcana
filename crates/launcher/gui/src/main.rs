@@ -1,15 +1,14 @@
-use std::{fs::File, process::Child, time::Duration};
+use std::{process::Child, time::Duration};
 
 use arcana::{
     blink_alloc::BlinkAlloc,
     edict::world::WorldLocal,
     events::ViewportEvent,
     game::Quit,
-    gametime::{FrequencyNumExt, TimeStamp},
+    gametime::FrequencyNumExt,
     init_mev, mev,
     project::{Dependency, Ident, IdentBuf, Project},
     render::{render, RenderGraph, RenderResources},
-    tokio::time::error::Error,
     viewport::Viewport,
     Clock, ClockStep, WorldBuilder,
 };
@@ -19,7 +18,7 @@ use egui::vec2;
 use egui_file::FileDialog;
 use winit::{
     event::WindowEvent,
-    event_loop::{ControlFlow, EventLoopBuilder},
+    event_loop::EventLoopBuilder,
     window::{Window, WindowBuilder},
 };
 
@@ -680,8 +679,8 @@ impl NewProject {
         if create_project {
             let result = Project::new(
                 IdentBuf::from_string(self.name.clone()).unwrap(),
-                self.engine.clone().unwrap(),
                 self.path.as_ref(),
+                self.engine.clone().unwrap(),
                 true,
             );
 

@@ -91,7 +91,7 @@ impl Filters {
         //     sync = true;
         // }
         // if sync {
-        //     try_log_err!(project.sync());
+        //     try_log_err!(sync_project(&project, &data));
         // }
     }
 }

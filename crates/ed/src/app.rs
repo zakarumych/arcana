@@ -73,6 +73,7 @@ impl Drop for App {
                             .dock_states
                             .remove(&window.id())
                             .unwrap_or_else(|| DockState::new(vec![])),
+                        maximized: window.is_maximized(),
                     }
                 })
                 .collect(),
@@ -87,7 +88,12 @@ impl Drop for App {
 }
 
 impl App {
-    pub fn new(events: &EventLoop, event_collector: EventCollector, project: Project) -> Self {
+    pub fn new(
+        events: &EventLoop,
+        event_collector: EventCollector,
+        project: Project,
+        data: ProjectData,
+    ) -> Self {
         let (device, queue) = init_mev();
         let queue = Arc::new(Mutex::new(queue));
 
@@ -100,7 +106,7 @@ impl App {
         world.insert_resource(Games::new());
         world.insert_resource(device.clone());
         world.insert_resource(queue.clone());
-        world.insert_resource(ProjectData::default());
+        world.insert_resource(data);
 
         let mut graph = RenderGraph::new();
 
@@ -134,7 +140,8 @@ impl App {
             let builder = WindowBuilder::new()
                 .with_title("Ed")
                 .with_position(w.pos)
-                .with_inner_size(w.size);
+                .with_inner_size(w.size)
+                .with_maximized(w.maximized);
 
             let window = builder
                 .build(&events)
@@ -230,6 +237,13 @@ impl App {
                 .or_insert_with(|| DockState::new(vec![]));
 
             egui.run(step.now, |cx| {
+                let (scroll_delta, hover_pos) =
+                    cx.input(|i| (i.scroll_delta.y, i.pointer.hover_pos()));
+
+                if scroll_delta != 0.0 {
+                    dbg!(scroll_delta);
+                }
+
                 let tabs = dock_state.main_surface_mut();
                 TopBottomPanel::top("Menu").show(cx, |ui| {
                     ui.horizontal(|ui| {
@@ -329,6 +343,7 @@ impl App {
 struct AppWindowState {
     pos: dpi::LogicalPosition<f64>,
     size: dpi::LogicalSize<f64>,
+    maximized: bool,
     dock_state: DockState<Tab>,
 }
 
@@ -376,6 +391,14 @@ impl TabViewer for AppModel<'_> {
         }
         true
     }
+
+    fn scroll_bars(&self, tab: &Tab) -> [bool; 2] {
+        match tab {
+            Tab::Game { .. } => [false, false],
+            Tab::Systems => [false, false],
+            _ => [true, true],
+        }
+    }
 }
 
 fn app_state_path(create: bool) -> Option<PathBuf> {
@@ -393,17 +416,17 @@ fn app_state_path(create: bool) -> Option<PathBuf> {
             path
         }
     };
-    path.push("ed_state.json");
+    path.push("ed.bin");
     Some(path)
 }
 
 fn load_app_state() -> Option<AppState> {
     let mut file = std::fs::File::open(app_state_path(false)?).ok()?;
 
-    serde_json::from_reader(&mut file).ok()
+    bincode::deserialize_from(&mut file).ok()
 }
 
 fn save_app_state(state: &AppState) -> Option<()> {
     let mut file = std::fs::File::create(app_state_path(true)?).ok()?;
-    serde_json::to_writer(&mut file, state).ok()
+    bincode::serialize_into(&mut file, state).ok()
 }

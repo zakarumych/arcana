@@ -25,9 +25,10 @@ amity = { path = "../../amity" }
 approx = { version = "0.5" }
 argosy = { path = "../../argosy" }
 argosy-store = { path = "../../argosy/store" }
-ash = { version = "0.37.0", features = ["loaded"] }
+ash = { version = "0.37", features = ["loaded"] }
 base64 = "0.21"
 bitflags = "2.0"
+bincode = "1.3"
 bit-vec = { version = "0.6" }
 blink-alloc = { version = "0.3.1", features = ["nightly"] }
 bytemuck = { version = "1.7", features = ["derive"] }
@@ -42,12 +43,12 @@ dunce = "1.0"
 # edict = { version = "0.5.0", features = [
 #     "rayon",
 # ], git = "http://github.com/zakarumych/edict" }
-edict = { version = "0.5.0", path = "../../edict" }
+edict = { version = "0.5", path = "../../edict" }
 egui = { version = "0.24", features = ["bytemuck"] }
 egui_dnd = { version = "0.5" }
-egui_dock = { version = "0.9.0" }
-egui_file = { version = "0.12.0" }
-egui-phosphor = { version = "0.3.0" }
+egui_dock = { version = "0.9" }
+egui_file = { version = "0.13" }
+egui-phosphor = { version = "0.3" }
 egui-snarl = { path = "../../egui-snarl" }
 egui_tracing = { version = "0.2", git = "http://github.com/zakarumych/egui_tracing" }
 flume = "0.11"
@@ -61,7 +62,7 @@ gpu-alloc = { version = "0.6" }
 hashbrown = { version = "=0.14.0", features = ["nightly"] }
 hidden-trait = "0.1"
 libloading = "0.8"
-metal = { version = "0.26.0" }
+metal = { version = "0.26" }
 miette = "5.9"
 na = { package = "nalgebra", version = "0.32", features = ["libm"] }
 naga = { version = "0.13", features = ["spv-in", "wgsl-in", "glsl-in"] }

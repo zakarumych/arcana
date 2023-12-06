@@ -13,7 +13,7 @@ use egui::{Color32, RichText, Ui, WidgetText};
 use egui_file::FileDialog;
 use hashbrown::HashSet;
 
-use crate::{data::ProjectData, filters::Filters, systems::Systems};
+use crate::{data::ProjectData, filters::Filters, sync_project, systems::Systems};
 
 use super::Tab;
 
@@ -82,7 +82,7 @@ mod private {
 
         /// Sort plugins placing dependencies first.
         /// Errors on circular dependencies, missing dependencies and not linked plugins.
-        pub fn sort_plugins(&mut self, plugins: &[Plugin]) -> Result<(), SortError> {
+        pub fn sort_plugins(&mut self, plugins: &mut [Plugin]) -> Result<(), SortError> {
             let mut queue = VecDeque::new();
 
             let mut error = SortError {
@@ -90,7 +90,7 @@ mod private {
                 missing_dependencies: Vec::new(),
             };
 
-            for (name, plugin) in &self.plugins {
+            for (name, _) in &self.plugins {
                 queue.push_back(*name);
             }
 
@@ -105,10 +105,9 @@ mod private {
                 pending.insert(name);
 
                 let plugin = self.get(name).unwrap();
-                let a = self.get(name).unwrap();
 
                 let mut defer = false;
-                for &dep in a.dependencies() {
+                for &dep in plugin.dependencies() {
                     if sorted.contains(dep) {
                         continue;
                     }
@@ -123,7 +122,7 @@ mod private {
                     if !self.has(dep) {
                         error
                             .missing_dependencies
-                            .push((dep.to_buf(), a.get_dependency(dep)));
+                            .push((dep.to_buf(), plugin.get_dependency(dep)));
                         continue;
                     };
 
@@ -146,10 +145,20 @@ mod private {
             }
 
             let mut sorted_plugins = Vec::new();
-            for name in result {
+
+            for (idx, name) in result.into_iter().enumerate() {
                 let (name, plugin) = self.get_static(name).unwrap();
                 sorted_plugins.push((name, plugin));
+
+                let plugin = plugins
+                    .iter_mut()
+                    .position(|p| p.name == *name)
+                    .expect("Plugin not found");
+
+                plugins.swap(idx, plugin);
             }
+
+            assert_eq!(self.plugins.len(), sorted_plugins.len());
 
             self.plugins = sorted_plugins;
             Ok(())
@@ -170,7 +179,7 @@ mod private {
                 }
 
                 for dep in plugin.dependencies() {
-                    if !inactive.contains(*dep) {
+                    if inactive.contains(*dep) {
                         return None;
                     }
                 }
@@ -387,7 +396,7 @@ impl Plugins {
             if let Some(mut lib) = plugins.pending.take() {
                 tracing::info!("New plugins lib version linked");
 
-                if let Err(err) = lib.sort_plugins(&project.manifest().plugins) {
+                if let Err(err) = lib.sort_plugins(&mut project.plugins_mut()) {
                     for (name, dep) in err.missing_dependencies {
                         tracing::info!("Missing dependency '{name}'");
                         if let Err(err) = plugins.add_plugin(name.to_buf(), dep, &mut project) {
@@ -403,17 +412,17 @@ impl Plugins {
                     }
                 }
 
-                // Update systems and filters.
                 let mut data = world.expect_resource_mut::<ProjectData>();
+                plugins.active_plugins = lib
+                    .active_plugins(&data.enabled_plugins)
+                    .map(|(name, _)| name.to_buf())
+                    .collect();
+
+                // Update systems and filters.
                 let ProjectData {
                     enabled_plugins,
                     systems,
                 } = &mut *data;
-
-                plugins.active_plugins = lib
-                    .active_plugins(&*enabled_plugins)
-                    .map(|(name, _)| name.to_buf())
-                    .collect();
 
                 // Filters::update_plugins(&mut *data, active_plugins);
                 Systems::update_plugins(systems, lib.active_plugins(&*enabled_plugins));
@@ -505,51 +514,68 @@ impl Plugins {
                 }
             });
 
+            ui.separator();
+
             // Plugins list
             let mut remove_plugin = None;
 
-            for (idx, plugin) in project.manifest().plugins.iter().enumerate() {
-                let mut heading = RichText::from(plugin.name.as_str());
+            egui::Grid::new("plugins-list")
+                .striped(true)
+                .show(ui, |ui| {
+                    for (idx, plugin) in project.plugins().iter().enumerate() {
+                        let mut heading = RichText::from(plugin.name.as_str());
 
-                let mut tooltip = "";
-                if !plugins.is_linked(&plugin.name) {
-                    // Not linked plugin may not be active.
-                    if plugins.pending.is_some() || plugins.build.is_some() {
-                        tooltip = "Pending";
-                        heading = heading.color(ui.visuals().warn_fg_color);
-                    } else {
-                        tooltip = "Build failed";
-                        heading = heading.color(ui.visuals().error_fg_color);
-                    }
-                } else if !plugins.is_active(&plugin.name) {
-                    tooltip = "Dependencies are not enabled";
-                    heading = heading.color(ui.visuals().warn_fg_color);
-                } else {
-                    heading = heading.color(Color32::LIGHT_GREEN);
-                }
+                        let mut tooltip = "";
+                        if !plugins.is_linked(&plugin.name) {
+                            // Not linked plugin may not be active.
+                            if plugins.pending.is_some() || plugins.build.is_some() {
+                                tooltip = "Pending";
+                                heading = heading.color(ui.visuals().warn_fg_color);
+                            } else {
+                                tooltip = "Build failed";
+                                heading = heading.color(ui.visuals().error_fg_color);
+                            }
+                        } else if !data.enabled_plugins.contains(&plugin.name) {
+                            heading = heading.color(ui.visuals().warn_fg_color);
+                        } else if !plugins.is_active(&plugin.name) {
+                            tooltip = "Dependencies are not enabled";
+                            heading = heading.color(ui.visuals().warn_fg_color);
+                        } else {
+                            heading = heading.color(Color32::LIGHT_GREEN);
+                        }
 
-                ui.horizontal(|ui| {
-                    let was_enabled = data.enabled_plugins.contains(&plugin.name);
-                    let mut enabled = was_enabled;
-                    let r = ui.checkbox(&mut enabled, heading);
+                        let was_enabled = data.enabled_plugins.contains(&plugin.name);
+                        let mut enabled = was_enabled;
+                        let r = ui.checkbox(&mut enabled, heading);
 
-                    if was_enabled != enabled {
-                        data.enabled_plugins.insert(plugin.name.clone());
-                    }
-                    r.on_disabled_hover_text(tooltip);
+                        if !tooltip.is_empty() {
+                            r.on_hover_text(tooltip);
+                        }
 
-                    let r = ui.button(egui_phosphor::regular::TRASH);
-                    if r.clicked() {
-                        data.enabled_plugins.remove(&plugin.name);
-                        remove_plugin = Some(idx);
+                        if !was_enabled && enabled {
+                            data.enabled_plugins.insert(plugin.name.clone());
+                            sync = true;
+                        } else if was_enabled && !enabled {
+                            data.enabled_plugins.remove(&plugin.name);
+                            sync = true;
+                        }
+
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let r = ui.button(egui_phosphor::regular::TRASH);
+                            if r.clicked() {
+                                data.enabled_plugins.remove(&plugin.name);
+                                remove_plugin = Some(idx);
+                                sync = true;
+                                rebuild = true;
+                            }
+                        });
+
+                        ui.end_row();
                     }
                 });
-            }
 
             if let Some(idx) = remove_plugin {
                 project.manifest_mut().remove_plugin_idx(idx);
-                sync = true;
-                rebuild = true;
             }
         });
 
@@ -605,7 +631,7 @@ impl Plugins {
                                         match new_plugin_crate(
                                             &name,
                                             &path,
-                                            project.manifest().engine.clone(),
+                                            project.engine().clone(),
                                         ) {
                                             Ok(plugin) => match project.add_plugin(plugin) {
                                                 Ok(true) => {
@@ -648,7 +674,22 @@ impl Plugins {
         }
 
         if sync {
-            try_log_err!(project.sync());
+            if let Some(lib) = &plugins.linked {
+                plugins.active_plugins = lib
+                    .active_plugins(&data.enabled_plugins)
+                    .map(|(name, _)| name.to_buf())
+                    .collect();
+
+                let ProjectData {
+                    enabled_plugins,
+                    systems,
+                } = &mut *data;
+
+                // Filters::update_plugins(&mut *data, active_plugins);
+                Systems::update_plugins(systems, lib.active_plugins(&*enabled_plugins));
+            }
+
+            try_log_err!(sync_project(&project, &data));
         }
 
         if rebuild {

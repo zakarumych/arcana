@@ -67,19 +67,19 @@ impl fmt::Debug for Project {
 }
 
 impl Project {
-    /// Creates new project with the given name.
-    ///
-    /// Associate it with the path.
+    /// Creates new project with the given name at the given path.
+    /// Path will become project root directory.
     ///
     /// # Errors
     ///
     /// * If `engine` dependency is provided and it is invalid.
     ///   Path dependency is invalid if it is not a valid path to directory containing `Cargo.toml`.
-    /// * If `path` is occupied.
+    /// * If `new` is true and `path` is already exists.
+    /// * If `path` already contains Arcana project.
     pub fn new(
         name: IdentBuf,
-        mut engine: Dependency,
         path: &Path,
+        mut engine: Dependency,
         new: bool,
     ) -> miette::Result<Self> {
         if let Ok(m) = path.metadata() {
@@ -207,14 +207,13 @@ impl Project {
     }
 
     /// Opens existing Arcana project from the given path.
+    /// The path must a manifest file.
     ///
     /// # Errors
     ///
     /// * If `path` is not a valid path to Arcana project.
-    ///   It must be either path to a directory that contains `Arcana.toml` manifest file
-    ///   or path to manifest file itself.
     pub fn open(path: &Path) -> miette::Result<Self> {
-        let path = match real_path(path) {
+        let path = match real_path(&path.join(MANIFEST_NAME)) {
             Some(path) => path,
             None => {
                 miette::bail!(
@@ -238,9 +237,14 @@ impl Project {
             );
         }
 
-        let (manifest_path, root_path) = if m.is_dir() {
-            (path.join(MANIFEST_NAME), path.to_owned())
-        } else {
+        if m.is_dir() {
+            miette::bail!(
+                "Cannot open project with manifest at '{}': path is a directory",
+                path.display()
+            );
+        }
+
+        let (manifest_path, root_path) = {
             let root_path = match path.parent() {
                 Some(path) => path.to_owned(),
                 None => {
@@ -316,22 +320,12 @@ impl Project {
         );
     }
 
-    /// Returns name of the project.
-    pub fn name(&self) -> &Ident {
-        &self.manifest.name
-    }
-
-    /// Returns name of the project.
-    pub fn set_name(&mut self, name: impl Into<IdentBuf>) {
-        self.manifest.name = name.into();
-    }
-
     /// Returns path to the project.
     pub fn root_path(&self) -> &Path {
         &self.root_path
     }
 
-    pub fn sync(&mut self) -> miette::Result<()> {
+    pub fn sync(&self) -> miette::Result<()> {
         // let serialized_manifest = toml::to_string(&self.manifest).map_err(|err| {
         //     miette::miette!("Cannot serialize project manifest to \"Arcana.toml\": {err}")
         // })?;
@@ -372,6 +366,31 @@ impl Project {
 
     pub fn manifest_mut(&mut self) -> &mut ProjectManifest {
         &mut self.manifest
+    }
+
+    /// Returns name of the project.
+    pub fn name(&self) -> &Ident {
+        &self.manifest.name
+    }
+
+    pub fn name_mut(&mut self) -> &mut IdentBuf {
+        &mut self.manifest.name
+    }
+
+    pub fn engine(&self) -> &Dependency {
+        &self.manifest.engine
+    }
+
+    pub fn engine_mut(&mut self) -> &mut Dependency {
+        &mut self.manifest.engine
+    }
+
+    pub fn plugins(&self) -> &[Plugin] {
+        &self.manifest.plugins
+    }
+
+    pub fn plugins_mut(&mut self) -> &mut [Plugin] {
+        &mut self.manifest.plugins
     }
 
     pub fn run_editor(self) -> miette::Result<()> {

@@ -11,6 +11,7 @@ description = "Arcana Engine Editor"
 arcana = { path = "../arcana", features = ["ed"] }
 arcana-project = { path = "../project" }
 arcana-egui = { path = "../plugins/egui" }
+bincode = { workspace = true }
 camino = { workspace = true }
 dirs = { workspace = true }
 egui = { workspace = true }

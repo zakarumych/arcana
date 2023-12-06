@@ -297,7 +297,9 @@ impl Render for EguiRender {
                                 dimensions: mev::Extent2::new(size[0] as u32, size[1] as u32)
                                     .into(),
                                 format,
-                                usage: mev::ImageUsage::SAMPLED | mev::ImageUsage::TRANSFER_DST,
+                                usage: mev::ImageUsage::SAMPLED
+                                    | mev::ImageUsage::TRANSFER_DST
+                                    | mev::ImageUsage::TRANSFER_SRC,
                                 layers: 1,
                                 levels: 1,
                                 name: &format!("egui-texture-{id:?}"),
@@ -332,11 +334,19 @@ impl Render for EguiRender {
                                     dimensions: mev::Extent2::new(size[0] as u32, size[1] as u32)
                                         .into(),
                                     format,
-                                    usage: mev::ImageUsage::SAMPLED | mev::ImageUsage::TRANSFER_DST,
+                                    usage: mev::ImageUsage::SAMPLED
+                                        | mev::ImageUsage::TRANSFER_DST
+                                        | mev::ImageUsage::TRANSFER_SRC,
                                     layers: 1,
                                     levels: 1,
                                     name: &format!("egui-texture-{id:?}"),
                                 })?;
+
+                                copy_encoder.init_image(
+                                    mev::PipelineStages::empty(),
+                                    mev::PipelineStages::TRANSFER,
+                                    &new_image,
+                                );
 
                                 if let ImageData::Font(_) = &delta.image {
                                     new_image = new_image.view(

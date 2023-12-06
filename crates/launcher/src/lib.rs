@@ -118,7 +118,7 @@ impl Start {
         new: bool,
     ) -> miette::Result<Project> {
         let (path, name) = process_path_name(path, name)?;
-        Project::new(name, engine, &path, new)
+        Project::new(name, &path, engine, new)
     }
 
     pub fn open(&self, path: &Path) -> miette::Result<Project> {
