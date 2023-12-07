@@ -140,13 +140,16 @@ impl App {
             let builder = WindowBuilder::new()
                 .with_title("Ed")
                 .with_position(w.pos)
-                .with_inner_size(w.size)
-                .with_maximized(w.maximized);
+                .with_inner_size(w.size);
 
-            let window = builder
+            let window: Window = builder
                 .build(&events)
                 .map_err(|err| miette::miette!("Failed to create Ed window: {err}"))
                 .unwrap();
+
+            if w.maximized {
+                window.set_maximized(true);
+            }
 
             let size = window.inner_size();
             let scale_factor = window.scale_factor();
