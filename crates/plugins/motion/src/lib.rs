@@ -5,7 +5,6 @@ use arcana::{
         query::Xor2, ActionEncoder, Component, Entities, EntityId, Res, ResMut, View, Without,
     },
     gametime::ClockStep,
-    project::{Dependency, Ident},
 };
 use physics::{Body, PhysicsResource};
 use scene::Global2;
@@ -44,7 +43,7 @@ impl Component for Motor2 {
 impl Motor2 {
     pub fn new(velocity: f32, acceleration: f32) -> Self {
         // Find stopping threshold and add 10% to it just in case.
-        let threshold = (velocity * velocity / acceleration / 2.0) * 1.1;
+        let threshold = (velocity * velocity / acceleration / 2.0) * 2.0;
         Motor2 {
             velocity,
             acceleration,
@@ -59,8 +58,10 @@ impl Motor2 {
 
     fn initial_state(position: na::Vector2<f32>) -> Motor2State {
         Motor2State {
-            prev_position: position,
-            // integral: na::Vector2::zeros(),
+            prev_pos: position,
+            prev_vel: na::Vector2::zeros(),
+            integral: na::Vector2::zeros(),
+            vel_integral: na::Vector2::zeros(),
         }
     }
 
@@ -73,32 +74,61 @@ impl Motor2 {
         state: &mut Motor2State,
         delta_time: f32,
     ) -> na::Vector2<f32> {
-        let mut target = target.coords - position;
-        let mut target_mag = target.magnitude();
+        let mut error = target.coords - position;
+        let error_mag = error.magnitude();
 
-        let target_velocity;
-
-        if target_mag < distance {
-            target = na::Vector2::zeros();
-            target_mag = 0.0;
+        if error_mag < distance {
+            error = na::Vector2::zeros();
+            // error_mag = 0.0;
         } else {
-            target -= target / target_mag * distance;
-            target_mag -= distance;
+            // target -= target / error_mag * distance;
+            error *= (error_mag - distance) / error_mag;
+            // error_mag -= distance;
         }
 
-        if target_mag < self.threshold {
-            target_velocity = self.velocity * target / self.threshold;
+        const KP: f32 = 1.0;
+        const TI: f32 = 3.0;
+        const TD: f32 = 3.0;
+
+        // Use velocity based PID.
+        let target_velocity = if error_mag > EPSILON && error_mag > self.threshold {
+            self.velocity * error / error_mag
+        } else if self.threshold > EPSILON {
+            self.velocity * error / self.threshold
         } else {
-            target_velocity = self.velocity * target / target_mag;
+            na::Vector2::zeros()
+        };
+
+        let velocity = (position - state.prev_pos) / delta_time;
+        let correction;
+
+        //self.threshold > EPSILON && error_mag < self.threshold {
+        // Use position based PID.
+
+        let velocity_error = target_velocity - velocity;
+
+        state.integral += velocity_error * delta_time;
+
+        if state.integral.dot(&velocity_error) < 0.0 {
+            state.integral *= 1.0 - delta_time;
         }
 
-        let velocity = (position - state.prev_position) / delta_time;
-        state.prev_position = position;
-        let error = target_velocity - velocity;
+        state.integral = state.integral.cap_magnitude(self.acceleration);
 
-        let correction = error / delta_time;
+        correction = (error + state.integral * TI + velocity_error * TD) * KP;
+
+        state.prev_pos = position;
+        state.prev_vel = velocity;
 
         correction.cap_magnitude(self.acceleration)
+
+        // let velocity = (position - state.prev_position) / delta_time;
+        // state.prev_position = position;
+        // let error = target_velocity - velocity;
+
+        // let correction = error / delta_time;
+
+        // correction.cap_magnitude(self.acceleration)
     }
 }
 
@@ -161,7 +191,10 @@ fn motion_system(view: View<(&mut Motion2, &mut Global2), Without<Body>>, clocks
 }
 
 struct Motor2State {
-    prev_position: na::Vector2<f32>,
+    prev_pos: na::Vector2<f32>,
+    prev_vel: na::Vector2<f32>,
+    integral: na::Vector2<f32>,
+    vel_integral: na::Vector2<f32>,
 }
 
 impl Component for Motor2State {
@@ -235,6 +268,7 @@ fn move_to_init_system(
             }
             (None, Some(b)) => {
                 let body = physics.get_body_mut(b);
+                body.reset_forces(false);
                 body.add_force(body.mass() * acc, true);
             }
             _ => {
@@ -274,6 +308,7 @@ fn move_to_system(
             }
             (None, Some(b)) => {
                 let body = physics.get_body_mut(b);
+                body.reset_forces(false);
                 body.add_force(body.mass() * acc, true);
             }
             _ => {
@@ -375,6 +410,7 @@ fn motion_after_init_system(
                     }
                     (None, Some(b)) => {
                         let body = physics.get_body_mut(b);
+                        body.reset_forces(false);
                         body.add_force(body.mass() * acc, true);
                     }
                     _ => {
@@ -427,6 +463,7 @@ fn motion_after_system(
                     }
                     (None, Some(b)) => {
                         let body = physics.get_body_mut(b);
+                        body.reset_forces(false);
                         body.add_force(body.mass() * acc, true);
                     }
                     _ => {

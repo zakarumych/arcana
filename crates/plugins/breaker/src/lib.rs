@@ -99,19 +99,64 @@ arcana::export_arcana_plugin! {
 
             // insert_global_entity_controller(PaddleTranslator, paddle, world).unwrap();
 
-            let wall_body = {
-                let mut physics = world.expect_resource_mut::<PhysicsResource>();
-                let body = physics.new_velocity_body();
+            let mut physics = world.expect_resource_mut::<PhysicsResource>();
+            // let wall_body = {
+            //     let body = physics.new_fixed_body();
 
-                physics.add_collider(&body, ColliderBuilder::cuboid(0.2, 5.0));
-                // physics.get_body_mut(&body).set_angvel(1.0, false);
+            //     physics.add_collider(&body, ColliderBuilder::cuboid(0.2, 5.0));
+            //     // physics.get_body_mut(&body).set_angvel(1.0, false);
+            //     body
+            // };
+
+            let left_side = {
+                let body = physics.new_fixed_body();
+                physics.add_collider(&body, ColliderBuilder::halfspace(na::UnitVector2::new_unchecked(na::Vector2::x())));
                 body
             };
+
+            let right_side = {
+                let body = physics.new_fixed_body();
+                physics.add_collider(&body, ColliderBuilder::halfspace(na::UnitVector2::new_unchecked(-na::Vector2::x())));
+                body
+            };
+
+            let top_side = {
+                let body = physics.new_fixed_body();
+                physics.add_collider(&body, ColliderBuilder::halfspace(na::UnitVector2::new_unchecked(-na::Vector2::y())));
+                body
+            };
+
+            let bottom_side = {
+                let body = physics.new_fixed_body();
+                physics.add_collider(&body, ColliderBuilder::halfspace(na::UnitVector2::new_unchecked(na::Vector2::y())));
+                body
+            };
+
+            drop(physics);
+
+
+            // world.spawn((
+            //     sdf::Shape::rect(0.4, 10.0).with_color([0.3, 0.2, 0.1, 1.0]),
+            //     Global2::identity().translated(na::Vector2::new(-10.0, 10.0)),
+            //     wall_body,
+            // ));
             world.spawn((
-                sdf::Shape::rect(0.4, 10.0).with_color([0.3, 0.2, 0.1, 1.0]),
-                Global2::identity().translated(na::Vector2::new(4.0, 0.0)),
-                wall_body,
+                Global2::identity().translated(na::Vector2::new(-15.0, 0.0)),
+                left_side,
             ));
+            world.spawn((
+                Global2::identity().translated(na::Vector2::new(15.0, 0.0)),
+                right_side,
+            ));
+            world.spawn((
+                Global2::identity().translated(na::Vector2::new(0.0, 15.0)),
+                top_side,
+            ));
+            world.spawn((
+                Global2::identity().translated(na::Vector2::new(0.0, -15.0)),
+                bottom_side,
+            ));
+
 
             let mut new_node = move |world: &mut World| {
                 let body = {
@@ -142,9 +187,9 @@ arcana::export_arcana_plugin! {
 
             spawn_block!(in ref world -> {
                 sleep(timespan!(2 seconds), world).await;
-                loop {
-                    sleep(timespan!(1 s), world).await;
+                for _ in 0..10 {
                     world.with_sync(|world| new_node(world));
+                    sleep(timespan!(1 s), world).await;
                 }
             });
         }

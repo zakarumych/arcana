@@ -240,13 +240,6 @@ impl App {
                 .or_insert_with(|| DockState::new(vec![]));
 
             egui.run(step.now, |cx| {
-                let (scroll_delta, hover_pos) =
-                    cx.input(|i| (i.scroll_delta.y, i.pointer.hover_pos()));
-
-                if scroll_delta != 0.0 {
-                    dbg!(scroll_delta);
-                }
-
                 let tabs = dock_state.main_surface_mut();
                 TopBottomPanel::top("Menu").show(cx, |ui| {
                     ui.horizontal(|ui| {

@@ -1,6 +1,8 @@
 //! Data definition for the project.
 //!
 
+use std::{cell::RefCell, rc::Rc};
+
 use arcana_project::IdentBuf;
 use hashbrown::HashSet;
 
@@ -16,5 +18,5 @@ pub struct ProjectData {
     pub enabled_plugins: HashSet<IdentBuf>,
 
     /// Systems graph.
-    pub systems: SystemGraph,
+    pub systems: Rc<RefCell<SystemGraph>>,
 }

@@ -15,51 +15,14 @@ pub async fn sleep(duration: TimeSpan, world: FlowWorld<'_>) {
         return;
     }
 
-    let deadline = world
-        .poll_fn(|world, cx| {
-            let now = world.expect_resource::<ClockStep>().now;
-            let deadline = now + duration;
+    let now = world.with_sync(|world| world.expect_resource::<ClockStep>().now);
+    let deadline = now + duration;
 
-            world
-                .expect_resource_mut::<Timers>()
-                .add_timer(cx.waker().clone(), deadline);
-            Poll::Ready(deadline)
-        })
-        .await;
-
-    world
-        .poll_fn(|world, cx| {
-            let now = world.expect_resource::<ClockStep>().now;
-
-            if now >= deadline {
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
-        })
-        .await
+    sleep_until(deadline, world).await;
 }
 
 /// Causes flow to sleep untile specified time.
 pub async fn sleep_until(deadline: TimeStamp, world: FlowWorld<'_>) {
-    let ready = world
-        .poll_fn(|world, cx| {
-            let now = world.expect_resource::<ClockStep>().now;
-            if now >= deadline {
-                return Poll::Ready(true);
-            }
-
-            world
-                .expect_resource_mut::<Timers>()
-                .add_timer(cx.waker().clone(), deadline);
-            Poll::Ready(false)
-        })
-        .await;
-
-    if ready {
-        return;
-    }
-
     world
         .poll_fn(|world, cx| {
             let now = world.expect_resource::<ClockStep>().now;
@@ -67,6 +30,9 @@ pub async fn sleep_until(deadline: TimeStamp, world: FlowWorld<'_>) {
             if now >= deadline {
                 Poll::Ready(())
             } else {
+                world
+                    .expect_resource_mut::<Timers>()
+                    .add_timer(cx.waker().clone(), deadline);
                 Poll::Pending
             }
         })
@@ -144,7 +110,7 @@ pub fn init_flows(world: &mut World) {
     world.insert_resource(Timers::new());
 }
 
-pub fn run_flows(world: &mut World) {
+pub fn wake_flows(world: &mut World) {
     let mut times = world.expect_resource_mut::<Timers>();
     let clocks = world.expect_resource::<ClockStep>();
 

@@ -2,7 +2,11 @@ use std::{collections::VecDeque, ptr::NonNull, sync::Arc, time::Instant};
 
 use arcana_project::Ident;
 use blink_alloc::Blink;
-use edict::{world::WorldBuilder, Component, EntityId, IntoSystem, Scheduler, System, World};
+use edict::{
+    flow::{execute_flows, Flows},
+    world::WorldBuilder,
+    Component, EntityId, IntoSystem, System, World,
+};
 use gametime::{
     Clock, ClockStep, Frequency, FrequencyNumExt, FrequencyTicker, TimeSpan, TimeSpanNumExt,
     TimeStamp,
@@ -16,7 +20,7 @@ use winit::{
 
 use crate::{
     events::{Event, EventFilter, EventFunnel},
-    flow::init_flows,
+    flow::{init_flows, wake_flows},
     init_mev,
     plugin::{ArcanaPlugin, PluginInit},
     render::{render_system, RenderGraph, RenderState},
@@ -159,13 +163,11 @@ pub struct Game {
     world: World,
     blink: Blink,
     fixed_now: TimeStamp,
-    fix_scheduler: Box<dyn FnMut(&mut World)>,
+    scheduler: Box<dyn FnMut(&mut World, bool)>,
+    flows: Flows,
 
     #[cfg(feature = "client")]
     funnel: EventFunnel,
-
-    #[cfg(feature = "client")]
-    var_scheduler: Box<dyn FnMut(&mut World)>,
 
     #[cfg(feature = "client")]
     render_state: RenderState,
@@ -177,22 +179,22 @@ impl Component for Game {
     }
 }
 
+pub type Scheduler = Box<dyn FnMut(&mut World, bool)>;
+
+pub struct GameInit {
+    pub scheduler: Scheduler,
+    #[cfg(feature = "client")]
+    pub funnel: EventFunnel,
+}
+
 impl Game {
     pub fn launch<'a>(
-        fix_scheduler: Box<dyn FnMut(&mut World)>,
-        #[cfg(feature = "client")] var_scheduler: Box<dyn FnMut(&mut World)>,
-        #[cfg(feature = "client")] funnel: EventFunnel,
+        init: impl FnOnce(&mut World) -> GameInit,
         #[cfg(feature = "client")] device: mev::Device,
         #[cfg(feature = "client")] queue: Arc<Mutex<mev::Queue>>,
         #[cfg(feature = "client")] window: Option<Window>,
     ) -> Self {
-        // Build the world.
-        // Register external resources.
-        let mut world_builder = WorldBuilder::new();
-        world_builder.register_external::<mev::Surface>();
-        world_builder.register_external::<Window>();
-
-        let mut world = world_builder.build();
+        let mut world = World::new();
 
         // Start global clocks and frequency ticker.
         // Set frequency ticker as a resource.
@@ -209,6 +211,10 @@ impl Game {
 
         #[cfg(feature = "client")]
         {
+            // Register external resources.
+            world.ensure_external_registered::<mev::Surface>();
+            world.ensure_external_registered::<Window>();
+
             world.insert_resource(Limiter(clocks.ticker(120.hz())));
             world.insert_resource(FPS::new());
             world.insert_resource(RenderGraph::new());
@@ -229,16 +235,19 @@ impl Game {
 
         init_flows(&mut world);
 
+        let init = init(&mut world);
+
+        tracing::debug!("Game initialized");
+
         Game {
             clock: GameClock::new(),
             world,
             blink,
             fixed_now,
-            fix_scheduler,
+            scheduler: init.scheduler,
+            flows: Flows::default(),
             #[cfg(feature = "client")]
-            var_scheduler,
-            #[cfg(feature = "client")]
-            funnel,
+            funnel: init.funnel,
             #[cfg(feature = "client")]
             render_state: RenderState::default(),
         }
@@ -346,73 +355,31 @@ impl Game {
             self.fixed_now = fixed_stamp;
 
             *self.world.expect_resource_mut::<ClockStep>() = fixed_step;
-            // if cfg!(debug_assertions) {
-            (self.fix_scheduler)(&mut self.world);
-            // } else {
-            //     self.fix_scheduler.run_rayon(&mut self.world);
-            // }
+            (self.scheduler)(&mut self.world, true);
             self.blink.reset();
+
+            wake_flows(&mut self.world);
+            execute_flows(&mut self.world, &mut self.flows);
         }
 
-        let mut ticks = self
-            .world
-            .expect_resource_mut::<Limiter>()
-            .0
-            .tick_count(step.step);
+        #[cfg(feature = "client")]
+        {
+            let mut ticks = self
+                .world
+                .expect_resource_mut::<Limiter>()
+                .0
+                .tick_count(step.step);
 
-        if ticks > 0 {
-            self.world.expect_resource_mut::<FPS>().add(step.now);
-            *self.world.expect_resource_mut::<ClockStep>() = step;
+            if ticks > 0 {
+                self.world.expect_resource_mut::<FPS>().add(step.now);
+                *self.world.expect_resource_mut::<ClockStep>() = step;
 
-            // if cfg!(debug_assertions) {
-            (self.var_scheduler)(&mut self.world);
-            // } else {
-            //     self.var_scheduler.run_rayon(&mut self.world);
-            // }
-            self.blink.reset();
+                (self.scheduler)(&mut self.world, false);
+                self.blink.reset();
+            }
         }
     }
 }
-
-// /// Runs game in standalone mode
-// pub fn run(plugins: &'static [&'static dyn ArcanaPlugin]) {
-//     let event_collector = egui_tracing::EventCollector::default();
-
-//     use tracing_subscriber::layer::SubscriberExt as _;
-
-//     if let Err(err) = tracing::subscriber::set_global_default(
-//         tracing_subscriber::fmt()
-//             .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-//             .finish()
-//             .with(tracing_error::ErrorLayer::default())
-//             .with(event_collector.clone()),
-//     ) {
-//         panic!("Failed to install tracing subscriber: {}", err);
-//     }
-
-//     EventLoop::run(|events| async move {
-//         let (device, queue) = init_mev();
-//         let mut game = Game::launch(
-//             &events,
-//             plugins.iter().copied(),
-//             device,
-//             Arc::new(Mutex::new(queue)),
-//         );
-
-//         loop {
-//             for event in events.next(Some(Instant::now())).await {
-//                 game.on_event(event);
-//             }
-
-//             if game.should_quit() {
-//                 drop(game);
-//                 return;
-//             }
-
-//             game.tick();
-//         }
-//     });
-// }
 
 fn gcd(mut a: u64, mut b: u64) -> u64 {
     while b != 0 {

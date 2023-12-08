@@ -1,41 +1,76 @@
-use arcana::{edict::world::WorldLocal, plugin::ArcanaPlugin, project::Project, World};
+use std::collections::VecDeque;
+
+use arcana::{
+    edict::world::WorldLocal, plugin::ArcanaPlugin, project::Project, ActionBufferSliceExt, System,
+    World,
+};
 use arcana_project::{Ident, IdentBuf};
 use egui::{Color32, Ui};
 use egui_snarl::{
-    ui::{InPin, OutPin, PinInfo, PinShape, SnarlStyle, SnarlViewer},
-    InPinId, OutPinId, Snarl,
+    ui::{PinInfo, PinShape, SnarlStyle, SnarlViewer},
+    InPin, InPinId, OutPin, OutPinId, Snarl,
 };
-use hashbrown::HashSet;
+use hashbrown::{HashMap, HashSet};
 
 use crate::{data::ProjectData, sync_project, toggle_ui};
 
 use super::Tab;
 
-/// Walk over snarl and run fixed systems in order.
-fn run_fix_systems(world: &mut World, snarl: &Snarl<SystemNode>) {
-    for (idx, node) in snarl.node_indices() {}
+/// Walk over snarl and run systems of certain category in dependency order.
+pub fn run_systems(
+    category: Category,
+    world: &mut World,
+    system_graph: &SystemGraph,
+    systems: &mut HashMap<(IdentBuf, IdentBuf), Box<dyn System + Send>>,
+) {
+    let mut buffers = Vec::new();
+
+    let mut queue = VecDeque::new();
+    let mut complete = HashSet::new();
+
+    for (idx, node) in system_graph.snarl.node_indices() {
+        if node.category != category {
+            continue;
+        }
+        queue.push_back(idx);
+    }
+
+    'outer: while let Some(idx) = queue.pop_front() {
+        let in_pin = system_graph.snarl.in_pin(InPinId {
+            node: idx,
+            input: 0,
+        });
+
+        for remote in in_pin.remotes {
+            if !complete.contains(&remote.node) {
+                queue.push_back(idx);
+                continue 'outer;
+            }
+        }
+
+        let node = system_graph.snarl.get_node(idx);
+
+        if node.active && node.enabled {
+            let system = &mut systems.get_mut(&node.system).unwrap();
+            system.run(world, &mut buffers);
+        }
+        complete.insert(idx);
+    }
+
+    buffers.execute_all(world);
 }
 
-/// Walk over snarl and run variable systems in order.
-fn run_var_systems(world: &mut World, snarl: &Snarl<SystemNode>) {}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-enum Category {
+pub enum Category {
     Fix,
     Var,
 }
+
 impl Category {
     fn pin_shape(&self) -> PinShape {
         match self {
             Category::Fix => PinShape::Square,
             Category::Var => PinShape::Triangle,
-        }
-    }
-
-    fn title(&self) -> &'static str {
-        match self {
-            Category::Fix => "Fixed",
-            Category::Var => "Variable",
         }
     }
 }
@@ -54,6 +89,7 @@ impl Systems {
         const STYLE: SnarlStyle = SnarlStyle::new();
 
         data.systems
+            .borrow_mut()
             .snarl
             .show(&mut SystemViewer, &STYLE, "systems", ui);
 
@@ -75,7 +111,7 @@ impl Systems {
         let mut bb = egui::Rect::NOTHING;
 
         for (pos, node) in systems.snarl.nodes_pos_mut() {
-            node.active = all_systems.remove(&(&*node.plugin, &*node.system));
+            node.active = all_systems.remove(&(&*node.system.0, &*node.system.1));
             bb.extend_with(pos);
             bb.extend_with(pos + egui::vec2(100.0, 100.0));
         }
@@ -87,8 +123,7 @@ impl Systems {
         let new_systems = all_systems
             .into_iter()
             .map(|(plugin, system)| SystemNode {
-                plugin: plugin.to_buf(),
-                system: system.to_buf(),
+                system: (plugin.to_buf(), system.to_buf()),
                 active: true,
                 enabled: false,
                 category: Category::Fix,
@@ -134,8 +169,7 @@ impl Default for SystemGraph {
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 struct SystemNode {
-    plugin: IdentBuf,
-    system: IdentBuf,
+    system: (IdentBuf, IdentBuf),
     enabled: bool,
     category: Category,
 
@@ -150,7 +184,7 @@ struct SystemViewer;
 
 impl SnarlViewer<SystemNode> for SystemViewer {
     fn title<'a>(&'a mut self, node: &'a SystemNode) -> String {
-        format!("{}@{}", node.system, node.plugin)
+        format!("{}@{}", &*node.system.1, &*node.system.0)
     }
 
     fn show_header(
@@ -168,13 +202,13 @@ impl SnarlViewer<SystemNode> for SystemViewer {
 
         ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
-                let cb = egui::Checkbox::new(&mut node.enabled, node.system.as_str());
+                let cb = egui::Checkbox::new(&mut node.enabled, node.system.1.as_str());
                 let r = ui.add_enabled(node.active, cb);
 
                 r.on_hover_text("Enable/disable system");
 
                 ui.weak(egui_phosphor::regular::AT);
-                ui.label(node.plugin.as_str());
+                ui.label(node.system.0.as_str());
                 let r = ui.add_enabled(
                     !node.active,
                     egui::Button::new(egui_phosphor::regular::TRASH_SIMPLE).small(),
@@ -318,10 +352,11 @@ impl SnarlViewer<SystemNode> for SystemViewer {
     fn graph_menu(
         &mut self,
         _pos: egui::Pos2,
-        _ui: &mut Ui,
+        ui: &mut Ui,
         _scale: f32,
-        snarl: &mut Snarl<SystemNode>,
+        _snarl: &mut Snarl<SystemNode>,
     ) {
+        ui.close_menu();
     }
 
     fn node_menu(
@@ -329,9 +364,10 @@ impl SnarlViewer<SystemNode> for SystemViewer {
         _idx: usize,
         _inputs: &[InPin],
         _outputs: &[OutPin],
-        _ui: &mut Ui,
+        ui: &mut Ui,
         _scale: f32,
-        snarl: &mut Snarl<SystemNode>,
+        _snarl: &mut Snarl<SystemNode>,
     ) {
+        ui.close_menu();
     }
 }

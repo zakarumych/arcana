@@ -7,21 +7,26 @@ use std::{cmp::Reverse, collections::BinaryHeap, sync::Arc};
 use arcana::{
     const_format,
     edict::world::WorldLocal,
-    events::{Event, ViewportEvent},
-    game::Game,
+    events::{Event, EventFunnel, ViewportEvent},
+    game::{Game, GameInit},
     mev,
     plugin::ArcanaPlugin,
     project::{Ident, Project},
     texture::Texture,
     ClockStep, Component, Entities, EntityId, World,
 };
+use hashbrown::HashMap;
 use parking_lot::Mutex;
 use winit::{
     event::WindowEvent,
     window::{Window, WindowId},
 };
 
-use crate::Tab;
+use crate::{
+    data::ProjectData,
+    systems::{run_systems, Category},
+    Tab,
+};
 
 use super::plugins::Plugins;
 
@@ -127,7 +132,7 @@ impl Games {
         let entity = world.allocate().id();
         let game_id = GameId { entity, id };
         world.insert_defer(entity, LaunchGame);
-        tracing::info!("Game {} starting", id);
+        tracing::info!("Game {id}:{entity} starting");
         game_id
     }
 
@@ -157,86 +162,72 @@ impl Games {
     }
 
     /// Launches requested games.
-    pub fn launch_games(world: &mut World) {
-        // if world.new_view_mut().with::<LaunchGame>().iter().count() == 0 {
-        //     return;
-        // }
+    pub fn launch_games(world: &mut WorldLocal) {
+        if world.new_view_mut().with::<LaunchGame>().iter().count() == 0 {
+            return;
+        }
 
-        // let project = world.expect_resource_mut::<Project>();
-        // let plugins = world.expect_resource_mut::<Plugins>();
-        // let Some(active_plugins) = plugins.active_plugins() else {
-        //     return;
-        // };
+        tracing::info!("Launching games");
 
-        // let active = |exported: fn(&dyn ArcanaPlugin) -> &[&Ident]| {
-        //     let plugins = &plugins;
-        //     move |item: &&Item| {
-        //         if !item.enabled {
-        //             return false;
-        //         }
+        let plugins = world.expect_resource_mut::<Plugins>();
 
-        //         if !plugins.is_active(&item.plugin) {
-        //             return false;
-        //         }
+        let Some(active_plugins) = plugins.active_plugins() else {
+            return;
+        };
+        let active_plugins = active_plugins.collect::<Vec<_>>();
 
-        //         let plugin = plugins.get_plugin(&item.plugin).unwrap();
-        //         if !exported(plugin).iter().any(|name| **name == *item.name) {
-        //             return false;
-        //         }
-        //         true
-        //     }
-        // };
+        let project = world.expect_resource_mut::<Project>();
+        let data = world.expect_resource::<ProjectData>();
+        let device = world.expect_resource::<mev::Device>();
+        let queue = world.expect_resource::<Arc<Mutex<mev::Queue>>>();
 
-        // let active_var_systems = project
-        //     .manifest()
-        //     .var_systems
-        //     .iter()
-        //     .filter(active(|p| p.systems()))
-        //     .map(|i| (&*i.plugin, &*i.name));
+        let games = world
+            .view::<Entities>()
+            .with::<LaunchGame>()
+            .into_iter()
+            .map(|e| {
+                tracing::info!("Launching game {e}");
 
-        // let active_fix_systems = project
-        //     .manifest()
-        //     .fix_systems
-        //     .iter()
-        //     .filter(active(|p| p.systems()))
-        //     .map(|i| (&*i.plugin, &*i.name));
+                let system_graph = data.systems.clone();
+                let init = |world: &mut World| {
+                    let mut systems = HashMap::new();
+                    let mut funnel = EventFunnel::new();
 
-        // let active_filters = project
-        //     .manifest()
-        //     .filters
-        //     .iter()
-        //     .filter(active(|p| p.filters()))
-        //     .map(|i| (&*i.plugin, &*i.name));
+                    for (plugin_name, plugin) in &active_plugins {
+                        let init = plugin.init(world);
 
-        // let device = world.clone_resource::<mev::Device>();
-        // let queue = world.clone_resource::<Arc<Mutex<mev::Queue>>>();
+                        for (system_name, system) in init.systems {
+                            systems.insert((plugin_name.to_buf(), system_name.to_buf()), system);
+                        }
 
-        // let games = world
-        //     .view::<Entities>()
-        //     .with::<LaunchGame>()
-        //     .into_iter()
-        //     .map(|e| {
-        //         let game = Game::launch(
-        //             active_plugins.clone(),
-        //             active_filters.clone(),
-        //             active_var_systems.clone(),
-        //             active_fix_systems.clone(),
-        //             device.clone(),
-        //             queue.clone(),
-        //             None,
-        //         );
+                        for (_, filter) in init.filters {
+                            funnel.add_boxed(filter);
+                        }
+                    }
 
-        //         (e.id(), game)
-        //     })
-        //     .collect::<Vec<_>>();
+                    let scheduler = Box::new(move |world: &mut World, fixed: bool| {
+                        let cat = match fixed {
+                            true => Category::Fix,
+                            false => Category::Var,
+                        };
+                        run_systems(cat, world, &*system_graph.borrow(), &mut systems);
+                    });
 
-        // drop(project);
-        // drop(plugins);
+                    GameInit { scheduler, funnel }
+                };
 
-        // for (e, game) in games {
-        //     let _ = world.drop::<LaunchGame>(e);
-        //     let _ = world.insert(e, game);
-        // }
+                let game = Game::launch(init, (*device).clone(), (*queue).clone(), None);
+
+                (e.id(), game)
+            })
+            .collect::<Vec<_>>();
+
+        drop((project, plugins, data, device, queue));
+
+        for (e, game) in games {
+            let _ = world.drop::<LaunchGame>(e);
+            let _ = world.insert(e, game);
+        }
     }
 
     pub fn handle_event<'a>(
@@ -314,6 +305,12 @@ impl Games {
                         ViewportEvent::Resized { .. }
                         | ViewportEvent::ScaleFactorChanged { .. } => {
                             consume = false;
+                        }
+                        ViewportEvent::KeyboardInput { input, .. }
+                            if input.virtual_keycode
+                                == Some(winit::event::VirtualKeyCode::Escape) =>
+                        {
+                            games.focus = None;
                         }
                         event => {
                             game.on_event(&Event::ViewportEvent { event });
@@ -513,16 +510,15 @@ impl GamesTab {
                             focus.pixel_per_point = ui.ctx().pixels_per_point();
                         }
                     } else {
-                        let make_focused = if r.has_focus() {
-                            !focused
-                        } else {
-                            if r.clicked() {
-                                r.request_focus();
-                                !focused
-                            } else {
-                                false
-                            }
-                        };
+                        if r.has_focus() {
+                            r.surrender_focus();
+                        }
+
+                        let mut make_focused = false;
+                        if r.clicked() {
+                            r.request_focus();
+                            make_focused = !focused
+                        }
 
                         if make_focused {
                             tracing::info!("Game {} focused", id.id);
