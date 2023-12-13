@@ -68,13 +68,18 @@ feature_client! {
 }
 
 pub mod alloc;
+pub mod arena;
 pub mod assets;
 pub mod bundle;
+// pub mod data;
+mod color_hash;
 pub mod flow;
+pub mod id;
 mod num2name;
 pub mod plugin;
+pub mod work;
 
-pub use num2name::num_to_name;
+pub use self::{color_hash::color_hash, num2name::num_to_name};
 
 /// Returns version of the arcana crate.
 pub fn version() -> &'static str {

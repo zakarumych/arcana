@@ -19,7 +19,7 @@ use smallvec::SmallVec;
 use crate::{
     generic::{
         BufferDesc, BufferInitDesc, CreateLibraryError, CreatePipelineError, Features, ImageDesc,
-        ImageDimensions, LibraryDesc, LibraryInput, Memory, OutOfMemory, PrimitiveTopology,
+        ImageExtent, LibraryDesc, LibraryInput, Memory, OutOfMemory, PrimitiveTopology,
         RenderPipelineDesc, SamplerDesc, ShaderLanguage, SurfaceError, Swizzle, VertexStepMode,
         ViewDesc,
     },

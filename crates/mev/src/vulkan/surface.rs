@@ -8,7 +8,7 @@ use std::{
 use ash::vk;
 
 use crate::{
-    generic::{ImageDimensions, OutOfMemory, PipelineStages, SurfaceError, Swizzle, ViewDesc},
+    generic::{ImageExtent, OutOfMemory, PipelineStages, SurfaceError, Swizzle, ViewDesc},
     Extent2,
 };
 
@@ -321,11 +321,7 @@ impl Surface {
 
 #[hidden_trait::expose]
 impl crate::traits::Surface for Surface {
-    fn next_frame(
-        &mut self,
-        queue: &mut Queue,
-        before: PipelineStages,
-    ) -> Result<Frame, SurfaceError> {
+    fn next_frame(&mut self) -> Result<Frame, SurfaceError> {
         self.clear_retired();
 
         match self.suboptimal_retire {
@@ -380,16 +376,16 @@ impl crate::traits::Surface for Surface {
                 Err(err) => unexpected_error(err),
             };
 
-            let (image, [acquire, present]) = &mut current.images[idx as usize];
+            let (ref image, [ref mut acquire, present]) = current.images[idx as usize];
             std::mem::swap(&mut current.next, acquire);
-
-            queue.add_wait(*acquire, before);
 
             return Ok(Frame {
                 swapchain: current.handle,
                 image: image.clone(),
                 idx,
-                present: *present,
+                acquire: *acquire,
+                present,
+                synced: false,
             });
         }
     }
@@ -399,7 +395,9 @@ pub struct Frame {
     pub(super) swapchain: vk::SwapchainKHR,
     pub(super) image: Image,
     pub(super) idx: u32,
+    pub(super) acquire: vk::Semaphore,
     pub(super) present: vk::Semaphore,
+    pub(super) synced: bool,
 }
 
 impl Deref for Frame {

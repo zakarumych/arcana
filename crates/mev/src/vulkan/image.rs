@@ -1,5 +1,6 @@
 use core::fmt;
 use std::{
+    hash::{Hash, Hasher},
     mem::{size_of, ManuallyDrop},
     sync::Arc,
 };
@@ -10,8 +11,8 @@ use hashbrown::{hash_map::Entry, HashMap};
 use parking_lot::Mutex;
 
 use crate::generic::{
-    ArgumentKind, Automatic, ImageDimensions, ImageUsage, OutOfMemory, PixelFormat, Sampled,
-    Storage, Swizzle, ViewDesc,
+    ArgumentKind, Automatic, ImageExtent, ImageUsage, OutOfMemory, PixelFormat, Sampled, Storage,
+    Swizzle, ViewDesc,
 };
 
 use super::{
@@ -35,7 +36,7 @@ struct ImageData {
     owner: WeakDevice,
     format: PixelFormat,
     usage: ImageUsage,
-    dimensions: ImageDimensions,
+    dimensions: ImageExtent,
     layers: u32,
     levels: u32,
     flavor: Flavor,
@@ -58,7 +59,7 @@ struct Inner {
     data: Arc<ImageData>,
     desc: ViewDesc,
     usage: ImageUsage,
-    dimensions: ImageDimensions,
+    dimensions: ImageExtent,
     owner: WeakDevice,
 }
 
@@ -67,6 +68,24 @@ pub struct Image {
     handle: vk::Image,
     view: vk::ImageView,
     inner: Arc<Inner>,
+}
+
+impl PartialEq for Image {
+    fn eq(&self, other: &Self) -> bool {
+        self.handle == other.handle
+            && self.view == other.view
+            && Arc::ptr_eq(&self.inner, &other.inner)
+    }
+}
+
+impl Eq for Image {}
+
+impl Hash for Image {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.handle.hash(state);
+        self.view.hash(state);
+        Arc::as_ptr(&self.inner).hash(state);
+    }
 }
 
 impl fmt::Debug for Image {
@@ -91,7 +110,7 @@ impl Image {
         handle: vk::Image,
         view: vk::ImageView,
         view_idx: usize,
-        dimensions: impl Into<ImageDimensions>,
+        dimensions: impl Into<ImageExtent>,
         format: PixelFormat,
         usage: ImageUsage,
         layers: u32,
@@ -138,7 +157,7 @@ impl Image {
         handle: vk::Image,
         view: vk::ImageView,
         view_idx: usize,
-        dimensions: ImageDimensions,
+        dimensions: ImageExtent,
         format: PixelFormat,
         usage: ImageUsage,
         layers: u32,
@@ -168,7 +187,7 @@ impl Image {
         handle: vk::Image,
         view: vk::ImageView,
         view_idx: usize,
-        dimensions: impl Into<ImageDimensions>,
+        dimensions: impl Into<ImageExtent>,
         format: PixelFormat,
         usage: ImageUsage,
     ) -> Self {
@@ -249,7 +268,7 @@ impl crate::traits::Image for Image {
     }
 
     #[inline(always)]
-    fn dimensions(&self) -> ImageDimensions {
+    fn dimensions(&self) -> ImageExtent {
         self.inner.dimensions
     }
 

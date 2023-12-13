@@ -2,9 +2,9 @@ use ash::vk;
 
 use crate::generic::{
     AddressMode, BlendFactor, BlendOp, BufferUsage, CompareFunction, ComponentSwizzle, Culling,
-    Extent2, Extent3, FamilyCapabilities, Filter, FrontFace, ImageDimensions, ImageUsage,
-    MipMapMode, Offset2, Offset3, PipelineStage, PipelineStages, PixelFormat, QueueFlags,
-    ShaderStage, ShaderStages, Swizzle, VertexFormat, WriteMask,
+    Extent2, Extent3, FamilyCapabilities, Filter, FrontFace, ImageExtent, ImageUsage, MipMapMode,
+    Offset2, Offset3, PipelineStage, PipelineStages, PixelFormat, QueueFlags, ShaderStage,
+    ShaderStages, Swizzle, VertexFormat, WriteMask,
 };
 
 macro_rules! from_flags {
@@ -145,24 +145,24 @@ impl AshFrom<BufferUsage> for vk::BufferUsageFlags {
     }
 }
 
-impl AshFrom<ImageDimensions> for vk::ImageType {
+impl AshFrom<ImageExtent> for vk::ImageType {
     #[inline(never)]
-    fn ash_from(value: ImageDimensions) -> Self {
+    fn ash_from(value: ImageExtent) -> Self {
         match value {
-            ImageDimensions::D1(_) => vk::ImageType::TYPE_1D,
-            ImageDimensions::D2(_) => vk::ImageType::TYPE_2D,
-            ImageDimensions::D3(_) => vk::ImageType::TYPE_3D,
+            ImageExtent::D1(_) => vk::ImageType::TYPE_1D,
+            ImageExtent::D2(_) => vk::ImageType::TYPE_2D,
+            ImageExtent::D3(_) => vk::ImageType::TYPE_3D,
         }
     }
 }
 
-impl AshFrom<ImageDimensions> for vk::ImageViewType {
+impl AshFrom<ImageExtent> for vk::ImageViewType {
     #[inline(never)]
-    fn ash_from(value: ImageDimensions) -> Self {
+    fn ash_from(value: ImageExtent) -> Self {
         match value {
-            ImageDimensions::D1(_) => vk::ImageViewType::TYPE_1D,
-            ImageDimensions::D2(_) => vk::ImageViewType::TYPE_2D,
-            ImageDimensions::D3(_) => vk::ImageViewType::TYPE_3D,
+            ImageExtent::D1(_) => vk::ImageViewType::TYPE_1D,
+            ImageExtent::D2(_) => vk::ImageViewType::TYPE_2D,
+            ImageExtent::D3(_) => vk::ImageViewType::TYPE_3D,
         }
     }
 }

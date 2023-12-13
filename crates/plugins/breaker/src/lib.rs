@@ -1,5 +1,5 @@
 use arcana::{
-    edict::{self, spawn_block, ActionEncoder, Component, Entities, Res, View, World},
+    edict::{self, spawn_block, yield_now, ActionEncoder, Component, Entities, Res, View, World},
     events::{ElementState, KeyboardInput, VirtualKeyCode},
     flow::sleep,
     gametime::timespan,
@@ -11,9 +11,15 @@ use camera::Camera2;
 use cursor::MainCursor;
 use input::{ActionQueue, Translator};
 use motion::{Motor2, MoveAfter2, MoveTo2};
-use physics::{geometry::ColliderBuilder, PhysicsResource};
+use physics::{
+    geometry::ColliderBuilder, pipeline::ActiveEvents, Collision, CollisionEvents, CollisionState,
+    PhysicsResource,
+};
 use scene::Global2;
 use sdf::SdfRender;
+
+#[derive(Component)]
+pub struct BallComponent;
 
 arcana::export_arcana_plugin! {
     ArcanoidPlugin {
@@ -94,6 +100,7 @@ arcana::export_arcana_plugin! {
                     body,
                     MoveTo2::new(na::Point2::new(0.0, 0.0)),
                     Motor2::new(30.0, 100.0),
+                    BallComponent,
                 ))
                 .id();
 
@@ -163,7 +170,7 @@ arcana::export_arcana_plugin! {
                     let mut physics = world.expect_resource_mut::<PhysicsResource>();
                     let body = physics.new_dynamic_body();
 
-                    physics.add_collider(&body, ColliderBuilder::ball(1.0));
+                    physics.add_collider(&body, ColliderBuilder::ball(1.0).active_events(ActiveEvents::COLLISION_EVENTS));
                     body
                 };
                 target = world
@@ -175,19 +182,45 @@ arcana::export_arcana_plugin! {
                             1.0,
                         ]),
                         Global2::from_position(na::Point2::new(
-                            rand::random::<f32>() * -10.0,
-                            rand::random::<f32>() * 10.0,
+                            rand::random::<f32>() * 26.0 - 13.0,
+                            rand::random::<f32>() * 26.0 - 13.0,
                         )),
                         body,
                         MoveAfter2::new(target).with_distance(2.0),
                         Motor2::new(10.0, 100.0),
+                        CollisionEvents::new(),
+                        BallComponent,
                     ))
                     .id();
+
+                spawn_block!(in ref world for target -> {
+                    let world = target.world();
+                    loop {
+                        let event: Collision = CollisionEvents::async_deque_from(target).await;
+
+                        if event.state == CollisionState::Started {
+                            if let Some(other) = event.other_entity {
+                                if world.has_component::<BallComponent>(other) {
+                                    // Despawn on any collision.
+                                    for _ in 0..100 {
+                                        let mut s = target.get_copied::<sdf::Shape>().unwrap();
+                                        s.transform *= na::Similarity2::from_scaling(1.01);
+                                        target.set(s).unwrap();
+
+                                        sleep(timespan!(0.02 s), world).await;
+                                    }
+                                    let _ = target.despawn();
+                                    yield_now!();
+                                }
+                            }
+                        }
+                    }
+                });
             };
 
             spawn_block!(in ref world -> {
                 sleep(timespan!(2 seconds), world).await;
-                for _ in 0..10 {
+                for _ in 0.. {
                     world.with_sync(|world| new_node(world));
                     sleep(timespan!(1 s), world).await;
                 }

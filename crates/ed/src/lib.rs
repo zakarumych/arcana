@@ -50,6 +50,7 @@ mod data;
 mod filters;
 mod games;
 mod ide;
+mod workgraph;
 // mod memory;
 mod plugins;
 mod systems;

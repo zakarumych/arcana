@@ -1,5 +1,6 @@
 use core::fmt;
 use std::{
+    hash::{Hash, Hasher},
     mem::{size_of, ManuallyDrop},
     sync::Arc,
 };
@@ -27,6 +28,21 @@ struct Inner {
 pub struct Buffer {
     handle: vk::Buffer,
     inner: Arc<Inner>,
+}
+
+impl PartialEq for Buffer {
+    fn eq(&self, other: &Self) -> bool {
+        self.handle == other.handle && Arc::ptr_eq(&self.inner, &other.inner)
+    }
+}
+
+impl Eq for Buffer {}
+
+impl Hash for Buffer {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.handle.hash(state);
+        Arc::as_ptr(&self.inner).hash(state);
+    }
 }
 
 impl fmt::Debug for Buffer {

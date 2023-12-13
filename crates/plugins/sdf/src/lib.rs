@@ -36,7 +36,7 @@ arcana::export_arcana_plugin! {
     }
 }
 
-#[derive(Component)]
+#[derive(Clone, Copy, Component)]
 pub struct Shape {
     pub color: [f32; 4],
     pub transform: na::Affine2<f32>,
@@ -66,6 +66,7 @@ impl Shape {
     }
 }
 
+#[derive(Clone, Copy)]
 pub enum ShapeKind {
     Circle { radius: f32 },
     Rect { width: f32, height: f32 },
@@ -299,7 +300,7 @@ impl Render for SdfRender {
         self.circles_device.clear();
         self.rects_device.clear();
         for (global, shape) in shapes.iter() {
-            let tr = shape.transform.matrix() * global.iso.to_homogeneous();
+            let tr = global.iso.to_homogeneous() * shape.transform.matrix();
             let inv_tr = tr.try_inverse().unwrap();
 
             self.shapes_device.push(

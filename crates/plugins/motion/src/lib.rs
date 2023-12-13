@@ -14,8 +14,6 @@ arcana::export_arcana_plugin! {
         dependencies: [scene ..., physics ...],
         components: [Motor2, Motion2, Motor2State, MoveTo2, MoveAfter2],
         systems: [
-            motion_after_init_system,
-            move_to_init_system,
             motion_after_system,
             move_to_system,
             motion_system,
@@ -61,7 +59,6 @@ impl Motor2 {
             prev_pos: position,
             prev_vel: na::Vector2::zeros(),
             integral: na::Vector2::zeros(),
-            vel_integral: na::Vector2::zeros(),
         }
     }
 
@@ -109,8 +106,9 @@ impl Motor2 {
 
         state.integral += velocity_error * delta_time;
 
-        if state.integral.dot(&velocity_error) < 0.0 {
-            state.integral *= 1.0 - delta_time;
+        let neg_integral = state.integral.dot(&velocity_error);
+        if neg_integral < 0.0 {
+            state.integral -= velocity_error.normalize() * neg_integral * delta_time;
         }
 
         state.integral = state.integral.cap_magnitude(self.acceleration);
@@ -194,7 +192,6 @@ struct Motor2State {
     prev_pos: na::Vector2<f32>,
     prev_vel: na::Vector2<f32>,
     integral: na::Vector2<f32>,
-    vel_integral: na::Vector2<f32>,
 }
 
 impl Component for Motor2State {
@@ -234,67 +231,29 @@ impl Component for MoveTo2 {
 }
 
 /// Applies motion to entities.
-fn move_to_init_system(
-    initial: View<
-        (
-            Entities,
-            &Global2,
-            &MoveTo2,
-            &Motor2,
-            Xor2<&mut Motion2, &Body>,
-        ),
-        Without<Motor2State>,
-    >,
+fn move_to_system(
+    with_state: View<(
+        Entities,
+        &Global2,
+        &MoveTo2,
+        &Motor2,
+        Option<&mut Motor2State>,
+        Xor2<&mut Motion2, &Body>,
+    )>,
     clocks: Res<ClockStep>,
     mut physics: ResMut<PhysicsResource>,
     mut encoder: ActionEncoder,
 ) {
     let delta_time = clocks.step.as_secs_f32();
 
-    for (e, g, mt, m, m_b) in initial {
-        let mut state = Motor2::initial_state(g.iso.translation.vector);
+    for (e, g, mt, m, ms_opt, m_b) in with_state {
+        let mut new_ms = None;
 
-        let acc = m.update(
-            g.iso.translation.vector,
-            mt.target,
-            mt.distance,
-            &mut state,
-            delta_time,
-        );
+        let ms = match ms_opt {
+            Some(ms) => ms,
+            None => new_ms.get_or_insert(Motor2::initial_state(g.iso.translation.vector)),
+        };
 
-        match m_b {
-            (Some(m), None) => {
-                m.acceleration = acc;
-            }
-            (None, Some(b)) => {
-                let body = physics.get_body_mut(b);
-                body.reset_forces(false);
-                body.add_force(body.mass() * acc, true);
-            }
-            _ => {
-                unreachable!()
-            }
-        }
-
-        encoder.insert(e, state);
-    }
-}
-
-/// Applies motion to entities.
-fn move_to_system(
-    with_state: View<(
-        &Global2,
-        &MoveTo2,
-        &Motor2,
-        &mut Motor2State,
-        Xor2<&mut Motion2, &mut Body>,
-    )>,
-    clocks: Res<ClockStep>,
-    mut physics: ResMut<PhysicsResource>,
-) {
-    let delta_time = clocks.step.as_secs_f32();
-
-    for (g, mt, m, ms, m_b) in with_state {
         let acc = m.update(
             g.iso.translation.vector,
             mt.target,
@@ -314,6 +273,10 @@ fn move_to_system(
             _ => {
                 unreachable!()
             }
+        }
+
+        if let Some(ms) = new_ms {
+            encoder.insert(e, ms);
         }
     }
 }
@@ -373,67 +336,13 @@ impl Component for MoveAfter2 {
 }
 
 /// System to perform MoveAfter2 motion.
-fn motion_after_init_system(
-    initial: View<
-        (
-            Entities,
-            &Global2,
-            &MoveAfter2,
-            &Motor2,
-            Xor2<&mut Motion2, &Body>,
-        ),
-        Without<Motor2State>,
-    >,
-    globals: View<&Global2>,
-    clocks: Res<ClockStep>,
-    mut physics: ResMut<PhysicsResource>,
-    mut encoder: ActionEncoder,
-) {
-    let delta_time = clocks.step.as_secs_f32();
-
-    for (e, g, ma, m, m_b) in initial {
-        match globals.try_get(ma.id) {
-            Ok(tg) => {
-                let target = tg.iso.transform_vector(&ma.local_offset) + ma.global_offset;
-
-                let mut ms = Motor2::initial_state(g.iso.translation.vector);
-                let acc = m.update(
-                    g.iso.translation.vector,
-                    target.into(),
-                    ma.distance,
-                    &mut ms,
-                    delta_time,
-                );
-                match m_b {
-                    (Some(m), None) => {
-                        m.acceleration = acc;
-                    }
-                    (None, Some(b)) => {
-                        let body = physics.get_body_mut(b);
-                        body.reset_forces(false);
-                        body.add_force(body.mass() * acc, true);
-                    }
-                    _ => {
-                        unreachable!()
-                    }
-                }
-                encoder.insert(e, ms);
-            }
-            Err(_) => {
-                // Remove motion. Target is no longer exists or invalid.
-                encoder.drop::<MoveAfter2>(ma.id);
-            }
-        }
-    }
-}
-
-/// System to perform MoveAfter2 motion.
 fn motion_after_system(
     with_state: View<(
+        Entities,
         &Global2,
         &MoveAfter2,
         &Motor2,
-        &mut Motor2State,
+        Option<&mut Motor2State>,
         Xor2<&mut Motion2, &Body>,
     )>,
     globals: View<&Global2>,
@@ -443,7 +352,14 @@ fn motion_after_system(
 ) {
     let delta_time = clocks.step.as_secs_f32();
 
-    for (g, ma, m, ms, m_b) in with_state {
+    for (e, g, ma, m, ms_opt, m_b) in with_state {
+        let mut new_ms = None;
+
+        let ms = match ms_opt {
+            Some(ms) => ms,
+            None => new_ms.get_or_insert(Motor2::initial_state(g.iso.translation.vector)),
+        };
+
         match globals.try_get(ma.id) {
             Ok(tg) => {
                 let target = tg.iso.rotation.transform_vector(&ma.local_offset)
@@ -475,6 +391,10 @@ fn motion_after_system(
                 // Remove motion. Target is no longer exists or invalid.
                 encoder.drop::<MoveAfter2>(ma.id);
             }
+        }
+
+        if let Some(ms) = new_ms {
+            encoder.insert(e, ms);
         }
     }
 }

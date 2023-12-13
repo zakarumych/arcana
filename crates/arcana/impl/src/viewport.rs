@@ -70,11 +70,11 @@ impl Viewport {
     pub fn set_image(&mut self, image: mev::Image) {
         match &mut self.kind {
             ViewportKind::Texture { image: i } => match image.dimensions() {
-                mev::ImageDimensions::D1(_) => panic!("Cannot set 1D image to viewport"),
-                mev::ImageDimensions::D2(e) => {
+                mev::ImageExtent::D1(_) => panic!("Cannot set 1D image to viewport"),
+                mev::ImageExtent::D2(e) => {
                     *i = Some(image);
                 }
-                mev::ImageDimensions::D3(_) => panic!("Cannot set 3D image to viewport"),
+                mev::ImageExtent::D3(_) => panic!("Cannot set 3D image to viewport"),
             },
             _ => panic!("Cannot set image to window viewport"),
         }
@@ -109,8 +109,11 @@ impl Viewport {
                             surface.get_or_insert(new_surface)
                         }
                     };
-                    let frame = match s.next_frame(queue, before) {
-                        Ok(frame) => frame,
+                    let frame = match s.next_frame() {
+                        Ok(mut frame) => {
+                            queue.sync_frame(&mut frame, before);
+                            frame
+                        }
                         Err(mev::SurfaceError::SurfaceLost) => {
                             surface.take();
                             continue;

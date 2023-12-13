@@ -25,7 +25,7 @@ pub use self::{
     data::*,
     feature::Features,
     format::{PixelFormat, VertexFormat},
-    image::{ComponentSwizzle, ImageDesc, ImageDimensions, ImageUsage, Swizzle, ViewDesc},
+    image::{ComponentSwizzle, ImageDesc, ImageExtent, ImageUsage, Swizzle, ViewDesc},
     instance::{
         Capabilities, CreateError, DeviceCapabilities, DeviceDesc, FamilyCapabilities, LoadError,
     },

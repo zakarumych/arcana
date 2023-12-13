@@ -5,7 +5,7 @@ use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use crate::generic::{
     Arguments, BufferDesc, BufferInitDesc, Capabilities, CreateError, CreateLibraryError,
     CreatePipelineError, DeviceDesc, DeviceError, DeviceRepr, Extent2, Extent3, ImageDesc,
-    ImageDimensions, LibraryDesc, Offset2, Offset3, OutOfMemory, PipelineStages, PixelFormat,
+    ImageExtent, LibraryDesc, Offset2, Offset3, OutOfMemory, PipelineStages, PixelFormat,
     RenderPassDesc, RenderPipelineDesc, SamplerDesc, SurfaceError, ViewDesc,
 };
 
@@ -74,6 +74,8 @@ pub trait Queue {
     fn drop_command_buffer<I>(&mut self, command_buffers: I)
     where
         I: IntoIterator<Item = crate::backend::CommandBuffer>;
+
+    fn sync_frame(&mut self, frame: &mut crate::backend::Frame, before: PipelineStages);
 }
 
 pub trait CommandEncoder {
@@ -198,11 +200,7 @@ pub trait RenderCommandEncoder {
 
 pub trait Surface {
     /// Acquires next frame from the surface.
-    fn next_frame(
-        &mut self,
-        queue: &mut crate::backend::Queue,
-        before: PipelineStages,
-    ) -> Result<crate::backend::Frame, SurfaceError>;
+    fn next_frame(&mut self) -> Result<crate::backend::Frame, SurfaceError>;
 }
 
 pub trait Frame {
@@ -214,7 +212,7 @@ pub trait Image {
     fn format(&self) -> PixelFormat;
 
     /// Returns the dimensions of the image.
-    fn dimensions(&self) -> ImageDimensions;
+    fn dimensions(&self) -> ImageExtent;
 
     /// Returns the number of layers in the image.
     fn layers(&self) -> u32;

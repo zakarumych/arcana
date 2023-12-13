@@ -17,9 +17,8 @@ use raw_window_handle::{
 use crate::{
     generic::{
         parse_shader, BufferDesc, BufferInitDesc, CreateLibraryError, CreatePipelineError,
-        ImageDesc, ImageDimensions, LibraryDesc, LibraryInput, Memory, OutOfMemory,
-        RenderPipelineDesc, SamplerDesc, ShaderCompileError, ShaderLanguage, SurfaceError,
-        VertexStepMode,
+        ImageDesc, ImageExtent, LibraryDesc, LibraryInput, Memory, OutOfMemory, RenderPipelineDesc,
+        SamplerDesc, ShaderCompileError, ShaderLanguage, SurfaceError, VertexStepMode,
     },
     ArgumentKind,
 };

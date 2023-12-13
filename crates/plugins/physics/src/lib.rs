@@ -1,5 +1,14 @@
+use std::{
+    collections::VecDeque,
+    task::{Context, Poll, Waker},
+};
+
 use amity::flip_queue::FlipQueue;
-use arcana::edict::{self, Component, EntityId, ResMut, State, View};
+use arcana::{
+    edict::{self, action::LocalActionEncoder, Component, EntityId, ResMut, State, View},
+    flow::FlowEntity,
+    Entities, Entity, Modified, World,
+};
 
 use rapier2d::{
     dynamics::{
@@ -7,13 +16,14 @@ use rapier2d::{
         RigidBody, RigidBodySet,
     },
     geometry::{
-        BroadPhase, Collider, ColliderHandle, ColliderSet, CollisionEvent, ContactPair, NarrowPhase,
+        BroadPhase, Collider, ColliderHandle, ColliderSet, CollisionEvent, CollisionEventFlags,
+        ContactPair, NarrowPhase,
     },
     pipeline::PhysicsPipeline,
 };
 use scene::Global2;
 
-pub use rapier2d::{dynamics, geometry};
+pub use rapier2d::{dynamics, geometry, pipeline};
 
 arcana::export_arcana_plugin! {
     PhysicsPlugin {
@@ -29,20 +39,38 @@ arcana::export_arcana_plugin! {
 /// Use `PhysicsResource::add_collider` to add colliders to bodies.
 #[derive(Debug, Component)]
 #[edict(name = "Body")]
+#[edict(on_drop = remove_body)]
 pub struct Body {
     handle: rapier2d::dynamics::RigidBodyHandle,
+}
+
+/// Remove body from physics world.
+fn remove_body(body: &Body, _: EntityId, mut encoder: LocalActionEncoder) {
+    let body = body.handle;
+    encoder.closure(move |world: &mut World| {
+        let ref mut res = *world.expect_resource_mut::<PhysicsResource>();
+        res.bodies.remove(
+            body,
+            &mut res.islands,
+            &mut res.colliders,
+            &mut res.impulse_joints,
+            &mut res.multibody_joints,
+            true,
+        );
+    });
 }
 
 /// Payload of the collistion event.
 /// Contains collider index, other body entity id and other collider index.
 #[derive(Debug)]
 pub struct Collision {
-    collider: usize,
-    other_entity: EntityId,
-    other_collider: usize,
+    pub state: CollisionState,
+    pub collider: ColliderHandle,
+    pub other_entity: Option<EntityId>,
+    pub other_collider: ColliderHandle,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CollisionState {
     Started,
     Stopped,
@@ -51,7 +79,51 @@ pub enum CollisionState {
 #[derive(Debug, Component)]
 #[edict(name = "CollisionEvents")]
 pub struct CollisionEvents {
-    events: Vec<(CollisionState, Collision)>,
+    queue: VecDeque<Collision>,
+    waker: Option<Waker>,
+}
+
+impl Drop for CollisionEvents {
+    fn drop(&mut self) {
+        if let Some(waker) = self.waker.take() {
+            waker.wake();
+        }
+    }
+}
+
+impl CollisionEvents {
+    pub fn new() -> Self {
+        CollisionEvents {
+            queue: VecDeque::new(),
+            waker: None,
+        }
+    }
+
+    pub fn enque(&mut self, collision: Collision) {
+        self.queue.push_back(collision);
+        if let Some(waker) = self.waker.take() {
+            waker.wake();
+        }
+    }
+
+    pub fn deque(&mut self) -> Option<Collision> {
+        self.queue.pop_front()
+    }
+
+    pub fn poll_deque(&mut self, cx: &mut Context) -> Poll<Collision> {
+        if let Some(collision) = self.queue.pop_front() {
+            Poll::Ready(collision)
+        } else {
+            self.waker = Some(cx.waker().clone());
+            Poll::Pending
+        }
+    }
+
+    pub async fn async_deque_from(entity: FlowEntity<'_>) -> Collision {
+        entity
+            .expect_poll_view::<&mut CollisionEvents, _, _>(|events, cx| events.poll_deque(cx))
+            .await
+    }
 }
 
 pub struct PhysicsResource {
@@ -65,7 +137,6 @@ pub struct PhysicsResource {
     impulse_joints: ImpulseJointSet,
     multibody_joints: MultibodyJointSet,
     ccd_solver: CCDSolver,
-    this_is_valid: &'static str,
 }
 
 impl PhysicsResource {
@@ -81,7 +152,6 @@ impl PhysicsResource {
             impulse_joints: ImpulseJointSet::new(),
             multibody_joints: MultibodyJointSet::new(),
             ccd_solver: CCDSolver::new(),
-            this_is_valid: "this is valid",
         }
     }
 
@@ -144,11 +214,44 @@ pub struct PhysicsState {
     new_events: FlipQueue<CollisionEvent>,
 }
 
+#[repr(C)]
+struct UserData {
+    entity: Option<EntityId>,
+    unused: u64,
+}
+
+impl UserData {
+    fn new(entity: impl Entity) -> Self {
+        UserData {
+            entity: Some(entity.id()),
+            unused: 0,
+        }
+    }
+
+    fn set(&self, rb: &mut RigidBody) {
+        rb.user_data = self.entity.map_or(0, |e| e.bits()) as u128;
+    }
+
+    fn get(rb: &RigidBody) -> Self {
+        UserData {
+            entity: EntityId::from_bits(rb.user_data as u64),
+            unused: 0,
+        }
+    }
+}
+
 fn physics_system(
     mut res: ResMut<PhysicsResource>,
+    new_bodies: View<(Entities, Modified<&Body>)>,
     mut bodies: View<(&Body, &mut Global2)>,
+    mut events: View<&mut CollisionEvents>,
     mut state: State<PhysicsState>,
 ) {
+    for (e, body) in new_bodies {
+        let rb = res.bodies.get_mut(body.handle).unwrap();
+        UserData::new(e).set(rb);
+    }
+
     for (body, global) in bodies.iter_mut() {
         let rb = res.bodies.get_mut(body.handle).unwrap();
         rb.set_position(global.iso, true);
@@ -180,7 +283,41 @@ fn physics_system(
     }
 
     for collision in state.new_events.drain() {
-        todo!();
+        let (ch1, ch2, state) = match collision {
+            CollisionEvent::Started(ch1, ch2, _cf) => (ch1, ch2, CollisionState::Started),
+            CollisionEvent::Stopped(ch1, ch2, _cf) => (ch1, ch2, CollisionState::Stopped),
+        };
+
+        let c1 = res.colliders.get(ch1);
+        let c2 = res.colliders.get(ch2);
+
+        let e1 = c1
+            .and_then(|c| c.parent())
+            .and_then(|b| res.bodies.get(b))
+            .and_then(|b| UserData::get(b).entity);
+
+        let e2 = c2
+            .and_then(|c| c.parent())
+            .and_then(|b| res.bodies.get(b))
+            .and_then(|b| UserData::get(b).entity);
+
+        let mut emit = |e1, ch1, e2, ch2| {
+            if let Ok(events) = events.try_get_mut(e1) {
+                events.enque(Collision {
+                    state,
+                    collider: ch1,
+                    other_entity: e2,
+                    other_collider: ch2,
+                });
+            }
+        };
+
+        if let Some(e1) = e1 {
+            emit(e1, ch1, e2, ch2);
+        }
+        if let Some(e2) = e2 {
+            emit(e2, ch2, e1, ch1);
+        }
     }
 }
 
@@ -202,9 +339,9 @@ impl<'a> rapier2d::pipeline::EventHandler for EventHandler<'a> {
     fn handle_contact_force_event(
         &self,
         _dt: f32,
-        _bodies: &RigidBodySet,
-        _colliders: &ColliderSet,
-        _contact_pair: &ContactPair,
+        bodies: &RigidBodySet,
+        colliders: &ColliderSet,
+        contact_pair: &ContactPair,
         _total_force_magnitude: f32,
     ) {
     }

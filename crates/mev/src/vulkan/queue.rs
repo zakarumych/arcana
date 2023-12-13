@@ -586,4 +586,10 @@ impl crate::traits::Queue for Queue {
             }
         }
     }
+
+    fn sync_frame(&mut self, frame: &mut Frame, before: PipelineStages) {
+        assert!(!frame.synced);
+        self.add_wait(frame.acquire, before);
+        frame.synced = true;
+    }
 }

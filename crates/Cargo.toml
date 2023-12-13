@@ -19,6 +19,7 @@ license = "MIT OR Apache-2.0"
 version = "0.1.0"
 
 [workspace.dependencies]
+ahash = { version = "0.4" }
 alkahest = { version = "0.3", features = ["derive"] }
 # amity = { git = "https://github.com/zakarumych/amity.git" }
 amity = { path = "../../amity" }
@@ -34,6 +35,7 @@ blink-alloc = { version = "0.3.1", features = ["nightly"] }
 bytemuck = { version = "1.7", features = ["derive"] }
 camino = "1.1"
 cargo_toml = "0.16"
+const-random = "0.1"
 clap = { version = "4.3", features = ["derive"] }
 codespan-reporting = "0.11"
 core-graphics-types = { version = "0.1" }

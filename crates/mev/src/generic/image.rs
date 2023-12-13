@@ -83,116 +83,116 @@ impl Mul for Swizzle {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum ImageDimensions {
+pub enum ImageExtent {
     D1(Extent1),
     D2(Extent2),
     D3(Extent3),
 }
 
-impl ImageDimensions {
+impl ImageExtent {
     #[inline(always)]
     pub fn width(&self) -> u32 {
         match self {
-            ImageDimensions::D1(e) => e.width(),
-            ImageDimensions::D2(e) => e.width(),
-            ImageDimensions::D3(e) => e.width(),
+            ImageExtent::D1(e) => e.width(),
+            ImageExtent::D2(e) => e.width(),
+            ImageExtent::D3(e) => e.width(),
         }
     }
 
     #[inline(always)]
     pub fn height(&self) -> u32 {
         match self {
-            ImageDimensions::D1(e) => 1,
-            ImageDimensions::D2(e) => e.height(),
-            ImageDimensions::D3(e) => e.height(),
+            ImageExtent::D1(e) => 1,
+            ImageExtent::D2(e) => e.height(),
+            ImageExtent::D3(e) => e.height(),
         }
     }
 
     #[inline(always)]
     pub fn depth(&self) -> u32 {
         match self {
-            ImageDimensions::D1(e) => 1,
-            ImageDimensions::D2(e) => 1,
-            ImageDimensions::D3(e) => e.depth(),
+            ImageExtent::D1(e) => 1,
+            ImageExtent::D2(e) => 1,
+            ImageExtent::D3(e) => e.depth(),
         }
     }
 
     #[inline(always)]
     pub fn to_1d(self) -> Extent1<u32> {
         match self {
-            ImageDimensions::D1(e) => e,
-            ImageDimensions::D2(e) => e.to_1d(),
-            ImageDimensions::D3(e) => e.to_1d(),
+            ImageExtent::D1(e) => e,
+            ImageExtent::D2(e) => e.to_1d(),
+            ImageExtent::D3(e) => e.to_1d(),
         }
     }
 
     #[inline(always)]
     pub fn to_2d(self) -> Extent2<u32> {
         match self {
-            ImageDimensions::D1(e) => e.to_2d(),
-            ImageDimensions::D2(e) => e,
-            ImageDimensions::D3(e) => e.to_2d(),
+            ImageExtent::D1(e) => e.to_2d(),
+            ImageExtent::D2(e) => e,
+            ImageExtent::D3(e) => e.to_2d(),
         }
     }
 
     #[inline(always)]
     pub fn to_3d(self) -> Extent3<u32> {
         match self {
-            ImageDimensions::D1(e) => e.to_3d(),
-            ImageDimensions::D2(e) => e.to_3d(),
-            ImageDimensions::D3(e) => e,
+            ImageExtent::D1(e) => e.to_3d(),
+            ImageExtent::D2(e) => e.to_3d(),
+            ImageExtent::D3(e) => e,
         }
     }
 }
 
-impl PartialEq<Extent1> for ImageDimensions {
+impl PartialEq<Extent1> for ImageExtent {
     fn eq(&self, other: &Extent1) -> bool {
         match self {
-            ImageDimensions::D1(e) => *e == *other,
-            ImageDimensions::D2(e) => *e == other.to_2d(),
-            ImageDimensions::D3(e) => *e == other.to_3d(),
+            ImageExtent::D1(e) => *e == *other,
+            ImageExtent::D2(e) => *e == other.to_2d(),
+            ImageExtent::D3(e) => *e == other.to_3d(),
         }
     }
 }
 
-impl PartialEq<Extent2> for ImageDimensions {
+impl PartialEq<Extent2> for ImageExtent {
     fn eq(&self, other: &Extent2) -> bool {
         match self {
-            ImageDimensions::D1(e) => e.to_2d() == *other,
-            ImageDimensions::D2(e) => *e == *other,
-            ImageDimensions::D3(e) => *e == other.to_3d(),
+            ImageExtent::D1(e) => e.to_2d() == *other,
+            ImageExtent::D2(e) => *e == *other,
+            ImageExtent::D3(e) => *e == other.to_3d(),
         }
     }
 }
 
-impl PartialEq<Extent3> for ImageDimensions {
+impl PartialEq<Extent3> for ImageExtent {
     fn eq(&self, other: &Extent3) -> bool {
         match self {
-            ImageDimensions::D1(e) => e.to_3d() == *other,
-            ImageDimensions::D2(e) => e.to_3d() == *other,
-            ImageDimensions::D3(e) => *e == *other,
+            ImageExtent::D1(e) => e.to_3d() == *other,
+            ImageExtent::D2(e) => e.to_3d() == *other,
+            ImageExtent::D3(e) => *e == *other,
         }
     }
 }
 
-impl From<Extent1> for ImageDimensions {
+impl From<Extent1> for ImageExtent {
     #[inline(always)]
     fn from(extent: Extent1) -> Self {
-        ImageDimensions::D1(extent)
+        ImageExtent::D1(extent)
     }
 }
 
-impl From<Extent2> for ImageDimensions {
+impl From<Extent2> for ImageExtent {
     #[inline(always)]
     fn from(extent: Extent2) -> Self {
-        ImageDimensions::D2(extent)
+        ImageExtent::D2(extent)
     }
 }
 
-impl From<Extent3> for ImageDimensions {
+impl From<Extent3> for ImageExtent {
     #[inline(always)]
     fn from(extent: Extent3) -> Self {
-        ImageDimensions::D3(extent)
+        ImageExtent::D3(extent)
     }
 }
 
@@ -208,7 +208,7 @@ bitflags::bitflags! {
 }
 
 pub struct ImageDesc<'a> {
-    pub dimensions: ImageDimensions,
+    pub dimensions: ImageExtent,
     pub format: PixelFormat,
     pub usage: ImageUsage,
     pub layers: u32,
@@ -217,7 +217,7 @@ pub struct ImageDesc<'a> {
 }
 
 impl<'a> ImageDesc<'a> {
-    pub const fn new(dimensions: ImageDimensions, format: PixelFormat, usage: ImageUsage) -> Self {
+    pub const fn new(dimensions: ImageExtent, format: PixelFormat, usage: ImageUsage) -> Self {
         ImageDesc {
             dimensions,
             format,
@@ -229,15 +229,11 @@ impl<'a> ImageDesc<'a> {
     }
 
     pub const fn new_d1(width: u32, format: PixelFormat, usage: ImageUsage) -> Self {
-        ImageDesc::new(ImageDimensions::D1(Extent1::new(width)), format, usage)
+        ImageDesc::new(ImageExtent::D1(Extent1::new(width)), format, usage)
     }
 
     pub const fn new_d2(width: u32, height: u32, format: PixelFormat, usage: ImageUsage) -> Self {
-        ImageDesc::new(
-            ImageDimensions::D2(Extent2::new(width, height)),
-            format,
-            usage,
-        )
+        ImageDesc::new(ImageExtent::D2(Extent2::new(width, height)), format, usage)
     }
 
     pub const fn new_d3(
@@ -248,7 +244,7 @@ impl<'a> ImageDesc<'a> {
         usage: ImageUsage,
     ) -> Self {
         ImageDesc::new(
-            ImageDimensions::D3(Extent3::new(width, height, depth)),
+            ImageExtent::D3(Extent3::new(width, height, depth)),
             format,
             usage,
         )
