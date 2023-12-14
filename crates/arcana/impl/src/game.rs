@@ -25,6 +25,7 @@ use crate::{
     plugin::{ArcanaPlugin, PluginInit},
     render::{render_system, RenderGraph, RenderState},
     viewport::Viewport,
+    work::WorkGraph,
 };
 
 /// Marker resource.
@@ -166,11 +167,10 @@ pub struct Game {
     scheduler: Box<dyn FnMut(&mut World, bool)>,
     flows: Flows,
 
-    #[cfg(feature = "client")]
     funnel: EventFunnel,
 
-    #[cfg(feature = "client")]
     render_state: RenderState,
+    work_graph: WorkGraph,
 }
 
 impl Component for Game {
@@ -183,16 +183,15 @@ pub type Scheduler = Box<dyn FnMut(&mut World, bool)>;
 
 pub struct GameInit {
     pub scheduler: Scheduler,
-    #[cfg(feature = "client")]
     pub funnel: EventFunnel,
 }
 
 impl Game {
     pub fn launch<'a>(
         init: impl FnOnce(&mut World) -> GameInit,
-        #[cfg(feature = "client")] device: mev::Device,
-        #[cfg(feature = "client")] queue: Arc<Mutex<mev::Queue>>,
-        #[cfg(feature = "client")] window: Option<Window>,
+        device: mev::Device,
+        queue: Arc<Mutex<mev::Queue>>,
+        window: Option<Window>,
     ) -> Self {
         let mut world = World::new();
 
@@ -209,7 +208,6 @@ impl Game {
 
         world.insert_resource(FixedTicker(clocks.ticker(120.hz())));
 
-        #[cfg(feature = "client")]
         {
             // Register external resources.
             world.ensure_external_registered::<mev::Surface>();
@@ -246,10 +244,11 @@ impl Game {
             fixed_now,
             scheduler: init.scheduler,
             flows: Flows::default(),
-            #[cfg(feature = "client")]
+
             funnel: init.funnel,
-            #[cfg(feature = "client")]
+
             render_state: RenderState::default(),
+            work_graph: WorkGraph::new(),
         }
     }
 
@@ -273,7 +272,6 @@ impl Game {
         self.clock.get_rate_ratio()
     }
 
-    #[cfg(feature = "client")]
     pub fn window_id(&self) -> Option<WindowId> {
         self.world.get_resource::<Window>().map(|w| w.id())
     }
@@ -290,7 +288,6 @@ impl Game {
         self.world.get_resource::<Quit>().is_some()
     }
 
-    #[cfg(feature = "client")]
     pub fn render(&mut self) {
         // Just run the render system.
         render_system(&mut self.world, (&mut self.render_state).into())
@@ -362,7 +359,6 @@ impl Game {
             execute_flows(&mut self.world, &mut self.flows);
         }
 
-        #[cfg(feature = "client")]
         {
             let mut ticks = self
                 .world

@@ -22,10 +22,9 @@ use arcana::{
     export_arcana_plugin,
 };
 
-arcana::feature_client! {
-    mod client;
-    pub use self::client::*;
-}
+mod client;
+
+pub use self::client::*;
 
 export_arcana_plugin! {
     InputPlugin {

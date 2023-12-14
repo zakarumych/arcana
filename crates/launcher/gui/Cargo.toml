@@ -12,7 +12,7 @@ name = "arcana"
 path = "src/main.rs"
 
 [dependencies]
-arcana = { path = "../../arcana", features = ["client"] }
+arcana = { path = "../../arcana" }
 # arcana-project = { path = "../../project" }
 arcana-launcher = { path = ".." }
 arcana-egui = { path = "../../plugins/egui" }

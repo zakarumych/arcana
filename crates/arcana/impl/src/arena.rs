@@ -11,7 +11,6 @@ pub struct Arena<T> {
     head: Head<T>,
     tail: RefCell<Vec<Exhausted<T>>>,
     count: Cell<usize>,
-    last_cap: Cell<usize>,
 }
 
 struct Exhausted<T> {
@@ -24,17 +23,16 @@ impl<T> Exhausted<T> {
         self.len == 0
     }
 
-    fn drain(mut self, mut f: impl FnMut(T)) {
+    fn drain(mut self) -> impl Iterator<Item = T> {
         let len = self.len;
 
         // Prevent dropping elements that are being drained.
         self.len = 0;
 
-        for i in 0..len {
+        (0..len).map(move |i| {
             let ptr = unsafe { self.ptr.as_ptr().add(i) };
-            let value = unsafe { ptr.read() };
-            f(value);
-        }
+            unsafe { ptr.read() }
+        })
     }
 }
 
@@ -136,18 +134,17 @@ impl<T> Head<T> {
         }
     }
 
-    fn drain(&mut self, mut f: impl FnMut(T)) {
+    fn drain(&mut self) -> impl Iterator<Item = T> + '_ {
         let len = self.len.get();
 
         // Reset length to zero before draining elements.
         // If draining panics, we'll leak elements instead of draining them twice.
         self.len.set(0);
 
-        for i in 0..len {
+        (0..len).map(move |i| {
             let ptr = unsafe { self.ptr.get().as_ptr().add(i) };
-            let value = unsafe { ptr.read() };
-            f(value);
-        }
+            unsafe { ptr.read() }
+        })
     }
 }
 
@@ -165,22 +162,18 @@ impl<T> Arena<T> {
             head: Head::empty(),
             tail: RefCell::new(Vec::new()),
             count: Cell::new(0),
-            last_cap: Cell::new(0),
         }
     }
 
     pub fn put(&self, value: T) -> &mut T {
         if self.head.is_exhausted() {
             let new_cap = self
-                .last_cap
+                .count
                 .get()
-                .max(self.count.get())
                 .next_power_of_two()
                 .min(Self::MIN_NON_ZERO_CAP);
 
             let exhausted = unsafe { self.head.reallocate(new_cap) };
-
-            self.last_cap.set(new_cap);
 
             if !exhausted.is_empty() {
                 self.tail.borrow_mut().push(exhausted);
@@ -200,14 +193,41 @@ impl<T> Arena<T> {
     }
 
     /// Reset the arena, draining all allocated values.
-    pub fn drain(&mut self, mut f: impl FnMut(T)) {
+    pub fn drain(&mut self) -> impl Iterator<Item = T> + '_ {
+        self.count.set(0);
+
         let tail = self.tail.get_mut();
 
-        for mut exhausted in tail.drain(..) {
-            exhausted.drain(&mut f);
+        DropExhaust {
+            iter: tail
+                .drain(..)
+                .flat_map(|e| e.drain())
+                .chain(self.head.drain()),
         }
+    }
+}
 
-        self.head.drain(&mut f);
-        self.count.set(0);
+struct DropExhaust<I: Iterator> {
+    iter: I,
+}
+
+impl<I> Drop for DropExhaust<I>
+where
+    I: Iterator,
+{
+    fn drop(&mut self) {
+        for _ in &mut self.iter {}
+    }
+}
+
+impl<I> Iterator for DropExhaust<I>
+where
+    I: Iterator,
+{
+    type Item = I::Item;
+
+    #[inline(always)]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter.next()
     }
 }

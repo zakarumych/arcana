@@ -1,304 +1,245 @@
-use std::{
-    any::{Any, TypeId},
-    cell::RefCell,
-    marker::PhantomData,
-    mem::ManuallyDrop,
-};
-
 use blink_alloc::Blink;
-use edict::{world::WorldLocal, EntityId};
-use hashbrown::{
-    hash_map::{Entry, HashMap},
-    HashSet,
-};
-use slab::Slab;
+use edict::world::WorldLocal;
+use hashbrown::{hash_map::Entry, HashMap, HashSet};
 
-use crate::{
-    arena::Arena,
-    id::{Id, IdGen},
-    work::job::Access,
-};
+use crate::id::IdGen;
 
 use super::{
-    job::{Input, Job, JobId, JobNode, Output, Planner, Runner, Setup},
-    target::{InputId, OutputId, Target, TargetHub, TargetId},
-    Image2D,
+    job::{
+        JobCreateTarget, JobDesc, JobNode, JobReadTarget, JobUpdateDesc, JobUpdateTarget, Planner,
+    },
+    target::{Target, TargetHub, TargetId},
 };
 
-pub enum Pin {}
-pub type PinId = Id<Pin>;
-
-/// Graph of work nodes connected through their inputs and outputs.
 pub struct WorkGraph {
-    nodes: HashMap<JobId, JobNode>,
-    pins: HashMap<PinId, JobId>,
-    edges: HashMap<InputId, OutputId>,
+    // Constant state
+    plan: Vec<JobNode>,
+    job_order: HashMap<usize, usize>,
+    // edges: HashSet<Edge>,
+
+    // Mutable state
     hub: TargetHub,
     idgen: IdGen,
-    merge_info: HashMap<TypeId, fn(&mut dyn Any, &dyn Any)>,
-    sinks: HashSet<OutputId>,
-    presents: HashMap<EntityId, OutputId>,
-    main_present: Option<OutputId>,
+    sinks: HashSet<[usize; 2], TargetId>,
 
-    queue: Vec<JobId>,
-    selected: HashSet<JobId>,
-    targets: HashMap<PinId, TargetId>,
-
-    cbufs: Arena<mev::CommandEncoder>,
+    // Temporary state
+    selected_jobs: HashSet<usize>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Edge {
+    pub from: [usize; 2],
+    pub to: [usize; 2],
+}
+
+pub struct Cycle;
+
 impl WorkGraph {
-    pub fn new() -> Self {
-        WorkGraph {
-            nodes: HashMap::new(),
-            pins: HashMap::new(),
-            edges: HashMap::new(),
-            hub: TargetHub::new(),
-            idgen: IdGen::new(),
-            merge_info: HashMap::new(),
-            sinks: HashSet::new(),
-            presents: HashMap::new(),
-            main_present: None,
+    /// Build work-graph from list of jobs descs and edges.
+    pub fn new<'a>(jobs: HashMap<usize, JobNode>, edges: HashSet<Edge>) -> Result<Self, Cycle> {
+        // Unfold graph into a queue.
+        // This queue must have dependencies-first order.
+        // If dependency cycle is detected, return error.
 
-            queue: Vec::new(),
-            selected: HashSet::new(),
-            targets: HashMap::new(),
+        let mut enqueued = HashSet::<usize>::new();
+        let mut pending = HashSet::<usize>::new();
+        let mut stack = jobs.keys().copied().collect::<Vec<_>>();
+        let mut queue = Vec::new();
 
-            cbufs: Arena::new(),
-        }
-    }
-
-    pub fn insert(&mut self, job: impl Job) -> JobId {
-        let node = job.setup(Setup::new(&mut self.idgen, &mut self.merge_info));
-        let job = self.idgen.next();
-        for (id, _) in node.inputs() {
-            self.pins.insert(id.cast(), job);
-        }
-        for (id, _) in node.outputs() {
-            self.pins.insert(id.cast(), job);
-        }
-        self.nodes.insert(job, node);
-        self.prepare();
-        job
-    }
-
-    pub fn remove(&mut self, job: JobId) {
-        let Some(node) = self.nodes.remove(&job) else {
-            return;
-        };
-        for (input, _) in node.inputs() {
-            self.pins.remove(&input.cast());
-            self.edges.remove(&input);
-        }
-        for (output, _) in node.outputs() {
-            self.pins.remove(&output.cast());
-            self.edges.retain(|_, from| *from != output);
-        }
-        self.prepare();
-    }
-
-    pub fn name(&self, job: JobId) -> &str {
-        self.nodes[&job].name()
-    }
-
-    pub fn inputs(&self, job: JobId) -> impl ExactSizeIterator<Item = (InputId, Input)> + '_ {
-        self.nodes[&job].inputs()
-    }
-
-    pub fn outputs(&self, job: JobId) -> impl ExactSizeIterator<Item = (OutputId, Output)> + '_ {
-        self.nodes[&job].outputs()
-    }
-
-    pub fn input_target(&self, id: InputId) -> Option<TargetId> {
-        self.targets.get(&id.cast()).copied()
-    }
-
-    pub fn output_target(&self, id: OutputId) -> Option<TargetId> {
-        self.targets.get(&id.cast()).copied()
-    }
-
-    pub fn connect(&mut self, from: OutputId, to: InputId) {
-        assert!(!self.sinks.contains(&from));
-
-        let to_job = self.pins[&to.cast()];
-        let input = self.nodes[&to_job]
-            .inputs()
-            .find(|(id, _)| *id == to)
-            .unwrap()
-            .1;
-
-        if input.access == Access::Exclusive {
-            assert!(self.edges.iter().find(|(_, id)| **id == from).is_none());
-        }
-
-        self.edges.insert(to, from);
-        self.prepare();
-    }
-
-    pub fn disconnect(&mut self, from: OutputId, to: InputId) {
-        match self.edges.entry(to) {
-            Entry::Occupied(mut entry) => {
-                if *entry.get() == from {
-                    entry.remove();
-                }
-            }
-            Entry::Vacant(_) => {}
-        }
-        self.prepare();
-    }
-
-    pub fn sink<T: Target>(&mut self, id: OutputId, instance: T, info: T::Info) {
-        self.sinks.insert(id);
-
-        assert!(self.edges.iter().find(|(_, from)| **from == id).is_none());
-        self.prepare();
-
-        self.hub.external(id.cast(), instance, info);
-    }
-
-    pub fn present<T: Target>(&mut self, id: OutputId, viewport: EntityId) {
-        self.presents.insert(viewport, id);
-    }
-
-    pub fn main_present<T: Target>(&mut self, id: OutputId) {
-        self.main_present = Some(id);
-    }
-
-    /// Walk the graph and build the work queue and targets.
-    fn prepare(&mut self) {
-        // Clear queue and targets.
-        self.queue.clear();
-        self.targets.clear();
-        self.hub.clear();
-
-        // Build job queue, ensuring that all dependencies are enqueued before their dependents.
-        let mut enqueued = HashSet::<JobId>::new();
-        let mut stack = self.nodes.keys().copied().collect::<Vec<_>>();
-
-        while let Some(job) = stack.pop() {
-            if enqueued.contains(&job) {
+        while let Some(job_id) = stack.pop() {
+            if enqueued.contains(&job_id) {
                 continue;
             }
 
-            let mut deferred = false;
-            for (input, _) in self.nodes[&job].inputs() {
-                let output = self.edges[&input];
-                let dep = self.pins[&output.cast()];
+            let job = &jobs[&job_id];
 
+            let mut deferred = false;
+
+            for edge in edges.iter().filter(|e| e.to[0] == job_id) {
+                let dep = edge.from[0];
                 if enqueued.contains(&dep) {
                     continue;
                 }
-
+                if pending.contains(&job_id) {
+                    panic!("Cyclic dependency detected");
+                }
                 if !deferred {
-                    stack.push(job);
+                    stack.push(job_id);
                     deferred = true;
                 }
-
                 stack.push(dep);
             }
 
             if !deferred {
-                self.queue.push(job);
-                enqueued.insert(job);
+                enqueued.insert(job_id);
+                queue.push(job_id);
             }
         }
 
-        // Build targets.
-        // Connect outputs and inputs and propagate through updates.
+        // Assign target ids to job pins.
 
-        // Start with sinks
-        for sink in &self.sinks {
-            let target = self.idgen.next();
-            self.targets.insert(sink.cast(), target);
-        }
+        let mut idgen = IdGen::new();
 
-        // Start with last jobs in queue.
-        for &job in self.queue.iter().rev() {
-            let node = &self.nodes[&job];
+        let mut output_targets = HashMap::<[usize; 2], TargetId>::new();
+        let mut input_targets = HashMap::<[usize; 2], TargetId>::new();
 
-            for (to, _) in node.inputs() {
-                // Connected input must be assigned to a target.
-                let Some(&from) = self.edges.get(&to.cast()) else {
-                    continue;
-                };
+        for &job_id in queue.iter().rev() {
+            let job = &mut jobs[&job_id];
+
+            for edge in edges.iter().filter(|e| e.to[0] == job_id) {
+                let to_pin = edge.to[1];
 
                 // Check if output is already assigned to a target.
                 // This is possible if multiple inputs reads from the same output.
-                if let Some(&target) = self.targets.get(&from.cast()) {
+                if let Some(&target) = output_targets.get(&edge.from) {
                     // Simply assigned to the same target.
-                    self.targets.insert(to.cast(), target);
+                    input_targets.insert(edge.to, target);
                     continue;
                 }
 
-                match self.targets.get(&to.cast()) {
-                    None => {
-                        // Allocate new target.
-                        let target = self.idgen.next();
-
-                        // Assign output and input to target.
-                        self.targets.insert(to.cast(), target);
-                        self.targets.insert(from.cast(), target);
-                    }
+                match (to_pin < job.updates.len()).then(|| output_targets.get(&edge.to)) {
                     Some(&target) => {
-                        // If already assigned - it is update pin with matching output that was assigned.
-
-                        // Assign output to target.
-                        self.targets.insert(from.cast(), target);
+                        // Target already assigned to matching output of this update pin.
+                        output_targets.insert(edge.from, target);
+                        input_targets.insert(edge.to, target);
+                    }
+                    None => {
+                        // Allocate new target to assign to this edge pins.
+                        let target = idgen.next();
+                        output_targets.insert(edge.from, target);
+                        input_targets.insert(edge.to, target);
                     }
                 }
+            }
+        }
+
+        let mut hub = TargetHub::new();
+        let plan = Vec::new();
+
+        let job_order = HashMap::<usize, usize>::new();
+
+        for job_id in queue {
+            let mut job = jobs.remove(&job_id).unwrap();
+
+            for (idx, u) in job.updates.iter_mut().enumerate() {
+                u.id = output_targets.get(&[job_id, idx]);
+                assert_eq!(u.id, input_targets.get(&[job_id, idx]));
+            }
+
+            for (idx, c) in job.creates.iter_mut().enumerate() {
+                let idx = idx + job.updates.len();
+                c.id = output_targets.get(&[job_id, idx]);
+            }
+
+            for (idx, r) in job.reads.iter_mut().enumerate() {
+                let idx = idx + job.updates.len() + job.creates.len();
+                r.id = input_targets.get(&[job_id, idx]);
+            }
+
+            for edge in edges.iter().filter(|e| e.to[0] == job_id) {
+                let to_pin = edge.to[1];
+
+                if to_pin < job.updates.len() {
+                    let update = &mut job.updates[to_pin];
+                    update.dep = Some(edge.from[0]);
+                } else {
+                    let read = &mut job.reads[to_pin - job.updates.len() - job.creates.len()];
+                    read.dep = Some(edge.from[0]);
+                }
+            }
+
+            job_order.insert(job_id, plan.len());
+            plan.push(job);
+        }
+
+        Ok(WorkGraph {
+            plan,
+            job_order,
+            // edges,
+            hub,
+            idgen,
+            sinks: HashSet::new(),
+            selected_jobs: HashSet::new(),
+        })
+    }
+
+    pub fn set_sink<T>(&mut self, job_id: usize, output: usize, target: T, info: T::Info)
+    where
+        T: Target,
+    {
+        let job = &mut self.plan[self.job_order[&job_id]];
+
+        match self.sinks.entry([job_id, output]) {
+            Entry::Occupied(entry) => {
+                let id = *entry.get();
+
+                if output < job.updates.len() {
+                    assert_eq!(job.updates[output].id, Some(id));
+                } else if output < job.updates.len() {
+                    assert_eq!(job.creates[output - job.updates.len()].id, Some(id));
+                }
+
+                self.hub.external(id, target, info);
+            }
+            Entry::Vacant(entry) => {
+                let id = self.idgen.next();
+
+                if output < job.updates.len() {
+                    assert_eq!(job.updates[output].id, None);
+                    job.updates[output].id = Some(id);
+                } else if output < job.updates.len() {
+                    assert_eq!(job.creates[output - job.updates.len()].id, None);
+                    job.creates[output - job.updates.len()].id = Some(id);
+                }
+
+                entry.insert(id);
+                self.hub.external(id, target, info);
             }
         }
     }
 
-    pub fn run(
-        &mut self,
-        world: &mut WorldLocal,
-        blink: &Blink,
-        device: mev::Device,
-        queue: &mut mev::Queue,
-    ) {
-        // Select jobs that produce targets that are used by sinks.
-        self.selected.clear();
-        for &sink in &self.sinks {
-            let job = self.pins[&sink.cast()];
-            self.selected.insert(job);
+    pub fn unset_sink<T>(&mut self, job_id: usize, output: usize)
+    where
+        T: Target,
+    {
+        let job = &mut self.plan[self.job_order[&job_id]];
+
+        if let Some(id) = self.sinks.remove([job_id, output]) {
+            self.hub.clear_external(id);
+
+            if output < job.updates.len() {
+                assert_eq!(job.updates[output].id, Some(id));
+                job.updates[output].id = None;
+            } else if output < job.updates.len() {
+                assert_eq!(job.creates[output - job.updates.len()].id, Some(id));
+                job.creates[output - job.updates.len()].id = None;
+            }
+        }
+    }
+
+    pub fn run(&mut self, world: &mut WorldLocal, device: mev::Device, queue: &mut mev::Queue) {
+        self.selected_jobs.clear();
+
+        for &[job_id, _] in &self.sinks {
+            self.selected_jobs.insert(job_id);
         }
 
         // Plan in reverse order.
-        for &job in self.queue.iter().rev() {
-            if !self.selected.contains(&job) {
+        for (job_id, job) in self.jobs.iter_mut().enumerate().rev() {
+            if !self.selected_jobs.contains(&job_id) {
                 continue;
             }
 
-            let node = &mut self.nodes.get_mut(&job).unwrap();
             let mut planner = Planner::new(
+                &job.updates,
+                &job.creates,
+                &job.reads,
                 &mut self.hub,
-                &self.targets,
-                &self.pins,
-                &self.edges,
-                &self.merge_info,
-                &mut self.selected,
-                device.clone(),
+                &mut self.selected_jobs,
+                &device,
             );
 
-            node.plan(planner);
-        }
-
-        for &job in self.queue.iter() {
-            if !self.selected.contains(&job) {
-                continue;
-            }
-
-            let node = &mut self.nodes.get_mut(&job).unwrap();
-            let mut runner = Runner::new(
-                &mut self.hub,
-                &self.targets,
-                device.clone(),
-                RefCell::new(&mut *queue),
-                &mut self.cbufs,
-            );
-
-            node.run(runner);
+            job.plan(planner);
         }
     }
 }

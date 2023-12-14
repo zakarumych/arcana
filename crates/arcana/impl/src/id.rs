@@ -5,68 +5,102 @@ use std::{
     num::NonZeroU64,
 };
 
+pub trait Id: Copy + Ord + Eq + Hash {
+    fn new(value: NonZeroU64) -> Self;
+    fn get(self) -> u64;
+    fn get_nonzero(self) -> NonZeroU64;
+
+    #[inline(always)]
+    fn cast<U: Id>(self) -> U {
+        U::new(self.get_nonzero())
+    }
+}
+
+#[macro_export]
+macro_rules! make_id {
+    ($vis:vis $name:ident) => {
+        $vis struct $name {
+            id: $crate::BaseId,
+        }
+
+        impl $name {
+            #[inline(always)]
+            pub const fn new(value: NonZeroU64) -> Self {
+                $name {
+                    id: $crate::BaseId::new(value),
+                }
+            }
+
+            #[inline(always)]
+            pub const fn get(self) -> u64 {
+                self.id.get()
+            }
+
+            #[inline(always)]
+            pub const fn get_nonzero(self) -> NonZeroU64 {
+                self.id.get_nonzero()
+            }
+
+            #[inline(always)]
+            pub const fn cast<U: ?Sized>(self) -> U {
+                U::new(self.get_nonzero())
+            }
+        }
+
+        impl $crate::Id for $name {
+            #[inline(always)]
+            fn new(value: NonZeroU64) -> Self {
+                $name {
+                    id: $crate::BaseId::new(value),
+                }
+            }
+
+            #[inline(always)]
+            fn get(self) -> u64 {
+                self.id.get()
+            }
+
+            #[inline(always)]
+            fn get_nonzero(self) -> NonZeroU64 {
+                self.id.get_nonzero()
+            }
+
+            #[inline(always)]
+            fn cast<U: ?Sized>(self) -> U {
+                U::new(self.get_nonzero())
+            }
+        }
+    };
+}
+
 /// Typed identifier.
 ///
 /// Targets are inputs and outputs of jobs.
 /// See [`Target`] trait and [`Job API`](crate::work::job) for more info.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
-pub struct Id<T: ?Sized> {
+pub struct BaseId {
     value: NonZeroU64,
-    _marker: PhantomData<T>,
 }
 
-impl<T: ?Sized> Clone for Id<T> {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-
-impl<T: ?Sized> Copy for Id<T> {}
-
-impl<T: ?Sized> fmt::Debug for Id<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Id{}", self.value.get())
-    }
-}
-
-impl<T: ?Sized> PartialEq for Id<T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.value == other.value
-    }
-}
-
-impl<T: ?Sized> Eq for Id<T> {}
-
-impl<T: ?Sized> Hash for Id<T> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.value.hash(state)
-    }
-}
-
-impl<T: ?Sized> Id<T> {
+impl BaseId {
+    #[inline(always)]
     pub const fn new(value: NonZeroU64) -> Self {
-        Id {
-            value,
-            _marker: PhantomData,
-        }
+        BaseId { value }
     }
 
+    #[inline(always)]
     pub const fn get(self) -> u64 {
         self.value.get()
     }
 
+    #[inline(always)]
     pub const fn get_nonzero(self) -> NonZeroU64 {
         self.value
     }
-
-    pub const fn cast<U: ?Sized>(self) -> Id<U> {
-        Id {
-            value: self.value,
-            _marker: PhantomData,
-        }
-    }
 }
 
+#[derive(Clone)]
 pub struct IdGen {
     next_id: u64,
 }
@@ -76,7 +110,7 @@ impl IdGen {
         IdGen { next_id: 1 }
     }
 
-    pub fn next<T: ?Sized>(&mut self) -> Id<T> {
+    pub fn next<T: Id>(&mut self) -> T {
         assert_ne!(self.next_id, 0, "IdGen overflow");
         let value = NonZeroU64::new(self.next_id).unwrap();
         self.next_id += 1;

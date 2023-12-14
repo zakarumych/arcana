@@ -10,30 +10,27 @@ use std::{
 
 use hashbrown::HashMap;
 
-use crate::id::{Id, IdGen};
+use crate::{make_id, Id, IdGen};
 
-use super::job::JobId;
-
-pub type OutputId<T = ()> = Id<fn() -> T>;
-pub type InputId<T = ()> = Id<fn(T)>;
-pub type UpdateId<T = ()> = Id<fn(T) -> T>;
-
-pub type TargetId = Id<dyn Target<Info = dyn Any>>;
+make_id!(pub TargetId);
 
 pub trait Target: 'static {
     type Info: Eq + 'static;
 
-    fn name() -> &'static str
+    fn kind() -> &'static str
     where
         Self: Sized;
 
     fn allocate(device: &mev::Device, name: &str, info: &Self::Info) -> Self
     where
         Self: Sized;
-}
 
-pub trait TargetInfoMerge: Target {
-    fn merge_info(info: &mut Self::Info, other: &Self::Info);
+    fn merge_info(info: &mut Self::Info, other: &Self::Info)
+    where
+        Self: Sized,
+    {
+        assert_eq!(*info, *other, "Target info mismatch");
+    }
 }
 
 struct AnyHashMap<K> {
@@ -102,7 +99,7 @@ where
         self.external = None;
     }
 
-    pub fn output<'a>(&'a mut self, name: &str, device: &mev::Device) -> Option<&'a T::Info> {
+    pub fn plan_create<'a>(&'a mut self, name: &str, device: &mev::Device) -> Option<&'a T::Info> {
         if let Some((_, info)) = &self.external {
             return Some(info);
         }
@@ -126,21 +123,18 @@ where
         }
     }
 
-    pub fn input(
-        &mut self,
-        info: T::Info,
-        merge_info: &HashMap<TypeId, fn(&mut dyn Any, &dyn Any)>,
-    ) {
+    pub fn plan_update(&mut self) -> Option<&T::Info> {
+        self.new_info.as_ref()
+    }
+
+    pub fn plan_read(&mut self, info: T::Info) {
         match self.new_info {
             None => {
                 self.new_info = Some(info);
             }
-            Some(ref mut new_info) => match merge_info.get(&TypeId::of::<T>()) {
-                None => panic!("Target with non-mergeable info is shared"),
-                Some(merge_info) => {
-                    merge_info(new_info, &info);
-                }
-            },
+            Some(ref mut new_info) => {
+                T::merge_info(new_info, &info);
+            }
         }
     }
 
@@ -180,26 +174,33 @@ impl TargetHub {
         typed_hub.get_mut(&id)
     }
 
-    pub fn plan_input<T: Target>(
-        &mut self,
-        id: TargetId,
-        info: T::Info,
-        merge_info: &HashMap<TypeId, fn(&mut dyn Any, &dyn Any)>,
-    ) {
-        let Some(data) = self.data_mut::<T>(id) else {
-            return;
-        };
-        data.input(info, merge_info);
+    pub fn make_data_mut<T: Target>(&mut self, id: TargetId) -> &mut TargetData<T> {
+        let any_hub = self
+            .types
+            .entry(TypeId::of::<T>())
+            .or_insert_with(|| AnyHashMap::<TargetId>::new::<TargetData<T>>());
+        let typed_hub = unsafe { any_hub.downcast_mut::<TargetData<T>>() };
+        typed_hub.entry(id).or_insert_with(|| TargetData::new())
     }
 
-    pub fn plan_output<T: Target>(
+    pub fn plan_create<T: Target>(
         &mut self,
         id: TargetId,
         name: &str,
         device: &mev::Device,
     ) -> Option<&T::Info> {
         let data = self.data_mut::<T>(id)?;
-        data.output(name, device)
+        data.plan_create(name, device)
+    }
+
+    pub fn plan_update<T: Target>(&mut self, id: TargetId) -> Option<&T::Info> {
+        let data = self.data_mut::<T>(id)?;
+        data.plan_update()
+    }
+
+    pub fn plan_read<T: Target>(&mut self, id: TargetId, info: T::Info) {
+        let data = self.make_data_mut::<T>(id);
+        data.plan_read(info);
     }
 
     pub fn get<T: Target>(&self, id: TargetId) -> Option<&T> {

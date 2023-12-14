@@ -7,25 +7,16 @@ license.workspace = true
 version.workspace = true
 description = "Arcana Engine"
 
-[features]
-# Adds game client modules
-client = ["dep:winit", "dep:mev", "dep:gilrs"]
-
-# Adds game server modules
-server = []
-
-ed = ["winit/serde", "client", "server"]
-
 [dependencies]
 arcana-proc = { path = "../proc" }
 arcana-project = { path = "../../project" }
-arcana-importers = { path = "../../importers", optional = true }
-mev = { path = "../../mev", optional = true }
+arcana-importers = { path = "../../importers" }
+mev = { path = "../../mev" }
 
 ahash = { workspace = true }
 approx = { workspace = true }
 argosy = { workspace = true }
-argosy-store = { workspace = true, optional = true }
+argosy-store = { workspace = true }
 base64 = { workspace = true }
 blink-alloc = { workspace = true }
 bit-vec = { workspace = true }
@@ -37,7 +28,7 @@ edict = { workspace = true }
 flume = { workspace = true }
 futures = { workspace = true }
 gametime = { workspace = true }
-gilrs = { workspace = true, optional = true }
+gilrs = { workspace = true }
 hashbrown = { workspace = true, features = ["serde"] }
 na = { workspace = true, features = ["libm"] }
 parking_lot = { workspace = true }
@@ -49,4 +40,4 @@ simba = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
-winit = { workspace = true, optional = true }
+winit = { workspace = true }

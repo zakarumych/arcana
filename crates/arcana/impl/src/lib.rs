@@ -58,35 +58,35 @@ pub use {
 #[cfg(feature = "derive")]
 pub use arcana_proc::*;
 
-feature_client! {
-    pub use mev;
-    pub mod events;
-    pub mod game;
-    pub mod render;
-    pub mod texture;
-    pub mod viewport;
-}
-
+pub use mev;
 pub mod alloc;
 pub mod arena;
 pub mod assets;
 pub mod bundle;
-// pub mod data;
 mod color_hash;
+pub mod events;
 pub mod flow;
-pub mod id;
+pub mod game;
+mod id;
 mod num2name;
 pub mod plugin;
+pub mod render;
+pub mod texture;
+pub mod viewport;
 pub mod work;
 
-pub use self::{color_hash::color_hash, num2name::num_to_name};
+pub use self::{
+    color_hash::color_hash,
+    id::{BaseId, Id, IdGen},
+    num2name::num_to_name,
+};
 
 /// Returns version of the arcana crate.
 pub fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
-#[cfg(feature = "client")]
+//
 pub fn init_mev() -> (mev::Device, mev::Queue) {
     let instance = mev::Instance::load().expect("Failed to init graphics");
 
@@ -101,69 +101,69 @@ pub fn init_mev() -> (mev::Device, mev::Queue) {
     (device, queue)
 }
 
-#[cfg(feature = "client")]
-#[macro_export]
-macro_rules! feature_client {
-    ($($tt:tt)*) => {$($tt)*};
-}
+//
+// #[macro_export]
+// macro_rules! feature_client {
+//     ($($tt:tt)*) => {$($tt)*};
+// }
 
-#[cfg(not(feature = "client"))]
-#[macro_export]
-macro_rules! feature_client {
-    ($($tt:tt)*) => {};
-}
+// #[cfg(not(feature = "client"))]
+// #[macro_export]
+// macro_rules! feature_client {
+//     ($($tt:tt)*) => {};
+// }
 
-#[cfg(feature = "server")]
-#[macro_export]
-macro_rules! feature_server {
-    ($($tt:tt)*) => {$($tt)*};
-}
+// #[cfg(feature = "server")]
+// #[macro_export]
+// macro_rules! feature_server {
+//     ($($tt:tt)*) => {$($tt)*};
+// }
 
-#[cfg(not(feature = "server"))]
-#[macro_export]
-macro_rules! feature_server {
-    ($($tt:tt)*) => {};
-}
+// #[cfg(not(feature = "server"))]
+// #[macro_export]
+// macro_rules! feature_server {
+//     ($($tt:tt)*) => {};
+// }
 
-#[cfg(feature = "client")]
-#[macro_export]
-macro_rules! not_feature_client {
-    ($($tt:tt)*) => {};
-}
+//
+// #[macro_export]
+// macro_rules! not_feature_client {
+//     ($($tt:tt)*) => {};
+// }
 
-#[cfg(not(feature = "client"))]
-#[macro_export]
-macro_rules! not_feature_client {
-    ($($tt:tt)*) => {$($tt)*};
-}
+// #[cfg(not(feature = "client"))]
+// #[macro_export]
+// macro_rules! not_feature_client {
+//     ($($tt:tt)*) => {$($tt)*};
+// }
 
-#[cfg(feature = "server")]
-#[macro_export]
-macro_rules! not_feature_server {
-    ($($tt:tt)*) => {};
-}
+// #[cfg(feature = "server")]
+// #[macro_export]
+// macro_rules! not_feature_server {
+//     ($($tt:tt)*) => {};
+// }
 
-#[cfg(not(feature = "server"))]
-#[macro_export]
-macro_rules! not_feature_server {
-    ($($tt:tt)*) => {$($tt)*};
-}
+// #[cfg(not(feature = "server"))]
+// #[macro_export]
+// macro_rules! not_feature_server {
+//     ($($tt:tt)*) => {$($tt)*};
+// }
 
-/// Conditional compilation based on features enabled in arcana crate.
-#[macro_export]
-macro_rules! feature {
-    (client => $($tt:tt)*) => { $crate::feature_client!($($tt)*) };
-    (server => $($tt:tt)*) => { $crate::feature_server!($($tt)*) };
-    (ed => $($tt:tt)*) => { $crate::feature_ed!($($tt)*) };
+// /// Conditional compilation based on features enabled in arcana crate.
+// #[macro_export]
+// macro_rules! feature {
+//     (client => $($tt:tt)*) => { $crate::feature_client!($($tt)*) };
+//     (server => $($tt:tt)*) => { $crate::feature_server!($($tt)*) };
+//     (ed => $($tt:tt)*) => { $crate::feature_ed!($($tt)*) };
 
-    (!client => $($tt:tt)*) => { $crate::not_feature_client!($($tt)*) };
-    (!server => $($tt:tt)*) => { $crate::not_feature_server!($($tt)*) };
-    (!ed => $($tt:tt)*) => { $crate::not_feature_ed!($($tt)*) };
+//     (!client => $($tt:tt)*) => { $crate::not_feature_client!($($tt)*) };
+//     (!server => $($tt:tt)*) => { $crate::not_feature_server!($($tt)*) };
+//     (!ed => $($tt:tt)*) => { $crate::not_feature_ed!($($tt)*) };
 
-    (if client { $($yes:tt)* } $(else { $($no:tt)* })?) => { $crate::feature_client!($($yes)*); $($crate::not_feature_client!($($no)*);)? };
-    (if server { $($yes:tt)* } $(else { $($no:tt)* })?) => { $crate::feature_server!($($yes)*); $($crate::not_feature_server!($($no)*);)? };
-    (if ed { $($yes:tt)* } $(else { $($no:tt)* })?) => { $crate::feature_ed!($($yes)*); $($crate::not_feature_ed!($($no)*);)? };
-}
+//     (if client { $($yes:tt)* } $(else { $($no:tt)* })?) => { $crate::feature_client!($($yes)*); $($crate::not_feature_client!($($no)*);)? };
+//     (if server { $($yes:tt)* } $(else { $($no:tt)* })?) => { $crate::feature_server!($($yes)*); $($crate::not_feature_server!($($no)*);)? };
+//     (if ed { $($yes:tt)* } $(else { $($no:tt)* })?) => { $crate::feature_ed!($($yes)*); $($crate::not_feature_ed!($($no)*);)? };
+// }
 
 // #[global_allocator]
 // static ALLOC: alloc::ArcanaAllocator = alloc::ArcanaAllocator;

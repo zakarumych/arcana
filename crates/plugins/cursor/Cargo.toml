@@ -8,5 +8,5 @@ version.workspace = true
 publish = false
 
 [dependencies]
-arcana = { path = "../../arcana", features = ["client"] }
+arcana = { path = "../../arcana" }
 na = { workspace = true }

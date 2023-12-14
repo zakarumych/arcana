@@ -238,7 +238,7 @@ publish = false
 edition = "2021"
 
 [dependencies]
-arcana = {{ workspace = true, features = ["ed"] }}
+arcana = {{ workspace = true }}
 arcana-ed = {{ workspace = true }}
 "#,
         gh_issue = github_autogen_issue_template("ed/Cargo.toml")
@@ -311,7 +311,7 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-arcana = {{ workspace = true, features = ["ed"] }}
+arcana = {{ workspace = true }}
 arcana-ed = {{ workspace = true }}
 "#,
         gh_issue = github_autogen_issue_template("plugins/Cargo.toml")
@@ -420,7 +420,7 @@ name = "{name}"
 path = "src/main.rs"
 
 [dependencies]
-arcana = {{ workspace = true, features = ["client"] }}
+arcana = {{ workspace = true }}
 "#,
         gh_issue = github_autogen_issue_template("game/Cargo.toml")
     );

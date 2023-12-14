@@ -2,22 +2,24 @@ use std::{any::Any, sync::atomic::AtomicBool};
 
 use arcana_project::{Dependency, Ident, IdentBuf};
 use edict::{IntoSystem, Scheduler, System, World};
+use hashbrown::HashMap;
 
-#[cfg(feature = "client")]
 use crate::events::EventFilter;
+use crate::id::Id;
+
+pub type SystemId = Id<dyn System>;
+pub type FilterId = Id<dyn EventFilter>;
 
 pub struct PluginInit<'a> {
-    pub systems: Vec<(&'a Ident, Box<dyn System + Send>)>,
-    #[cfg(feature = "client")]
     pub filters: Vec<(&'a Ident, Box<dyn EventFilter>)>,
+    pub systems: Vec<(&'a Ident, Box<dyn System + Send>)>,
 }
 
 impl<'a> PluginInit<'a> {
     pub fn new() -> Self {
         PluginInit {
-            systems: vec![],
-            #[cfg(feature = "client")]
             filters: vec![],
+            systems: vec![],
         }
     }
 
@@ -37,7 +39,6 @@ impl<'a> PluginInit<'a> {
         self
     }
 
-    #[cfg(feature = "client")]
     pub fn with_filter<F>(mut self, name: &'a Ident, filter: F) -> Self
     where
         F: EventFilter + 'static,
@@ -46,7 +47,6 @@ impl<'a> PluginInit<'a> {
         self
     }
 
-    #[cfg(feature = "client")]
     pub fn add_filter<F>(&mut self, name: &'a Ident, filter: F) -> &mut Self
     where
         F: EventFilter + 'static,
@@ -112,20 +112,14 @@ pub trait ArcanaPlugin: Any + Sync {
     /// Returns constructed systems and event filters.
     fn init(&self, world: &mut World) -> PluginInit {
         let _ = world;
-        PluginInit {
-            systems: vec![],
-            #[cfg(feature = "client")]
-            filters: vec![],
-        }
+        PluginInit::new()
     }
 
     /// De-initializes world.
     /// Removes resources that belongs to this plugin.
     /// This method is called when game instance is closed,
     /// plugin is disabled or replaced with another version.
-    fn deinit(&self, world: &mut World) {
-        unimplemented!()
-    }
+    fn deinit(&self, world: &mut World) {}
 
     /// Returns true if this plugin can be replaced with the `updated` plugin.
     /// The updated plugin should typically be a newer version of the same plugin.
@@ -139,9 +133,9 @@ pub trait ArcanaPlugin: Any + Sync {
     /// Dump state of the world known to this plugin.
     /// This method is called when the plugin is reloaded with updated code
     /// before `deinit` method.
-    /// New version will load the state from the dump.
+    /// New version, if compatible, will load the state from the dump.
     fn dump(&self, world: &World, scratch: &mut [u8]) -> usize {
-        unimplemented!()
+        0
     }
 
     /// Load state of the world known to this plugin dumped by previous version.
@@ -340,4 +334,21 @@ pub static GLOBAL_CHECK: AtomicBool = AtomicBool::new(false);
 
 pub fn unknown_dependency() -> ! {
     panic!("Unknown dependency")
+}
+
+struct PluginSystem {
+    // If none - plugin stopped exporting this system.
+    system: Option<Box<dyn System + Send>>,
+}
+
+struct PluginJob {
+    // If none - plugin stopped exporting this job.
+    job_desc: Option<Box<dyn Fn(work::Setup)>>,
+}
+
+/// Registry that holds items exported from plugins.
+///
+/// This includes systems, event filters, jobs and components.
+pub struct PluginRegistry {
+    systems: HashMap<SystemId, PluginSystem>,
 }

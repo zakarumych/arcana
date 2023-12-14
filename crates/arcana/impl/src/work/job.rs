@@ -1,323 +1,197 @@
-//! This module defines Job API for work-graph.
-//!
-//! `Job` is a computational unit of work-graph.
-//! It may be arbitrary complex but cannot be divided into smaller units by user.
-//!
-//! This trait defines Job API.
-//!
-//! There's three stages:
-//! - setup
-//! - plan
-//! - execution
-//!
-//! Setup stage happens for each job when it is added to the graph.
-//! At this stage job must declare targets it will use and targets it will produce.
-//!
-//! Plan stage happens each frame.
-//! At this stage relations between jobs are processed to build execution plan.
-//! Resources are allocated and prepared for execution.
-//!
-//! Execution stage happens each frame. At this stage jobs are traversed
-//! in planned order to find out which jobs needs to run.
-//! Then jobs are executed, possibly in parallel to fill command buffers which then
-//! are submitted in order.
-//!
-//! Jobs communicate data between each other through resources,
-//! referred by jobs as targets.
-//! Job may fetch only target ids that was declared as accessed during setup.    
+use std::{cell::RefCell, slice::Iter};
 
-use std::{
-    alloc::Layout,
-    any::{Any, TypeId},
-    cell::RefCell,
-    mem::ManuallyDrop,
-    num::NonZeroU64,
-    ptr::NonNull,
-};
-
-use blink_alloc::{Blink, BlinkAlloc};
 use hashbrown::{HashMap, HashSet};
 
-use crate::{
-    arena::Arena,
-    id::{Id, IdGen},
-};
+use crate::{arena::Arena, make_id};
 
 use super::{
-    graph::PinId,
-    target::{InputId, OutputId, Target, TargetHub, TargetId, TargetInfoMerge, UpdateId},
+    graph::Edge,
+    target::{Target, TargetHub, TargetId},
 };
 
-pub type JobId = Id<dyn Job>;
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct JobCreateDesc {
+    /// Target name.
+    pub name: String,
 
-/// Entry to the Job API.
-/// Setups the job to be added to the graph.
+    /// Target kind.
+    pub kind: String,
+}
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct JobUpdateDesc {
+    /// Target kind.
+    pub kind: String,
+}
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct JobReadDesc {
+    /// Target kind.
+    pub kind: String,
+}
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct JobDesc {
+    pub title: String,
+    pub updates: Vec<JobUpdateDesc>,
+    pub creates: Vec<JobCreateDesc>,
+    pub reads: Vec<JobReadDesc>,
+}
+
 pub trait Job {
-    /// Setup the job.
+    /// First phase of a job is planning.
     ///
-    /// This method is called once when the job is added to the graph.
-    /// It must declare targets it will use and targets it will produce.
-    fn setup(self, setup: Setup<'_>) -> JobNode;
-}
-
-impl<F> Job for F
-where
-    F: FnOnce(Setup<'_>) -> JobNode,
-{
-    fn setup(self, setup: Setup<'_>) -> JobNode {
-        self(setup)
-    }
-}
-
-pub struct Setup<'a> {
-    inputs: HashMap<InputId, Input>,
-    outputs: HashMap<OutputId, Output>,
-    idgen: &'a mut IdGen,
-    merge_info: &'a mut HashMap<TypeId, fn(&mut dyn Any, &dyn Any)>,
-}
-
-impl<'a> Setup<'a> {
-    pub(super) fn new(
-        idgen: &'a mut IdGen,
-        merge_info: &'a mut HashMap<TypeId, fn(&mut dyn Any, &dyn Any)>,
-    ) -> Self {
-        Setup {
-            inputs: HashMap::new(),
-            outputs: HashMap::new(),
-            idgen,
-            merge_info,
-        }
-    }
-}
-
-impl Setup<'_> {
-    /// Declare that job will produce a target.
-    /// Job will have exclusive access to the target resource while it runs.
-    /// Creates an output pin for the job node.
-    pub fn produce<T>(&mut self) -> OutputId<T>
-    where
-        T: Target,
-    {
-        let id = self.idgen.next();
-        self.outputs.insert(
-            id.cast(),
-            Output {
-                id: TypeId::of::<T>(),
-                name: T::name(),
-            },
-        );
-        id
-    }
-
-    /// Declare that job will consume a target.
-    /// Creates an input pin for the job node.
-    pub fn consume<T>(&mut self) -> InputId<T>
-    where
-        T: Target,
-    {
-        let id = self.idgen.next();
-        self.inputs.insert(
-            id.cast(),
-            Input {
-                id: TypeId::of::<T>(),
-                name: T::name(),
-                access: Access::Exclusive,
-            },
-        );
-        id
-    }
-
-    /// Declare that job will update a target.
-    /// Creates an input and output pin for the job node.
-    pub fn update<T>(&mut self) -> UpdateId<T>
-    where
-        T: Target,
-    {
-        let id = self.idgen.next();
-        self.inputs.insert(
-            id.cast(),
-            Input {
-                id: TypeId::of::<T>(),
-                name: T::name(),
-                access: Access::Exclusive,
-            },
-        );
-        self.outputs.insert(
-            id.cast(),
-            Output {
-                id: TypeId::of::<T>(),
-                name: T::name(),
-            },
-        );
-        id
-    }
-
-    /// Declare that job will read a target.
-    /// Creates an input pin for the job node.
+    /// This phase is responsible for:
+    /// - Determining which jobs to run
+    /// - Compute resource description for each job
+    /// - Allocate resources
     ///
-    /// This is only available for target types with mergeable info.
-    pub fn read<T>(&mut self) -> InputId<T>
-    where
-        T: TargetInfoMerge,
-    {
-        let id = self.idgen.next();
-        self.inputs.insert(
-            id.cast(),
-            Input {
-                id: TypeId::of::<T>(),
-                name: T::name(),
-                access: Access::Shared,
-            },
-        );
+    /// This phase is executed for each frame, so considered hot path.
+    /// It is important to keep it simple and fast,
+    /// keep allocations to minimum and reuse as much as possible.
+    fn plan(&mut self, planner: &mut Planner<'_>);
 
-        self.merge_info.insert(
-            TypeId::of::<T>(),
-            |info: &mut dyn Any, other: &dyn Any| unsafe {
-                T::merge_info(
-                    info.downcast_mut().unwrap_unchecked(),
-                    other.downcast_ref().unwrap_unchecked(),
-                )
-            },
-        );
-
-        id
-    }
-
-    /// Called by the job setup to build the job node.
-    /// This must be called exactly once.
-    pub fn build(self, name: String, plan: impl PlanJob, run: impl RunJob) -> JobNode {
-        JobNode {
-            name,
-            plan: Box::new(plan),
-            run: Box::new(run),
-            inputs: self.inputs,
-            outputs: self.outputs,
-        }
-    }
-}
-
-/// Part of the Job API.
-///
-/// Implementation of this trait as inserted into the graph execution plan
-/// and executed when the graph is executed.
-pub trait PlanJob: 'static {
-    /// Called each frame at planning stage.
-    /// Jobs provide requirements and definitions of targets they will use.
-    /// Job may provide definition only if it creates target.
-    /// If definition don't have `Default` impl, job must provide definition.
+    /// Second phase of a job is execution.
     ///
-    /// Job may provide requirements for targets it will use either way.
-    fn plan(&mut self, planner: Planner<'_>);
+    /// This phase is responsible for recording commands.
+    /// It fetches pre-allocated target resources and
+    /// does anything necessary to record commands into command buffers:
+    /// - Creating pipelines
+    /// - Binding resources
+    /// - Recording draw/dispatch calls
+    fn exec(&mut self, runner: Exec<'_>);
 }
 
-impl<F> PlanJob for F
-where
-    F: FnMut(Planner<'_>) + 'static,
-{
-    fn plan(&mut self, planner: Planner<'_>) {
-        self(planner)
-    }
+pub struct JobCreateTarget {
+    /// Target name.
+    pub name: String,
+
+    /// Target kind.
+    pub kind: String,
+
+    // Assigned target id.
+    pub id: Option<TargetId>,
+}
+
+pub struct JobUpdateTarget {
+    /// Target kind.
+    pub kind: String,
+
+    // Assigned target id.
+    pub id: Option<TargetId>,
+
+    pub dep: Option<usize>,
+}
+
+pub struct JobReadTarget {
+    /// Target kind.
+    pub kind: String,
+
+    // Assigned target id.
+    pub id: Option<TargetId>,
+
+    pub dep: Option<usize>,
 }
 
 pub struct Planner<'a> {
+    /// List of targets updates of the job correspond to.
+    updates: Iter<'a, JobUpdateTarget>,
+
+    /// List of targets creates of the job correspond to.
+    creates: Iter<'a, JobCreateTarget>,
+
+    /// List of targets reads of the job correspond to.
+    reads: Iter<'a, JobReadTarget>,
+
+    /// Where all targets live.
     hub: &'a mut TargetHub,
-    targets: &'a HashMap<PinId, TargetId>,
-    pins: &'a HashMap<PinId, JobId>,
-    edges: &'a HashMap<InputId, OutputId>,
-    merge_info: &'a HashMap<TypeId, fn(&mut dyn Any, &dyn Any)>,
-    selected: &'a mut HashSet<JobId>,
-    device: mev::Device,
+
+    /// Set of selected jobs.
+    selected_jobs: &'a mut HashSet<usize>,
+
+    device: &'a mev::Device,
 }
 
 impl<'a> Planner<'a> {
     pub(super) fn new(
+        updates: &'a [JobUpdateTarget],
+        creates: &'a [JobCreateTarget],
+        reads: &'a [JobReadTarget],
         hub: &'a mut TargetHub,
-        targets: &'a HashMap<PinId, TargetId>,
-        pins: &'a HashMap<PinId, JobId>,
-        edges: &'a HashMap<InputId, OutputId>,
-        merge_info: &'a HashMap<TypeId, fn(&mut dyn Any, &dyn Any)>,
-        selected: &'a mut HashSet<JobId>,
-        device: mev::Device,
+        selected_jobs: &'a mut HashSet<usize>,
+        device: &'a mev::Device,
     ) -> Self {
         Planner {
+            updates: updates.iter(),
+            creates: creates.iter(),
+            reads: reads.iter(),
             hub,
-            targets,
-            pins,
-            edges,
-            merge_info,
-            selected,
+            selected_jobs,
             device,
         }
     }
 }
 
 impl Planner<'_> {
-    /// See the output target instance.
-    ///
-    /// If there's more than one reader, info is merged.
-    ///
-    /// If not required, returns `None`.
-    pub fn output<T>(&mut self, id: OutputId<T>, name: &str) -> Option<&T::Info>
+    /// Fetcehs resource description for next update.
+    pub fn update<T>(&mut self) -> Option<&T::Info>
     where
         T: Target,
     {
-        let target = *self.targets.get(&id.cast())?;
-        self.hub.plan_output::<T>(target, name, &self.device)
+        let update = self.updates.next().expect("No more updates");
+        assert_eq!(*update.kind, *T::kind());
+        let info = self.hub.plan_update::<T>(update.id?)?;
+
+        if let Some(dep) = update.dep {
+            self.selected_jobs.insert(dep);
+        }
+
+        Some(info)
     }
 
-    /// Tell dependencies what this job needs.
-    ///
-    /// If there's more than one readers, info is merged.
-    ///
-    /// Does nothing if target is not connected.
-    pub fn input<T>(&mut self, id: InputId<T>, info: T::Info)
+    /// Provide resource description for next input.
+    /// Allows merging resource description other readers.
+    pub fn create<T>(&mut self) -> Option<&T::Info>
     where
         T: Target,
     {
-        let Some(&target) = self.targets.get(&id.cast()) else {
+        let create = self.creates.next().expect("No more creates");
+        assert_eq!(*create.kind, *T::kind());
+        self.hub
+            .plan_create::<T>(create.id?, &create.name, &self.device)
+    }
+
+    /// Provide resource description for next input.
+    /// Allows merging resource description other readers.
+    pub fn read<T>(&mut self, info: T::Info)
+    where
+        T: Target,
+    {
+        let read = self.reads.next().expect("No more reads");
+        assert_eq!(*read.kind, *T::kind());
+        let Some(id) = read.id else {
             return;
         };
-        if let Some(&output) = self.edges.get(&id.cast()) {
-            self.hub.plan_input::<T>(target, info, self.merge_info);
-            let dep = self.pins[&output.cast()];
-            self.selected.insert(dep);
-        }
-    }
+        self.hub.plan_read::<T>(id, info);
 
-    /// Specify that job's output resource is the same as input resource.
-    /// In setup stage job must declare that it will consume the `from` target.
-    pub fn update<T>(&mut self, id: UpdateId<T>)
-    where
-        T: Target,
-    {
-        if let Some(&output) = self.edges.get(&id.cast()) {
-            let dep = self.pins[&id.cast()];
-            self.selected.insert(dep);
+        if let Some(dep) = read.dep {
+            self.selected_jobs.insert(dep);
         }
     }
 }
 
-/// Part of the Job API.
-///
-/// Implementation of this trait as inserted into the graph execution plan
-/// and executed when the graph is executed.
-pub trait RunJob: 'static {
-    /// Called when graph is executed and targets of the job needs to be produced.
-    fn run(&mut self, runner: Runner<'_>);
-}
+pub struct Exec<'a> {
+    /// List of targets updates of the job correspond to.
+    updates: Iter<'a, JobUpdateTarget>,
 
-impl<F> RunJob for F
-where
-    F: FnMut(Runner<'_>) + 'static,
-{
-    fn run(&mut self, runner: Runner<'_>) {
-        self(runner)
-    }
-}
+    /// List of targets creates of the job correspond to.
+    creates: Iter<'a, JobCreateTarget>,
 
-pub struct Runner<'a> {
+    /// List of targets reads of the job correspond to.
+    reads: Iter<'a, JobReadTarget>,
+
+    /// Where all targets live.
     hub: &'a mut TargetHub,
-    targets: &'a HashMap<PinId, TargetId>,
 
     device: mev::Device,
     queue: RefCell<&'a mut mev::Queue>,
@@ -328,107 +202,103 @@ pub struct Runner<'a> {
     cbufs: &'a Arena<mev::CommandEncoder>,
 }
 
-impl<'a> Runner<'a> {
-    pub(super) fn new(
-        hub: &'a mut TargetHub,
-        targets: &'a HashMap<PinId, TargetId>,
-        device: mev::Device,
-        queue: RefCell<&'a mut mev::Queue>,
-        cbufs: &'a Arena<mev::CommandEncoder>,
-    ) -> Self {
-        Runner {
-            targets,
-            hub,
-            device,
-            queue,
-            cbufs,
-        }
-    }
-}
-
-impl Runner<'_> {
-    /// Get a target resource.
-    pub fn input<T>(&self, id: InputId<T>, stages: mev::PipelineStages) -> Option<&T>
+impl Exec<'_> {
+    /// Fetches next resource to update.
+    ///
+    /// Returns none if not connected to next input.
+    pub fn update<T>(&mut self) -> Option<&T>
     where
         T: Target,
     {
-        let target = *self.targets.get(&id.cast())?;
-        self.hub.get(target)
+        let read = self.reads.next().expect("No more reads");
+        let Some(id) = read.id else {
+            return;
+        };
+        self.hub.get::<T>(id)
     }
 
-    /// Get a target resource.
-    pub fn output<T>(&self, id: OutputId<T>, stages: mev::PipelineStages) -> Option<&T>
+    /// Fetches next resource to create.
+    ///
+    /// Returns none if not connected.
+    pub fn create<T>(&mut self) -> Option<&T>
     where
         T: Target,
     {
-        let target = *self.targets.get(&id.cast())?;
-        self.hub.get(target)
+        let create = self.creates.next().expect("No more reads");
+        let Some(id) = create.id else {
+            return;
+        };
+        self.hub.get::<T>(id)
     }
 
-    /// Get a target resource.
-    pub fn update<T>(&self, id: UpdateId<T>, stages: mev::PipelineStages) -> Option<&T>
+    /// Fetches next resource to read.
+    ///
+    /// Returns none if not connected.
+    pub fn read<T>(&mut self) -> Option<&T>
     where
         T: Target,
     {
-        let target = *self.targets.get(&id.cast())?;
-        self.hub.get(target)
+        let read = self.reads.next().expect("No more reads");
+        let Some(id) = read.id else {
+            return;
+        };
+        self.hub.get::<T>(id)
     }
 
+    /// Allocates new command encoder.
+    /// It will be automatically submitted to this job's queue.
+    ///
+    /// Returned reference is bound to this `Exec`'s borrow,
+    /// so make sure to fetch target references before calling this.
     pub fn new_encoder(&self) -> &mut mev::CommandEncoder {
         let encoder = self.queue.borrow_mut().new_command_encoder().unwrap();
         self.cbufs.put(encoder)
     }
 
+    /// Returns reference to device.
     pub fn device(&self) -> &mev::Device {
         &self.device
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Access {
-    Shared,
-    Exclusive,
-}
-
-#[derive(Clone, Copy)]
-pub struct Input {
-    pub id: TypeId,
-    pub name: &'static str,
-    pub access: Access,
-}
-
-#[derive(Clone, Copy)]
-pub struct Output {
-    pub id: TypeId,
-    pub name: &'static str,
-}
-
-pub struct JobNode {
-    name: String,
-    plan: Box<dyn PlanJob>,
-    run: Box<dyn RunJob>,
-    inputs: HashMap<InputId, Input>,
-    outputs: HashMap<OutputId, Output>,
+pub(super) struct JobNode {
+    pub(super) job: Box<dyn Job>,
+    pub(super) updates: Vec<JobUpdateTarget>,
+    pub(super) creates: Vec<JobCreateTarget>,
+    pub(super) reads: Vec<JobReadTarget>,
 }
 
 impl JobNode {
-    pub(super) fn name(&self) -> &str {
-        &self.name
-    }
-
-    pub(super) fn inputs(&self) -> impl ExactSizeIterator<Item = (InputId, Input)> + '_ {
-        self.inputs.iter().map(|(&id, &input)| (id, input))
-    }
-
-    pub(super) fn outputs(&self) -> impl ExactSizeIterator<Item = (OutputId, Output)> + '_ {
-        self.outputs.iter().map(|(&id, &output)| (id, output))
-    }
-
-    pub(super) fn plan(&mut self, planner: Planner<'_>) {
-        self.plan.plan(planner)
-    }
-
-    pub(super) fn run(&mut self, runner: Runner<'_>) {
-        self.run.run(runner)
+    pub fn new(desc: JobDesc, job: Box<dyn Job>) -> Self {
+        JobNode {
+            job,
+            updates: desc
+                .updates
+                .into_iter()
+                .map(|u| JobUpdateTarget {
+                    kind: u.kind,
+                    id: None,
+                    dep: None,
+                })
+                .collect(),
+            creates: desc
+                .creates
+                .into_iter()
+                .map(|c| JobCreateTarget {
+                    kind: c.kind,
+                    name: c.name,
+                    id: None,
+                })
+                .collect(),
+            reads: desc
+                .reads
+                .into_iter()
+                .map(|c| JobReadTarget {
+                    kind: c.kind,
+                    id: None,
+                    dep: None,
+                })
+                .collect(),
+        }
     }
 }
