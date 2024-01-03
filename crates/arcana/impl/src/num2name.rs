@@ -1,3 +1,7 @@
+use std::hash::Hash;
+
+use crate::stable_hash;
+
 const ADJECTIVES: &'static [&'static str; 32] = &[
     "Brave", "Bright", "Calm", "Clever", "Cool", "Cozy", "Cute", "Eager", "Fancy", "Fresh", "Good",
     "Grace", "Great", "Happy", "Hardy", "Jolly", "Joyful", "Keen", "Kind", "Lively", "Lucky",
@@ -30,4 +34,13 @@ pub fn num_to_name(num: u16) -> String {
         "{} {} {}",
         ADJECTIVES[adjective], COLORS[color], NOUNS[noun]
     )
+}
+
+pub fn hash_to_name<T>(value: &T) -> String
+where
+    T: Hash + ?Sized,
+{
+    let hash = stable_hash(value);
+    let num = (hash >> 48) as u16;
+    num_to_name(num)
 }

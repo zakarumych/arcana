@@ -11,6 +11,7 @@ use gametime::{
     Clock, ClockStep, Frequency, FrequencyNumExt, FrequencyTicker, TimeSpan, TimeSpanNumExt,
     TimeStamp,
 };
+use hashbrown::{HashMap, HashSet};
 use mev::ImageDesc;
 use parking_lot::Mutex;
 use winit::{
@@ -22,7 +23,7 @@ use crate::{
     events::{Event, EventFilter, EventFunnel},
     flow::{init_flows, wake_flows},
     init_mev,
-    plugin::{ArcanaPlugin, PluginInit},
+    plugin::{ArcanaPlugin, PluginsHub},
     render::{render_system, RenderGraph, RenderState},
     viewport::Viewport,
     work::WorkGraph,
@@ -50,7 +51,7 @@ impl FPS {
     }
 
     pub fn add(&mut self, time: TimeStamp) {
-        while self.frames.len() >= 500 {
+        while self.frames.len() == self.frames.capacity() {
             self.frames.pop_front();
         }
         self.frames.push_back(time);
@@ -167,7 +168,7 @@ pub struct Game {
     scheduler: Box<dyn FnMut(&mut World, bool)>,
     flows: Flows,
 
-    funnel: EventFunnel,
+    funnel: Funnel,
 
     render_state: RenderState,
     work_graph: WorkGraph,
@@ -180,10 +181,11 @@ impl Component for Game {
 }
 
 pub type Scheduler = Box<dyn FnMut(&mut World, bool)>;
+pub type Funnel = Box<dyn FnMut(&Blink, &mut World, &Event) -> bool>;
 
 pub struct GameInit {
     pub scheduler: Scheduler,
-    pub funnel: EventFunnel,
+    pub funnel: Funnel,
 }
 
 impl Game {
@@ -248,7 +250,7 @@ impl Game {
             funnel: init.funnel,
 
             render_state: RenderState::default(),
-            work_graph: WorkGraph::new(),
+            work_graph: WorkGraph::new(HashMap::new(), HashSet::new()).unwrap(),
         }
     }
 
@@ -277,7 +279,7 @@ impl Game {
     }
 
     pub fn on_event(&mut self, event: &Event) -> bool {
-        self.funnel.filter(&self.blink, &mut self.world, event)
+        (self.funnel)(&self.blink, &mut self.world, event)
     }
 
     pub fn quit(&mut self) {

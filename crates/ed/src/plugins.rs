@@ -98,22 +98,22 @@ impl PluginsLibrary {
             let plugin = self.get(name).unwrap();
 
             let mut defer = false;
-            for &dep in plugin.dependencies() {
-                if sorted.contains(dep) {
+            for (dep_name, dependency) in plugin.dependencies() {
+                if sorted.contains(dep_name) {
                     continue;
                 }
 
-                if pending.contains(dep) {
+                if pending.contains(dep_name) {
                     error
                         .circular_dependencies
-                        .push((name.to_buf(), dep.to_buf()));
+                        .push((name.to_buf(), dep_name.to_buf()));
                     continue;
                 }
 
-                if !self.has(dep) {
+                if !self.has(dep_name) {
                     error
                         .missing_dependencies
-                        .push((dep.to_buf(), plugin.get_dependency(dep)));
+                        .push((dep_name.to_buf(), dependency));
                     continue;
                 };
 
@@ -122,7 +122,7 @@ impl PluginsLibrary {
                     queue.push_front(name);
                 }
 
-                queue.push_front(dep);
+                queue.push_front(dep_name);
             }
 
             if !defer {
@@ -169,8 +169,8 @@ impl PluginsLibrary {
                 return None;
             }
 
-            for dep in plugin.dependencies() {
-                if inactive.contains(*dep) {
+            for (dep, _) in plugin.dependencies() {
+                if inactive.contains(dep) {
                     return None;
                 }
             }

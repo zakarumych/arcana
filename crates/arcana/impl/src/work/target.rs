@@ -10,16 +10,12 @@ use std::{
 
 use hashbrown::HashMap;
 
-use crate::{make_id, Id, IdGen};
+use crate::{make_id, stid::WithStid, Id, IdGen, Stid};
 
 make_id!(pub TargetId);
 
-pub trait Target: 'static {
+pub trait Target: WithStid + 'static {
     type Info: Eq + 'static;
-
-    fn kind() -> &'static str
-    where
-        Self: Sized;
 
     fn allocate(device: &mev::Device, name: &str, info: &Self::Info) -> Self
     where
@@ -29,7 +25,7 @@ pub trait Target: 'static {
     where
         Self: Sized,
     {
-        assert_eq!(*info, *other, "Target info mismatch");
+        assert!(*info == *other, "Target info mismatch");
     }
 }
 

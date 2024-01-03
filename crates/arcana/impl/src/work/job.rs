@@ -1,8 +1,9 @@
-use std::{cell::RefCell, slice::Iter};
+use std::{borrow::Cow, cell::RefCell, slice::Iter};
 
+use arcana_project::{Ident, IdentBuf};
 use hashbrown::{HashMap, HashSet};
 
-use crate::{arena::Arena, make_id};
+use crate::{arena::Arena, make_id, Stid};
 
 use super::{
     graph::Edge,
@@ -15,27 +16,62 @@ pub struct JobCreateDesc {
     pub name: String,
 
     /// Target kind.
-    pub kind: String,
+    pub kind: Stid,
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct JobUpdateDesc {
     /// Target kind.
-    pub kind: String,
+    pub kind: Stid,
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct JobReadDesc {
     /// Target kind.
-    pub kind: String,
+    pub kind: Stid,
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct JobDesc {
-    pub title: String,
     pub updates: Vec<JobUpdateDesc>,
     pub creates: Vec<JobCreateDesc>,
     pub reads: Vec<JobReadDesc>,
+}
+
+pub enum Input {
+    Update,
+    Read,
+}
+
+pub enum Output {
+    Update,
+    Create,
+}
+
+impl JobDesc {
+    pub fn input_kind(&self, input: usize) -> Stid {
+        if input < self.updates.len() {
+            self.updates[input].kind
+        } else {
+            self.reads[input - self.updates.len()].kind
+        }
+    }
+
+    pub fn output_kind(&self, output: usize) -> Stid {
+        if output < self.updates.len() {
+            self.updates[output].kind
+        } else {
+            self.creates[output - self.updates.len()].kind
+        }
+    }
+
+    pub fn output_name(&self, output: usize) -> Option<&str> {
+        if output < self.updates.len() {
+            None
+        } else {
+            Some(&self.creates[output - self.updates.len()].name)
+        }
+    }
 }
 
 pub trait Job {
@@ -49,7 +85,7 @@ pub trait Job {
     /// This phase is executed for each frame, so considered hot path.
     /// It is important to keep it simple and fast,
     /// keep allocations to minimum and reuse as much as possible.
-    fn plan(&mut self, planner: &mut Planner<'_>);
+    fn plan(&mut self, planner: Planner<'_>);
 
     /// Second phase of a job is execution.
     ///
@@ -67,7 +103,7 @@ pub struct JobCreateTarget {
     pub name: String,
 
     /// Target kind.
-    pub kind: String,
+    pub kind: Stid,
 
     // Assigned target id.
     pub id: Option<TargetId>,
@@ -75,22 +111,22 @@ pub struct JobCreateTarget {
 
 pub struct JobUpdateTarget {
     /// Target kind.
-    pub kind: String,
+    pub kind: Stid,
 
     // Assigned target id.
     pub id: Option<TargetId>,
 
-    pub dep: Option<usize>,
+    pub dep_idx: Option<usize>,
 }
 
 pub struct JobReadTarget {
     /// Target kind.
-    pub kind: String,
+    pub kind: Stid,
 
     // Assigned target id.
     pub id: Option<TargetId>,
 
-    pub dep: Option<usize>,
+    pub dep_idx: Option<usize>,
 }
 
 pub struct Planner<'a> {
@@ -109,27 +145,7 @@ pub struct Planner<'a> {
     /// Set of selected jobs.
     selected_jobs: &'a mut HashSet<usize>,
 
-    device: &'a mev::Device,
-}
-
-impl<'a> Planner<'a> {
-    pub(super) fn new(
-        updates: &'a [JobUpdateTarget],
-        creates: &'a [JobCreateTarget],
-        reads: &'a [JobReadTarget],
-        hub: &'a mut TargetHub,
-        selected_jobs: &'a mut HashSet<usize>,
-        device: &'a mev::Device,
-    ) -> Self {
-        Planner {
-            updates: updates.iter(),
-            creates: creates.iter(),
-            reads: reads.iter(),
-            hub,
-            selected_jobs,
-            device,
-        }
-    }
+    device: mev::Device,
 }
 
 impl Planner<'_> {
@@ -139,11 +155,11 @@ impl Planner<'_> {
         T: Target,
     {
         let update = self.updates.next().expect("No more updates");
-        assert_eq!(*update.kind, *T::kind());
+        assert_eq!(update.kind, Stid::of::<T>());
         let info = self.hub.plan_update::<T>(update.id?)?;
 
-        if let Some(dep) = update.dep {
-            self.selected_jobs.insert(dep);
+        if let Some(dep_idx) = update.dep_idx {
+            self.selected_jobs.insert(dep_idx);
         }
 
         Some(info)
@@ -156,7 +172,7 @@ impl Planner<'_> {
         T: Target,
     {
         let create = self.creates.next().expect("No more creates");
-        assert_eq!(*create.kind, *T::kind());
+        assert_eq!(create.kind, Stid::of::<T>());
         self.hub
             .plan_create::<T>(create.id?, &create.name, &self.device)
     }
@@ -168,14 +184,14 @@ impl Planner<'_> {
         T: Target,
     {
         let read = self.reads.next().expect("No more reads");
-        assert_eq!(*read.kind, *T::kind());
+        assert_eq!(read.kind, Stid::of::<T>());
         let Some(id) = read.id else {
             return;
         };
         self.hub.plan_read::<T>(id, info);
 
-        if let Some(dep) = read.dep {
-            self.selected_jobs.insert(dep);
+        if let Some(dep_idx) = read.dep_idx {
+            self.selected_jobs.insert(dep_idx);
         }
     }
 }
@@ -210,11 +226,8 @@ impl Exec<'_> {
     where
         T: Target,
     {
-        let read = self.reads.next().expect("No more reads");
-        let Some(id) = read.id else {
-            return;
-        };
-        self.hub.get::<T>(id)
+        let update = self.updates.next().expect("No more updates");
+        self.hub.get::<T>(update.id?)
     }
 
     /// Fetches next resource to create.
@@ -224,11 +237,8 @@ impl Exec<'_> {
     where
         T: Target,
     {
-        let create = self.creates.next().expect("No more reads");
-        let Some(id) = create.id else {
-            return;
-        };
-        self.hub.get::<T>(id)
+        let create = self.creates.next().expect("No more creates");
+        self.hub.get::<T>(create.id?)
     }
 
     /// Fetches next resource to read.
@@ -239,10 +249,7 @@ impl Exec<'_> {
         T: Target,
     {
         let read = self.reads.next().expect("No more reads");
-        let Some(id) = read.id else {
-            return;
-        };
-        self.hub.get::<T>(id)
+        self.hub.get::<T>(read.id?)
     }
 
     /// Allocates new command encoder.
@@ -261,7 +268,7 @@ impl Exec<'_> {
     }
 }
 
-pub(super) struct JobNode {
+pub struct JobNode {
     pub(super) job: Box<dyn Job>,
     pub(super) updates: Vec<JobUpdateTarget>,
     pub(super) creates: Vec<JobCreateTarget>,
@@ -278,7 +285,7 @@ impl JobNode {
                 .map(|u| JobUpdateTarget {
                     kind: u.kind,
                     id: None,
-                    dep: None,
+                    dep_idx: None,
                 })
                 .collect(),
             creates: desc
@@ -296,9 +303,46 @@ impl JobNode {
                 .map(|c| JobReadTarget {
                     kind: c.kind,
                     id: None,
-                    dep: None,
+                    dep_idx: None,
                 })
                 .collect(),
         }
+    }
+
+    pub(super) fn plan(
+        &mut self,
+        hub: &mut TargetHub,
+        selected_jobs: &mut HashSet<usize>,
+        device: mev::Device,
+    ) {
+        let planner = Planner {
+            updates: self.updates.iter(),
+            creates: self.creates.iter(),
+            reads: self.reads.iter(),
+            hub,
+            selected_jobs,
+            device,
+        };
+        self.job.plan(planner);
+    }
+
+    pub(super) fn exec(
+        &mut self,
+        hub: &mut TargetHub,
+        device: mev::Device,
+        queue: &mut mev::Queue,
+        cbufs: &Arena<mev::CommandEncoder>,
+    ) {
+        let exec = Exec {
+            updates: self.updates.iter(),
+            creates: self.creates.iter(),
+            reads: self.reads.iter(),
+            hub,
+            device,
+            queue: RefCell::new(queue),
+            cbufs,
+        };
+
+        self.job.exec(exec);
     }
 }

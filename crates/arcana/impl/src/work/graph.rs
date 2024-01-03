@@ -20,7 +20,7 @@ pub struct WorkGraph {
     // Mutable state
     hub: TargetHub,
     idgen: IdGen,
-    sinks: HashSet<[usize; 2], TargetId>,
+    sinks: HashMap<[usize; 2], TargetId>,
 
     // Temporary state
     selected_jobs: HashSet<usize>,
@@ -32,11 +32,12 @@ pub struct Edge {
     pub to: [usize; 2],
 }
 
+#[derive(Debug)]
 pub struct Cycle;
 
 impl WorkGraph {
     /// Build work-graph from list of jobs descs and edges.
-    pub fn new<'a>(jobs: HashMap<usize, JobNode>, edges: HashSet<Edge>) -> Result<Self, Cycle> {
+    pub fn new<'a>(mut jobs: HashMap<usize, JobNode>, edges: HashSet<Edge>) -> Result<Self, Cycle> {
         // Unfold graph into a queue.
         // This queue must have dependencies-first order.
         // If dependency cycle is detected, return error.
@@ -56,8 +57,8 @@ impl WorkGraph {
             let mut deferred = false;
 
             for edge in edges.iter().filter(|e| e.to[0] == job_id) {
-                let dep = edge.from[0];
-                if enqueued.contains(&dep) {
+                let dep_idx = edge.from[0];
+                if enqueued.contains(&dep_idx) {
                     continue;
                 }
                 if pending.contains(&job_id) {
@@ -67,7 +68,7 @@ impl WorkGraph {
                     stack.push(job_id);
                     deferred = true;
                 }
-                stack.push(dep);
+                stack.push(dep_idx);
             }
 
             if !deferred {
@@ -84,7 +85,7 @@ impl WorkGraph {
         let mut input_targets = HashMap::<[usize; 2], TargetId>::new();
 
         for &job_id in queue.iter().rev() {
-            let job = &mut jobs[&job_id];
+            let job = jobs.get_mut(&job_id).unwrap();
 
             for edge in edges.iter().filter(|e| e.to[0] == job_id) {
                 let to_pin = edge.to[1];
@@ -97,7 +98,10 @@ impl WorkGraph {
                     continue;
                 }
 
-                match (to_pin < job.updates.len()).then(|| output_targets.get(&edge.to)) {
+                match (to_pin < job.updates.len())
+                    .then(|| output_targets.get(&edge.to))
+                    .flatten()
+                {
                     Some(&target) => {
                         // Target already assigned to matching output of this update pin.
                         output_targets.insert(edge.from, target);
@@ -114,41 +118,62 @@ impl WorkGraph {
         }
 
         let mut hub = TargetHub::new();
-        let plan = Vec::new();
+        let mut plan = Vec::new();
 
-        let job_order = HashMap::<usize, usize>::new();
+        let mut job_order = HashMap::<usize, usize>::new();
 
         for job_id in queue {
+            let job_idx = plan.len();
             let mut job = jobs.remove(&job_id).unwrap();
 
             for (idx, u) in job.updates.iter_mut().enumerate() {
-                u.id = output_targets.get(&[job_id, idx]);
-                assert_eq!(u.id, input_targets.get(&[job_id, idx]));
+                let out_id = output_targets.get(&[job_id, idx]).copied();
+                let in_id = input_targets.get(&[job_id, idx]).copied();
+
+                /// Assign either input or output target id to update pin.
+                match (out_id, in_id) {
+                    (Some(out_id), Some(in_id)) => {
+                        // When update is connected on both sides,
+                        // it must be assigned to the same target.
+                        assert_eq!(out_id, in_id);
+                        u.id = Some(out_id);
+                    }
+                    (Some(out_id), None) => {
+                        u.id = Some(out_id);
+                    }
+                    (None, Some(in_id)) => {
+                        u.id = Some(in_id);
+                    }
+                    (None, None) => {}
+                }
             }
 
             for (idx, c) in job.creates.iter_mut().enumerate() {
                 let idx = idx + job.updates.len();
-                c.id = output_targets.get(&[job_id, idx]);
+                c.id = output_targets.get(&[job_id, idx]).copied();
             }
 
             for (idx, r) in job.reads.iter_mut().enumerate() {
                 let idx = idx + job.updates.len() + job.creates.len();
-                r.id = input_targets.get(&[job_id, idx]);
+                r.id = input_targets.get(&[job_id, idx]).copied();
             }
 
+            // Collect dependencies for each job.
             for edge in edges.iter().filter(|e| e.to[0] == job_id) {
+                let dep_idx = job_order[&edge.from[0]];
+
                 let to_pin = edge.to[1];
 
                 if to_pin < job.updates.len() {
                     let update = &mut job.updates[to_pin];
-                    update.dep = Some(edge.from[0]);
+                    update.dep_idx = Some(dep_idx);
                 } else {
                     let read = &mut job.reads[to_pin - job.updates.len() - job.creates.len()];
-                    read.dep = Some(edge.from[0]);
+                    read.dep_idx = Some(dep_idx);
                 }
             }
 
-            job_order.insert(job_id, plan.len());
+            job_order.insert(job_id, job_idx);
             plan.push(job);
         }
 
@@ -158,7 +183,7 @@ impl WorkGraph {
             // edges,
             hub,
             idgen,
-            sinks: HashSet::new(),
+            sinks: HashMap::new(),
             selected_jobs: HashSet::new(),
         })
     }
@@ -167,9 +192,10 @@ impl WorkGraph {
     where
         T: Target,
     {
-        let job = &mut self.plan[self.job_order[&job_id]];
+        let job_idx = self.job_order[&job_id];
+        let job = &mut self.plan[job_idx];
 
-        match self.sinks.entry([job_id, output]) {
+        match self.sinks.entry([job_idx, output]) {
             Entry::Occupied(entry) => {
                 let id = *entry.get();
 
@@ -202,10 +228,11 @@ impl WorkGraph {
     where
         T: Target,
     {
-        let job = &mut self.plan[self.job_order[&job_id]];
+        let job_idx = self.job_order[&job_id];
+        let job = &mut self.plan[job_idx];
 
-        if let Some(id) = self.sinks.remove([job_id, output]) {
-            self.hub.clear_external(id);
+        if let Some(id) = self.sinks.remove(&[job_idx, output]) {
+            self.hub.clear_external::<T>(id);
 
             if output < job.updates.len() {
                 assert_eq!(job.updates[output].id, Some(id));
@@ -220,26 +247,18 @@ impl WorkGraph {
     pub fn run(&mut self, world: &mut WorldLocal, device: mev::Device, queue: &mut mev::Queue) {
         self.selected_jobs.clear();
 
-        for &[job_id, _] in &self.sinks {
-            self.selected_jobs.insert(job_id);
+        for (&[job_idx, _], _) in &self.sinks {
+            self.selected_jobs.insert(job_idx);
         }
 
         // Plan in reverse order.
-        for (job_id, job) in self.jobs.iter_mut().enumerate().rev() {
-            if !self.selected_jobs.contains(&job_id) {
+        // This allows to collect all target descriptors before creating them.
+        // And select dependencies for execution before planning loop considers them.
+        for (job_idx, job) in self.plan.iter_mut().enumerate().rev() {
+            if !self.selected_jobs.contains(&job_idx) {
                 continue;
             }
-
-            let mut planner = Planner::new(
-                &job.updates,
-                &job.creates,
-                &job.reads,
-                &mut self.hub,
-                &mut self.selected_jobs,
-                &device,
-            );
-
-            job.plan(planner);
+            job.plan(&mut self.hub, &mut self.selected_jobs, device.clone());
         }
     }
 }

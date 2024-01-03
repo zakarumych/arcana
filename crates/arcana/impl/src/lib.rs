@@ -55,7 +55,6 @@ pub use {
     na, parking_lot, tokio,
 };
 
-#[cfg(feature = "derive")]
 pub use arcana_proc::*;
 
 pub use mev;
@@ -71,6 +70,8 @@ mod id;
 mod num2name;
 pub mod plugin;
 pub mod render;
+mod stable_hasher;
+pub mod stid;
 pub mod texture;
 pub mod viewport;
 pub mod work;
@@ -79,7 +80,11 @@ pub use self::{
     color_hash::color_hash,
     id::{BaseId, Id, IdGen},
     num2name::num_to_name,
+    stable_hasher::{stable_hash, stable_hasher},
+    stid::Stid,
 };
+
+pub use arcana_proc::stid;
 
 /// Returns version of the arcana crate.
 pub fn version() -> &'static str {

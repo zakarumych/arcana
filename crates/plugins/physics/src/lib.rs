@@ -119,7 +119,7 @@ impl CollisionEvents {
         }
     }
 
-    pub async fn async_deque_from(entity: FlowEntity<'_>) -> Collision {
+    pub async fn async_deque_from(entity: &mut FlowEntity<'_>) -> Collision {
         entity
             .expect_poll_view::<&mut CollisionEvents, _, _>(|events, cx| events.poll_deque(cx))
             .await

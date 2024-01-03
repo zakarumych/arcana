@@ -10,19 +10,19 @@ use edict::{Res, ResMut, Scheduler, World};
 use gametime::{ClockStep, TimeSpan, TimeStamp};
 
 /// Causes flow to sleep for the specified duration.
-pub async fn sleep(duration: TimeSpan, world: FlowWorld<'_>) {
+pub async fn sleep(duration: TimeSpan, world: &mut FlowWorld<'_>) {
     if duration == TimeSpan::ZERO {
         return;
     }
 
-    let now = world.with_sync(|world| world.expect_resource::<ClockStep>().now);
+    let now = world.expect_resource::<ClockStep>().now;
     let deadline = now + duration;
 
     sleep_until(deadline, world).await;
 }
 
 /// Causes flow to sleep untile specified time.
-pub async fn sleep_until(deadline: TimeStamp, world: FlowWorld<'_>) {
+pub async fn sleep_until(deadline: TimeStamp, world: &mut FlowWorld<'_>) {
     world
         .poll_fn(|world, cx| {
             let now = world.expect_resource::<ClockStep>().now;

@@ -34,6 +34,7 @@ na = { workspace = true, features = ["libm"] }
 parking_lot = { workspace = true }
 rand = { workspace = true }
 rapid-qoi = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 slab = { workspace = true }
 sha2 = { workspace = true }
 simba = { workspace = true }

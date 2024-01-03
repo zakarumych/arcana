@@ -8,7 +8,7 @@ version.workspace = true
 description = "Arcana Engine Editor"
 
 [dependencies]
-arcana = { path = "../arcana" }
+arcana = { path = "../arcana", features = ["dynamic"] }
 arcana-project = { path = "../project" }
 arcana-egui = { path = "../plugins/egui" }
 bincode = { workspace = true }
@@ -25,6 +25,7 @@ hashbrown = { workspace = true }
 libloading = { workspace = true }
 miette = { workspace = true, features = ["fancy"] }
 nucleo = { workspace = true }
+palette = { workspace = true }
 parking_lot = { workspace = true }
 rand = { workspace = true }
 relevant = { workspace = true }

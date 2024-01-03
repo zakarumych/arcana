@@ -10,10 +10,10 @@ use arcana::{
     events::{Event, EventFunnel, ViewportEvent},
     game::{Game, GameInit},
     mev,
-    plugin::ArcanaPlugin,
+    plugin::{ArcanaPlugin, PluginsHub},
     project::{Ident, Project},
     texture::Texture,
-    ClockStep, Component, Entities, EntityId, World,
+    Blink, ClockStep, Component, Entities, EntityId, World,
 };
 use hashbrown::HashMap;
 use parking_lot::Mutex;
@@ -24,7 +24,7 @@ use winit::{
 
 use crate::{
     data::ProjectData,
-    systems::{run_systems, Category},
+    systems::{run_systems, Category, Schedule},
     Tab,
 };
 
@@ -188,30 +188,40 @@ impl Games {
             .map(|e| {
                 tracing::info!("Launching game {e}");
 
+                let mut hub = PluginsHub::new();
+
                 let system_graph = data.systems.clone();
                 let init = |world: &mut World| {
-                    let mut systems = HashMap::new();
-                    let mut funnel = EventFunnel::new();
-
-                    for (plugin_name, plugin) in &active_plugins {
-                        let init = plugin.init(world);
-
-                        for (system_name, system) in init.systems {
-                            systems.insert((plugin_name.to_buf(), system_name.to_buf()), system);
-                        }
-
-                        for (_, filter) in init.filters {
-                            funnel.add_boxed(filter);
-                        }
+                    for (_, plugin) in &active_plugins {
+                        plugin.init(world, &mut hub);
                     }
 
+                    let mut fix_schedule = Schedule::new();
+                    let mut var_schedule = Schedule::new();
+
                     let scheduler = Box::new(move |world: &mut World, fixed: bool| {
-                        let cat = match fixed {
-                            true => Category::Fix,
-                            false => Category::Var,
+                        let (cat, schedule) = match fixed {
+                            true => (Category::Fix, &mut fix_schedule),
+                            false => (Category::Var, &mut var_schedule),
                         };
-                        run_systems(cat, world, &*system_graph.borrow(), &mut systems);
+                        run_systems(
+                            schedule,
+                            cat,
+                            world,
+                            &*system_graph.borrow(),
+                            &mut hub.systems,
+                        );
                     });
+
+                    let funnel =
+                        Box::new(move |blink: &Blink, world: &mut World, event: &Event| {
+                            for (_, filter) in &mut hub.filters {
+                                if filter.filter(blink, world, event) {
+                                    return true;
+                                }
+                            }
+                            false
+                        });
 
                     GameInit { scheduler, funnel }
                 };

@@ -10,7 +10,10 @@ use arcana::edict::{
 arcana::export_arcana_plugin! {
     ScenePlugin {
         components: [Global2, Global3],
-        systems: [scene_system2, scene_system3],
+        systems: [
+            scene_system2,
+            scene_system3,
+        ],
     }
 }
 

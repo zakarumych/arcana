@@ -1,7 +1,3 @@
-arcana::not_feature_client! {
-    std::compile_error!("arcana/client feature is required");
-}
-
 use arcana::{
     edict::World,
     gametime::ClockStep,
@@ -197,7 +193,7 @@ arcana::export_arcana_plugin! {
             let mut graph = world.expect_resource_mut::<RenderGraph>();
             // Create main pass.
             // It returns target id that it renders to.
-            let mut target = MainPass::build(&mut graph);
+            let target = MainPass::build(&mut graph);
 
             // let id = world.spawn_one(Egui::new()).id();
 

@@ -194,20 +194,19 @@ arcana::export_arcana_plugin! {
                     .id();
 
                 spawn_block!(in ref world for target -> {
-                    let world = target.world();
                     loop {
-                        let event: Collision = CollisionEvents::async_deque_from(target).await;
+                        let event: Collision = CollisionEvents::async_deque_from(&mut target).await;
 
                         if event.state == CollisionState::Started {
                             if let Some(other) = event.other_entity {
-                                if world.has_component::<BallComponent>(other) {
+                                if target.world().try_has_component::<BallComponent>(other).unwrap_or(false) {
                                     // Despawn on any collision.
                                     for _ in 0..100 {
                                         let mut s = target.get_copied::<sdf::Shape>().unwrap();
                                         s.transform *= na::Similarity2::from_scaling(1.01);
                                         target.set(s).unwrap();
 
-                                        sleep(timespan!(0.02 s), world).await;
+                                        sleep(timespan!(0.02 s), &mut target.world()).await;
                                     }
                                     let _ = target.despawn();
                                     yield_now!();
@@ -219,10 +218,10 @@ arcana::export_arcana_plugin! {
             };
 
             spawn_block!(in ref world -> {
-                sleep(timespan!(2 seconds), world).await;
+                sleep(timespan!(2 seconds), &mut world).await;
                 for _ in 0.. {
-                    world.with_sync(|world| new_node(world));
-                    sleep(timespan!(1 s), world).await;
+                    new_node(&mut world);
+                    sleep(timespan!(1 s), &mut world).await;
                 }
             });
         }

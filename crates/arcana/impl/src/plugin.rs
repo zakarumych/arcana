@@ -1,4 +1,4 @@
-use std::{any::Any, sync::atomic::AtomicBool};
+use std::{any::Any, borrow::Cow, sync::atomic::AtomicBool};
 
 use arcana_project::{Dependency, Ident, IdentBuf};
 use edict::{IntoSystem, Scheduler, System, World};
@@ -6,53 +6,64 @@ use hashbrown::HashMap;
 
 use crate::events::EventFilter;
 use crate::id::Id;
+use crate::make_id;
+use crate::work::{Job, JobDesc};
 
-pub type SystemId = Id<dyn System>;
-pub type FilterId = Id<dyn EventFilter>;
+make_id!(pub SystemId);
+make_id!(pub FilterId);
+make_id!(pub JobId);
 
-pub struct PluginInit<'a> {
-    pub filters: Vec<(&'a Ident, Box<dyn EventFilter>)>,
-    pub systems: Vec<(&'a Ident, Box<dyn System + Send>)>,
+#[derive(Clone)]
+pub struct SystemInfo {
+    pub id: SystemId,
+    pub name: Cow<'static, Ident>,
 }
 
-impl<'a> PluginInit<'a> {
+#[derive(Clone)]
+pub struct FilterInfo {
+    pub id: FilterId,
+    pub name: Cow<'static, Ident>,
+}
+
+#[derive(Clone)]
+pub struct JobInfo {
+    pub id: JobId,
+    pub name: Cow<'static, Ident>,
+    pub desc: JobDesc,
+}
+
+pub struct PluginsHub {
+    pub systems: HashMap<SystemId, Box<dyn System + Send>>,
+    pub filters: HashMap<FilterId, Box<dyn EventFilter>>,
+    pub jobs: HashMap<JobId, Box<dyn FnMut() -> Box<dyn Job>>>,
+}
+
+impl PluginsHub {
     pub fn new() -> Self {
-        PluginInit {
-            filters: vec![],
-            systems: vec![],
+        PluginsHub {
+            systems: HashMap::new(),
+            filters: HashMap::new(),
+            jobs: HashMap::new(),
         }
     }
 
-    pub fn with_system<S, M>(mut self, name: &'a Ident, system: S) -> Self
+    pub fn add_system<S, M>(&mut self, id: SystemId, system: S)
     where
         S: IntoSystem<M>,
     {
-        self.add_system(name, system);
-        self
+        self.systems.insert(id, Box::new(system.into_system()));
     }
 
-    pub fn add_system<S, M>(&mut self, name: &'a Ident, system: S) -> &mut Self
-    where
-        S: IntoSystem<M>,
-    {
-        self.systems.push((name, Box::new(system.into_system())));
-        self
+    pub fn add_filter(&mut self, id: FilterId, filter: impl EventFilter + 'static) {
+        self.filters.insert(id, Box::new(filter));
     }
 
-    pub fn with_filter<F>(mut self, name: &'a Ident, filter: F) -> Self
+    pub fn add_job<F, J>(&mut self, id: JobId, make_job: F)
     where
-        F: EventFilter + 'static,
+        F: Fn() -> J + 'static,
+        J: Job + 'static,
     {
-        self.add_filter(name, filter);
-        self
-    }
-
-    pub fn add_filter<F>(&mut self, name: &'a Ident, filter: F) -> &mut Self
-    where
-        F: EventFilter + 'static,
-    {
-        self.filters.push((name, Box::new(filter)));
-        self
+        self.jobs.insert(id, Box::new(move || Box::new(make_job())));
     }
 }
 
@@ -61,15 +72,12 @@ macro_rules! plugin_init {
     (
         $(systems: [$($system:ident),* $(,)?])?
         $(filters: [$($filter:ident),* $(,)?])?
+        $(jobs: [$($make_job:ident),* $(,)?])?
+        => $hub:ident
     ) => {{
-        let init = $crate::plugin::PluginInit::new();
-        $(let init = init $(.with_system($crate::project::ident!($system), $system))*;)?
-
-        $($crate::feature_client!{
-            let init = init $(.with_filter($crate::project::ident!($filter), $filter))*;
-        })?
-
-        init
+        $($hub.add_system($crate::hash_id!(::core::module_path!(), ::core::stringify!($system)), $system))*
+        $($hub.add_filter($crate::hash_id!(::core::module_path!(), ::core::stringify!($filter)), $filter))*
+        $($hub.add_job($crate::hash_id!(::core::module_path!(), ::core::stringify!($make_job)), $make_job))*
     }};
 }
 
@@ -88,31 +96,30 @@ macro_rules! plugin_init {
 pub trait ArcanaPlugin: Any + Sync {
     /// Returns list of plugin names this plugin depends on.
     /// Dependencies must be initialized first and deinitialized last.
-    fn dependencies(&self) -> &[&Ident] {
-        &[]
-    }
-
-    /// Returns dependency by its name.
-    fn get_dependency(&self, dep: &Ident) -> Dependency {
-        unknown_dependency();
+    fn dependencies(&self) -> Vec<(&'static Ident, Dependency)> {
+        Vec::new()
     }
 
     /// Returns list of named event filters.
-    fn filters(&self) -> &[&Ident] {
-        &[]
+    fn filters(&self) -> Vec<FilterInfo> {
+        Vec::new()
     }
 
     /// Returns list of systems.
-    fn systems(&self) -> &[&Ident] {
-        &[]
+    fn systems(&self) -> Vec<SystemInfo> {
+        Vec::new()
+    }
+
+    /// Returns list of systems.
+    fn jobs(&self) -> Vec<JobInfo> {
+        Vec::new()
     }
 
     /// Registers components and resources.
     /// Perform any other initialization of the world.
     /// Returns constructed systems and event filters.
-    fn init(&self, world: &mut World) -> PluginInit {
-        let _ = world;
-        PluginInit::new()
+    fn init(&self, world: &mut World, hub: &mut PluginsHub) {
+        let _ = (world, hub);
     }
 
     /// De-initializes world.
@@ -241,6 +248,7 @@ macro_rules! export_arcana_plugin {
         $(components: [$($component:ty),+ $(,)?] $(,)?)?
         $(systems: [$($system_name:ident $(: $system:expr)?),+ $(,)?] $(,)?)?
         $(filters: [$($filter_name:ident $(: $filter:expr)?),+ $(,)?] $(,)?)?
+        $(jobs: [$($job_name:ident, $job_desc:expr => $make_job:block),+ $(,)?] $(,)?)?
         $(in $world:ident $(: $world_type:ty)? $( => { $($init:tt)* })?)?
     })?) => {
         $(
@@ -249,36 +257,48 @@ macro_rules! export_arcana_plugin {
 
             impl $crate::plugin::ArcanaPlugin for $plugin {
                 $(
-                    fn dependencies(&self) -> &[&$crate::project::Ident] {
-                        static IDENTS: &[&$crate::project::Ident] = &[$($crate::project::ident!($dependency),)+];
-                        IDENTS
-                    }
-
-                    fn get_dependency(&self, dep: &$crate::project::Ident) -> $crate::project::Dependency {
-                        $(
-                            if dep == $crate::project::ident!($dependency) {
-                                return $crate::get_dependency!($dependency $dep_kind);
-                            }
-                        )+
-                        $crate::plugin::unknown_dependency()
+                    fn dependencies(&self) -> Vec<(&'static $crate::project::Ident, $crate::project::Dependency)> {
+                        vec![$(
+                            ($crate::project::ident!($dependency), $crate::get_dependency!($dependency $dep_kind)),
+                        )+]
                     }
                 )*
 
                 $(
-                    fn systems(&self) -> &[&$crate::project::Ident] {
-                        static IDENTS: &[&$crate::project::Ident] = &[$($crate::project::ident!($system_name),)+];
-                        IDENTS
+                    fn systems(&self) -> Vec<$crate::plugin::SystemInfo> {
+                        vec![$(
+                            $crate::plugin::SystemInfo {
+                                id: $crate::hash_id!(::core::module_path!(), ::core::stringify!($system_name) $(, ::core::stringify!($system))?),
+                                name: ::std::borrow::Cow::Borrowed($crate::project::ident!($system_name)),
+                            },
+                        )+]
                     }
                 )?
 
                 $(
-                    fn filters(&self) -> &[&$crate::project::Ident] {
-                        static IDENTS: &[&$crate::project::Ident] = &[$($crate::project::ident!($filter_name),)+];
-                        IDENTS
+                    fn filters(&self) -> Vec<$crate::plugin::FilterInfo> {
+                        vec![$(
+                            $crate::plugin::FilterInfo {
+                                id: $crate::hash_id!(::core::module_path!(), ::core::stringify!($filter_name) $(, ::core::stringify!($filter))?),
+                                name: ::std::borrow::Cow::Borrowed($crate::project::ident!($filter_name)),
+                            },
+                        )+]
                     }
                 )*
 
-                fn init(&self, world: &mut $crate::edict::World) -> $crate::plugin::PluginInit {
+                $(
+                    fn jobs(&self) -> Vec<$crate::plugin::JobInfo> {
+                        vec![$(
+                            $crate::plugin::JobInfo {
+                                id: $crate::hash_id!(::core::module_path!(), ::core::stringify!($job_name), ::core::stringify!($make_job)),
+                                name: ::std::borrow::Cow::Borrowed($crate::project::ident!($job_name)),
+                                desc: $job_desc,
+                            },
+                        )+]
+                    }
+                )?
+
+                fn init(&self, world: &mut $crate::edict::World, hub: &mut $crate::plugin::PluginsHub) {
                     $($(world.ensure_component_registered::<$component>();)*)?
 
                     $(
@@ -286,24 +306,22 @@ macro_rules! export_arcana_plugin {
                         $($($init)*)?
                     )?
 
-                    let mut init = $crate::plugin::PluginInit::new();
-
                     $($(
-                        init.add_system($crate::project::ident!($system_name), $crate::name_or_expr!($system_name $(: $system)?));
+                        hub.add_system($crate::hash_id!(::core::module_path!(), ::core::stringify!($system_name) $(, ::core::stringify!($system))?), $crate::name_or_expr!($system_name $(: $system)?));
                     )+)?
 
-                    $($crate::feature_client! {
-                        $(
-                            init.add_filter($crate::project::ident!($filter_name), $crate::name_or_expr!($filter_name $(: $filter)?));
-                        )+
-                    })?
+                    $($(
+                        hub.add_filter($crate::hash_id!(::core::module_path!(), ::core::stringify!($filter_name) $(, ::core::stringify!($filter))?), $crate::name_or_expr!($filter_name $(: $filter)?));
+                    )+)?
+
+                    $($(
+                        hub.add_job($crate::hash_id!(::core::module_path!(), ::core::stringify!($job_name), ::core::stringify!($make_job)), $make_job);
+                    )+)?
 
                     $crate::init_resources! {
                         world $(as $world)?
                         [$($($resource),+)?]
                     }
-
-                    init
                 }
             }
         )?
@@ -334,21 +352,4 @@ pub static GLOBAL_CHECK: AtomicBool = AtomicBool::new(false);
 
 pub fn unknown_dependency() -> ! {
     panic!("Unknown dependency")
-}
-
-struct PluginSystem {
-    // If none - plugin stopped exporting this system.
-    system: Option<Box<dyn System + Send>>,
-}
-
-struct PluginJob {
-    // If none - plugin stopped exporting this job.
-    job_desc: Option<Box<dyn Fn(work::Setup)>>,
-}
-
-/// Registry that holds items exported from plugins.
-///
-/// This includes systems, event filters, jobs and components.
-pub struct PluginRegistry {
-    systems: HashMap<SystemId, PluginSystem>,
 }

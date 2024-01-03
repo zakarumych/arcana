@@ -1,30 +1,25 @@
-arcana::not_feature_client! {
-    std::compile_error!("arcana/client feature is required");
-}
-
 use std::mem::size_of;
 
 use arcana::{
     edict::{self, Component, EntityId, World},
     mev::{self, Arguments, DeviceRepr},
-    project::Ident,
     render::{Render, RenderBuilderContext, RenderContext, RenderError, RenderGraph, TargetId},
 };
 
-macro_rules! print_layout {
-    ($name:ident {
-        $($field:ident)*
-    }) => {
-        let value = unsafe { core::mem::MaybeUninit::<<$name as DeviceRepr>::Repr>::zeroed().assume_init() };
-        let ptr = &value as *const _ as usize;
-        println!("{}: {} {{", stringify!($name), size_of::<<$name as DeviceRepr>::Repr>());
-        $(
-            let field_ptr = &value.$field as *const _ as usize;
-            println!("  {}: {}", stringify!($field), field_ptr - ptr);
-        )*
-        println!("}}");
-    };
-}
+// macro_rules! print_layout {
+//     ($name:ident {
+//         $($field:ident)*
+//     }) => {
+//         let value = unsafe { core::mem::MaybeUninit::<<$name as DeviceRepr>::Repr>::zeroed().assume_init() };
+//         let ptr = &value as *const _ as usize;
+//         println!("{}: {} {{", stringify!($name), size_of::<<$name as DeviceRepr>::Repr>());
+//         $(
+//             let field_ptr = &value.$field as *const _ as usize;
+//             println!("  {}: {}", stringify!($field), field_ptr - ptr);
+//         )*
+//         println!("}}");
+//     };
+// }
 
 use camera::Camera2;
 use scene::Global2;

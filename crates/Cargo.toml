@@ -71,12 +71,14 @@ na = { package = "nalgebra", version = "0.32", features = ["libm"] }
 naga = { version = "0.13", features = ["spv-in", "wgsl-in", "glsl-in"] }
 nucleo = { version = "0.2" }
 objc = { version = "0.2" }
+palette = { version = "0.7" }
 parking_lot = "0.12"
 percent-encoding = "2.3"
 proc-macro2 = "1"
 rand = "0.8"
 rapid-qoi = "0.6"
 rapier2d = "0.17"
+proc-easy = "0.3"
 parry2d = "0.13"
 quote = "1"
 raw-window-handle = "0.5"
@@ -100,4 +102,5 @@ tracing = "0.1"
 tracing-error = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 unicode-ident = "1"
+uuid = { version = "1.6" }
 winit = { version = "0.28" }
