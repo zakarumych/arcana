@@ -8,6 +8,7 @@ use arcana::{gametime::FrequencyNumExt, plugin::GLOBAL_CHECK, project::Project};
 use data::ProjectData;
 use games::GamesTab;
 use parking_lot::Mutex;
+use project::Profile;
 use winit::{
     event::Event,
     event_loop::{ControlFlow, EventLoopBuilder},
@@ -62,6 +63,7 @@ enum Tab {
     Console,
     Systems,
     Filters,
+    WorkGraph,
     Game {
         #[serde(skip)]
         tab: GamesTab,
@@ -221,4 +223,13 @@ fn toggle_ui(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
     }
 
     response
+}
+
+fn get_profile() -> Profile {
+    let s = std::env::var("ARCANA_PROFILE").expect("ARCANA_PROFILE environment variable unset");
+    match &*s {
+        "release" => Profile::Release,
+        "debug" => Profile::Debug,
+        _ => panic!("Invalid profile: {}", s),
+    }
 }

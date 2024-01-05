@@ -1,7 +1,7 @@
 use std::{path::PathBuf, str::FromStr};
 
 use arcana_launcher::Start;
-use arcana_project::{Dependency, Ident, IdentBuf};
+use arcana_project::{Dependency, Ident, IdentBuf, Profile};
 use clap::{builder::TypedValueParser, Parser, Subcommand};
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -103,6 +103,9 @@ enum Command {
         /// Path to the project directory.
         #[arg(value_name = "path", default_value = ".")]
         path: PathBuf,
+
+        #[arg(value_name = "release")]
+        release: bool,
     },
     /// Creates new plugin.
     NewPlugin {
@@ -126,6 +129,9 @@ enum Command {
         /// Path to the project directory.
         #[arg(value_name = "path", default_value = ".")]
         path: PathBuf,
+
+        #[arg(value_name = "release")]
+        release: bool,
     },
     /// Cooks game together with assets and all binaries.
     Cook {
@@ -152,6 +158,7 @@ fn main() -> miette::Result<()> {
 
     match cli.command.unwrap_or_else(|| Command::Ed {
         path: PathBuf::from("."),
+        release: false,
     }) {
         Command::Init { path, name, arcana } => {
             start.init(
@@ -172,14 +179,28 @@ fn main() -> miette::Result<()> {
         Command::InitWorkspace { path } => {
             start.init_workspace(&path)?;
         }
-        Command::Ed { path } => {
-            start.run_ed(&path)?;
+        Command::Ed { path, release } => {
+            start.run_ed(
+                &path,
+                if release {
+                    Profile::Release
+                } else {
+                    Profile::Debug
+                },
+            )?;
         }
         Command::NewPlugin { path, name, arcana } => {
             start.new_plugin(&path, name.as_deref(), pick_engine_version(&start, arcana))?;
         }
-        Command::Game { path } => {
-            start.run_game(&path)?;
+        Command::Game { path, release } => {
+            start.run_game(
+                &path,
+                if release {
+                    Profile::Release
+                } else {
+                    Profile::Debug
+                },
+            )?;
         }
         Command::Cook { .. } => {
             unimplemented!()

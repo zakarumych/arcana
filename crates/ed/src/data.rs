@@ -6,7 +6,7 @@ use std::{cell::RefCell, rc::Rc};
 use arcana_project::IdentBuf;
 use hashbrown::HashSet;
 
-use crate::systems::SystemGraph;
+use crate::{systems::SystemGraph, workgraph::WorkGraph};
 
 /// In combination with `ProjectManifest` this defines the project completely.
 /// This includes enabled plugins, filter chain, system graph etc.
@@ -19,4 +19,6 @@ pub struct ProjectData {
 
     /// Systems graph.
     pub systems: Rc<RefCell<SystemGraph>>,
+
+    pub workgraph: Rc<RefCell<WorkGraph>>,
 }

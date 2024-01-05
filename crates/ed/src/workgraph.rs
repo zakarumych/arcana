@@ -2,15 +2,21 @@ use arcana::{
     color_hash,
     edict::world::WorldLocal,
     plugin::JobId,
-    work::{Image2D, JobDesc, Target, WorkGraph},
-    Stid,
+    work::{Image2D, JobDesc, Target},
+    Stid, World,
 };
-use arcana_project::IdentBuf;
+use arcana_project::{IdentBuf, Project};
+use egui::Ui;
 use egui_snarl::{
-    ui::{PinInfo, SnarlViewer},
+    ui::{PinInfo, SnarlStyle, SnarlViewer},
     InPin, OutPin, Snarl,
 };
 
+use crate::{data::ProjectData, sync_project};
+
+use super::Tab;
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum WorkGraphNode {
     Job {
         id: JobId,
@@ -20,12 +26,11 @@ pub enum WorkGraphNode {
     MainPresent,
 }
 
-pub struct WorkGraphViewer<'a> {
-    world: &'a mut WorldLocal,
-    workgraph: &'a mut WorkGraph,
+pub struct WorkGraphViewer {
+    modified: bool,
 }
 
-impl SnarlViewer<WorkGraphNode> for WorkGraphViewer<'_> {
+impl SnarlViewer<WorkGraphNode> for WorkGraphViewer {
     fn title(&mut self, node: &WorkGraphNode) -> String {
         match *node {
             WorkGraphNode::Job { ref name, .. } => name.as_str().to_owned(),
@@ -189,20 +194,28 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer<'_> {
                 },
             ) => {
                 if from_job.output_kind(from.id.output) == to_job.input_kind(to.id.input) {
+                    debug_assert!(to.remotes.len() <= 1);
                     for &r in &to.remotes {
                         snarl.disconnect(r, to.id);
                     }
                     snarl.connect(from.id, to.id);
+                    self.modified = true;
                 }
             }
             (
                 WorkGraphNode::Job {
-                    job: ref to_job, ..
+                    job: ref from_job, ..
                 },
                 WorkGraphNode::MainPresent,
             ) => {
-                let to = &to_job.updates[to.id.input];
-                assert_eq!(present_kind(), to.kind);
+                if from_job.output_kind(from.id.output) == present_kind() {
+                    debug_assert!(to.remotes.len() <= 1);
+                    for &r in &to.remotes {
+                        snarl.disconnect(r, to.id);
+                    }
+                    snarl.connect(from.id, to.id);
+                    self.modified = true;
+                }
             }
             _ => unreachable!(),
         }
@@ -216,4 +229,38 @@ fn present_kind() -> Stid {
 fn present_pin_color() -> egui::Color32 {
     let [r, g, b] = color_hash(&present_kind());
     egui::Color32::from_rgb(r, g, b)
+}
+
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub struct WorkGraph {
+    snarl: Snarl<WorkGraphNode>,
+    #[serde(skip)]
+    modification: u64,
+}
+
+impl WorkGraph {
+    pub fn tab() -> Tab {
+        Tab::WorkGraph
+    }
+
+    pub fn show(world: &WorldLocal, ui: &mut Ui) {
+        let mut data = world.expect_resource_mut::<ProjectData>();
+        let project = world.expect_resource::<Project>();
+
+        const STYLE: SnarlStyle = SnarlStyle::new();
+
+        let mut viewer = WorkGraphViewer { modified: false };
+
+        data.workgraph
+            .borrow_mut()
+            .snarl
+            .show(&mut viewer, &STYLE, "workgraph", ui);
+
+        if viewer.modified {
+            data.workgraph.borrow_mut().modification += 1;
+        }
+
+        try_log_err!(sync_project(&project, &mut data));
+    }
 }

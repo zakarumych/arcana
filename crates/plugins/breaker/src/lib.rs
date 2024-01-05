@@ -1,19 +1,20 @@
 use arcana::{
-    edict::{self, spawn_block, yield_now, ActionEncoder, Component, Entities, Res, View, World},
+    edict::{self, spawn_block, ActionEncoder, Component, Entities, Res, View, World},
     events::{ElementState, KeyboardInput, VirtualKeyCode},
     flow::sleep,
-    gametime::timespan,
+    gametime::{timespan, TimeSpan},
     na,
     render::RenderGraph,
     viewport::Viewport,
+    ClockStep,
 };
 use camera::Camera2;
 use cursor::MainCursor;
-use input::{ActionQueue, Translator};
-use motion::{Motor2, MoveAfter2, MoveTo2};
-use physics::{
-    geometry::ColliderBuilder, pipeline::ActiveEvents, Collision, CollisionEvents, CollisionState,
-    PhysicsResource,
+use input::Translator;
+use motion::dim2::{Motor, Move, MoveAfter, MoveTo};
+use physics::dim2::{
+    pipeline::ActiveEvents, Collider, Collision, CollisionEvents, CollisionState, PhysicsResource,
+    RigidBody,
 };
 use scene::Global2;
 use sdf::SdfRender;
@@ -34,7 +35,7 @@ arcana::export_arcana_plugin! {
         systems: [
             target_cursor: move |cursor: Res<MainCursor>,
                 viewport: Res<Viewport>,
-                mut move_to: View<&mut MoveTo2>,
+                mut r#move: View<&mut Move>,
                 cameras: View<(&Camera2, &Global2)>| {
                     let extent = viewport.extent();
 
@@ -55,9 +56,9 @@ arcana::export_arcana_plugin! {
                         .transform_point(&point);
 
                     let position = camera_global.iso.transform_point(&position);
-                    move_to.try_get_mut(target).unwrap().target = position;
+                    *r#move.try_get_mut(target).unwrap() = Move::To(MoveTo::new(position));
                 },
-            paddle_system,
+            burst_system,
         ],
 
         in world => {
@@ -81,15 +82,12 @@ arcana::export_arcana_plugin! {
                 graph.present(target);
             }
 
-            let body = {
-                let mut physics = world.expect_resource_mut::<PhysicsResource>();
-                let body = physics.new_dynamic_body();
+            let target = world.allocate().id();
+            let mut last_ball = target;
 
-                physics.add_collider(&body, ColliderBuilder::ball(1.0));
-                body
-            };
-            let mut target = world
-                .spawn((
+            world.insert_bundle(
+                target,
+                (
                     sdf::Shape::circle(1.0).with_color([
                         rand::random(),
                         rand::random(),
@@ -97,119 +95,74 @@ arcana::export_arcana_plugin! {
                         1.0,
                     ]),
                     Global2::identity(),
-                    body,
-                    MoveTo2::new(na::Point2::new(0.0, 0.0)),
-                    Motor2::new(30.0, 100.0),
+                    RigidBody::dynamic(),
+                    Collider::ball(1.0),
+                    Move::to(na::Point2::new(0.0, 0.0)),
+                    Motor::new(30.0, 100.0),
                     BallComponent,
-                ))
-                .id();
+                )
+            ).unwrap();
 
             // insert_global_entity_controller(PaddleTranslator, paddle, world).unwrap();
 
-            let mut physics = world.expect_resource_mut::<PhysicsResource>();
-            // let wall_body = {
-            //     let body = physics.new_fixed_body();
-
-            //     physics.add_collider(&body, ColliderBuilder::cuboid(0.2, 5.0));
-            //     // physics.get_body_mut(&body).set_angvel(1.0, false);
-            //     body
-            // };
-
-            let left_side = {
-                let body = physics.new_fixed_body();
-                physics.add_collider(&body, ColliderBuilder::halfspace(na::UnitVector2::new_unchecked(na::Vector2::x())));
-                body
-            };
-
-            let right_side = {
-                let body = physics.new_fixed_body();
-                physics.add_collider(&body, ColliderBuilder::halfspace(na::UnitVector2::new_unchecked(-na::Vector2::x())));
-                body
-            };
-
-            let top_side = {
-                let body = physics.new_fixed_body();
-                physics.add_collider(&body, ColliderBuilder::halfspace(na::UnitVector2::new_unchecked(-na::Vector2::y())));
-                body
-            };
-
-            let bottom_side = {
-                let body = physics.new_fixed_body();
-                physics.add_collider(&body, ColliderBuilder::halfspace(na::UnitVector2::new_unchecked(na::Vector2::y())));
-                body
-            };
-
-            drop(physics);
+            let left_side = Collider::halfspace(na::UnitVector2::new_unchecked(na::Vector2::x())).position(na::Translation2::new(-15.0, 0.0).into());
+            let right_side = Collider::halfspace(na::UnitVector2::new_unchecked(-na::Vector2::x())).position(na::Translation2::new(15.0, 0.0).into());
+            let top_side = Collider::halfspace(na::UnitVector2::new_unchecked(-na::Vector2::y())).position(na::Translation2::new(0.0, 15.0).into());
+            let bottom_side = Collider::halfspace(na::UnitVector2::new_unchecked(na::Vector2::y())).position(na::Translation2::new(0.0, -15.0).into());
 
 
-            // world.spawn((
-            //     sdf::Shape::rect(0.4, 10.0).with_color([0.3, 0.2, 0.1, 1.0]),
-            //     Global2::identity().translated(na::Vector2::new(-10.0, 10.0)),
-            //     wall_body,
-            // ));
-            world.spawn((
-                Global2::identity().translated(na::Vector2::new(-15.0, 0.0)),
-                left_side,
-            ));
-            world.spawn((
-                Global2::identity().translated(na::Vector2::new(15.0, 0.0)),
-                right_side,
-            ));
-            world.spawn((
-                Global2::identity().translated(na::Vector2::new(0.0, 15.0)),
-                top_side,
-            ));
-            world.spawn((
-                Global2::identity().translated(na::Vector2::new(0.0, -15.0)),
-                bottom_side,
-            ));
-
+            world.spawn_one(left_side);
+            world.spawn_one(right_side);
+            world.spawn_one(top_side);
+            world.spawn_one(bottom_side);
 
             let mut new_node = move |world: &mut World| {
-                let body = {
-                    let mut physics = world.expect_resource_mut::<PhysicsResource>();
-                    let body = physics.new_dynamic_body();
+                let id = world.allocate().id();
 
-                    physics.add_collider(&body, ColliderBuilder::ball(1.0).active_events(ActiveEvents::COLLISION_EVENTS));
-                    body
-                };
-                target = world
-                    .spawn((
+                let global = Global2::from_position(na::Point2::new(
+                    rand::random::<f32>() * 26.0 - 13.0,
+                    rand::random::<f32>() * 26.0 - 13.0,
+                ));
+
+                world
+                    .insert_bundle(id, (
                         sdf::Shape::circle(1.0).with_color([
                             rand::random(),
                             rand::random(),
                             rand::random(),
                             1.0,
                         ]),
-                        Global2::from_position(na::Point2::new(
-                            rand::random::<f32>() * 26.0 - 13.0,
-                            rand::random::<f32>() * 26.0 - 13.0,
-                        )),
-                        body,
-                        MoveAfter2::new(target).with_distance(2.0),
-                        Motor2::new(10.0, 100.0),
+                        RigidBody::dynamic().position(global.iso),
+                        global,
+                        Collider::ball(1.0).active_events(ActiveEvents::COLLISION_EVENTS),
+                        Move::After(MoveAfter::new(last_ball).with_distance(2.0)),
+                        Motor::new(10.0, 100.0),
                         CollisionEvents::new(),
                         BallComponent,
-                    ))
-                    .id();
+                    )).unwrap();
 
-                spawn_block!(in ref world for target -> {
+                last_ball = id;
+
+                spawn_block!(in ref world for last_ball -> {
                     loop {
-                        let event: Collision = CollisionEvents::async_deque_from(&mut target).await;
+                        let event: Collision = CollisionEvents::async_deque_from(&mut last_ball).await;
 
                         if event.state == CollisionState::Started {
-                            if let Some(other) = event.other_entity {
-                                if target.world().try_has_component::<BallComponent>(other).unwrap_or(false) {
-                                    // Despawn on any collision.
-                                    for _ in 0..100 {
-                                        let mut s = target.get_copied::<sdf::Shape>().unwrap();
-                                        s.transform *= na::Similarity2::from_scaling(1.01);
-                                        target.set(s).unwrap();
+                            if let Some(other) = event.other {
+                                if last_ball.world().try_has_component::<BallComponent>(other).unwrap_or(false) {
+                                    // // Despawn on any collision.
+                                    // for _ in 0..100 {
+                                    //     let mut s = last_ball.get_copied::<sdf::Shape>().unwrap();
+                                    //     s.transform *= na::Similarity2::from_scaling(1.01);
+                                    //     last_ball.set(s).unwrap();
 
-                                        sleep(timespan!(0.02 s), &mut target.world()).await;
-                                    }
-                                    let _ = target.despawn();
-                                    yield_now!();
+                                    //     sleep(timespan!(0.02 s), &mut last_ball.world()).await;
+                                    // }
+                                    // let _ = last_ball.despawn();
+                                    // yield_now!();
+
+                                    let _ = last_ball.insert(Burst { span: TimeSpan::ZERO, scale: 1.0 });
+                                    return;
                                 }
                             }
                         }
@@ -253,68 +206,111 @@ impl Translator for PaddleTranslator {
     }
 }
 
-#[derive(Clone, Copy, Component)]
-struct PaddleState {
-    // left: bool,
-    // right: bool,
-    chasing: MoveAfter2,
+// #[derive(Clone, Copy, Component)]
+// struct PaddleState {
+//     // left: bool,
+//     // right: bool,
+//     chasing: MoveAfter,
+// }
+
+// fn paddle_system(
+//     paddles: View<(
+//         Entities,
+//         &mut PaddleState,
+//         Option<&MoveAfter>,
+//         &mut ActionQueue<PaddleAction>,
+//     )>,
+//     mut encoder: ActionEncoder,
+// ) {
+//     for (e, state, ma, queue) in paddles {
+//         if let Some(ma) = ma {
+//             state.chasing = *ma;
+//         }
+
+//         for action in queue.drain() {
+//             match action {
+//                 // PaddleAction::PaddleLeft => state.left = true,
+//                 // PaddleAction::PaddleRight => state.right = true,
+//                 // PaddleAction::PaddleUnLeft => state.left = false,
+//                 // PaddleAction::PaddleUnRight => state.right = false,
+//                 PaddleAction::Switch => match ma {
+//                     None => encoder.insert(e, state.chasing),
+//                     Some(_) => encoder.drop::<MoveAfter>(e),
+//                 },
+//             }
+//         }
+
+//         // let target = match (state.left, state.right) {
+//         //     (true, true) | (false, false) => {
+//         //         if move_to.get_mut(e).is_some() {
+//         //             encoder.drop_bundle::<(MoveTo, Motion2)>(e);
+//         //         }
+//         //         continue;
+//         //     }
+//         //     (true, false) => na::Point2::new(-15.0, 12.0),
+//         //     (false, true) => na::Point2::new(15.0, 12.0),
+//         // };
+
+//         // let m = MoveTo {
+//         //     target,
+//         //     acceleration: 1.0,
+//         //     max_velocity: 3.0,
+//         //     threshold: 0.1,
+//         // };
+
+//         // match move_to.get_mut(e) {
+//         //     Some(motion) => *motion = m,
+//         //     None => encoder.insert(e, m),
+//         // }
+
+//         // if global.iso.translation.x < -15.0 {
+//         //     global.iso.translation.x = -15.0;
+//         // }
+//         // if global.iso.translation.x > 15.0 {
+//         //     global.iso.translation.x = 15.0;
+//         // }
+//     }
+// }
+
+#[derive(Component)]
+struct Burst {
+    span: TimeSpan,
+    scale: f32,
 }
 
-fn paddle_system(
-    paddles: View<(
-        Entities,
-        &mut PaddleState,
-        Option<&MoveAfter2>,
-        &mut ActionQueue<PaddleAction>,
-    )>,
+fn burst_system(
+    burst: View<(Entities, &mut Burst, &mut sdf::Shape, &Global2)>,
+    mut bodies: View<(&mut RigidBody, &Global2)>,
+    clock: Res<ClockStep>,
     mut encoder: ActionEncoder,
+    physics: Res<PhysicsResource>,
 ) {
-    for (e, state, ma, queue) in paddles {
-        if let Some(ma) = ma {
-            state.chasing = *ma;
-        }
+    for (e, burst, shape, global) in burst {
+        burst.span += clock.step;
+        if burst.span >= TimeSpan::SECOND {
+            encoder.despawn(e);
 
-        for action in queue.drain() {
-            match action {
-                // PaddleAction::PaddleLeft => state.left = true,
-                // PaddleAction::PaddleRight => state.right = true,
-                // PaddleAction::PaddleUnLeft => state.left = false,
-                // PaddleAction::PaddleUnRight => state.right = false,
-                PaddleAction::Switch => match ma {
-                    None => encoder.insert(e, state.chasing),
-                    Some(_) => encoder.drop::<MoveAfter2>(e),
+            physics.intersections_with_shape(
+                &global.iso,
+                &physics::dim2::geometry::Ball::new(30.0),
+                |_collider, body| {
+                    if let Some(body) = body {
+                        if let Ok((body, body_global)) = bodies.try_get_mut(body) {
+                            let offset =
+                                body_global.iso.translation.vector - global.iso.translation.vector;
+
+                            let dir = offset.normalize();
+                            let d = offset.norm();
+
+                            body.apply_impulse(dir * 200.0 / d);
+                        }
+                    }
                 },
-            }
+            )
+        } else {
+            let new_scale = 2f32.powf(burst.span.as_secs_f32());
+            shape.transform *= na::Similarity2::from_scaling(new_scale / burst.scale);
+            burst.scale = new_scale;
         }
-
-        // let target = match (state.left, state.right) {
-        //     (true, true) | (false, false) => {
-        //         if move_to.get_mut(e).is_some() {
-        //             encoder.drop_bundle::<(MoveTo2, Motion2)>(e);
-        //         }
-        //         continue;
-        //     }
-        //     (true, false) => na::Point2::new(-15.0, 12.0),
-        //     (false, true) => na::Point2::new(15.0, 12.0),
-        // };
-
-        // let m = MoveTo2 {
-        //     target,
-        //     acceleration: 1.0,
-        //     max_velocity: 3.0,
-        //     threshold: 0.1,
-        // };
-
-        // match move_to.get_mut(e) {
-        //     Some(motion) => *motion = m,
-        //     None => encoder.insert(e, m),
-        // }
-
-        // if global.iso.translation.x < -15.0 {
-        //     global.iso.translation.x = -15.0;
-        // }
-        // if global.iso.translation.x > 15.0 {
-        //     global.iso.translation.x = 15.0;
-        // }
     }
 }

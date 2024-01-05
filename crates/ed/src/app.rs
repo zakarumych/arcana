@@ -23,7 +23,7 @@ use winit::{
     window::{Window, WindowBuilder, WindowId},
 };
 
-use crate::{data::ProjectData, games::GamesTab};
+use crate::{data::ProjectData, games::GamesTab, workgraph::WorkGraph};
 
 use super::{
     console::Console, filters::Filters, games::Games, plugins::Plugins, systems::Systems, Tab,
@@ -104,6 +104,7 @@ impl App {
         world.insert_resource(Plugins::new());
         world.insert_resource(Console::new(event_collector));
         world.insert_resource(Games::new());
+        world.insert_resource(Systems::new());
         world.insert_resource(device.clone());
         world.insert_resource(queue.clone());
         world.insert_resource(data);
@@ -225,9 +226,6 @@ impl App {
 
         // Update plugins state.
         Plugins::tick(&mut self.world);
-
-        // Try to launch games requested on last tick.
-        Games::launch_games(&mut self.world);
 
         // Simulate games.
         Games::tick(&mut self.world, step);
@@ -362,6 +360,7 @@ impl TabViewer for AppModel<'_> {
             Tab::Console => Console::show(self.world, ui),
             Tab::Systems => Systems::show(self.world, ui),
             Tab::Filters => Filters::show(self.world, ui),
+            Tab::WorkGraph => WorkGraph::show(self.world, ui),
             Tab::Game { ref mut tab } => tab.show(ui, self.world, self.window),
             // Tab::Memory => Memory::show(&mut self.world, ui),
         }
@@ -373,6 +372,7 @@ impl TabViewer for AppModel<'_> {
             Tab::Console => "Console".into(),
             Tab::Systems => "Systems".into(),
             Tab::Filters => "Filters".into(),
+            Tab::WorkGraph => "Work Graph".into(),
             Tab::Game { .. } => "Game".into(),
             // Tab::Memory => "Memory".into(),
         }
@@ -392,6 +392,7 @@ impl TabViewer for AppModel<'_> {
         match tab {
             Tab::Game { .. } => [false, false],
             Tab::Systems => [false, false],
+            Tab::Console => [false, false],
             _ => [true, true],
         }
     }

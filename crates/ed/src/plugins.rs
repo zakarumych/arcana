@@ -4,7 +4,7 @@ use arcana::{
     edict::world::WorldLocal,
     game::Game,
     plugin::{ArcanaPlugin, GLOBAL_CHECK},
-    project::{BuildProcess, Dependency, Ident, IdentBuf, Project, ProjectManifest},
+    project::{BuildProcess, Dependency, Ident, IdentBuf, Profile, Project, ProjectManifest},
     With, World,
 };
 use arcana_project::{new_plugin_crate, process_path_name, Plugin};
@@ -13,7 +13,7 @@ use egui::{Color32, RichText, Ui};
 use egui_file::FileDialog;
 use hashbrown::HashSet;
 
-use crate::{data::ProjectData, sync_project, systems::Systems};
+use crate::{data::ProjectData, get_profile, sync_project, systems::Systems};
 
 use super::Tab;
 
@@ -280,6 +280,8 @@ pub(super) struct Plugins {
 
     /// Set of active plugins.
     active_plugins: HashSet<IdentBuf>,
+
+    profile: Profile,
 }
 
 enum PluginsDialog {
@@ -296,6 +298,7 @@ impl Plugins {
             build: None,
             dialog: None,
             active_plugins: HashSet::new(),
+            profile: get_profile(),
         }
     }
 
@@ -411,10 +414,11 @@ impl Plugins {
                 let ProjectData {
                     enabled_plugins,
                     systems,
+                    ..
                 } = &mut *data;
 
                 // Filters::update_plugins(&mut *data, active_plugins);
-                Systems::update_plugins(
+                world.expect_resource_mut::<Systems>().update_plugins(
                     &mut *systems.borrow_mut(),
                     lib.active_plugins(&*enabled_plugins),
                 );
@@ -432,7 +436,7 @@ impl Plugins {
                 // - rebuild plugins library.
 
                 tracing::info!("Plugins lib is not linked. Building...");
-                let build = try_log_err!(project.build_plugins_library());
+                let build = try_log_err!(project.build_plugins_library(plugins.profile));
                 plugins.build = Some(build);
             }
         }
@@ -479,7 +483,7 @@ impl Plugins {
                     true => ui.button(egui_phosphor::regular::HAMMER),
                 };
                 if r.clicked() {
-                    let build = try_log_err!(project.build_plugins_library());
+                    let build = try_log_err!(project.build_plugins_library(plugins.profile));
                     plugins.build = Some(build);
                 }
                 let r = ui.button(egui_phosphor::regular::PLUS);
@@ -675,10 +679,11 @@ impl Plugins {
                 let ProjectData {
                     enabled_plugins,
                     systems,
+                    ..
                 } = &mut *data;
 
                 // Filters::update_plugins(&mut *data, active_plugins);
-                Systems::update_plugins(
+                world.expect_resource_mut::<Systems>().update_plugins(
                     &mut *systems.borrow_mut(),
                     lib.active_plugins(&*enabled_plugins),
                 );
@@ -690,7 +695,7 @@ impl Plugins {
         if rebuild {
             plugins.build = None;
             try_log_err!(project.init_workspace());
-            plugins.build = ok_log_err!(project.build_plugins_library());
+            plugins.build = ok_log_err!(project.build_plugins_library(plugins.profile));
         }
     }
 

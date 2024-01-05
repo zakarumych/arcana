@@ -24,7 +24,7 @@ use winit::{
 
 use crate::{
     data::ProjectData,
-    systems::{run_systems, Category, Schedule},
+    systems::{Category, Systems},
     Tab,
 };
 
@@ -32,17 +32,10 @@ use super::plugins::Plugins;
 
 /// Game instances.
 pub struct Games {
-    free_ids: BinaryHeap<Reverse<u16>>,
-    last_id: u16,
-    name_offset: u16,
-
-    /// List of games without viewer.
-    headless: Vec<GameId>,
-
     /// Currently focused game.
     ///
     /// If set, consumes viewport events and sends them to the game.
-    /// Cursor events are transformed and ingored if outside of the game's viewport.
+    /// Cursor events are transformed by viewport and ignored if cursor is outside of the viewport.
     focus: Option<GameFocus>,
 }
 
@@ -55,14 +48,10 @@ struct GameFocus {
     lock_pointer: bool,
 }
 
-#[must_use]
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[repr(transparent)]
 pub struct GameId {
-    // Entity of the Game component.
-    // Expected to be alive.
     entity: EntityId,
-
-    // Unique game id.
-    id: u16,
 }
 
 struct LaunchGame;
@@ -75,51 +64,11 @@ impl Component for LaunchGame {
 
 impl Games {
     pub fn new() -> Self {
-        Games {
-            free_ids: BinaryHeap::new(),
-            last_id: 0,
-            name_offset: 0,
-            headless: Vec::new(),
-            focus: None,
-        }
+        Games { focus: None }
     }
 
-    fn alloc_id(&mut self) -> u16 {
-        match self.free_ids.pop() {
-            None => {
-                if self.last_id < u16::MAX {
-                    self.last_id += 1;
-                    self.last_id
-                } else {
-                    panic!("Can't allocate new game id");
-                }
-            }
-            Some(Reverse(id)) => id,
-        }
-    }
-
-    fn free_id(&mut self, id: u16) {
-        debug_assert!(id <= self.last_id);
-
-        if self.last_id == id {
-            self.last_id -= 1;
-
-            // Remove free ids that are at the end of the range.
-            while let Some(Reverse(id)) = self.free_ids.peek() {
-                debug_assert!(*id <= self.last_id);
-                if *id != self.last_id {
-                    break;
-                }
-                self.free_ids.pop();
-                self.last_id -= 1;
-            }
-        } else {
-            self.free_ids.push(Reverse(id));
-        }
-    }
-
-    fn is_focused(&self, entity: EntityId) -> bool {
-        self.focus.as_ref().map_or(false, |f| f.entity == entity)
+    fn is_focused(&self, id: GameId) -> bool {
+        self.focus.as_ref().map_or(false, |f| f.entity == id.entity)
     }
 
     pub fn new_game(world: &WorldLocal) -> GameId {
@@ -128,22 +77,18 @@ impl Games {
     }
 
     fn _new_game(&mut self, world: &WorldLocal) -> GameId {
-        let id = self.alloc_id();
         let entity = world.allocate().id();
-        let game_id = GameId { entity, id };
         world.insert_defer(entity, LaunchGame);
-        tracing::info!("Game {id}:{entity} starting");
-        game_id
+        tracing::info!("Game {entity} starting");
+        GameId { entity }
     }
 
     pub fn detach(world: &WorldLocal, id: GameId) {
         let mut games = world.expect_resource_mut::<Games>();
 
-        if games.is_focused(id.entity) {
+        if games.is_focused(id) {
             games.focus = None;
         }
-
-        games.headless.push(id);
     }
 
     pub fn stop(world: &WorldLocal, id: GameId) {
@@ -152,13 +97,12 @@ impl Games {
     }
 
     fn _stop(&mut self, world: &WorldLocal, id: GameId) {
-        if self.is_focused(id.entity) {
+        if self.is_focused(id) {
             self.focus = None;
         }
 
         world.despawn_defer(id.entity);
-        self.free_id(id.id);
-        tracing::info!("Game {} stopped", id.id);
+        tracing::info!("Game {} stopped", id.entity);
     }
 
     /// Launches requested games.
@@ -180,6 +124,7 @@ impl Games {
         let data = world.expect_resource::<ProjectData>();
         let device = world.expect_resource::<mev::Device>();
         let queue = world.expect_resource::<Arc<Mutex<mev::Queue>>>();
+        let systems = world.expect_resource::<Systems>();
 
         let games = world
             .view::<Entities>()
@@ -190,38 +135,31 @@ impl Games {
 
                 let mut hub = PluginsHub::new();
 
-                let system_graph = data.systems.clone();
-                let init = |world: &mut World| {
+                let init = |game_world: &mut World| {
                     for (_, plugin) in &active_plugins {
-                        plugin.init(world, &mut hub);
+                        plugin.init(game_world, &mut hub);
                     }
 
-                    let mut fix_schedule = Schedule::new();
-                    let mut var_schedule = Schedule::new();
+                    let mut scheduler = systems.scheduler(&data, hub.systems);
 
-                    let scheduler = Box::new(move |world: &mut World, fixed: bool| {
-                        let (cat, schedule) = match fixed {
-                            true => (Category::Fix, &mut fix_schedule),
-                            false => (Category::Var, &mut var_schedule),
+                    let scheduler = Box::new(move |game_world: &mut World, fixed: bool| {
+                        let cat = match fixed {
+                            true => Category::Fix,
+                            false => Category::Var,
                         };
-                        run_systems(
-                            schedule,
-                            cat,
-                            world,
-                            &*system_graph.borrow(),
-                            &mut hub.systems,
-                        );
+                        scheduler(game_world, cat);
                     });
 
-                    let funnel =
-                        Box::new(move |blink: &Blink, world: &mut World, event: &Event| {
+                    let funnel = Box::new(
+                        move |blink: &Blink, game_world: &mut World, event: &Event| {
                             for (_, filter) in &mut hub.filters {
-                                if filter.filter(blink, world, event) {
+                                if filter.filter(blink, game_world, event) {
                                     return true;
                                 }
                             }
                             false
-                        });
+                        },
+                    );
 
                     GameInit { scheduler, funnel }
                 };
@@ -232,7 +170,7 @@ impl Games {
             })
             .collect::<Vec<_>>();
 
-        drop((project, plugins, data, device, queue));
+        drop((project, plugins, data, device, queue, systems));
 
         for (e, game) in games {
             let _ = world.drop::<LaunchGame>(e);
@@ -342,6 +280,8 @@ impl Games {
     }
 
     pub fn tick(world: &mut World, step: ClockStep) {
+        Self::launch_games(world.local());
+
         let mut to_remove = Vec::new();
         for (e, game) in world.view_mut::<(Entities, &mut Game)>() {
             game.tick(step);
@@ -403,8 +343,10 @@ impl GamesTab {
             }
         };
 
+        let mut stop = false;
         let r = ui.horizontal_top(|ui| {
-            let mut stop = false;
+            let cbox = egui::ComboBox::from_id_source("games-list");
+
             let was_enabled = ui.is_enabled();
             ui.set_enabled(game.is_some());
 
@@ -434,10 +376,9 @@ impl GamesTab {
             }
 
             ui.set_enabled(was_enabled);
-            stop
         });
 
-        if r.inner {
+        if stop {
             games._stop(world, self.id.take().unwrap());
             game = None;
         }
@@ -474,9 +415,9 @@ impl GamesTab {
                 }
             }
             Some(game) => {
-                let id = self.id.as_ref().unwrap();
+                let id = self.id.unwrap();
 
-                let focused = games.is_focused(id.entity);
+                let focused = games.is_focused(id);
 
                 let game_frame = egui::Frame::none()
                     .rounding(egui::Rounding::same(5.0))
@@ -511,7 +452,7 @@ impl GamesTab {
 
                     if focused {
                         if !r.has_focus() {
-                            tracing::info!("Game {} lost focus", id.id);
+                            tracing::info!("Game {} lost focus", id.entity);
                             games.focus = None;
                         } else {
                             let focus = games.focus.as_mut().unwrap();
@@ -531,7 +472,7 @@ impl GamesTab {
                         }
 
                         if make_focused {
-                            tracing::info!("Game {} focused", id.id);
+                            tracing::info!("Game {} focused", id.entity);
 
                             games.focus = Some(GameFocus {
                                 window_id: window.id(),

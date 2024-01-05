@@ -1,400 +1,56 @@
-use std::f32::EPSILON;
+#[cfg(feature = "dim2")]
+pub mod dim2 {
+    use physics::dim2::{dynamics::RigidBodyType, RigidBody};
 
-use arcana::{
-    edict::{
-        query::Xor2, ActionEncoder, Component, Entities, EntityId, Res, ResMut, View, Without,
-    },
-    gametime::ClockStep,
-};
-use physics::{Body, PhysicsResource};
-use scene::Global2;
+    use na::Point2 as Point;
+    use na::Vector2 as Vector;
 
+    use scene::Global2 as Global;
+
+    std::include!("impl.rs");
+}
+
+#[cfg(feature = "dim3")]
+pub mod dim3 {
+    use physics::dim3::{dynamics::RigidBodyType, RigidBody};
+
+    use na::Point3 as Point;
+    use na::Vector3 as Vector;
+
+    use scene::Global3 as Global;
+
+    std::include!("impl.rs");
+}
+
+#[cfg(all(feature = "dim2", not(feature = "dim3")))]
 arcana::export_arcana_plugin! {
     MotionPlugin {
         dependencies: [scene ..., physics ...],
-        components: [Motor2, Motion2, Motor2State, MoveTo2, MoveAfter2],
-        systems: [
-            motion_after_system,
-            move_to_system,
-            motion_system,
-        ],
+        components: [dim2::Motor, dim2::Move],
+        systems: [ motion_system_2d: dim2::make_motion_system() ],
     }
 }
 
-pub struct Motor2 {
-    /// Cruise velocity for the motor.
-    pub velocity: f32,
-
-    /// Maximum acceleration for the motor.
-    pub acceleration: f32,
-
-    /// Deceleration threshold.
-    pub threshold: f32,
-}
-
-impl Component for Motor2 {
-    fn name() -> &'static str {
-        "Motor2"
+#[cfg(all(feature = "dim3", not(feature = "dim2")))]
+arcana::export_arcana_plugin! {
+    MotionPlugin {
+        dependencies: [scene ..., physics ...],
+        components: [dim3::Motor, dim3::Move],
+        systems: [ motion_system_3d: dim3::make_motion_system() ],
     }
 }
 
-impl Motor2 {
-    pub fn new(velocity: f32, acceleration: f32) -> Self {
-        // Find stopping threshold and add 10% to it just in case.
-        let threshold = (velocity * velocity / acceleration / 2.0) * 2.0;
-        Motor2 {
-            velocity,
-            acceleration,
-            threshold,
-        }
-    }
-
-    pub fn with_threshold(mut self, threshold: f32) -> Self {
-        self.threshold = threshold;
-        self
-    }
-
-    fn initial_state(position: na::Vector2<f32>) -> Motor2State {
-        Motor2State {
-            prev_pos: position,
-            prev_vel: na::Vector2::zeros(),
-            integral: na::Vector2::zeros(),
-        }
-    }
-
-    /// Calculate required motion for the entity to eventually reach the target.
-    fn update(
-        &self,
-        position: na::Vector2<f32>,
-        target: na::Point2<f32>,
-        distance: f32,
-        state: &mut Motor2State,
-        delta_time: f32,
-    ) -> na::Vector2<f32> {
-        let mut error = target.coords - position;
-        let error_mag = error.magnitude();
-
-        if error_mag < distance {
-            error = na::Vector2::zeros();
-            // error_mag = 0.0;
-        } else {
-            // target -= target / error_mag * distance;
-            error *= (error_mag - distance) / error_mag;
-            // error_mag -= distance;
-        }
-
-        const KP: f32 = 1.0;
-        const TI: f32 = 3.0;
-        const TD: f32 = 3.0;
-
-        // Use velocity based PID.
-        let target_velocity = if error_mag > EPSILON && error_mag > self.threshold {
-            self.velocity * error / error_mag
-        } else if self.threshold > EPSILON {
-            self.velocity * error / self.threshold
-        } else {
-            na::Vector2::zeros()
-        };
-
-        let velocity = (position - state.prev_pos) / delta_time;
-        let correction;
-
-        //self.threshold > EPSILON && error_mag < self.threshold {
-        // Use position based PID.
-
-        let velocity_error = target_velocity - velocity;
-
-        state.integral += velocity_error * delta_time;
-
-        let neg_integral = state.integral.dot(&velocity_error);
-        if neg_integral < 0.0 {
-            state.integral -= velocity_error.normalize() * neg_integral * delta_time;
-        }
-
-        state.integral = state.integral.cap_magnitude(self.acceleration);
-
-        correction = (error + state.integral * TI + velocity_error * TD) * KP;
-
-        state.prev_pos = position;
-        state.prev_vel = velocity;
-
-        correction.cap_magnitude(self.acceleration)
-
-        // let velocity = (position - state.prev_position) / delta_time;
-        // state.prev_position = position;
-        // let error = target_velocity - velocity;
-
-        // let correction = error / delta_time;
-
-        // correction.cap_magnitude(self.acceleration)
+#[cfg(all(feature = "dim2", feature = "dim3"))]
+arcana::export_arcana_plugin! {
+    MotionPlugin {
+        dependencies: [scene ..., physics ...],
+        components: [dim2::Motor, dim2::Move, dim3::Motor, dim3::Move],
+        systems: [ motion_system_2d: dim2::make_motion_system() ],
     }
 }
 
-/// Makes this entity movable.
-///
-/// This is alternative to adding physics body to the entity.
-/// Movable entities are not affected by other entities
-/// and they don't affect other entities.
-#[derive(Clone, Copy, Debug)]
-pub struct Motion2 {
-    pub velocity: na::Vector2<f32>,
+#[cfg(feature = "dim2")]
+pub use dim2::{Motor as Motor2, Move as Move2, MoveAfter as MoveAfter2, MoveTo as MoveTo2};
 
-    // Treated as aplied force * mass
-    pub acceleration: na::Vector2<f32>,
-
-    // Treated as friction * mass.
-    pub deceleration: f32,
-}
-
-impl Component for Motion2 {
-    fn name() -> &'static str {
-        "Motion2"
-    }
-}
-
-impl Motion2 {
-    pub fn new() -> Self {
-        Self {
-            velocity: na::Vector2::zeros(),
-            acceleration: na::Vector2::zeros(),
-            deceleration: 0.0,
-        }
-    }
-
-    pub fn step(&mut self, delta_time: f32) -> na::Vector2<f32> {
-        let mut delta_acc = self.acceleration * delta_time;
-
-        let mag = self.velocity.norm();
-        if self.deceleration > 0.0 {
-            let dir = self.velocity / mag;
-
-            // Make sure to avoid tremor on deceleration.
-            delta_acc -= (self.deceleration * delta_time).min(mag) * dir;
-        }
-
-        self.velocity += delta_acc;
-        self.velocity * delta_time
-    }
-}
-
-/// Applies motion to entities.
-fn motion_system(view: View<(&mut Motion2, &mut Global2), Without<Body>>, clocks: Res<ClockStep>) {
-    let delta_time = clocks.step.as_secs_f32();
-
-    for (m, g) in view {
-        m.velocity.y -= 9.8 * delta_time;
-
-        g.iso.translation.vector += m.step(delta_time);
-    }
-}
-
-struct Motor2State {
-    prev_pos: na::Vector2<f32>,
-    prev_vel: na::Vector2<f32>,
-    integral: na::Vector2<f32>,
-}
-
-impl Component for Motor2State {
-    fn name() -> &'static str {
-        "Motor2State"
-    }
-}
-
-/// Motion modifier that moves entity to a position.
-#[derive(Clone, Copy, Debug)]
-pub struct MoveTo2 {
-    /// Target of the motion.
-    pub target: na::Point2<f32>,
-
-    /// Distance offset.
-    pub distance: f32,
-}
-
-impl MoveTo2 {
-    pub fn new(target: na::Point2<f32>) -> Self {
-        MoveTo2 {
-            target,
-            distance: EPSILON,
-        }
-    }
-
-    pub fn with_distance(mut self, distance: f32) -> Self {
-        self.distance = distance;
-        self
-    }
-}
-
-impl Component for MoveTo2 {
-    fn name() -> &'static str {
-        "MoveTo2"
-    }
-}
-
-/// Applies motion to entities.
-fn move_to_system(
-    with_state: View<(
-        Entities,
-        &Global2,
-        &MoveTo2,
-        &Motor2,
-        Option<&mut Motor2State>,
-        Xor2<&mut Motion2, &Body>,
-    )>,
-    clocks: Res<ClockStep>,
-    mut physics: ResMut<PhysicsResource>,
-    mut encoder: ActionEncoder,
-) {
-    let delta_time = clocks.step.as_secs_f32();
-
-    for (e, g, mt, m, ms_opt, m_b) in with_state {
-        let mut new_ms = None;
-
-        let ms = match ms_opt {
-            Some(ms) => ms,
-            None => new_ms.get_or_insert(Motor2::initial_state(g.iso.translation.vector)),
-        };
-
-        let acc = m.update(
-            g.iso.translation.vector,
-            mt.target,
-            mt.distance,
-            ms,
-            delta_time,
-        );
-        match m_b {
-            (Some(m), None) => {
-                m.acceleration = acc;
-            }
-            (None, Some(b)) => {
-                let body = physics.get_body_mut(b);
-                body.reset_forces(false);
-                body.add_force(body.mass() * acc, true);
-            }
-            _ => {
-                unreachable!()
-            }
-        }
-
-        if let Some(ms) = new_ms {
-            encoder.insert(e, ms);
-        }
-    }
-}
-
-/// Motion modifier that moves entity to a position of another entity with
-/// specified offset.
-#[derive(Clone, Copy)]
-pub struct MoveAfter2 {
-    /// Target entity.
-    /// It target loses `Global2` component or target is no longer valid
-    /// motion is stopped.
-    pub id: EntityId,
-
-    /// Offset from entity's origin.
-    /// It not affected by entity's orientation.
-    pub global_offset: na::Vector2<f32>,
-
-    /// Offset from entity's origin.
-    /// It affected by entity's orientation.
-    // both offsets are used to calculate final offset
-    pub local_offset: na::Vector2<f32>,
-
-    /// Distance offset.
-    pub distance: f32,
-}
-
-impl MoveAfter2 {
-    pub fn new(id: EntityId) -> Self {
-        MoveAfter2 {
-            id,
-            global_offset: na::Vector2::zeros(),
-            local_offset: na::Vector2::zeros(),
-            distance: EPSILON,
-        }
-    }
-
-    pub fn with_global_offset(mut self, offset: na::Vector2<f32>) -> Self {
-        self.global_offset = offset;
-        self
-    }
-
-    pub fn with_local_offset(mut self, offset: na::Vector2<f32>) -> Self {
-        self.local_offset = offset;
-        self
-    }
-
-    pub fn with_distance(mut self, distance: f32) -> Self {
-        self.distance = distance;
-        self
-    }
-}
-
-impl Component for MoveAfter2 {
-    fn name() -> &'static str {
-        "MoveAfter2"
-    }
-}
-
-/// System to perform MoveAfter2 motion.
-fn motion_after_system(
-    with_state: View<(
-        Entities,
-        &Global2,
-        &MoveAfter2,
-        &Motor2,
-        Option<&mut Motor2State>,
-        Xor2<&mut Motion2, &Body>,
-    )>,
-    globals: View<&Global2>,
-    clocks: Res<ClockStep>,
-    mut physics: ResMut<PhysicsResource>,
-    mut encoder: ActionEncoder,
-) {
-    let delta_time = clocks.step.as_secs_f32();
-
-    for (e, g, ma, m, ms_opt, m_b) in with_state {
-        let mut new_ms = None;
-
-        let ms = match ms_opt {
-            Some(ms) => ms,
-            None => new_ms.get_or_insert(Motor2::initial_state(g.iso.translation.vector)),
-        };
-
-        match globals.try_get(ma.id) {
-            Ok(tg) => {
-                let target = tg.iso.rotation.transform_vector(&ma.local_offset)
-                    + tg.iso.translation.vector
-                    + ma.global_offset;
-
-                let acc = m.update(
-                    g.iso.translation.vector,
-                    target.into(),
-                    ma.distance,
-                    ms,
-                    delta_time,
-                );
-                match m_b {
-                    (Some(m), None) => {
-                        m.acceleration = acc;
-                    }
-                    (None, Some(b)) => {
-                        let body = physics.get_body_mut(b);
-                        body.reset_forces(false);
-                        body.add_force(body.mass() * acc, true);
-                    }
-                    _ => {
-                        unreachable!()
-                    }
-                }
-            }
-            Err(_) => {
-                // Remove motion. Target is no longer exists or invalid.
-                encoder.drop::<MoveAfter2>(ma.id);
-            }
-        }
-
-        if let Some(ms) = new_ms {
-            encoder.insert(e, ms);
-        }
-    }
-}
+#[cfg(feature = "dim3")]
+pub use dim3::{Motor as Motor3, Move as Move3, MoveAfter as MoveAfter3, MoveTo as MoveTo3};

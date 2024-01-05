@@ -10,7 +10,7 @@ use super::{
     target::{Target, TargetHub, TargetId},
 };
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct JobCreateDesc {
     /// Target name.
     pub name: String,
@@ -19,19 +19,19 @@ pub struct JobCreateDesc {
     pub kind: Stid,
 }
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct JobUpdateDesc {
     /// Target kind.
     pub kind: Stid,
 }
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct JobReadDesc {
     /// Target kind.
     pub kind: Stid,
 }
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct JobDesc {
     pub updates: Vec<JobUpdateDesc>,
     pub creates: Vec<JobCreateDesc>,

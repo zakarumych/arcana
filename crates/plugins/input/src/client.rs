@@ -7,7 +7,6 @@ use arcana::{
         DeviceId, ElementState, Event, EventFilter, KeyboardInput, MouseButton, ScanCode,
         ViewportEvent, VirtualKeyCode,
     },
-    with_stid,
 };
 use hashbrown::HashMap;
 

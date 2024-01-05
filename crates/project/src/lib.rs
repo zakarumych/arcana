@@ -32,7 +32,7 @@ pub use self::{
     manifest::ProjectManifest,
     path::{make_relative, real_path},
     plugin::Plugin,
-    wrapper::{game_bin_path, BuildProcess},
+    wrapper::{game_bin_path, BuildProcess, Profile},
 };
 
 const MANIFEST_NAME: &'static str = "Arcana.toml";
@@ -355,9 +355,9 @@ impl Project {
         )
     }
 
-    pub fn build_plugins_library(&self) -> miette::Result<BuildProcess> {
+    pub fn build_plugins_library(&self, profile: Profile) -> miette::Result<BuildProcess> {
         self.init_workspace()?;
-        wrapper::build_plugins(&self.root_path)
+        wrapper::build_plugins(&self.root_path, profile)
     }
 
     pub fn manifest(&self) -> &ProjectManifest {
@@ -393,9 +393,9 @@ impl Project {
         &mut self.manifest.plugins
     }
 
-    pub fn run_editor(self) -> miette::Result<()> {
+    pub fn run_editor(self, profile: Profile) -> miette::Result<()> {
         self.init_workspace()?;
-        let status = wrapper::run_editor(&self.root_path)
+        let status = wrapper::run_editor(&self.root_path, profile)
             .status()
             .map_err(|err| {
                 miette::miette!(
@@ -411,9 +411,9 @@ impl Project {
         }
     }
 
-    pub fn build_editor_non_blocking(&self) -> miette::Result<Child> {
+    pub fn build_editor_non_blocking(&self, profile: Profile) -> miette::Result<Child> {
         self.init_workspace()?;
-        match wrapper::build_editor(&self.root_path).spawn() {
+        match wrapper::build_editor(&self.root_path, profile).spawn() {
             Ok(child) => Ok(child),
             Err(err) => {
                 miette::bail!(
@@ -424,9 +424,9 @@ impl Project {
         }
     }
 
-    pub fn run_editor_non_blocking(self) -> miette::Result<Child> {
+    pub fn run_editor_non_blocking(self, profile: Profile) -> miette::Result<Child> {
         self.init_workspace()?;
-        match wrapper::run_editor(&self.root_path).spawn() {
+        match wrapper::run_editor(&self.root_path, profile).spawn() {
             Ok(child) => Ok(child),
             Err(err) => {
                 miette::bail!(
@@ -437,9 +437,9 @@ impl Project {
         }
     }
 
-    pub fn build_game(self) -> miette::Result<PathBuf> {
+    pub fn build_game(self, profile: Profile) -> miette::Result<PathBuf> {
         self.init_workspace()?;
-        let status = wrapper::build_game(&self.root_path)
+        let status = wrapper::build_game(&self.root_path, profile)
             .status()
             .map_err(|err| {
                 miette::miette!("Cannot build game \"{}\": {err}", self.root_path.display())
@@ -454,11 +454,13 @@ impl Project {
         Ok(game_bin_path(&self.manifest.name, &self.root_path))
     }
 
-    pub fn run_game(self) -> miette::Result<()> {
+    pub fn run_game(self, profile: Profile) -> miette::Result<()> {
         self.init_workspace()?;
-        let status = wrapper::run_game(&self.root_path).status().map_err(|err| {
-            miette::miette!("Cannot run game on \"{}\": {err}", self.root_path.display())
-        })?;
+        let status = wrapper::run_game(&self.root_path, profile)
+            .status()
+            .map_err(|err| {
+                miette::miette!("Cannot run game on \"{}\": {err}", self.root_path.display())
+            })?;
 
         match status.code() {
             Some(0) => Ok(()),

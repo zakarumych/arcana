@@ -6,9 +6,20 @@ readme.workspace = true
 license.workspace = true
 version.workspace = true
 
+[features]
+dim2 = ["scene/dim2", "dep:rapier2d"]
+dim3 = ["scene/dim3", "dep:rapier3d"]
+
 [dependencies]
 arcana = { path = "../../arcana" }
 scene = { path = "../scene" }
-rapier2d = "0.17"
+rapier2d = { version = "0.17", optional = true }
+rapier3d = { version = "0.17", optional = true }
 na = { workspace = true }
 amity = { workspace = true }
+
+[profile.dev.package.rapier2d]
+opt-level = 3
+
+[profile.dev.package.rapier3d]
+opt-level = 3

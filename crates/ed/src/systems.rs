@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::{cell::RefCell, collections::VecDeque, rc::Rc};
 
 use arcana::{
     edict::world::WorldLocal,
@@ -18,77 +18,6 @@ use crate::{data::ProjectData, sync_project, toggle_ui};
 
 use super::Tab;
 
-pub(crate) struct Schedule {
-    order: Vec<SystemId>,
-    modification: u64,
-}
-
-impl Schedule {
-    pub(crate) fn new() -> Self {
-        Schedule {
-            order: Vec::new(),
-            modification: 0,
-        }
-    }
-}
-
-/// Run systems in dependency order.
-/// Reschedules systems if graph is modified.
-pub fn run_systems(
-    schedule: &mut Schedule,
-    category: Category,
-    world: &mut World,
-    system_graph: &SystemGraph,
-    systems: &mut HashMap<SystemId, Box<dyn System + Send>>,
-) {
-    if schedule.modification != system_graph.modification {
-        let mut order = Vec::new();
-
-        let mut queue = VecDeque::new();
-        let mut scheduled = HashSet::new();
-
-        for (idx, node) in system_graph.snarl.node_indices() {
-            if node.category != category {
-                continue;
-            }
-            queue.push_back(idx);
-        }
-
-        'outer: while let Some(idx) = queue.pop_front() {
-            let in_pin = system_graph.snarl.in_pin(InPinId {
-                node: idx,
-                input: 0,
-            });
-
-            for remote in in_pin.remotes {
-                if !scheduled.contains(&remote.node) {
-                    queue.push_back(idx);
-                    continue 'outer;
-                }
-            }
-
-            let node = system_graph.snarl.get_node(idx);
-
-            if node.active && node.enabled {
-                order.push(node.system);
-            }
-            scheduled.insert(idx);
-        }
-
-        schedule.order = order;
-        schedule.modification = system_graph.modification;
-    }
-
-    let mut buffers = Vec::new();
-
-    for id in &schedule.order {
-        let system = &mut systems.get_mut(id).unwrap();
-        system.run(world, &mut buffers);
-    }
-
-    buffers.execute_all(world);
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Category {
     Fix,
@@ -104,20 +33,128 @@ impl Category {
     }
 }
 
-pub struct Systems;
+pub struct Systems {
+    schedule: Rc<RefCell<Schedule>>,
+    available: Vec<SystemNode>,
+}
+
+pub struct Schedule {
+    fix_schedule: Vec<SystemId>,
+    var_schedule: Vec<SystemId>,
+    reschedule: bool,
+}
+
+impl Schedule {
+    /// Run systems in dependency order.
+    /// Reschedules systems if graph is modified.
+    pub fn run(
+        &mut self,
+        category: Category,
+        world: &mut World,
+        system_graph: &SystemGraph,
+        systems: &mut HashMap<SystemId, Box<dyn System + Send>>,
+    ) {
+        if self.reschedule {
+            self.fix_schedule = order_systems(&system_graph.snarl, Category::Fix);
+            self.var_schedule = order_systems(&system_graph.snarl, Category::Var);
+        }
+
+        let schedule = match category {
+            Category::Fix => &*self.fix_schedule,
+            Category::Var => &*self.var_schedule,
+        };
+
+        let mut buffers = Vec::new();
+
+        for id in schedule {
+            let system = &mut systems.get_mut(id).unwrap();
+            system.run(world, &mut buffers);
+        }
+
+        buffers.execute_all(world);
+    }
+}
+
+fn order_systems(snarl: &Snarl<SystemNode>, category: Category) -> Vec<SystemId> {
+    let mut order = Vec::new();
+
+    let mut queue = VecDeque::new();
+    let mut scheduled = HashSet::new();
+
+    for (idx, node) in snarl.node_indices() {
+        if node.category != category {
+            continue;
+        }
+        queue.push_back(idx);
+    }
+
+    'outer: while let Some(idx) = queue.pop_front() {
+        let in_pin = snarl.in_pin(InPinId {
+            node: idx,
+            input: 0,
+        });
+
+        for remote in in_pin.remotes {
+            if !scheduled.contains(&remote.node) {
+                queue.push_back(idx);
+                continue 'outer;
+            }
+        }
+
+        let node = snarl.get_node(idx);
+
+        if node.active && node.enabled {
+            order.push(node.system);
+        }
+        scheduled.insert(idx);
+    }
+
+    order
+}
 
 impl Systems {
+    pub fn new() -> Self {
+        Systems {
+            schedule: Rc::new(RefCell::new(Schedule {
+                fix_schedule: Vec::new(),
+                var_schedule: Vec::new(),
+                reschedule: true,
+            })),
+            available: Vec::new(),
+        }
+    }
+
+    pub fn scheduler(
+        &self,
+        data: &ProjectData,
+        mut systems: HashMap<SystemId, Box<dyn System + Send>>,
+    ) -> impl FnMut(&mut World, Category) {
+        let schedule = self.schedule.clone();
+        let graph = data.systems.clone();
+
+        move |world, category| {
+            let mut schedule = schedule.borrow_mut();
+            let graph = graph.borrow_mut();
+
+            schedule.run(category, world, &graph, &mut systems);
+        }
+    }
+
     pub fn tab() -> Tab {
         Tab::Systems
     }
 
     pub fn show(world: &WorldLocal, ui: &mut Ui) {
+        let mut me = world.expect_resource_mut::<Self>();
         let mut data = world.expect_resource_mut::<ProjectData>();
         let project = world.expect_resource::<Project>();
 
         const STYLE: SnarlStyle = SnarlStyle::new();
 
-        let mut viewer = SystemViewer { modified: false };
+        let mut viewer = SystemViewer {
+            modified: false,
+            available: &mut me.available,
+        };
 
         data.systems
             .borrow_mut()
@@ -125,13 +162,14 @@ impl Systems {
             .show(&mut viewer, &STYLE, "systems", ui);
 
         if viewer.modified {
-            data.systems.borrow_mut().modification += 1;
+            me.schedule.borrow_mut().reschedule = true;
         }
 
         try_log_err!(sync_project(&project, &mut data));
     }
 
     pub fn update_plugins<'a>(
+        &mut self,
         systems: &mut SystemGraph,
         plugins: impl Iterator<Item = (&'a Ident, &'a dyn ArcanaPlugin)>,
     ) {
@@ -143,16 +181,8 @@ impl Systems {
             }
         }
 
-        let mut bb = egui::Rect::NOTHING;
-
-        for (pos, node) in systems.snarl.nodes_pos_mut() {
+        for node in systems.snarl.nodes_mut() {
             node.active = all_systems.remove(&node.system).is_some();
-            bb.extend_with(pos);
-            bb.extend_with(pos + egui::vec2(100.0, 100.0));
-        }
-
-        if bb.is_negative() {
-            bb = egui::Rect::ZERO;
         }
 
         let new_systems = all_systems
@@ -162,40 +192,26 @@ impl Systems {
                 name: system.into_owned(),
                 plugin: plugin.to_owned(),
                 active: true,
-                enabled: false,
+                enabled: true,
                 category: Category::Fix,
-                deps: HashSet::new(),
             })
             .collect::<Vec<_>>();
 
-        for system in new_systems {
-            let off = rand::random::<f32>();
-            let pos = match rand::random::<u8>() % 4 {
-                0 => bb.min + egui::vec2(off * bb.width(), -20.0),
-                1 => bb.min + egui::vec2(-20.0, off * bb.height()),
-                2 => bb.max - egui::vec2(off * bb.width(), -20.0),
-                3 => bb.max - egui::vec2(-20.0, off * bb.height()),
-                _ => unreachable!(),
-            };
-
-            systems.snarl.insert_node(pos, system);
-            bb.extend_with(pos);
-            bb.extend_with(pos + egui::vec2(100.0, 100.0));
-        }
+        self.available = new_systems;
+        self.available.sort_by_cached_key(|node| node.name.clone());
     }
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
 pub struct SystemGraph {
     snarl: Snarl<SystemNode>,
-    modification: u64,
 }
 
 impl SystemGraph {
     pub fn new() -> Self {
         SystemGraph {
             snarl: Snarl::new(),
-            modification: 1,
         }
     }
 }
@@ -216,16 +232,14 @@ struct SystemNode {
 
     #[serde(skip)]
     active: bool,
-
-    #[serde(skip)]
-    deps: HashSet<usize>,
 }
 
-struct SystemViewer {
+struct SystemViewer<'a> {
     modified: bool,
+    available: &'a mut Vec<SystemNode>,
 }
 
-impl SnarlViewer<SystemNode> for SystemViewer {
+impl SnarlViewer<SystemNode> for SystemViewer<'_> {
     fn title<'a>(&'a mut self, node: &'a SystemNode) -> String {
         format!("{}@{}", &*node.name, &*node.plugin)
     }
@@ -409,23 +423,37 @@ impl SnarlViewer<SystemNode> for SystemViewer {
 
     fn graph_menu(
         &mut self,
-        _pos: egui::Pos2,
+        pos: egui::Pos2,
         ui: &mut Ui,
         _scale: f32,
-        _snarl: &mut Snarl<SystemNode>,
+        snarl: &mut Snarl<SystemNode>,
     ) {
-        ui.close_menu();
+        for idx in 0..self.available.len() {
+            let s = &self.available[idx];
+            if ui.button(s.name.as_str()).clicked() {
+                ui.close_menu();
+                let s = self.available.remove(idx);
+                snarl.insert_node(pos, s);
+                return;
+            }
+        }
     }
 
     fn node_menu(
         &mut self,
-        _idx: usize,
+        idx: usize,
         _inputs: &[InPin],
         _outputs: &[OutPin],
         ui: &mut Ui,
         _scale: f32,
-        _snarl: &mut Snarl<SystemNode>,
+        snarl: &mut Snarl<SystemNode>,
     ) {
-        ui.close_menu();
+        if ui.button("Remove").clicked() {
+            let node = snarl.remove_node(idx);
+            self.available.push(node);
+            self.available.sort_by_cached_key(|node| node.name.clone());
+
+            ui.close_menu();
+        }
     }
 }

@@ -7,7 +7,7 @@ use arcana::{
     game::Quit,
     gametime::FrequencyNumExt,
     init_mev, mev,
-    project::{Dependency, Ident, IdentBuf, Project},
+    project::{Dependency, Ident, IdentBuf, Profile, Project},
     render::{render, RenderGraph, RenderResources},
     viewport::Viewport,
     Clock, ClockStep, WorldBuilder,
@@ -75,6 +75,7 @@ pub struct App {
     queue: mev::Queue,
     blink: BlinkAlloc,
     start: Start,
+    profile: Profile,
 
     /// Open dialog.
     dialog: Option<AppDialog>,
@@ -128,6 +129,7 @@ impl App {
             queue,
             blink: BlinkAlloc::new(),
             start: Start::new(),
+            profile: Profile::Debug,
 
             dialog: None,
             child: None,
@@ -181,7 +183,7 @@ impl App {
                     if status.success() {
                         match self.child.take() {
                             Some(AppChild::EditorBuilding(_, project)) => {
-                                match project.run_editor_non_blocking() {
+                                match project.run_editor_non_blocking(self.profile) {
                                     Err(err) => {
                                         self.dialog = Some(AppDialog::Error(ErrorDialog {
                                             title: "Failed to run Arcana Ed".to_owned(),
@@ -283,6 +285,25 @@ impl App {
                         r.on_hover_ui(|ui| {
                             ui.label("Exit Arcana Launcher");
                         });
+                    }
+                });
+            });
+
+            egui::TopBottomPanel::top("Controls").show(cx, |ui| {
+                ui.set_enabled(self.dialog.is_none() && self.child.is_none());
+
+                ui.horizontal(|ui| {
+                    if ui
+                        .selectable_label(self.profile == Profile::Debug, "Debug")
+                        .clicked()
+                    {
+                        self.profile = Profile::Debug;
+                    }
+                    if ui
+                        .selectable_label(self.profile == Profile::Release, "Release")
+                        .clicked()
+                    {
+                        self.profile = Profile::Release;
                     }
                 });
             });
@@ -459,7 +480,7 @@ impl App {
             Some(Action::RunEditor(project)) => {
                 self.start.add_recent(project.root_path().to_owned());
 
-                match project.build_editor_non_blocking() {
+                match project.build_editor_non_blocking(self.profile) {
                     Err(err) => {
                         self.dialog = Some(AppDialog::Error(ErrorDialog {
                             title: "Failed to run project".to_owned(),

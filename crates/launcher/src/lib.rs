@@ -6,7 +6,7 @@ use std::{
 };
 
 use arcana_project::{
-    new_plugin_crate, process_path_name, real_path, Dependency, Ident, IdentBuf, Plugin, Project,
+    new_plugin_crate, process_path_name, Dependency, Ident, Plugin, Profile, Project,
 };
 use camino::Utf8PathBuf;
 use figa::Figa;
@@ -129,9 +129,9 @@ impl Start {
         Project::find(&path)?.init_workspace()
     }
 
-    pub fn run_ed(&self, path: &Path) -> miette::Result<()> {
+    pub fn run_ed(&self, path: &Path, profile: Profile) -> miette::Result<()> {
         let p = Project::find(&path)?;
-        p.run_editor()
+        p.run_editor(profile)
     }
 
     pub fn new_plugin(
@@ -150,16 +150,16 @@ impl Start {
         new_plugin_crate(&name, &path, engine)
     }
 
-    pub fn build_game(&self, path: &Path) -> miette::Result<PathBuf> {
+    pub fn build_game(&self, path: &Path, profile: Profile) -> miette::Result<PathBuf> {
         let p = Project::find(&path)?;
         p.init_workspace()?;
-        p.build_game()
+        p.build_game(profile)
     }
 
-    pub fn run_game(&self, path: &Path) -> miette::Result<()> {
+    pub fn run_game(&self, path: &Path, profile: Profile) -> miette::Result<()> {
         let p = Project::find(&path)?;
         p.init_workspace()?;
-        p.run_game()
+        p.run_game(profile)
     }
 
     pub fn recent<'a>(&'a self) -> impl ExactSizeIterator<Item = &'a Path> + 'a {
