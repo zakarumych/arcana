@@ -8,7 +8,8 @@ use arcana::{
     const_format,
     edict::world::WorldLocal,
     events::{Event, EventFunnel, ViewportEvent},
-    game::{Game, GameInit},
+    game::{Game, GameInit, FPS},
+    gametime::{TimeSpan, TimeStamp},
     mev,
     plugin::{ArcanaPlugin, PluginsHub},
     project::{Ident, Project},
@@ -287,9 +288,9 @@ impl Games {
         false
     }
 
-    pub fn render(world: &mut World) {
+    pub fn render(world: &mut World, now: TimeStamp) {
         for game in world.view_mut::<&mut Game>() {
-            game.render();
+            game.render(now);
         }
     }
 
@@ -393,6 +394,11 @@ impl GamesTab {
             let r = ui.add(value);
             if r.changed() {
                 game.as_mut().unwrap().set_rate(rate as f32);
+            }
+
+            if let Some(game) = &game {
+                let fps = game.fps();
+                show_fps(ui, &fps);
             }
 
             ui.set_enabled(was_enabled);
@@ -506,4 +512,69 @@ impl GamesTab {
             }
         }
     }
+}
+
+fn show_fps(ui: &mut egui::Ui, fps: &FPS) {
+    let frame = egui::Frame::canvas(&ui.style());
+
+    let mut iter = fps.iter();
+
+    let Some(last) = iter.next_back() else {
+        return;
+    };
+
+    let mut max_frame_time = TimeSpan::ZERO;
+    let mut min_frame_time = TimeSpan::YEAR;
+
+    let mut frame_times = Vec::new();
+    let mut next = last;
+    for frame in iter.rev() {
+        let frame_time = next - frame;
+        frame_times.push(frame_time);
+
+        max_frame_time = max_frame_time.max(frame_time);
+        min_frame_time = min_frame_time.min(frame_time);
+
+        next = frame;
+
+        if last - next > TimeSpan::SECOND * 3 {
+            break;
+        }
+    }
+
+    if frame_times.is_empty() {
+        return;
+    }
+
+    frame.show(ui, |ui| {
+        let (_, rect) = ui.allocate_space(egui::vec2(
+            (ui.spacing().interact_size.x * 3.0).min(ui.available_width()),
+            ui.spacing().interact_size.y.min(ui.available_height()),
+        ));
+        ui.painter().add(egui::Shape::Path(egui::epaint::PathShape {
+            points: frame_times
+                .iter()
+                .rev()
+                .enumerate()
+                .map(|(idx, frame_time)| {
+                    let x = egui::emath::lerp(
+                        rect.left()..=rect.right(),
+                        idx as f32 / frame_times.len() as f32,
+                    );
+                    let y = egui::emath::lerp(
+                        rect.bottom()..=rect.top(),
+                        frame_time.as_secs_f32() / max_frame_time.as_secs_f32() / 1.5,
+                    );
+                    egui::pos2(x, y)
+                })
+                .collect(),
+
+            closed: false,
+            fill: egui::Color32::TRANSPARENT,
+            stroke: ui.visuals().widgets.noninteractive.fg_stroke,
+        }));
+    });
+
+    let average = (last - next) / frame_times.len() as u64;
+    ui.weak(format!("[{min_frame_time} .. {max_frame_time}] {average}"));
 }

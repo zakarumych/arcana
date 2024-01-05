@@ -5,6 +5,7 @@ use arcana::{
     edict::world::WorldLocal,
     events::ViewportEvent,
     game::Quit,
+    gametime::{TimeSpan, TimeStamp},
     init_mev, mev,
     project::Project,
     render::{render, RenderGraph, RenderResources},
@@ -180,7 +181,7 @@ impl App {
             device,
             queue,
 
-            tab_idgen: IdGen::new(),
+            tab_idgen: state.tab_idgen,
         }
     }
 
@@ -309,8 +310,8 @@ impl App {
         });
     }
 
-    pub fn render(&mut self) {
-        Games::render(&mut self.world);
+    pub fn render(&mut self, now: TimeStamp) {
+        Games::render(&mut self.world, now);
 
         if self.world.view_mut::<With<Viewport>>().into_iter().count() == 0 {
             return;
@@ -364,7 +365,7 @@ impl TabViewer for AppModel<'_> {
     type Tab = Tab;
 
     fn id(&mut self, tab: &mut Self::Tab) -> egui::Id {
-        egui::Id::new(tab.id)
+        tab.id
     }
 
     fn ui(&mut self, ui: &mut Ui, tab: &mut Tab) {

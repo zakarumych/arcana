@@ -569,8 +569,6 @@ fn run_simulation(
         let c1 = res.colliders.get(ch1);
         let c2 = res.colliders.get(ch2);
 
-        dbg!(c1.is_some(), c2.is_some());
-
         let b1 = c1.and_then(|c| c.parent()).and_then(|b| res.bodies.get(b));
         let b2 = c2.and_then(|c| c.parent()).and_then(|b| res.bodies.get(b));
 

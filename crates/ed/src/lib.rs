@@ -2,9 +2,14 @@ use std::{
     io::{ErrorKind, Write},
     path::Path,
     process::Child,
+    time::Instant,
 };
 
-use arcana::{gametime::FrequencyNumExt, plugin::GLOBAL_CHECK, project::Project};
+use arcana::{
+    gametime::{FrequencyNumExt, TimeSpan, TimeStamp},
+    plugin::GLOBAL_CHECK,
+    project::Project,
+};
 use data::ProjectData;
 use games::GamesTab;
 use parking_lot::Mutex;
@@ -159,9 +164,10 @@ fn _run(path: &Path) -> miette::Result<()> {
         panic!("Failed to install tracing subscriber: {}", err);
     }
 
+    let start = Instant::now();
     let mut clock = Clock::new();
 
-    let mut limiter = clock.ticker(120.hz());
+    let mut limiter = clock.ticker(240.hz());
 
     let events = EventLoopBuilder::<UserEvent>::with_user_event().build();
     let mut app = app::App::new(&events, event_collector, project, data);
@@ -185,7 +191,7 @@ fn _run(path: &Path) -> miette::Result<()> {
             flow.set_wait_until(until);
         }
         Event::RedrawEventsCleared => {
-            app.render();
+            app.render(TimeStamp::start() + TimeSpan::from(start.elapsed()));
         }
         _ => {}
     })

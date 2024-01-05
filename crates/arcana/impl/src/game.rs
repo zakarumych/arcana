@@ -3,6 +3,7 @@ use std::{collections::VecDeque, ptr::NonNull, sync::Arc, time::Instant};
 use arcana_project::Ident;
 use blink_alloc::Blink;
 use edict::{
+    atomicell::Ref,
     flow::{execute_flows, Flows},
     world::WorldBuilder,
     Component, EntityId, IntoSystem, System, World,
@@ -46,7 +47,7 @@ pub struct FPS {
 impl FPS {
     pub fn new() -> Self {
         FPS {
-            frames: VecDeque::with_capacity(500),
+            frames: VecDeque::with_capacity(5000),
         }
     }
 
@@ -60,7 +61,7 @@ impl FPS {
         }
     }
 
-    pub fn fps(&self) -> f32 {
+    pub fn average(&self) -> f32 {
         if self.frames.len() < 2 {
             return 0.0;
         }
@@ -69,6 +70,10 @@ impl FPS {
         let duration = last - first;
         let average = duration / (self.frames.len() as u64 - 1);
         average.as_secs_f32().recip()
+    }
+
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = TimeStamp> + '_ {
+        self.frames.iter().copied()
     }
 }
 
@@ -215,7 +220,7 @@ impl Game {
             world.ensure_external_registered::<mev::Surface>();
             world.ensure_external_registered::<Window>();
 
-            world.insert_resource(Limiter(clocks.ticker(120.hz())));
+            // world.insert_resource(Limiter(clocks.ticker(120.hz())));
             world.insert_resource(FPS::new());
             world.insert_resource(RenderGraph::new());
             world.insert_resource(device);
@@ -290,7 +295,9 @@ impl Game {
         self.world.get_resource::<Quit>().is_some()
     }
 
-    pub fn render(&mut self) {
+    pub fn render(&mut self, now: TimeStamp) {
+        self.world.expect_resource_mut::<FPS>().add(now);
+
         // Just run the render system.
         render_system(&mut self.world, (&mut self.render_state).into())
     }
@@ -362,20 +369,15 @@ impl Game {
         }
 
         {
-            let mut ticks = self
-                .world
-                .expect_resource_mut::<Limiter>()
-                .0
-                .tick_count(step.step);
+            *self.world.expect_resource_mut::<ClockStep>() = step;
 
-            if ticks > 0 {
-                self.world.expect_resource_mut::<FPS>().add(step.now);
-                *self.world.expect_resource_mut::<ClockStep>() = step;
-
-                (self.scheduler)(&mut self.world, false);
-                self.blink.reset();
-            }
+            (self.scheduler)(&mut self.world, false);
+            self.blink.reset();
         }
+    }
+
+    pub fn fps(&self) -> Ref<'_, FPS> {
+        self.world.expect_resource::<FPS>()
     }
 }
 
