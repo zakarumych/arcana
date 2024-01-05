@@ -240,10 +240,6 @@ pub struct WorkGraph {
 }
 
 impl WorkGraph {
-    pub fn tab() -> Tab {
-        Tab::WorkGraph
-    }
-
     pub fn show(world: &WorldLocal, ui: &mut Ui) {
         let mut data = world.expect_resource_mut::<ProjectData>();
         let project = world.expect_resource::<Project>();

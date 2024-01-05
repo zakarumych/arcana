@@ -8,10 +8,6 @@ use super::{plugins::Plugins, Tab};
 pub struct Filters;
 
 impl Filters {
-    pub fn tab() -> Tab {
-        Tab::Filters
-    }
-
     pub fn show(world: &WorldLocal, ui: &mut Ui) {
         // let mut project = world.expect_resource_mut::<Project>();
         // let plugins = world.expect_resource::<Plugins>();

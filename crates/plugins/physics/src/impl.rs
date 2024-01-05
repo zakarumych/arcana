@@ -7,7 +7,7 @@ use amity::flip_queue::FlipQueue;
 use arcana::{
     edict::{self, action::LocalActionEncoder, Component, EntityId, ResMut, State, View},
     flow::FlowEntity,
-    ActionEncoder, Entities, Entity, Modified, With, World,
+    ActionEncoder, Entities, Modified, With, World,
 };
 
 use rapier::{
@@ -25,31 +25,7 @@ use rapier::{
 
 pub use rapier::{dynamics, geometry, pipeline};
 
-#[repr(C)]
-struct UserData {
-    entity: Option<EntityId>,
-    unused: u64,
-}
-
-impl UserData {
-    fn new(entity: impl Entity) -> Self {
-        UserData {
-            entity: Some(entity.id()),
-            unused: 0,
-        }
-    }
-
-    fn bits(&self) -> u128 {
-        self.entity.map_or(0, |e| e.bits()) as u128
-    }
-
-    fn from_bits(bits: u128) -> Self {
-        UserData {
-            entity: EntityId::from_bits(bits as u64),
-            unused: 0,
-        }
-    }
-}
+use super::{Collision, CollisionState, UserData};
 
 #[derive(Clone, Component)]
 #[edict(name = "Collider")]
@@ -432,30 +408,6 @@ fn init_bodies(
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum CollisionState {
-    Started,
-    Stopped,
-}
-
-/// Payload of the collistion event.
-/// Contains collider index, other body entity id and other collider index.
-#[derive(Debug)]
-pub struct Collision {
-    /// State of the collision event.
-    pub state: CollisionState,
-
-    /// Body to which this collider belongs if any.
-    pub body: Option<EntityId>,
-
-    /// Other collider entity id.
-    /// None if collider entity was despawned.
-    pub other: Option<EntityId>,
-
-    /// Other body entity id if any.
-    pub other_body: Option<EntityId>,
-}
-
 #[derive(Debug, Component)]
 #[edict(name = "CollisionEvents")]
 pub struct CollisionEvents {
@@ -629,7 +581,6 @@ fn run_simulation(
         let b2 = b2.and_then(|b| UserData::from_bits(b.user_data).entity);
 
         let mut emit = |c1, b1, c2, b2| {
-            dbg!(c1, b1, c2, b2);
             if let Ok(events) = events.try_get_mut(c1) {
                 events.enque(Collision {
                     state,
@@ -651,32 +602,42 @@ fn run_simulation(
     res.query_pipeline.update(&res.bodies, &res.colliders);
 }
 
-// fn update_dynamic(mut res: ResMut<PhysicsResource>, mut dynamic_bodies: View<&mut Global>) {
-//     let res = &mut *res;
-
-//     // Update position of active dynamic bodies.
-//     for &body in res.islands.active_dynamic_bodies() {
-//         let rb = res.bodies.get_mut(body).unwrap();
-//         if let Some(entity) = UserData::from_bits(rb.user_data).entity {
-//             if let Ok(global) = dynamic_bodies.try_get_mut(entity) {
-//                 global.iso = *rb.position();
-//             }
-//         }
-//     }
-// }
-
-fn update_dynamic(
-    mut res: ResMut<PhysicsResource>,
-    dynamic_bodies: View<(&RigidBody, &mut Global)>,
-) {
+fn update_active(mut res: ResMut<PhysicsResource>, mut dynamic_bodies: View<&mut Global>) {
     let res = &mut *res;
 
     // Update position of active dynamic bodies.
-    for (body, global) in dynamic_bodies {
-        let rb = res.bodies.get_mut(body.handle.unwrap()).unwrap();
-        global.iso = *rb.position();
+    for &body in res.islands.active_dynamic_bodies() {
+        let rb = res.bodies.get_mut(body).unwrap();
+        if let Some(entity) = UserData::from_bits(rb.user_data).entity {
+            if let Ok(global) = dynamic_bodies.try_get_mut(entity) {
+                global.iso = *rb.position();
+            }
+        }
+    }
+
+    // Update position of active kinematic bodies.
+    for &body in res.islands.active_kinematic_bodies() {
+        let rb = res.bodies.get_mut(body).unwrap();
+        if let Some(entity) = UserData::from_bits(rb.user_data).entity {
+            if let Ok(global) = dynamic_bodies.try_get_mut(entity) {
+                global.iso = *rb.position();
+            }
+        }
     }
 }
+
+// fn update_active(
+//     mut res: ResMut<PhysicsResource>,
+//     dynamic_bodies: View<(&RigidBody, &mut Global)>,
+// ) {
+//     let res = &mut *res;
+
+//     // Update position of active dynamic bodies.
+//     for (body, global) in dynamic_bodies {
+//         let rb = res.bodies.get_mut(body.handle.unwrap()).unwrap();
+//         global.iso = *rb.position();
+//     }
+// }
 
 struct EventHandler<'a> {
     new_events: &'a FlipQueue<CollisionEvent>,
@@ -712,7 +673,7 @@ pub(crate) fn make_physics_system() -> impl arcana::System {
         init_colliders.into_system(),
         update_kinematic.into_system(),
         run_simulation.into_system(),
-        update_dynamic.into_system(),
+        update_active.into_system(),
     )
         .into_system()
 }

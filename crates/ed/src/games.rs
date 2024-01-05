@@ -2,7 +2,7 @@
 //! Game Tool is responsible for managing game's plugins
 //! and run instances of the game.
 
-use std::{cmp::Reverse, collections::BinaryHeap, sync::Arc};
+use std::{cmp::Reverse, collections::BinaryHeap, rc::Rc, sync::Arc};
 
 use arcana::{
     const_format,
@@ -25,7 +25,6 @@ use winit::{
 use crate::{
     data::ProjectData,
     systems::{Category, Systems},
-    Tab,
 };
 
 use super::plugins::Plugins;
@@ -37,6 +36,8 @@ pub struct Games {
     /// If set, consumes viewport events and sends them to the game.
     /// Cursor events are transformed by viewport and ignored if cursor is outside of the viewport.
     focus: Option<GameFocus>,
+
+    games: Vec<GameId>,
 }
 
 struct GameFocus {
@@ -48,10 +49,10 @@ struct GameFocus {
     lock_pointer: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(transparent)]
 pub struct GameId {
-    entity: EntityId,
+    entity: Rc<EntityId>,
 }
 
 struct LaunchGame;
@@ -64,11 +65,16 @@ impl Component for LaunchGame {
 
 impl Games {
     pub fn new() -> Self {
-        Games { focus: None }
+        Games {
+            focus: None,
+            games: Vec::new(),
+        }
     }
 
-    fn is_focused(&self, id: GameId) -> bool {
-        self.focus.as_ref().map_or(false, |f| f.entity == id.entity)
+    fn is_focused(&self, id: &GameId) -> bool {
+        self.focus
+            .as_ref()
+            .map_or(false, |f| f.entity == *id.entity)
     }
 
     pub fn new_game(world: &WorldLocal) -> GameId {
@@ -80,13 +86,19 @@ impl Games {
         let entity = world.allocate().id();
         world.insert_defer(entity, LaunchGame);
         tracing::info!("Game {entity} starting");
-        GameId { entity }
+
+        let id = GameId {
+            entity: Rc::new(entity),
+        };
+
+        self.games.push(id.clone());
+        id
     }
 
     pub fn detach(world: &WorldLocal, id: GameId) {
         let mut games = world.expect_resource_mut::<Games>();
 
-        if games.is_focused(id) {
+        if games.is_focused(&id) {
             games.focus = None;
         }
     }
@@ -97,11 +109,13 @@ impl Games {
     }
 
     fn _stop(&mut self, world: &WorldLocal, id: GameId) {
-        if self.is_focused(id) {
+        if self.is_focused(&id) {
             self.focus = None;
         }
 
-        world.despawn_defer(id.entity);
+        self.games.retain(|g| *g != id);
+
+        world.despawn_defer(*id.entity);
         tracing::info!("Game {} stopped", id.entity);
     }
 
@@ -275,7 +289,7 @@ impl Games {
 
     pub fn render(world: &mut World) {
         for game in world.view_mut::<&mut Game>() {
-            return game.render();
+            game.render();
         }
     }
 
@@ -295,40 +309,22 @@ impl Games {
             let _ = world.despawn(e);
         }
     }
-
-    pub fn tab() -> Tab {
-        Tab::Game {
-            tab: GamesTab::default(),
-        }
-    }
-}
-
-enum OnTabClose {
-    Stop,
-    Detach,
 }
 
 pub struct GamesTab {
     id: Option<GameId>,
-    on_close: OnTabClose,
 }
 
 impl Default for GamesTab {
     fn default() -> Self {
-        Self {
-            id: None,
-            on_close: OnTabClose::Stop,
-        }
+        GamesTab { id: None }
     }
 }
 
 impl GamesTab {
     pub fn new(world: &WorldLocal) -> Self {
         let id = Games::new_game(world);
-        GamesTab {
-            id: Some(id),
-            on_close: OnTabClose::Stop,
-        }
+        GamesTab { id: Some(id) }
     }
 
     pub fn show(&mut self, ui: &mut egui::Ui, world: &WorldLocal, window: &Window) {
@@ -338,14 +334,38 @@ impl GamesTab {
         let mut game: Option<&mut Game> = match &self.id {
             None => None,
             Some(id) => {
-                game_view = world.try_view_one::<&mut Game>(id.entity).unwrap();
-                game_view.get_mut()
+                if let Ok(gw) = world.try_view_one::<&mut Game>(*id.entity) {
+                    game_view = gw;
+                    game_view.get_mut()
+                } else {
+                    self.id = None;
+                    None
+                }
             }
         };
 
         let mut stop = false;
-        let r = ui.horizontal_top(|ui| {
-            let cbox = egui::ComboBox::from_id_source("games-list");
+        let mut new_id = self.id.clone();
+
+        ui.horizontal_top(|ui| {
+            // let mut cbox = egui::ComboBox::from_id_source("games-list");
+
+            // if let Some(id) = &self.id {
+            //     cbox = cbox.selected_text(format!("{}", id.entity));
+            // } else {
+            //     cbox = cbox.selected_text("None");
+            // }
+            // cbox.show_ui(ui, |ui| {
+            //     for game in &games.games {
+            //         let r = ui.selectable_label(
+            //             self.id.as_ref().map_or(false, |id| *id == *game),
+            //             format!("{}", game.entity),
+            //         );
+            //         if r.clicked() {
+            //             new_id = Some(game.clone());
+            //         }
+            //     }
+            // });
 
             let was_enabled = ui.is_enabled();
             ui.set_enabled(game.is_some());
@@ -383,18 +403,6 @@ impl GamesTab {
             game = None;
         }
 
-        // let r = ui.horizontal_top(|ui| {
-        //     let r = ui.button(const_format!(
-        //         "{} {}",
-        //         egui_phosphor::regular::CURSOR,
-        //         egui_phosphor::regular::LOCK
-        //     ));
-
-        //     if r.clicked() {
-
-        //     }
-        // });
-
         match game {
             None => {
                 if self.id.is_none() {
@@ -405,7 +413,7 @@ impl GamesTab {
                             egui_phosphor::regular::ROCKET_LAUNCH
                         ));
                         if r.clicked() {
-                            self.id = Some(games._new_game(world));
+                            new_id = Some(games._new_game(world));
                         }
                     });
                 } else {
@@ -415,7 +423,7 @@ impl GamesTab {
                 }
             }
             Some(game) => {
-                let id = self.id.unwrap();
+                let id = self.id.as_ref().unwrap();
 
                 let focused = games.is_focused(id);
 
@@ -441,7 +449,7 @@ impl GamesTab {
                         return;
                     };
 
-                    world.insert_defer(id.entity, Texture { image });
+                    world.insert_defer(*id.entity, Texture { image });
 
                     let image = egui::Image::new(egui::load::SizedTexture {
                         id: egui::TextureId::User(id.entity.bits()),
@@ -478,7 +486,7 @@ impl GamesTab {
                                 window_id: window.id(),
                                 rect: r.rect,
                                 pixel_per_point: ui.ctx().pixels_per_point(),
-                                entity: id.entity,
+                                entity: *id.entity,
                                 cursor_inside: false,
                                 lock_pointer: false,
                             });
@@ -487,19 +495,14 @@ impl GamesTab {
                 });
             }
         }
+
+        self.id = new_id;
     }
 
     pub fn on_close(&mut self, world: &WorldLocal) {
-        match self.on_close {
-            OnTabClose::Stop => {
-                if let Some(id) = self.id.take() {
-                    Games::stop(world, id);
-                }
-            }
-            OnTabClose::Detach => {
-                if let Some(id) = self.id.take() {
-                    Games::detach(world, id);
-                }
+        if let Some(id) = self.id.take() {
+            if Rc::strong_count(&id.entity) <= 2 {
+                Games::stop(world, id);
             }
         }
     }

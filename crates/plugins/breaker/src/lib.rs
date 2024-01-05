@@ -1,6 +1,5 @@
 use arcana::{
     edict::{self, spawn_block, ActionEncoder, Component, Entities, Res, View, World},
-    events::{ElementState, KeyboardInput, VirtualKeyCode},
     flow::sleep,
     gametime::{timespan, TimeSpan},
     na,
@@ -10,12 +9,8 @@ use arcana::{
 };
 use camera::Camera2;
 use cursor::MainCursor;
-use input::Translator;
-use motion::dim2::{Motor, Move, MoveAfter, MoveTo};
-use physics::dim2::{
-    pipeline::ActiveEvents, Collider, Collision, CollisionEvents, CollisionState, PhysicsResource,
-    RigidBody,
-};
+use motion::{Motion2, Motor2, MoveAfter2, MoveTo2};
+use physics::{Collider2, CollisionEvents2, CollisionState, PhysicsResource2, RigidBody2};
 use scene::Global2;
 use sdf::SdfRender;
 
@@ -35,7 +30,7 @@ arcana::export_arcana_plugin! {
         systems: [
             target_cursor: move |cursor: Res<MainCursor>,
                 viewport: Res<Viewport>,
-                mut r#move: View<&mut Move>,
+                mut motion: View<&mut Motion2>,
                 cameras: View<(&Camera2, &Global2)>| {
                     let extent = viewport.extent();
 
@@ -56,7 +51,7 @@ arcana::export_arcana_plugin! {
                         .transform_point(&point);
 
                     let position = camera_global.iso.transform_point(&position);
-                    *r#move.try_get_mut(target).unwrap() = Move::To(MoveTo::new(position));
+                    *motion.try_get_mut(target).unwrap() = MoveTo2::new(position).into();
                 },
             burst_system,
         ],
@@ -95,20 +90,20 @@ arcana::export_arcana_plugin! {
                         1.0,
                     ]),
                     Global2::identity(),
-                    RigidBody::dynamic(),
-                    Collider::ball(1.0),
-                    Move::to(na::Point2::new(0.0, 0.0)),
-                    Motor::new(30.0, 100.0),
+                    RigidBody2::dynamic(),
+                    Collider2::ball(1.0),
+                    Motion2::to(na::Point2::new(0.0, 0.0)),
+                    Motor2::new(30.0, 100.0),
                     BallComponent,
                 )
             ).unwrap();
 
             // insert_global_entity_controller(PaddleTranslator, paddle, world).unwrap();
 
-            let left_side = Collider::halfspace(na::UnitVector2::new_unchecked(na::Vector2::x())).position(na::Translation2::new(-15.0, 0.0).into());
-            let right_side = Collider::halfspace(na::UnitVector2::new_unchecked(-na::Vector2::x())).position(na::Translation2::new(15.0, 0.0).into());
-            let top_side = Collider::halfspace(na::UnitVector2::new_unchecked(-na::Vector2::y())).position(na::Translation2::new(0.0, 15.0).into());
-            let bottom_side = Collider::halfspace(na::UnitVector2::new_unchecked(na::Vector2::y())).position(na::Translation2::new(0.0, -15.0).into());
+            let left_side = Collider2::halfspace(na::UnitVector2::new_unchecked(na::Vector2::x())).position(na::Translation2::new(-15.0, 0.0).into());
+            let right_side = Collider2::halfspace(na::UnitVector2::new_unchecked(-na::Vector2::x())).position(na::Translation2::new(15.0, 0.0).into());
+            let top_side = Collider2::halfspace(na::UnitVector2::new_unchecked(-na::Vector2::y())).position(na::Translation2::new(0.0, 15.0).into());
+            let bottom_side = Collider2::halfspace(na::UnitVector2::new_unchecked(na::Vector2::y())).position(na::Translation2::new(0.0, -15.0).into());
 
 
             world.spawn_one(left_side);
@@ -132,12 +127,12 @@ arcana::export_arcana_plugin! {
                             rand::random(),
                             1.0,
                         ]),
-                        RigidBody::dynamic().position(global.iso),
+                        RigidBody2::dynamic().position(global.iso),
                         global,
-                        Collider::ball(1.0).active_events(ActiveEvents::COLLISION_EVENTS),
-                        Move::After(MoveAfter::new(last_ball).with_distance(2.0)),
-                        Motor::new(10.0, 100.0),
-                        CollisionEvents::new(),
+                        Collider2::ball(1.0).active_events(physics::pipeline2::ActiveEvents::COLLISION_EVENTS),
+                        Motion2::After(MoveAfter2::new(last_ball).with_distance(2.0)),
+                        Motor2::new(10.0, 100.0),
+                        CollisionEvents2::new(),
                         BallComponent,
                     )).unwrap();
 
@@ -145,22 +140,11 @@ arcana::export_arcana_plugin! {
 
                 spawn_block!(in ref world for last_ball -> {
                     loop {
-                        let event: Collision = CollisionEvents::async_deque_from(&mut last_ball).await;
+                        let event = CollisionEvents2::async_deque_from(&mut last_ball).await;
 
                         if event.state == CollisionState::Started {
                             if let Some(other) = event.other {
                                 if last_ball.world().try_has_component::<BallComponent>(other).unwrap_or(false) {
-                                    // // Despawn on any collision.
-                                    // for _ in 0..100 {
-                                    //     let mut s = last_ball.get_copied::<sdf::Shape>().unwrap();
-                                    //     s.transform *= na::Similarity2::from_scaling(1.01);
-                                    //     last_ball.set(s).unwrap();
-
-                                    //     sleep(timespan!(0.02 s), &mut last_ball.world()).await;
-                                    // }
-                                    // let _ = last_ball.despawn();
-                                    // yield_now!();
-
                                     let _ = last_ball.insert(Burst { span: TimeSpan::ZERO, scale: 1.0 });
                                     return;
                                 }
@@ -171,8 +155,8 @@ arcana::export_arcana_plugin! {
             };
 
             spawn_block!(in ref world -> {
-                sleep(timespan!(2 seconds), &mut world).await;
-                for _ in 0.. {
+                sleep(timespan!(2 s), &mut world).await;
+                loop {
                     new_node(&mut world);
                     sleep(timespan!(1 s), &mut world).await;
                 }
@@ -180,97 +164,6 @@ arcana::export_arcana_plugin! {
         }
     }
 }
-
-pub struct PaddleTranslator;
-
-pub enum PaddleAction {
-    // PaddleLeft,
-    // PaddleRight,
-    // PaddleUnLeft,
-    // PaddleUnRight,
-    Switch,
-}
-
-impl Translator for PaddleTranslator {
-    type Action = PaddleAction;
-
-    fn on_keyboard_input(&mut self, input: &KeyboardInput) -> Option<PaddleAction> {
-        match (input.virtual_keycode, input.state) {
-            // (Some(VirtualKeyCode::A), ElementState::Pressed) => Some(PaddleAction::PaddleLeft),
-            // (Some(VirtualKeyCode::D), ElementState::Pressed) => Some(PaddleAction::PaddleRight),
-            // (Some(VirtualKeyCode::A), ElementState::Released) => Some(PaddleAction::PaddleUnLeft),
-            // (Some(VirtualKeyCode::D), ElementState::Released) => Some(PaddleAction::PaddleUnRight),
-            (Some(VirtualKeyCode::Space), ElementState::Released) => Some(PaddleAction::Switch),
-            _ => None,
-        }
-    }
-}
-
-// #[derive(Clone, Copy, Component)]
-// struct PaddleState {
-//     // left: bool,
-//     // right: bool,
-//     chasing: MoveAfter,
-// }
-
-// fn paddle_system(
-//     paddles: View<(
-//         Entities,
-//         &mut PaddleState,
-//         Option<&MoveAfter>,
-//         &mut ActionQueue<PaddleAction>,
-//     )>,
-//     mut encoder: ActionEncoder,
-// ) {
-//     for (e, state, ma, queue) in paddles {
-//         if let Some(ma) = ma {
-//             state.chasing = *ma;
-//         }
-
-//         for action in queue.drain() {
-//             match action {
-//                 // PaddleAction::PaddleLeft => state.left = true,
-//                 // PaddleAction::PaddleRight => state.right = true,
-//                 // PaddleAction::PaddleUnLeft => state.left = false,
-//                 // PaddleAction::PaddleUnRight => state.right = false,
-//                 PaddleAction::Switch => match ma {
-//                     None => encoder.insert(e, state.chasing),
-//                     Some(_) => encoder.drop::<MoveAfter>(e),
-//                 },
-//             }
-//         }
-
-//         // let target = match (state.left, state.right) {
-//         //     (true, true) | (false, false) => {
-//         //         if move_to.get_mut(e).is_some() {
-//         //             encoder.drop_bundle::<(MoveTo, Motion2)>(e);
-//         //         }
-//         //         continue;
-//         //     }
-//         //     (true, false) => na::Point2::new(-15.0, 12.0),
-//         //     (false, true) => na::Point2::new(15.0, 12.0),
-//         // };
-
-//         // let m = MoveTo {
-//         //     target,
-//         //     acceleration: 1.0,
-//         //     max_velocity: 3.0,
-//         //     threshold: 0.1,
-//         // };
-
-//         // match move_to.get_mut(e) {
-//         //     Some(motion) => *motion = m,
-//         //     None => encoder.insert(e, m),
-//         // }
-
-//         // if global.iso.translation.x < -15.0 {
-//         //     global.iso.translation.x = -15.0;
-//         // }
-//         // if global.iso.translation.x > 15.0 {
-//         //     global.iso.translation.x = 15.0;
-//         // }
-//     }
-// }
 
 #[derive(Component)]
 struct Burst {
@@ -280,10 +173,10 @@ struct Burst {
 
 fn burst_system(
     burst: View<(Entities, &mut Burst, &mut sdf::Shape, &Global2)>,
-    mut bodies: View<(&mut RigidBody, &Global2)>,
+    mut bodies: View<(&mut RigidBody2, &Global2)>,
     clock: Res<ClockStep>,
     mut encoder: ActionEncoder,
-    physics: Res<PhysicsResource>,
+    physics: Res<PhysicsResource2>,
 ) {
     for (e, burst, shape, global) in burst {
         burst.span += clock.step;

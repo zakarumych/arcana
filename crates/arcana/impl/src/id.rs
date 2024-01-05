@@ -174,9 +174,15 @@ impl BaseId {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct IdGen {
     next_id: u64,
+}
+
+impl Default for IdGen {
+    fn default() -> Self {
+        IdGen::new()
+    }
 }
 
 impl IdGen {

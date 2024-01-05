@@ -140,10 +140,6 @@ impl Systems {
         }
     }
 
-    pub fn tab() -> Tab {
-        Tab::Systems
-    }
-
     pub fn show(world: &WorldLocal, ui: &mut Ui) {
         let mut me = world.expect_resource_mut::<Self>();
         let mut data = world.expect_resource_mut::<ProjectData>();

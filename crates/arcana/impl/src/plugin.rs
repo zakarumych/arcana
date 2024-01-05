@@ -268,7 +268,7 @@ macro_rules! export_arcana_plugin {
                     fn systems(&self) -> Vec<$crate::plugin::SystemInfo> {
                         vec![$(
                             $crate::plugin::SystemInfo {
-                                id: $crate::hash_id!(::core::module_path!(), ::core::stringify!($system_name) $(, ::core::stringify!($system))?),
+                                id: $crate::hash_id!(::core::module_path!(), ::core::stringify!($system_name)),
                                 name: ::std::borrow::Cow::Borrowed($crate::project::ident!($system_name)),
                             },
                         )+]
@@ -279,7 +279,7 @@ macro_rules! export_arcana_plugin {
                     fn filters(&self) -> Vec<$crate::plugin::FilterInfo> {
                         vec![$(
                             $crate::plugin::FilterInfo {
-                                id: $crate::hash_id!(::core::module_path!(), ::core::stringify!($filter_name) $(, ::core::stringify!($filter))?),
+                                id: $crate::hash_id!(::core::module_path!(), ::core::stringify!($filter_name)),
                                 name: ::std::borrow::Cow::Borrowed($crate::project::ident!($filter_name)),
                             },
                         )+]
@@ -290,7 +290,7 @@ macro_rules! export_arcana_plugin {
                     fn jobs(&self) -> Vec<$crate::plugin::JobInfo> {
                         vec![$(
                             $crate::plugin::JobInfo {
-                                id: $crate::hash_id!(::core::module_path!(), ::core::stringify!($job_name), ::core::stringify!($make_job)),
+                                id: $crate::hash_id!(::core::module_path!(), ::core::stringify!($job_name)),
                                 name: ::std::borrow::Cow::Borrowed($crate::project::ident!($job_name)),
                                 desc: $job_desc,
                             },
@@ -307,15 +307,15 @@ macro_rules! export_arcana_plugin {
                     )?
 
                     $($(
-                        hub.add_system($crate::hash_id!(::core::module_path!(), ::core::stringify!($system_name) $(, ::core::stringify!($system))?), $crate::name_or_expr!($system_name $(: $system)?));
+                        hub.add_system($crate::hash_id!(::core::module_path!(), ::core::stringify!($system_name)), $crate::name_or_expr!($system_name $(: $system)?));
                     )+)?
 
                     $($(
-                        hub.add_filter($crate::hash_id!(::core::module_path!(), ::core::stringify!($filter_name) $(, ::core::stringify!($filter))?), $crate::name_or_expr!($filter_name $(: $filter)?));
+                        hub.add_filter($crate::hash_id!(::core::module_path!(), ::core::stringify!($filter_name)), $crate::name_or_expr!($filter_name $(: $filter)?));
                     )+)?
 
                     $($(
-                        hub.add_job($crate::hash_id!(::core::module_path!(), ::core::stringify!($job_name), ::core::stringify!($make_job)), $make_job);
+                        hub.add_job($crate::hash_id!(::core::module_path!(), ::core::stringify!($job_name)), $make_job);
                     )+)?
 
                     $crate::init_resources! {

@@ -699,10 +699,6 @@ impl Plugins {
         }
     }
 
-    pub fn tab() -> Tab {
-        Tab::Plugins
-    }
-
     /// Checks if plugins with given name is active.
     pub fn is_active(&self, name: &Ident) -> bool {
         self.active_plugins.contains(name)

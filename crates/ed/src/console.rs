@@ -17,8 +17,4 @@ impl Console {
         let console = world.expect_resource::<Console>();
         ui.add(Logs::new(console.collector.clone()));
     }
-
-    pub fn tab() -> Tab {
-        Tab::Console
-    }
 }

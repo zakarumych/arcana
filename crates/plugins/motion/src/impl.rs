@@ -231,30 +231,46 @@ impl MoveAfter {
     }
 }
 
-pub enum Move {
+pub enum Motion {
     To(MoveTo),
     After(MoveAfter),
 }
 
-impl Move {
+impl Motion {
+    #[inline]
     pub fn to(target: Point<f32>) -> Self {
-        Move::To(MoveTo::new(target))
+        Motion::To(MoveTo::new(target))
     }
 
+    #[inline]
     pub fn after(id: EntityId) -> Self {
-        Move::After(MoveAfter::new(id))
+        Motion::After(MoveAfter::new(id))
     }
 }
 
-impl Component for Move {
+impl From<MoveTo> for Motion {
+    #[inline]
+    fn from(m: MoveTo) -> Self {
+        Motion::To(m)
+    }
+}
+
+impl From<MoveAfter> for Motion {
+    #[inline]
+    fn from(m: MoveAfter) -> Self {
+        Motion::After(m)
+    }
+}
+
+impl Component for Motion {
     fn name() -> &'static str {
-        "Move"
+        "Motion"
     }
 }
 
 /// Applies motion to entities.
 fn infer_motion(
-    with_state: View<(Entities, &Global, &Move, &Motor, Option<&mut MotorState>)>,
+    with_state: View<(Entities, &Global, &Motion, &Motor, Option<&mut MotorState>)>,
     globals: View<&Global>,
     clocks: Res<ClockStep>,
     mut encoder: ActionEncoder,
@@ -272,14 +288,14 @@ fn infer_motion(
         };
 
         match the_move {
-            Move::To(move_to) => motor.update(
+            Motion::To(move_to) => motor.update(
                 global.iso.translation.vector,
                 move_to.target,
                 move_to.distance,
                 motor_state,
                 delta_time,
             ),
-            Move::After(move_after) => {
+            Motion::After(move_after) => {
                 match globals.try_get(move_after.id) {
                     Ok(tg) => {
                         let target = tg.iso.rotation.transform_vector(&move_after.local_offset)
@@ -299,7 +315,7 @@ fn infer_motion(
                         motor_state.apply_velocity = Vector::zeros();
 
                         // Remove motion. Target is no longer exists or invalid.
-                        encoder.drop::<Move>(move_after.id);
+                        encoder.drop::<Motion>(move_after.id);
                         continue;
                     }
                 }
@@ -313,7 +329,7 @@ fn infer_motion(
 }
 
 fn cancel_move(
-    state: View<(Entities, &mut MotorState), Without<Move>>,
+    state: View<(Entities, &mut MotorState), Without<Motion>>,
     mut encoder: ActionEncoder,
 ) {
     for (e, state) in state {

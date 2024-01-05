@@ -30,6 +30,56 @@ pub mod dim3 {
     std::include!("impl.rs");
 }
 
+#[repr(C)]
+struct UserData {
+    entity: Option<EntityId>,
+    unused: u64,
+}
+
+impl UserData {
+    fn new(entity: impl Entity) -> Self {
+        UserData {
+            entity: Some(entity.id()),
+            unused: 0,
+        }
+    }
+
+    fn bits(&self) -> u128 {
+        self.entity.map_or(0, |e| e.bits()) as u128
+    }
+
+    fn from_bits(bits: u128) -> Self {
+        UserData {
+            entity: EntityId::from_bits(bits as u64),
+            unused: 0,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum CollisionState {
+    Started,
+    Stopped,
+}
+
+/// Payload of the collistion event.
+/// Contains collider index, other body entity id and other collider index.
+#[derive(Debug)]
+pub struct Collision {
+    /// State of the collision event.
+    pub state: CollisionState,
+
+    /// Body to which this collider belongs if any.
+    pub body: Option<EntityId>,
+
+    /// Other collider entity id.
+    /// None if collider entity was despawned.
+    pub other: Option<EntityId>,
+
+    /// Other body entity id if any.
+    pub other_body: Option<EntityId>,
+}
+
 #[cfg(all(feature = "dim2", not(feature = "dim3")))]
 arcana::export_arcana_plugin! {
     PhysicsPlugin {
@@ -60,12 +110,17 @@ arcana::export_arcana_plugin! {
     }
 }
 
+use arcana::{Entity, EntityId};
 #[cfg(feature = "dim2")]
 pub use dim2::{
-    Collider as Collider2, PhysicsResource as PhysicsResource2, RigidBody as RigidBody2,
+    dynamics as dynamics2, geometry as geometry2, pipeline as pipeline2, Collider as Collider2,
+    CollisionEvents as CollisionEvents2, PhysicsResource as PhysicsResource2,
+    RigidBody as RigidBody2,
 };
 
 #[cfg(feature = "dim3")]
 pub use dim3::{
-    Collider as Collider3, PhysicsResource as PhysicsResource3, RigidBody as RigidBody3,
+    dynamics as dynamics3, geometry as geometry3, pipeline as pipeline3, Collider as Collider3,
+    CollisionEvents as CollisionEvents3, PhysicsResource as PhysicsResource3,
+    RigidBody as RigidBody3,
 };
