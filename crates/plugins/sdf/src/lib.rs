@@ -22,7 +22,7 @@ use arcana::{
 // }
 
 use camera::Camera2;
-use scene::Global2;
+use scene::dim2::Global;
 
 arcana::export_arcana_plugin! {
     SdfPlugin {
@@ -189,7 +189,7 @@ impl Render for SdfRender {
         let dims = target.dimensions().to_2d();
 
         let camera = world
-            .try_view_one::<(&Global2, &Camera2)>(self.camera)
+            .try_view_one::<(&Global, &Camera2)>(self.camera)
             .expect("Camera is missing");
 
         let camera = {
@@ -202,7 +202,7 @@ impl Render for SdfRender {
             <[[f32; 3]; 3]>::from((g.iso * viewport).to_homogeneous())
         };
 
-        let shapes = world.view::<(&Global2, &Shape)>();
+        let shapes = world.view::<(&Global, &Shape)>();
         let shapes_count = shapes.iter().count();
 
         let arguments = self.arguments.get_or_insert_with(|| {

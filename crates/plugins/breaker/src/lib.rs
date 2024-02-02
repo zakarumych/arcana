@@ -9,9 +9,9 @@ use arcana::{
 };
 use camera::Camera2;
 use cursor::MainCursor;
-use motion::{Motion2, Motor2, MoveAfter2, MoveTo2};
-use physics::{Collider2, CollisionEvents2, CollisionState, PhysicsResource2, RigidBody2};
-use scene::Global2;
+use motion::dim2::{Motion, Motor, MoveAfter, MoveTo};
+use physics::dim2::{Collider, ContactForceEvents, FlowEntityExt, PhysicsResource, RigidBody};
+use scene::dim2::Global;
 use sdf::SdfRender;
 
 #[derive(Component)]
@@ -30,8 +30,8 @@ arcana::export_arcana_plugin! {
         systems: [
             target_cursor: move |cursor: Res<MainCursor>,
                 viewport: Res<Viewport>,
-                mut motion: View<&mut Motion2>,
-                cameras: View<(&Camera2, &Global2)>| {
+                mut motion: View<&mut Motion>,
+                cameras: View<(&Camera2, &Global)>| {
                     let extent = viewport.extent();
 
                     // Ignore when viewport is zero-sized.
@@ -51,14 +51,14 @@ arcana::export_arcana_plugin! {
                         .transform_point(&point);
 
                     let position = camera_global.iso.transform_point(&position);
-                    *motion.try_get_mut(target).unwrap() = MoveTo2::new(position).into();
+                    *motion.try_get_mut(target).unwrap() = MoveTo::new(position).into();
                 },
             burst_system,
         ],
 
         in world => {
             let camera = world
-                .spawn((Global2::identity(), Camera2::new().with_fovy(15.0)))
+                .spawn((Global::identity(), Camera2::new().with_fovy(15.0)))
                 .id();
 
             {
@@ -89,21 +89,21 @@ arcana::export_arcana_plugin! {
                         rand::random(),
                         1.0,
                     ]),
-                    Global2::identity(),
-                    RigidBody2::dynamic(),
-                    Collider2::ball(1.0),
-                    Motion2::to(na::Point2::new(0.0, 0.0)),
-                    Motor2::new(30.0, 100.0),
+                    Global::identity(),
+                    RigidBody::dynamic(),
+                    Collider::ball(1.0),
+                    Motion::to(na::Point2::new(0.0, 0.0)),
+                    Motor::new(30.0, 100.0),
                     BallComponent,
                 )
             ).unwrap();
 
             // insert_global_entity_controller(PaddleTranslator, paddle, world).unwrap();
 
-            let left_side = Collider2::halfspace(na::UnitVector2::new_unchecked(na::Vector2::x())).position(na::Translation2::new(-15.0, 0.0).into());
-            let right_side = Collider2::halfspace(na::UnitVector2::new_unchecked(-na::Vector2::x())).position(na::Translation2::new(15.0, 0.0).into());
-            let top_side = Collider2::halfspace(na::UnitVector2::new_unchecked(-na::Vector2::y())).position(na::Translation2::new(0.0, 15.0).into());
-            let bottom_side = Collider2::halfspace(na::UnitVector2::new_unchecked(na::Vector2::y())).position(na::Translation2::new(0.0, -15.0).into());
+            let left_side = Collider::halfspace(na::UnitVector2::new_unchecked(na::Vector2::x())).position(na::Translation2::new(-15.0, 0.0).into());
+            let right_side = Collider::halfspace(na::UnitVector2::new_unchecked(-na::Vector2::x())).position(na::Translation2::new(15.0, 0.0).into());
+            let top_side = Collider::halfspace(na::UnitVector2::new_unchecked(-na::Vector2::y())).position(na::Translation2::new(0.0, 15.0).into());
+            let bottom_side = Collider::halfspace(na::UnitVector2::new_unchecked(na::Vector2::y())).position(na::Translation2::new(0.0, -15.0).into());
 
 
             world.spawn_one(left_side);
@@ -114,7 +114,7 @@ arcana::export_arcana_plugin! {
             let mut new_node = move |world: &mut World| {
                 let id = world.allocate().id();
 
-                let global = Global2::from_position(na::Point2::new(
+                let global = Global::from_position(na::Point2::new(
                     rand::random::<f32>() * 26.0 - 13.0,
                     rand::random::<f32>() * 26.0 - 13.0,
                 ));
@@ -127,30 +127,20 @@ arcana::export_arcana_plugin! {
                             rand::random(),
                             1.0,
                         ]),
-                        RigidBody2::dynamic().position(global.iso),
+                        RigidBody::dynamic().position(global.iso),
                         global,
-                        Collider2::ball(1.0).active_events(physics::pipeline2::ActiveEvents::COLLISION_EVENTS),
-                        Motion2::After(MoveAfter2::new(last_ball).with_distance(2.0)),
-                        Motor2::new(10.0, 100.0),
-                        CollisionEvents2::new(),
+                        Collider::ball(1.0).enable_contact_force_events().contact_force_event_threshold(2000.0),
+                        Motion::After(MoveAfter::new(last_ball).with_distance(2.0)),
+                        Motor::new(10.0, 100.0),
+                        ContactForceEvents::new(),
                         BallComponent,
                     )).unwrap();
 
                 last_ball = id;
 
                 spawn_block!(in ref world for last_ball -> {
-                    loop {
-                        let event = CollisionEvents2::async_deque_from(&mut last_ball).await;
-
-                        if event.state == CollisionState::Started {
-                            if let Some(other) = event.other {
-                                if last_ball.world().try_has_component::<BallComponent>(other).unwrap_or(false) {
-                                    let _ = last_ball.insert(Burst { span: TimeSpan::ZERO, scale: 1.0 });
-                                    return;
-                                }
-                            }
-                        }
-                    }
+                    last_ball.next_contact_force_event().await;
+                    let _ = last_ball.insert(Burst { span: TimeSpan::ZERO, scale: 1.0, color: [0.0, 0.0, 0.0] });
                 });
             };
 
@@ -169,23 +159,29 @@ arcana::export_arcana_plugin! {
 struct Burst {
     span: TimeSpan,
     scale: f32,
+    color: [f32; 3],
 }
 
 fn burst_system(
-    burst: View<(Entities, &mut Burst, &mut sdf::Shape, &Global2)>,
-    mut bodies: View<(&mut RigidBody2, &Global2)>,
+    burst: View<(Entities, &mut Burst, &mut sdf::Shape, &Global)>,
+    mut bodies: View<(&mut RigidBody, &Global)>,
     clock: Res<ClockStep>,
     mut encoder: ActionEncoder,
-    physics: Res<PhysicsResource2>,
+    physics: Res<PhysicsResource>,
 ) {
     for (e, burst, shape, global) in burst {
+        if burst.span == TimeSpan::ZERO {
+            let [r, g, b, _] = shape.color;
+            burst.color = [r, g, b];
+        }
+
         burst.span += clock.step;
-        if burst.span >= TimeSpan::SECOND {
+        if burst.span >= TimeSpan::SECOND * 3 {
             encoder.despawn(e);
 
             physics.intersections_with_shape(
                 &global.iso,
-                &physics::dim2::geometry::Ball::new(30.0),
+                &physics::dim2::Ball::new(30.0),
                 |_collider, body| {
                     if let Some(body) = body {
                         if let Ok((body, body_global)) = bodies.try_get_mut(body) {
@@ -201,7 +197,15 @@ fn burst_system(
                 },
             )
         } else {
-            let new_scale = 2f32.powf(burst.span.as_secs_f32());
+            let x = (1.0 / (3.001 - burst.span.as_secs_f32())).sin();
+            if x.fract() < 0.1 {
+                shape.color = [1.0, 1.0, 1.0, 1.0];
+            } else {
+                let [r, g, b] = burst.color;
+                shape.color = [r, g, b, 1.0];
+            }
+
+            let new_scale = 2f32.powf(burst.span.as_secs_f32() / 3.0);
             shape.transform *= na::Similarity2::from_scaling(new_scale / burst.scale);
             burst.scale = new_scale;
         }

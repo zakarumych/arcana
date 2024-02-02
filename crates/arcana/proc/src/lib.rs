@@ -6,7 +6,12 @@ use proc_macro::TokenStream;
 
 #[proc_macro_attribute]
 pub fn stid(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let stid = syn::parse_macro_input!(attr as stid::StidValue);
+    let stid = if attr.is_empty() {
+        None
+    } else {
+        Some(syn::parse_macro_input!(attr as stid::StidValue))
+    };
+
     let input = syn::parse_macro_input!(item as syn::DeriveInput);
 
     match stid::with_stid(stid, input) {

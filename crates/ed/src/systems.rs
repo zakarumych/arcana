@@ -10,13 +10,11 @@ use arcana_project::{Ident, IdentBuf};
 use egui::{Color32, Ui};
 use egui_snarl::{
     ui::{PinInfo, PinShape, SnarlStyle, SnarlViewer},
-    InPin, InPinId, OutPin, OutPinId, Snarl,
+    InPin, InPinId, NodeId, OutPin, OutPinId, Snarl,
 };
 use hashbrown::{HashMap, HashSet};
 
 use crate::{data::ProjectData, sync_project, toggle_ui};
-
-use super::Tab;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Category {
@@ -81,7 +79,7 @@ fn order_systems(snarl: &Snarl<SystemNode>, category: Category) -> Vec<SystemId>
     let mut queue = VecDeque::new();
     let mut scheduled = HashSet::new();
 
-    for (idx, node) in snarl.node_indices() {
+    for (idx, node) in snarl.node_ids() {
         if node.category != category {
             continue;
         }
@@ -101,7 +99,7 @@ fn order_systems(snarl: &Snarl<SystemNode>, category: Category) -> Vec<SystemId>
             }
         }
 
-        let node = snarl.get_node(idx);
+        let node = &snarl[idx];
 
         if node.active && node.enabled {
             order.push(node.system);
@@ -242,7 +240,7 @@ impl SnarlViewer<SystemNode> for SystemViewer<'_> {
 
     fn show_header(
         &mut self,
-        idx: usize,
+        id: NodeId,
         _inputs: &[InPin],
         _utputs: &[OutPin],
         ui: &mut Ui,
@@ -251,7 +249,7 @@ impl SnarlViewer<SystemNode> for SystemViewer<'_> {
     ) {
         let mut remove = false;
         let mut toggle = false;
-        let node = snarl.get_node_mut(idx);
+        let node = &mut snarl[id];
 
         ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
@@ -292,7 +290,7 @@ impl SnarlViewer<SystemNode> for SystemViewer<'_> {
         });
 
         if remove {
-            snarl.remove_node(idx);
+            snarl.remove_node(id);
             self.modified = true;
         } else if toggle {
             node.category = match node.category {
@@ -300,12 +298,9 @@ impl SnarlViewer<SystemNode> for SystemViewer<'_> {
                 Category::Var => Category::Fix,
             };
 
-            snarl.drop_inputs(InPinId {
-                node: idx,
-                input: 0,
-            });
+            snarl.drop_inputs(InPinId { node: id, input: 0 });
             snarl.drop_outputs(OutPinId {
-                node: idx,
+                node: id,
                 output: 0,
             });
         }
@@ -353,7 +348,7 @@ impl SnarlViewer<SystemNode> for SystemViewer<'_> {
             .with_fill(pin_fill)
             .with_stroke(pin_stroke);
 
-        let node = snarl.get_node_mut(pin.id.node);
+        let node = &snarl[pin.id.node];
 
         ui.allocate_response(egui::Vec2::ZERO, egui::Sense::hover());
         pin_info.with_shape(node.category.pin_shape())
@@ -375,7 +370,7 @@ impl SnarlViewer<SystemNode> for SystemViewer<'_> {
             .with_fill(pin_fill)
             .with_stroke(pin_stroke);
 
-        let node = snarl.get_node_mut(pin.id.node);
+        let node = &mut snarl[pin.id.node];
 
         ui.allocate_response(egui::Vec2::ZERO, egui::Sense::hover());
         pin_info.with_shape(node.category.pin_shape())
@@ -386,8 +381,8 @@ impl SnarlViewer<SystemNode> for SystemViewer<'_> {
             return;
         }
 
-        let from_cat = snarl.get_node(from.id.node).category;
-        let to_cat = snarl.get_node(to.id.node).category;
+        let from_cat = snarl[from.id.node].category;
+        let to_cat = snarl[to.id.node].category;
         if from_cat != to_cat {
             return;
         }
@@ -437,7 +432,7 @@ impl SnarlViewer<SystemNode> for SystemViewer<'_> {
 
     fn node_menu(
         &mut self,
-        idx: usize,
+        id: NodeId,
         _inputs: &[InPin],
         _outputs: &[OutPin],
         ui: &mut Ui,
@@ -445,7 +440,7 @@ impl SnarlViewer<SystemNode> for SystemViewer<'_> {
         snarl: &mut Snarl<SystemNode>,
     ) {
         if ui.button("Remove").clicked() {
-            let node = snarl.remove_node(idx);
+            let node = snarl.remove_node(id);
             self.available.push(node);
             self.available.sort_by_cached_key(|node| node.name.clone());
 

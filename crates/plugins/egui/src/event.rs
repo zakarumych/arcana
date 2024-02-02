@@ -54,9 +54,8 @@ fn translate_virtual_key_code(key: VirtualKeyCode) -> Option<egui::Key> {
         VirtualKeyCode::Minus | VirtualKeyCode::NumpadSubtract => Key::Minus,
         // Using Mac the key with the Plus sign on it is reported as the Equals key
         // (with both English and Swedish keyboard).
-        VirtualKeyCode::Equals | VirtualKeyCode::Plus | VirtualKeyCode::NumpadAdd => {
-            Key::PlusEquals
-        }
+        VirtualKeyCode::Equals => Key::Equals,
+        VirtualKeyCode::Plus | VirtualKeyCode::NumpadAdd => Key::Plus,
 
         VirtualKeyCode::Key0 | VirtualKeyCode::Numpad0 => Key::Num0,
         VirtualKeyCode::Key1 | VirtualKeyCode::Numpad1 => Key::Num1,
@@ -205,6 +204,7 @@ impl Egui {
                             pressed,
                             repeat: false, // egui will fill this in for us!
                             modifiers: self.raw_input.modifiers,
+                            physical_key: None,
                         });
                     }
                 }

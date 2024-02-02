@@ -10,6 +10,7 @@ use super::{
     target::{Target, TargetHub, TargetId},
 };
 
+/// Descroption of job creating a target.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct JobCreateDesc {
     /// Target name.

@@ -390,7 +390,7 @@ impl GamesTab {
 
             let mut rate = game.as_ref().map_or(0.0, |g| g.get_rate());
 
-            let value = egui::Slider::new(&mut rate, 0.0..=10.0);
+            let value = egui::Slider::new(&mut rate, 0.0..=10.0).clamp_to_range(false);
             let r = ui.add(value);
             if r.changed() {
                 game.as_mut().unwrap().set_rate(rate as f32);

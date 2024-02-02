@@ -24,10 +24,14 @@ use winit::{
     window::{Window, WindowBuilder, WindowId},
 };
 
-use crate::{data::ProjectData, games::GamesTab, workgraph::WorkGraph, TabKind};
-
-use super::{
-    console::Console, filters::Filters, games::Games, plugins::Plugins, systems::Systems, Tab,
+use crate::{
+    console::Console,
+    data::ProjectData,
+    filters::Filters,
+    games::{Games, GamesTab},
+    plugins::Plugins,
+    systems::Systems,
+    workgraph::WorkGraph,
 };
 
 pub enum UserEvent {}
@@ -35,6 +39,73 @@ pub enum UserEvent {}
 pub type Event<'a> = winit::event::Event<'a, UserEvent>;
 pub type EventLoop = winit::event_loop::EventLoop<UserEvent>;
 pub type EventLoopWindowTarget = winit::event_loop::EventLoopWindowTarget<UserEvent>;
+
+/// Editor tab.
+#[derive(serde::Serialize, serde::Deserialize)]
+enum TabKind {
+    Plugins,
+    Console,
+    Systems,
+    Filters,
+    WorkGraph,
+    Game {
+        #[serde(skip)]
+        tab: GamesTab,
+    },
+    // Memory,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Tab {
+    kind: TabKind,
+    id: egui::Id,
+}
+
+make_id!(TabId);
+
+impl Tab {
+    pub fn plugins(idgen: &mut IdGen) -> Self {
+        Tab {
+            kind: TabKind::Plugins,
+            id: egui::Id::new(idgen.next::<TabId>()),
+        }
+    }
+
+    pub fn console(idgen: &mut IdGen) -> Self {
+        Tab {
+            kind: TabKind::Console,
+            id: egui::Id::new(idgen.next::<TabId>()),
+        }
+    }
+
+    pub fn systems(idgen: &mut IdGen) -> Self {
+        Tab {
+            kind: TabKind::Systems,
+            id: egui::Id::new(idgen.next::<TabId>()),
+        }
+    }
+
+    pub fn filters(idgen: &mut IdGen) -> Self {
+        Tab {
+            kind: TabKind::Filters,
+            id: egui::Id::new(idgen.next::<TabId>()),
+        }
+    }
+
+    pub fn workgraph(idgen: &mut IdGen) -> Self {
+        Tab {
+            kind: TabKind::WorkGraph,
+            id: egui::Id::new(idgen.next::<TabId>()),
+        }
+    }
+
+    pub fn game(idgen: &mut IdGen, tab: GamesTab) -> Self {
+        Tab {
+            kind: TabKind::Game { tab },
+            id: egui::Id::new(idgen.next::<TabId>()),
+        }
+    }
+}
 
 /// Editor app instance.
 /// Contains state of the editor.
@@ -284,6 +355,10 @@ impl App {
                             }
                             if ui.button("Filters").clicked() {
                                 tabs.push_to_first_leaf(Tab::filters(&mut self.tab_idgen));
+                                ui.close_menu();
+                            }
+                            if ui.button("WorkGraph").clicked() {
+                                tabs.push_to_first_leaf(Tab::workgraph(&mut self.tab_idgen));
                                 ui.close_menu();
                             }
                         });

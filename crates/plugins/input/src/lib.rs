@@ -77,7 +77,7 @@ pub fn next_action<'a, A>(entity: &'a mut FlowEntity<'_>) -> impl Future<Output 
 where
     A: Send + 'static,
 {
-    entity.poll_view_mut::<&mut ActionQueue<A>, _, _>(|queue, cx| {
+    entity.try_poll_view_mut::<&mut ActionQueue<A>, _, _>(|queue, cx| {
         if let Some(action) = queue.actions.pop_front() {
             return Poll::Ready(action);
         }
@@ -87,6 +87,7 @@ where
 }
 
 /// Extension trait for `FlowEntity` to work with input.
+#[allow(async_fn_in_trait)]
 pub trait FlowEntityExt {
     async fn next_action<A>(&mut self) -> Option<A>
     where

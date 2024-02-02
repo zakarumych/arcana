@@ -43,7 +43,7 @@ impl<K> Drop for AnyHashMap<K> {
 }
 
 impl<K> AnyHashMap<K> {
-    pub fn new<V>() -> Self {
+    pub fn new<V: 'static>() -> Self {
         unsafe {
             AnyHashMap {
                 map: transmute(HashMap::<K, V>::new()),
@@ -54,12 +54,12 @@ impl<K> AnyHashMap<K> {
         }
     }
 
-    pub unsafe fn downcast_ref<V>(&self) -> &HashMap<K, V> {
-        transmute(&self.map)
+    pub unsafe fn downcast_ref<V: 'static>(&self) -> &HashMap<K, V> {
+        unsafe { transmute(&self.map) }
     }
 
-    pub unsafe fn downcast_mut<V>(&mut self) -> &mut HashMap<K, V> {
-        transmute(&mut self.map)
+    pub unsafe fn downcast_mut<V: 'static>(&mut self) -> &mut HashMap<K, V> {
+        unsafe { transmute(&mut self.map) }
     }
 }
 

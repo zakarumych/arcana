@@ -47,13 +47,13 @@ dunce = "1"
 # ], git = "http://github.com/zakarumych/edict" }
 
 edict = { version = "0.5", path = "../../edict" }
-egui = { version = "0.24", features = ["bytemuck"] }
-egui_dnd = { version = "0.5" }
-egui_dock = { version = "0.9" }
-egui_file = { version = "0.13" }
-egui-phosphor = { version = "0.3" }
+egui = { version = "0.25", features = ["bytemuck"] }
+egui_dnd = { version = "0.6" }
+egui_dock = { version = "0.10" }
+egui_file = { version = "0.14" }
+egui-phosphor = { version = "0.3.2" }
 egui-snarl = { path = "../../egui-snarl" }
-egui_tracing = { version = "0.2", git = "http://github.com/zakarumych/egui_tracing" }
+egui_tracing = { version = "0.2.2", git = "http://github.com/zakarumych/egui_tracing" }
 flume = "0.11"
 figa = { version = "0.3" }
 foreign-types = { version = "0.5" }
@@ -104,3 +104,24 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 unicode-ident = "1"
 uuid = { version = "1.6" }
 winit = { version = "0.28" }
+
+[profile.dev.package.ahash]
+opt-level = 3
+
+[profile.dev.package.rapier2d]
+opt-level = 3
+
+[profile.dev.package.rapier3d]
+opt-level = 3
+
+[profile.dev.package.parry2d]
+opt-level = 3
+
+[profile.dev.package.parry3d]
+opt-level = 3
+
+[profile.dev.package.nalgebra]
+opt-level = 3
+
+[profile.dev.package.hashbrown]
+opt-level = 3

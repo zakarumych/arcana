@@ -1,5 +1,6 @@
 use std::{
     collections::VecDeque,
+    sync::atomic::{AtomicU64, Ordering::Relaxed},
     task::{Context, Poll, Waker},
 };
 
@@ -13,86 +14,190 @@ use arcana::{
 use rapier::{
     dynamics::{
         CCDSolver, ImpulseJointSet, IntegrationParameters, IslandManager, MultibodyJointSet,
-        RigidBodyHandle, RigidBodySet, RigidBodyType,
+        RigidBodyBuilder, RigidBodyHandle, RigidBodySet,
     },
     geometry::{
-        BroadPhase, ColliderBuilder, ColliderHandle, ColliderSet, CollisionEvent, ContactPair,
-        NarrowPhase, Shape,
+        BroadPhase, ColliderBuilder, ColliderHandle, ColliderSet, ContactPair, NarrowPhase,
     },
     math::{Isometry, Point, Vector},
-    pipeline::{ActiveEvents, PhysicsPipeline, QueryFilter, QueryPipeline},
+    pipeline::{PhysicsPipeline, QueryFilter, QueryPipeline},
 };
 
-pub use rapier::{dynamics, geometry, pipeline};
+use super::UserData;
 
-use super::{Collision, CollisionState, UserData};
+pub use rapier::{
+    dynamics::RigidBodyType,
+    geometry::{Ball, Group, InteractionGroups, Shape, SharedShape},
+    pipeline::ActiveEvents,
+};
 
-#[derive(Clone, Component)]
-#[edict(name = "Collider")]
-#[edict(on_drop = Collider::on_drop)]
+static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Payload of the collistion started event.
+/// Contains body entity, other collider entity and other body entity.
+#[derive(Clone, Copy, Debug)]
+pub struct CollisionStarted {
+    /// Body to which this collider belongs if any.
+    pub body: Option<EntityId>,
+
+    /// Other collider entity id.
+    pub other: EntityId,
+
+    /// Other body entity id if any.
+    pub other_body: Option<EntityId>,
+}
+
+/// Payload of the collistion started event.
+/// Contains body entity, other collider entity and other body entity.
+#[derive(Clone, Copy, Debug)]
+pub struct CollisionStopped {
+    /// Body to which this collider belongs if any.
+    pub body: Option<EntityId>,
+
+    /// Other collider entity id.
+    /// None if collider entity was despawned.
+    pub other: Option<EntityId>,
+
+    /// Other body entity id if any.
+    pub other_body: Option<EntityId>,
+}
+
+/// Contract force event.
+/// Contains collision data and impulse applied to colliders.
+#[derive(Clone, Copy, Debug)]
+pub struct ContactForce {
+    /// Body to which this collider belongs if any.
+    pub body: Option<EntityId>,
+
+    /// Other collider entity id.
+    /// None if collider entity was despawned.
+    pub other: EntityId,
+
+    /// Other body entity id if any.
+    pub other_body: Option<EntityId>,
+
+    /// Sum of all impulses applied by this contact.
+    pub total_impulse: Vector<f32>,
+
+    /// Sum of all impulse magnitudes applied by this contact.
+    pub total_impulse_magnitude: f32,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum CollisionEvent {
+    CollisionStarted(CollisionStarted),
+    CollisionStopped(CollisionStopped),
+    ContactForce(ContactForce),
+}
+
+impl From<CollisionStarted> for CollisionEvent {
+    #[inline(always)]
+    fn from(event: CollisionStarted) -> Self {
+        CollisionEvent::CollisionStarted(event)
+    }
+}
+
+impl From<CollisionStopped> for CollisionEvent {
+    #[inline(always)]
+    fn from(event: CollisionStopped) -> Self {
+        CollisionEvent::CollisionStopped(event)
+    }
+}
+
+impl From<ContactForce> for CollisionEvent {
+    #[inline(always)]
+    fn from(event: ContactForce) -> Self {
+        CollisionEvent::ContactForce(event)
+    }
+}
+
+#[derive(Clone)]
 pub struct Collider {
     builder: ColliderBuilder,
     handle: Option<ColliderHandle>,
     body: Option<EntityId>,
+
+    /// Unique ID of the component instance.
+    /// Used to detect when component is replaced.
+    id: u64,
+}
+
+impl Component for Collider {
+    fn name() -> &'static str {
+        "Collider"
+    }
+
+    fn on_drop(&mut self, _entity: EntityId, mut encoder: LocalActionEncoder) {
+        if let Some(collider) = self.handle {
+            encoder.closure(move |world: &mut World| {
+                let ref mut res = *world.expect_resource_mut::<PhysicsResource>();
+                res.colliders
+                    .remove(collider, &mut res.islands, &mut res.bodies, true);
+            });
+        }
+    }
 }
 
 impl Collider {
-    pub fn new(shape: geometry::SharedShape) -> Self {
+    pub fn new(shape: SharedShape) -> Self {
+        let id = COUNTER.fetch_add(1, Relaxed);
+
         Collider {
             builder: ColliderBuilder::new(shape),
             handle: None,
             body: None,
+            id,
         }
     }
 
     pub fn ball(radius: f32) -> Self {
-        Collider::new(geometry::SharedShape::ball(radius))
+        Collider::new(SharedShape::ball(radius))
     }
 
     pub fn halfspace(outward_normal: na::Unit<Vector<f32>>) -> Self {
-        Collider::new(geometry::SharedShape::halfspace(outward_normal))
+        Collider::new(SharedShape::halfspace(outward_normal))
     }
 
     with_dim2! {
         pub fn cuboid(hx: f32, hy: f32) -> Self {
-            Collider::new(geometry::SharedShape::cuboid(hx, hy))
+            Collider::new(SharedShape::cuboid(hx, hy))
         }
 
         pub fn round_cuboid(hx: f32, hy: f32, border_radius: f32) -> Self {
-            Collider::new(geometry::SharedShape::round_cuboid(hx, hy, border_radius))
+            Collider::new(SharedShape::round_cuboid(hx, hy, border_radius))
         }
     }
 
     with_dim3! {
         pub fn cuboid(hx: f32, hy: f32, hz: f32) -> Self {
-            Collider::new(geometry::SharedShape::cuboid(hx, hy, hz))
+            Collider::new(SharedShape::cuboid(hx, hy, hz))
         }
 
         pub fn round_cuboid(hx: f32, hy: f32, hz: f32, border_radius: f32) -> Self {
-            Collider::new(geometry::SharedShape::round_cuboid(hx, hy, hz, border_radius))
+            Collider::new(SharedShape::round_cuboid(hx, hy, hz, border_radius))
         }
     }
 
     pub fn capsule_x(half_height: f32, radius: f32) -> Self {
-        Collider::new(geometry::SharedShape::capsule_x(half_height, radius))
+        Collider::new(SharedShape::capsule_x(half_height, radius))
     }
 
     pub fn capsule_y(half_height: f32, radius: f32) -> Self {
-        Collider::new(geometry::SharedShape::capsule_y(half_height, radius))
+        Collider::new(SharedShape::capsule_y(half_height, radius))
     }
 
     with_dim3! {
         pub fn capsule_z(half_height: f32, radius: f32) -> Self {
-            Collider::new(geometry::SharedShape::capsule_z(half_height, radius))
+            Collider::new(SharedShape::capsule_z(half_height, radius))
         }
     }
 
     pub fn segment(a: Point<f32>, b: Point<f32>) -> Self {
-        Collider::new(geometry::SharedShape::segment(a, b))
+        Collider::new(SharedShape::segment(a, b))
     }
 
     pub fn triangle(a: Point<f32>, b: Point<f32>, c: Point<f32>) -> Self {
-        Collider::new(geometry::SharedShape::triangle(a, b, c))
+        Collider::new(SharedShape::triangle(a, b, c))
     }
 
     pub fn sensor(self, is_sensor: bool) -> Self {
@@ -100,6 +205,7 @@ impl Collider {
             builder: self.builder.sensor(is_sensor),
             handle: self.handle,
             body: self.body,
+            id: self.id,
         }
     }
 
@@ -108,6 +214,7 @@ impl Collider {
             builder: self.builder.position(pos),
             handle: self.handle,
             body: self.body,
+            id: self.id,
         }
     }
 
@@ -116,16 +223,36 @@ impl Collider {
             builder: self.builder.active_events(active_events),
             handle: self.handle,
             body: self.body,
+            id: self.id,
         }
     }
 
-    fn on_drop(&self, _: EntityId, mut encoder: LocalActionEncoder) {
-        if let Some(collider) = self.handle {
-            encoder.closure(move |world: &mut World| {
-                let ref mut res = *world.expect_resource_mut::<PhysicsResource>();
-                res.colliders
-                    .remove(collider, &mut res.islands, &mut res.bodies, true);
-            });
+    pub fn enable_collision_events(self) -> Self {
+        let active_events = self.builder.active_events | ActiveEvents::COLLISION_EVENTS;
+        Collider {
+            builder: self.builder.active_events(active_events),
+            handle: self.handle,
+            body: self.body,
+            id: self.id,
+        }
+    }
+
+    pub fn enable_contact_force_events(self) -> Self {
+        let active_events = self.builder.active_events | ActiveEvents::CONTACT_FORCE_EVENTS;
+        Collider {
+            builder: self.builder.active_events(active_events),
+            handle: self.handle,
+            body: self.body,
+            id: self.id,
+        }
+    }
+
+    pub fn contact_force_event_threshold(self, treshold: f32) -> Self {
+        Collider {
+            builder: self.builder.contact_force_event_threshold(treshold),
+            handle: self.handle,
+            body: self.body,
+            id: self.id,
         }
     }
 }
@@ -156,12 +283,16 @@ fn init_colliders(
             },
         };
 
-        match collider.handle.and_then(|handle| res.colliders.get(handle)) {
+        match collider
+            .handle
+            .map(|handle| res.colliders.get(handle).unwrap())
+            .filter(|col| UserData::from_bits(col.user_data).id == collider.id)
+        {
             None => {
                 // No handle or outdated.
 
                 let mut col = collider.builder.build();
-                col.user_data = UserData::new(e).bits();
+                col.user_data = UserData::new(e, collider.id).bits();
 
                 if let Some(body) = body {
                     let handle = res.colliders.insert_with_parent(
@@ -219,16 +350,14 @@ fn init_colliders(
 }
 
 /// Component that represents a physics body.
-/// Use `PhysicsResource` to create bodies.
-/// Use `PhysicsResource::add_collider` to add colliders to bodies.
-#[derive(Debug, Component)]
-#[edict(name = "RigidBody")]
-#[edict(on_drop = RigidBody::on_drop)]
+/// Adding it to the entity will cause body to appear in physical world.
+/// Removing it will remove body from the world.
+#[derive(Debug)]
 pub struct RigidBody {
     body_type: RigidBodyType,
 
     /// Rigid body setup.
-    builder: dynamics::RigidBodyBuilder,
+    builder: RigidBodyBuilder,
 
     /// Handle to the body in the physics world.
     handle: Option<RigidBodyHandle>,
@@ -240,11 +369,54 @@ pub struct RigidBody {
 
     /// Total impulse applied to the body.
     impulse: Vector<f32>,
+
+    /// Unique ID of the component instance.
+    /// Used to detect when component is replaced.
+    id: u64,
+}
+
+impl Component for RigidBody {
+    fn name() -> &'static str {
+        "RigidBody"
+    }
+
+    fn on_drop(&mut self, entity: EntityId, mut encoder: LocalActionEncoder) {
+        if let Some(body) = self.handle {
+            encoder.closure(move |world: &mut World| {
+                let world = world.local();
+
+                let ref mut res = *world.expect_resource_mut::<PhysicsResource>();
+
+                if let Some(rb) = res.bodies.get(body) {
+                    for &c in rb.colliders() {
+                        if let Some(col) = res.colliders.get(c) {
+                            if let Some(e) = UserData::from_bits(col.user_data).entity {
+                                if entity != e {
+                                    world.despawn_defer(e);
+                                } else {
+                                    world.drop_defer::<Collider>(entity);
+                                }
+                            }
+                        }
+                    }
+                    res.bodies.remove(
+                        body,
+                        &mut res.islands,
+                        &mut res.colliders,
+                        &mut res.impulse_joints,
+                        &mut res.multibody_joints,
+                        true,
+                    );
+                }
+            });
+        }
+    }
 }
 
 impl RigidBody {
     pub fn new(body_type: RigidBodyType) -> Self {
-        let builder = dynamics::RigidBodyBuilder::new(body_type);
+        let id = COUNTER.fetch_add(1, Relaxed);
+        let builder = RigidBodyBuilder::new(body_type);
 
         RigidBody {
             body_type,
@@ -253,6 +425,7 @@ impl RigidBody {
             mass: 0.0,
             force: Vector::zeros(),
             impulse: Vector::zeros(),
+            id,
         }
     }
 
@@ -302,38 +475,6 @@ impl RigidBody {
         self.body_type == RigidBodyType::Dynamic
     }
 
-    fn on_drop(&self, entity: EntityId, mut encoder: LocalActionEncoder) {
-        if let Some(body) = self.handle {
-            encoder.closure(move |world: &mut World| {
-                let world = world.local();
-
-                let ref mut res = *world.expect_resource_mut::<PhysicsResource>();
-
-                if let Some(rb) = res.bodies.get(body) {
-                    for &c in rb.colliders() {
-                        if let Some(col) = res.colliders.get(c) {
-                            if let Some(e) = UserData::from_bits(col.user_data).entity {
-                                if entity != e {
-                                    world.despawn_defer(e);
-                                } else {
-                                    world.drop_defer::<Collider>(entity);
-                                }
-                            }
-                        }
-                    }
-                    res.bodies.remove(
-                        body,
-                        &mut res.islands,
-                        &mut res.colliders,
-                        &mut res.impulse_joints,
-                        &mut res.multibody_joints,
-                        true,
-                    );
-                }
-            });
-        }
-    }
-
     /// Returns mass of the body.
     pub fn mass(&self) -> f32 {
         self.mass
@@ -368,12 +509,16 @@ fn init_bodies(
     // Set user data and kinematic state.
     // This is cold path as it only touches bodies that were modified (including newly inserted).
     for (e, body, kinematic_position_based) in modified_bodies {
-        match body.handle.and_then(|handle| res.bodies.get_mut(handle)) {
+        match body
+            .handle
+            .map(|handle| res.bodies.get_mut(handle).unwrap())
+            .filter(|rb| UserData::from_bits(rb.user_data).id == body.id)
+        {
             None => {
                 // No handle or outdated.
                 let mut rb = body.builder.build();
 
-                rb.user_data = UserData::new(e).bits();
+                rb.user_data = UserData::new(e, body.id).bits();
 
                 rb.add_force(body.force, false);
                 rb.apply_impulse(body.impulse, false);
@@ -381,7 +526,7 @@ fn init_bodies(
                 body.impulse = Vector::zeros();
 
                 let is_kinematic_position_based =
-                    rb.body_type() == RigidBodyType::KinematicPositionBased;
+                    rb.body_type() == rapier::dynamics::RigidBodyType::KinematicPositionBased;
 
                 // Set/unser kinematic flag component.
                 if kinematic_position_based.is_some() != is_kinematic_position_based {
@@ -411,7 +556,7 @@ fn init_bodies(
 #[derive(Debug, Component)]
 #[edict(name = "CollisionEvents")]
 pub struct CollisionEvents {
-    queue: VecDeque<Collision>,
+    queue: VecDeque<CollisionEvent>,
     waker: Option<Waker>,
 }
 
@@ -431,18 +576,19 @@ impl CollisionEvents {
         }
     }
 
-    pub fn enque(&mut self, collision: Collision) {
-        self.queue.push_back(collision);
+    pub fn enque(&mut self, collision: impl Into<CollisionEvent>) {
+        self.queue.push_back(collision.into());
         if let Some(waker) = self.waker.take() {
             waker.wake();
         }
     }
 
-    pub fn deque(&mut self) -> Option<Collision> {
+    pub fn deque(&mut self) -> Option<CollisionEvent> {
         self.queue.pop_front()
     }
 
-    pub fn poll_deque(&mut self, cx: &mut Context) -> Poll<Collision> {
+    #[inline]
+    pub fn poll_deque(&mut self, cx: &mut Context) -> Poll<CollisionEvent> {
         if let Some(collision) = self.queue.pop_front() {
             Poll::Ready(collision)
         } else {
@@ -450,10 +596,70 @@ impl CollisionEvents {
             Poll::Pending
         }
     }
+}
 
-    pub async fn async_deque_from(entity: &mut FlowEntity<'_>) -> Collision {
-        entity
-            .expect_poll_view::<&mut CollisionEvents, _, _>(|events, cx| events.poll_deque(cx))
+#[derive(Debug, Component)]
+#[edict(name = "ContactForceEvents")]
+pub struct ContactForceEvents {
+    queue: VecDeque<ContactForce>,
+    waker: Option<Waker>,
+}
+
+impl Drop for ContactForceEvents {
+    fn drop(&mut self) {
+        if let Some(waker) = self.waker.take() {
+            waker.wake();
+        }
+    }
+}
+
+impl ContactForceEvents {
+    pub fn new() -> Self {
+        ContactForceEvents {
+            queue: VecDeque::new(),
+            waker: None,
+        }
+    }
+
+    pub fn enque(&mut self, contact: impl Into<ContactForce>) {
+        self.queue.push_back(contact.into());
+        if let Some(waker) = self.waker.take() {
+            waker.wake();
+        }
+    }
+
+    pub fn deque(&mut self) -> Option<ContactForce> {
+        self.queue.pop_front()
+    }
+
+    #[inline]
+    pub fn poll_deque(&mut self, cx: &mut Context) -> Poll<ContactForce> {
+        if let Some(contact) = self.queue.pop_front() {
+            Poll::Ready(contact)
+        } else {
+            self.waker = Some(cx.waker().clone());
+            Poll::Pending
+        }
+    }
+}
+
+#[allow(async_fn_in_trait)]
+pub trait FlowEntityExt {
+    async fn next_collision_event(&mut self) -> CollisionEvent;
+
+    async fn next_contact_force_event(&mut self) -> ContactForce;
+}
+
+impl FlowEntityExt for FlowEntity<'_> {
+    #[inline(always)]
+    async fn next_collision_event(&mut self) -> CollisionEvent {
+        self.poll_view_mut::<&mut CollisionEvents, _, _>(|events, cx| events.poll_deque(cx))
+            .await
+    }
+
+    #[inline(always)]
+    async fn next_contact_force_event(&mut self) -> ContactForce {
+        self.poll_view_mut::<&mut ContactForceEvents, _, _>(|events, cx| events.poll_deque(cx))
             .await
     }
 }
@@ -520,7 +726,7 @@ impl PhysicsResource {
 
 #[derive(Default)]
 pub struct PhysicsState {
-    new_events: FlipQueue<CollisionEvent>,
+    new_events: FlipQueue<RawEvent>,
 }
 
 fn update_kinematic(
@@ -535,7 +741,8 @@ fn update_kinematic(
 
 fn run_simulation(
     mut res: ResMut<PhysicsResource>,
-    mut events: View<&mut CollisionEvents>,
+    mut collision_events: View<&mut CollisionEvents>,
+    mut contact_force_events: View<&mut ContactForceEvents>,
     mut state: State<PhysicsState>,
 ) {
     let res = &mut *res;
@@ -560,41 +767,90 @@ fn run_simulation(
         },
     );
 
-    for collision in state.new_events.drain() {
-        let (ch1, ch2, state) = match collision {
-            CollisionEvent::Started(ch1, ch2, _cf) => (ch1, ch2, CollisionState::Started),
-            CollisionEvent::Stopped(ch1, ch2, _cf) => (ch1, ch2, CollisionState::Stopped),
-        };
-
-        let c1 = res.colliders.get(ch1);
-        let c2 = res.colliders.get(ch2);
-
-        let b1 = c1.and_then(|c| c.parent()).and_then(|b| res.bodies.get(b));
-        let b2 = c2.and_then(|c| c.parent()).and_then(|b| res.bodies.get(b));
-
-        let c1 = c1.and_then(|c| UserData::from_bits(c.user_data).entity);
-        let c2 = c2.and_then(|c| UserData::from_bits(c.user_data).entity);
-
-        let b1 = b1.and_then(|b| UserData::from_bits(b.user_data).entity);
-        let b2 = b2.and_then(|b| UserData::from_bits(b.user_data).entity);
-
-        let mut emit = |c1, b1, c2, b2| {
-            if let Ok(events) = events.try_get_mut(c1) {
-                events.enque(Collision {
-                    state,
-                    body: b1,
-                    other: c2,
-                    other_body: b2,
-                });
+    for event in state.new_events.drain() {
+        match event {
+            RawEvent::CollisionStarted { c1, b1, c2, b2 } => {
+                if let Ok(events) = collision_events.try_get_mut(c1) {
+                    events.enque(CollisionStarted {
+                        body: b1,
+                        other: c2,
+                        other_body: b2,
+                    });
+                }
+                if let Ok(events) = collision_events.try_get_mut(c2) {
+                    events.enque(CollisionStarted {
+                        body: b2,
+                        other: c1,
+                        other_body: b1,
+                    });
+                }
+            }
+            RawEvent::CollisionStopped { c1, b1, c2, b2 } => {
+                if let Some(c1) = c1 {
+                    if let Ok(events) = collision_events.try_get_mut(c1) {
+                        events.enque(CollisionStopped {
+                            body: b1,
+                            other: c2,
+                            other_body: b2,
+                        });
+                    }
+                }
+                if let Some(c2) = c2 {
+                    if let Ok(events) = collision_events.try_get_mut(c2) {
+                        events.enque(CollisionStopped {
+                            body: b2,
+                            other: c1,
+                            other_body: b1,
+                        });
+                    }
+                }
+            }
+            RawEvent::ContactForce {
+                c1,
+                b1,
+                c2,
+                b2,
+                ti,
+                tim,
+            } => {
+                if let Ok(events) = collision_events.try_get_mut(c1) {
+                    events.enque(ContactForce {
+                        body: b1,
+                        other: c2,
+                        other_body: b2,
+                        total_impulse: ti,
+                        total_impulse_magnitude: tim,
+                    });
+                }
+                if let Ok(events) = collision_events.try_get_mut(c2) {
+                    events.enque(ContactForce {
+                        body: b2,
+                        other: c1,
+                        other_body: b1,
+                        total_impulse: -ti,
+                        total_impulse_magnitude: tim,
+                    });
+                }
+                if let Ok(events) = contact_force_events.try_get_mut(c1) {
+                    events.enque(ContactForce {
+                        body: b1,
+                        other: c2,
+                        other_body: b2,
+                        total_impulse: ti,
+                        total_impulse_magnitude: tim,
+                    });
+                }
+                if let Ok(events) = contact_force_events.try_get_mut(c2) {
+                    events.enque(ContactForce {
+                        body: b2,
+                        other: c1,
+                        other_body: b1,
+                        total_impulse: -ti,
+                        total_impulse_magnitude: tim,
+                    });
+                }
             }
         };
-
-        if let Some(c1) = c1 {
-            emit(c1, b1, c2, b2);
-        }
-        if let Some(c2) = c2 {
-            emit(c2, b2, c1, b1);
-        }
     }
 
     res.query_pipeline.update(&res.bodies, &res.colliders);
@@ -624,42 +880,98 @@ fn update_active(mut res: ResMut<PhysicsResource>, mut dynamic_bodies: View<&mut
     }
 }
 
-// fn update_active(
-//     mut res: ResMut<PhysicsResource>,
-//     dynamic_bodies: View<(&RigidBody, &mut Global)>,
-// ) {
-//     let res = &mut *res;
-
-//     // Update position of active dynamic bodies.
-//     for (body, global) in dynamic_bodies {
-//         let rb = res.bodies.get_mut(body.handle.unwrap()).unwrap();
-//         global.iso = *rb.position();
-//     }
-// }
+enum RawEvent {
+    CollisionStarted {
+        c1: EntityId,
+        b1: Option<EntityId>,
+        c2: EntityId,
+        b2: Option<EntityId>,
+    },
+    CollisionStopped {
+        c1: Option<EntityId>,
+        b1: Option<EntityId>,
+        c2: Option<EntityId>,
+        b2: Option<EntityId>,
+    },
+    ContactForce {
+        c1: EntityId,
+        b1: Option<EntityId>,
+        c2: EntityId,
+        b2: Option<EntityId>,
+        ti: Vector<f32>,
+        tim: f32,
+    },
+}
 
 struct EventHandler<'a> {
-    new_events: &'a FlipQueue<CollisionEvent>,
+    new_events: &'a FlipQueue<RawEvent>,
 }
 
 impl<'a> rapier::pipeline::EventHandler for EventHandler<'a> {
     fn handle_collision_event(
         &self,
-        _bodies: &RigidBodySet,
-        _colliders: &ColliderSet,
-        event: CollisionEvent,
+        bodies: &RigidBodySet,
+        colliders: &ColliderSet,
+        event: rapier::geometry::CollisionEvent,
         _contact_pair: Option<&ContactPair>,
     ) {
-        self.new_events.push(event);
+        let c1 = colliders.get(event.collider1());
+        let c2 = colliders.get(event.collider2());
+
+        let b1 = c1.and_then(|c| c.parent()).and_then(|b| bodies.get(b));
+        let b2 = c2.and_then(|c| c.parent()).and_then(|b| bodies.get(b));
+
+        let c1 = c1.map(|c| UserData::from_bits(c.user_data).entity.unwrap());
+        let c2 = c2.map(|c| UserData::from_bits(c.user_data).entity.unwrap());
+
+        let b1 = b1.map(|b| UserData::from_bits(b.user_data).entity.unwrap());
+        let b2 = b2.map(|b| UserData::from_bits(b.user_data).entity.unwrap());
+
+        if event.started() {
+            debug_assert!(!event.removed());
+
+            let event = RawEvent::CollisionStarted {
+                c1: c1.unwrap(),
+                b1,
+                c2: c2.unwrap(),
+                b2,
+            };
+            self.new_events.push(event);
+        } else {
+            let event = RawEvent::CollisionStopped { c1, b1, c2, b2 };
+            self.new_events.push(event);
+        }
     }
 
     fn handle_contact_force_event(
         &self,
         _dt: f32,
-        _bodies: &RigidBodySet,
-        _colliders: &ColliderSet,
-        _contact_pair: &ContactPair,
-        _total_force_magnitude: f32,
+        bodies: &RigidBodySet,
+        colliders: &ColliderSet,
+        contact_pair: &ContactPair,
+        total_force_magnitude: f32,
     ) {
+        let c1 = colliders.get(contact_pair.collider1).unwrap();
+        let c2 = colliders.get(contact_pair.collider2).unwrap();
+
+        let b1 = c1.parent().and_then(|b| bodies.get(b));
+        let b2 = c2.parent().and_then(|b| bodies.get(b));
+
+        let c1 = UserData::from_bits(c1.user_data).entity.unwrap();
+        let c2 = UserData::from_bits(c2.user_data).entity.unwrap();
+
+        let b1 = b1.map(|b| UserData::from_bits(b.user_data).entity.unwrap());
+        let b2 = b2.map(|b| UserData::from_bits(b.user_data).entity.unwrap());
+
+        let event = RawEvent::ContactForce {
+            c1,
+            b1,
+            c2,
+            b2,
+            ti: contact_pair.total_impulse(),
+            tim: total_force_magnitude,
+        };
+        self.new_events.push(event);
     }
 }
 

@@ -9,12 +9,10 @@ use arcana_project::{IdentBuf, Project};
 use egui::Ui;
 use egui_snarl::{
     ui::{PinInfo, SnarlStyle, SnarlViewer},
-    InPin, OutPin, Snarl,
+    InPin, NodeId, OutPin, Snarl,
 };
 
 use crate::{data::ProjectData, sync_project};
-
-use super::Tab;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum WorkGraphNode {
@@ -40,15 +38,14 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer {
 
     fn show_header(
         &mut self,
-        idx: usize,
+        id: NodeId,
         inputs: &[egui_snarl::InPin],
         outputs: &[egui_snarl::OutPin],
         ui: &mut egui::Ui,
         scale: f32,
         snarl: &mut egui_snarl::Snarl<WorkGraphNode>,
     ) {
-        let node = snarl.get_node(idx);
-        match *node {
+        match snarl[id] {
             WorkGraphNode::Job { ref name, .. } => {
                 ui.label(format!("Job: {}", name));
             }
@@ -79,8 +76,7 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer {
         _scale: f32,
         snarl: &mut Snarl<WorkGraphNode>,
     ) -> PinInfo {
-        let node = snarl.get_node(pin.id.node);
-        match *node {
+        match snarl[pin.id.node] {
             WorkGraphNode::Job { ref job, .. } => {
                 if pin.id.input >= job.updates.len() + job.reads.len() {
                     unreachable!()
@@ -111,8 +107,7 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer {
         _scale: f32,
         snarl: &mut Snarl<WorkGraphNode>,
     ) -> PinInfo {
-        let node = snarl.get_node(pin.id.node);
-        match *node {
+        match snarl[pin.id.node] {
             WorkGraphNode::Job { ref job, .. } => {
                 if pin.id.output >= job.updates.len() + job.creates.len() {
                     unreachable!()
@@ -141,8 +136,7 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer {
         _style: &egui::Style,
         snarl: &mut Snarl<WorkGraphNode>,
     ) -> egui::Color32 {
-        let node = snarl.get_node(pin.id.node);
-        match *node {
+        match snarl[pin.id.node] {
             WorkGraphNode::Job { ref job, .. } => {
                 if pin.id.input < job.updates.len() {
                     let update = &job.updates[pin.id.input];
@@ -164,8 +158,7 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer {
         _style: &egui::Style,
         snarl: &mut Snarl<WorkGraphNode>,
     ) -> egui::Color32 {
-        let node = snarl.get_node(pin.id.node);
-        match *node {
+        match snarl[pin.id.node] {
             WorkGraphNode::Job { ref job, .. } => {
                 if pin.id.output < job.updates.len() {
                     let update = &job.updates[pin.id.output];
@@ -182,17 +175,10 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer {
     }
 
     fn connect(&mut self, from: &OutPin, to: &InPin, snarl: &mut Snarl<WorkGraphNode>) {
-        let from_node = snarl.get_node(from.id.node);
-        let to_node = snarl.get_node(to.id.node);
+        let from_node = &snarl[from.id.node];
+        let to_node = &snarl[to.id.node];
         match (from_node, to_node) {
-            (
-                WorkGraphNode::Job {
-                    job: ref from_job, ..
-                },
-                WorkGraphNode::Job {
-                    job: ref to_job, ..
-                },
-            ) => {
+            (WorkGraphNode::Job { job: from_job, .. }, WorkGraphNode::Job { job: to_job, .. }) => {
                 if from_job.output_kind(from.id.output) == to_job.input_kind(to.id.input) {
                     debug_assert!(to.remotes.len() <= 1);
                     for &r in &to.remotes {
@@ -202,12 +188,7 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer {
                     self.modified = true;
                 }
             }
-            (
-                WorkGraphNode::Job {
-                    job: ref from_job, ..
-                },
-                WorkGraphNode::MainPresent,
-            ) => {
+            (WorkGraphNode::Job { job: from_job, .. }, WorkGraphNode::MainPresent) => {
                 if from_job.output_kind(from.id.output) == present_kind() {
                     debug_assert!(to.remotes.len() <= 1);
                     for &r in &to.remotes {
@@ -219,6 +200,15 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer {
             }
             _ => unreachable!(),
         }
+    }
+
+    fn graph_menu(
+        &mut self,
+        pos: egui::Pos2,
+        ui: &mut Ui,
+        scale: f32,
+        snarl: &mut Snarl<WorkGraphNode>,
+    ) {
     }
 }
 

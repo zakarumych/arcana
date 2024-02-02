@@ -1,3 +1,5 @@
+#![forbid(unsafe_op_in_unsafe_fn)]
+
 use std::{
     io::{ErrorKind, Write},
     path::Path,
@@ -58,75 +60,10 @@ mod games;
 mod ide;
 mod workgraph;
 // mod memory;
+mod container;
 mod plugins;
 mod systems;
-
-/// Editor tab.
-#[derive(serde::Serialize, serde::Deserialize)]
-enum TabKind {
-    Plugins,
-    Console,
-    Systems,
-    Filters,
-    WorkGraph,
-    Game {
-        #[serde(skip)]
-        tab: GamesTab,
-    },
-    // Memory,
-}
-
-#[derive(serde::Serialize, serde::Deserialize)]
-struct Tab {
-    kind: TabKind,
-    id: egui::Id,
-}
-
-make_id!(TabId);
-
-impl Tab {
-    pub fn plugins(idgen: &mut IdGen) -> Self {
-        Tab {
-            kind: TabKind::Plugins,
-            id: egui::Id::new(idgen.next::<TabId>()),
-        }
-    }
-
-    pub fn console(idgen: &mut IdGen) -> Self {
-        Tab {
-            kind: TabKind::Console,
-            id: egui::Id::new(idgen.next::<TabId>()),
-        }
-    }
-
-    pub fn systems(idgen: &mut IdGen) -> Self {
-        Tab {
-            kind: TabKind::Systems,
-            id: egui::Id::new(idgen.next::<TabId>()),
-        }
-    }
-
-    pub fn filters(idgen: &mut IdGen) -> Self {
-        Tab {
-            kind: TabKind::Filters,
-            id: egui::Id::new(idgen.next::<TabId>()),
-        }
-    }
-
-    pub fn workgraph(idgen: &mut IdGen) -> Self {
-        Tab {
-            kind: TabKind::WorkGraph,
-            id: egui::Id::new(idgen.next::<TabId>()),
-        }
-    }
-
-    pub fn game(idgen: &mut IdGen, tab: GamesTab) -> Self {
-        Tab {
-            kind: TabKind::Game { tab },
-            id: egui::Id::new(idgen.next::<TabId>()),
-        }
-    }
-}
+mod tools;
 
 /// Runs the editor application
 pub fn run(path: &Path) {
