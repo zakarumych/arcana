@@ -1,14 +1,12 @@
 use std::fmt;
 
 use blink_alloc::Blink;
-use edict::{EntityId, World};
+use edict::World;
 use winit::event::WindowEvent;
 
 pub use winit::{
-    event::{
-        ElementState, KeyboardInput, ModifiersState, MouseButton, MouseScrollDelta, ScanCode,
-        VirtualKeyCode,
-    },
+    event::{ElementState, KeyEvent, Modifiers, MouseButton, MouseScrollDelta},
+    keyboard::{Key, KeyCode, ModifiersState, NamedKey, NativeKey, NativeKeyCode, PhysicalKey},
     window::CursorIcon,
 };
 
@@ -74,9 +72,9 @@ pub enum ViewportEvent {
     },
     KeyboardInput {
         device_id: DeviceId,
-        input: KeyboardInput,
+        event: KeyEvent,
     },
-    ModifiersChanged(ModifiersState),
+    ModifiersChanged(Modifiers),
     CursorMoved {
         device_id: DeviceId,
         x: f32,
@@ -97,17 +95,17 @@ pub enum ViewportEvent {
         state: ElementState,
         button: MouseButton,
     },
-    Text {
-        text: String,
-    },
+    // Text {
+    //     text: String,
+    // },
 }
 
 pub struct UnsupportedEvent;
 
-impl TryFrom<&WindowEvent<'_>> for ViewportEvent {
+impl TryFrom<&WindowEvent> for ViewportEvent {
     type Error = UnsupportedEvent;
 
-    fn try_from(event: &WindowEvent<'_>) -> Result<Self, UnsupportedEvent> {
+    fn try_from(event: &WindowEvent) -> Result<Self, UnsupportedEvent> {
         match *event {
             WindowEvent::Resized(size) => {
                 let width = size.width;
@@ -120,10 +118,15 @@ impl TryFrom<&WindowEvent<'_>> for ViewportEvent {
                 })
             }
             WindowEvent::KeyboardInput {
-                device_id, input, ..
+                device_id,
+                ref event,
+                ..
             } => {
                 let device_id = DeviceId::from(device_id);
-                Ok(ViewportEvent::KeyboardInput { device_id, input })
+                Ok(ViewportEvent::KeyboardInput {
+                    device_id,
+                    event: event.clone(),
+                })
             }
             WindowEvent::ModifiersChanged(modifiers) => {
                 Ok(ViewportEvent::ModifiersChanged(modifiers))
@@ -150,7 +153,6 @@ impl TryFrom<&WindowEvent<'_>> for ViewportEvent {
                 device_id,
                 delta,
                 phase,
-                modifiers,
             } => {
                 let device_id = DeviceId::from(device_id);
                 let delta = delta;
@@ -160,7 +162,6 @@ impl TryFrom<&WindowEvent<'_>> for ViewportEvent {
                 device_id,
                 state,
                 button,
-                modifiers,
             } => {
                 let device_id = DeviceId::from(device_id);
                 let state = state;
@@ -171,10 +172,10 @@ impl TryFrom<&WindowEvent<'_>> for ViewportEvent {
                     button,
                 })
             }
-            WindowEvent::ReceivedCharacter(ch) if is_printable_char(ch) => {
-                let text = ch.to_string();
-                Ok(ViewportEvent::Text { text })
-            }
+            // WindowEvent::ReceivedCharacter(ch) if is_printable_char(ch) => {
+            //     let text = ch.to_string();
+            //     Ok(ViewportEvent::Text { text })
+            // }
             _ => Err(UnsupportedEvent),
         }
     }

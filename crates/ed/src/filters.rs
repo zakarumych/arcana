@@ -3,7 +3,7 @@ use egui::{Color32, Ui, WidgetText};
 
 use crate::move_element;
 
-use super::{plugins::Plugins, Tab};
+use super::plugins::Plugins;
 
 pub struct Filters;
 

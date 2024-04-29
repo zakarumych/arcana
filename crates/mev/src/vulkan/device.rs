@@ -10,9 +10,7 @@ use ash::vk::{self, Handle};
 use gpu_alloc::{AllocationFlags, MemoryBlock};
 use hashbrown::HashMap;
 use parking_lot::Mutex;
-use raw_window_handle::{
-    HasRawDisplayHandle, HasRawWindowHandle, RawDisplayHandle, RawWindowHandle,
-};
+use raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle};
 use slab::Slab;
 use smallvec::SmallVec;
 
@@ -1416,8 +1414,8 @@ impl crate::traits::Device for Device {
 
     fn new_surface(
         &self,
-        window: &impl HasRawWindowHandle,
-        display: &impl HasRawDisplayHandle,
+        window: &impl HasWindowHandle,
+        display: &impl HasDisplayHandle,
     ) -> Result<Surface, SurfaceError> {
         let me = &*self.inner;
         assert!(
@@ -1425,10 +1423,14 @@ impl crate::traits::Device for Device {
             "Surface feature is not enabled"
         );
 
-        let window = window.raw_window_handle();
-        let display = display.raw_display_handle();
+        let window = window
+            .window_handle()
+            .map_err(|_| SurfaceError::SurfaceLost)?;
+        let display = display
+            .display_handle()
+            .map_err(|_| SurfaceError::SurfaceLost)?;
 
-        match (window, display) {
+        match (window.as_raw(), display.as_raw()) {
             #[cfg(target_os = "windows")]
             (RawWindowHandle::Win32(window), RawDisplayHandle::Windows(_)) => {
                 let win32_surface = me.win32_surface.as_ref().unwrap();
@@ -1436,7 +1438,7 @@ impl crate::traits::Device for Device {
                     win32_surface.create_win32_surface(
                         &ash::vk::Win32SurfaceCreateInfoKHR::builder()
                             // .hinstance(hinstance)
-                            .hwnd(window.hwnd),
+                            .hwnd(window.hwnd.get() as _),
                         None,
                     )
                 };
@@ -1538,7 +1540,7 @@ pub(crate) fn compile_shader(
             None => None,
             Some(source_code) => Some(naga::back::spv::DebugInfo {
                 source_code,
-                file_name: filename.unwrap_or("<nofile>"),
+                file_name: filename.unwrap_or("<nofile>").as_ref(),
             }),
         },
     };

@@ -1,3 +1,7 @@
+//! This module contains GPU work-graph implementation.
+//! Work graph consists of jobs that declare resources they work on and set of edges between them.
+//! Jobs work in isolation except for shared resoruces they declared.
+
 mod graph;
 mod job;
 mod target;
@@ -5,13 +9,15 @@ mod target;
 use crate::with_stid;
 
 pub use self::{
-    graph::WorkGraph,
+    graph::{Edge, PinId, WorkGraph},
     job::{
-        Exec, Job, JobCreateDesc, JobCreateTarget, JobDesc, JobReadDesc, JobReadTarget,
+        Exec, Job, JobCreateDesc, JobCreateTarget, JobDesc, JobId, JobReadDesc, JobReadTarget,
         JobUpdateDesc, JobUpdateTarget, Planner,
     },
     target::{Target, TargetHub, TargetId},
 };
+
+const X: &str = "qwe";
 
 /// Generic 2d image target.
 /// It does not hold particular meaning behind pixel values.

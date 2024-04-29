@@ -1,9 +1,4 @@
-use std::{
-    fmt,
-    hash::{Hash, Hasher},
-    marker::PhantomData,
-    num::NonZeroU64,
-};
+use std::{fmt, hash::Hash, num::NonZeroU64};
 
 pub trait Id: fmt::Debug + Copy + Ord + Eq + Hash {
     fn new(value: NonZeroU64) -> Self;
@@ -57,12 +52,12 @@ macro_rules! make_id {
         #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
         #[repr(transparent)]
         $vis struct $name {
-            id: $crate::BaseId,
+            value: ::core::num::NonZeroU64,
         }
 
         impl ::core::fmt::Debug for $name {
             fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-                self.id.fmt(stringify!($name), f)
+                $crate::id::fmt_id(self.value.get(), stringify!($name), f)
             }
         }
 
@@ -70,18 +65,18 @@ macro_rules! make_id {
             #[inline(always)]
             pub const fn new(value: ::core::num::NonZeroU64) -> Self {
                 $name {
-                    id: $crate::BaseId::new(value),
+                    value,
                 }
             }
 
             #[inline(always)]
             pub const fn get(self) -> u64 {
-                self.id.get()
+                self.value.get()
             }
 
             #[inline(always)]
             pub const fn get_nonzero(self) -> ::core::num::NonZeroU64 {
-                self.id.get_nonzero()
+                self.value
             }
         }
 
@@ -89,18 +84,18 @@ macro_rules! make_id {
             #[inline(always)]
             fn new(value: ::core::num::NonZeroU64) -> Self {
                 $name {
-                    id: $crate::BaseId::new(value),
+                    value,
                 }
             }
 
             #[inline(always)]
             fn get(self) -> u64 {
-                self.id.get()
+                self.value.get()
             }
 
             #[inline(always)]
             fn get_nonzero(self) -> ::core::num::NonZeroU64 {
-                self.id.get_nonzero()
+                self.value
             }
         }
 
@@ -109,7 +104,7 @@ macro_rules! make_id {
             where
                 S: ::serde::Serializer,
             {
-                self.get_nonzero().serialize(serializer)
+                self.value.serialize(serializer)
             }
         }
 
@@ -119,16 +114,12 @@ macro_rules! make_id {
                 D: ::serde::Deserializer<'de>,
             {
                 let value = ::serde::Deserialize::deserialize(deserializer)?;
-                Ok($name::new(value))
+                Ok($name { value })
             }
         }
     };
 }
 
-/// Typed identifier.
-///
-/// Targets are inputs and outputs of jobs.
-/// See [`Target`] trait and [`Job API`](crate::work::job) for more info.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct BaseId {
@@ -152,26 +143,23 @@ impl BaseId {
     }
 }
 
-impl BaseId {
-    #[inline(always)]
-    #[doc(hidden)]
-    pub fn fmt(&self, kind: &str, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        const BASE32: &[u8; 32] = b"0123456789abcdefghjkmnpqrstuvyxz";
+#[inline(always)]
+#[doc(hidden)]
+pub fn fmt_id(mut value: u64, kind: &str, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    const BASE32: &[u8; 32] = b"0123456789abcdefghjkmnpqrstuvyxz";
 
-        let mut value = self.value.get();
-        let mut buf = [0u8; 8];
-        let mut i = 0;
-        while value != 0 {
-            buf[i] = BASE32[(value & 31) as usize];
-            value >>= 5;
-            i += 1;
-        }
-        buf[..i].reverse();
-
-        // Safety: All bytes in `buf[..i]` are valid UTF-8 chars.
-        let id = unsafe { ::core::str::from_utf8_unchecked(&buf[..i]) };
-        write!(f, "{kind}({})", id)
+    let mut buf = [0u8; 8];
+    let mut i = 0;
+    while value != 0 {
+        buf[i] = BASE32[(value & 31) as usize];
+        value >>= 5;
+        i += 1;
     }
+    buf[..i].reverse();
+
+    // Safety: All bytes in `buf[..i]` are valid UTF-8 chars.
+    let id = unsafe { ::core::str::from_utf8_unchecked(&buf[..i]) };
+    write!(f, "{kind}({})", id)
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]

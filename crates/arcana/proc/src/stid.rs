@@ -1,7 +1,7 @@
-use ahash::AHasher;
+use ahash::RandomState;
 use proc_macro2::{Span, TokenStream};
 
-use std::hash::{Hash, Hasher};
+use std::hash::{BuildHasher, Hash, Hasher};
 
 proc_easy::easy_parse! {
     pub enum StidValue {
@@ -11,10 +11,7 @@ proc_easy::easy_parse! {
 }
 
 fn hash_id(input: &syn::DeriveInput) -> u64 {
-    let mut hasher = AHasher::new_with_keys(
-        0x2360_ED05_1FC6_5DA4_4385_DF64_9FCC_F645,
-        0x5851_F42D_4C95_7F2D_1405_7B7E_F767_814F,
-    );
+    let mut hasher = RandomState::with_seeds(1, 2, 3, 4).build_hasher();
 
     for lt in input.generics.lifetimes() {
         lt.hash(&mut hasher);

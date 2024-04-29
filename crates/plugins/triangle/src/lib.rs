@@ -1,8 +1,10 @@
 use arcana::{
     edict::World,
     gametime::ClockStep,
-    mev::{self, Arguments, DeviceRepr},
+    mev::{self, Arguments, DeviceRepr, Image},
     render::{Render, RenderBuilderContext, RenderContext, RenderError, RenderGraph, TargetId},
+    stid::WithStid,
+    work::{Exec, Image2D, Job, JobCreateDesc, JobDesc, Planner},
 };
 
 #[derive(mev::Arguments)]
@@ -181,6 +183,130 @@ impl Render for MainPass {
 //     }
 //     res
 // }
+
+pub struct MainJob {
+    pipeline: Option<mev::RenderPipeline>,
+    arguments: Option<MainArguments>,
+    constants: MainConstants,
+}
+
+impl MainJob {
+    pub fn desc() -> JobDesc {
+        job_desc!(+Image2D => "main")
+    }
+}
+
+impl Job for MainJob {
+    fn plan(&mut self, mut planner: Planner<'_>) {
+        let Some(target) = planner.create::<Image2D>() else {
+            return;
+        };
+
+        self.constants = MainConstants {
+            angle: world
+                .expect_resource::<ClockStep>()
+                .now
+                .elapsed_since_start()
+                .as_secs_f32(),
+            width: target.extent.width(),
+            height: target.extent.height(),
+        };
+    }
+
+    fn exec(&mut self, mut runner: Exec<'_>) {
+        let Some(target) = runner.create::<Image2D>() else {
+            return;
+        };
+
+        let pipeline = self.pipeline.get_or_insert_with(|| {
+            let main_library = ctx
+                .device()
+                .new_shader_library(mev::LibraryDesc {
+                    name: "main",
+                    input: mev::include_library!("shaders/main.wgsl" as mev::ShaderLanguage::Wgsl),
+                })
+                .unwrap();
+
+            ctx.device()
+                .new_render_pipeline(mev::RenderPipelineDesc {
+                    name: "main",
+                    vertex_shader: mev::Shader {
+                        library: main_library.clone(),
+                        entry: "vs_main".into(),
+                    },
+                    vertex_attributes: vec![],
+                    vertex_layouts: vec![],
+                    primitive_topology: mev::PrimitiveTopology::Triangle,
+                    raster: Some(mev::RasterDesc {
+                        fragment_shader: Some(mev::Shader {
+                            library: main_library,
+                            entry: "fs_main".into(),
+                        }),
+                        color_targets: vec![mev::ColorTargetDesc {
+                            format: target.format(),
+                            blend: Some(mev::BlendDesc::default()),
+                        }],
+                        depth_stencil: None,
+                        front_face: mev::FrontFace::default(),
+                        culling: mev::Culling::Back,
+                    }),
+                    arguments: &[MainArguments::LAYOUT],
+                    constants: MainConstants::SIZE,
+                })
+                .unwrap()
+        });
+
+        let encoder = runner.new_encoder();
+        let mut render = encoder.render(mev::RenderPassDesc {
+            color_attachments: &[
+                mev::AttachmentDesc::new(&target).clear(mev::ClearColor(1.0, 0.5, 0.3, 0.0))
+            ],
+            ..Default::default()
+        });
+
+        let dims = target.dimensions().to_2d();
+
+        let arguments = self.arguments.get_or_insert_with(|| {
+            let colors = ctx
+                .device()
+                .new_buffer_init(mev::BufferInitDesc {
+                    data: arcana::bytemuck::cast_slice(&[
+                        1.0,
+                        1.0,
+                        0.0,
+                        f32::NAN,
+                        0.0,
+                        1.0,
+                        1.0,
+                        f32::NAN,
+                        1.0,
+                        0.0,
+                        1.0,
+                        f32::NAN,
+                    ]),
+                    name: "colors",
+                    usage: mev::BufferUsage::UNIFORM,
+                    memory: mev::Memory::Shared,
+                })
+                .unwrap();
+            MainArguments { colors }
+        });
+
+        render.with_pipeline(pipeline);
+        render.with_arguments(0, arguments);
+        render.with_constants(&self.constants);
+
+        render.with_viewport(
+            mev::Offset3::ZERO,
+            mev::Extent3::new(dims.width() as f32, dims.height() as f32, 1.0),
+        );
+        render.with_scissor(mev::Offset2::ZERO, dims);
+        render.draw(0..3, 0..1);
+        drop(render);
+        ctx.commit(encoder.finish()?);
+        Ok(())
+    }
+}
 
 arcana::export_arcana_plugin! {
     TrianglePlugin {

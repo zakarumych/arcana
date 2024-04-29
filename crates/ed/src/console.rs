@@ -2,8 +2,6 @@ use arcana::edict::world::WorldLocal;
 use egui::Ui;
 use egui_tracing::{EventCollector, Logs};
 
-use super::Tab;
-
 pub(super) struct Console {
     collector: EventCollector,
 }

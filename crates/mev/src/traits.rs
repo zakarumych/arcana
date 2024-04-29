@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
+use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 
 use crate::generic::{
     Arguments, BufferDesc, BufferInitDesc, Capabilities, CreateError, CreateLibraryError,
@@ -45,8 +45,8 @@ pub trait Device {
     /// Create a new surface associated with given window.
     fn new_surface(
         &self,
-        window: &impl HasRawWindowHandle,
-        display: &impl HasRawDisplayHandle,
+        window: &impl HasWindowHandle,
+        display: &impl HasDisplayHandle,
     ) -> Result<crate::backend::Surface, SurfaceError>;
 }
 

@@ -1,21 +1,21 @@
-use arcana::events::{ElementState, MouseButton, MouseScrollDelta, ViewportEvent, VirtualKeyCode};
+use arcana::events::{ElementState, Key, MouseButton, MouseScrollDelta, ViewportEvent};
 use egui::{pos2, vec2, MouseWheelUnit};
 
 use crate::Egui;
 
-// fn is_cut_command(modifiers: egui::Modifiers, keycode: VirtualKeyCode) -> bool {
-//     (modifiers.command && keycode == VirtualKeyCode::X)
-//         || (cfg!(target_os = "windows") && modifiers.shift && keycode == VirtualKeyCode::Delete)
+// fn is_cut_command(modifiers: egui::Modifiers, keycode: KeyCode) -> bool {
+//     (modifiers.command && keycode == KeyCode::X)
+//         || (cfg!(target_os = "windows") && modifiers.shift && keycode == KeyCode::Delete)
 // }
 
-// fn is_copy_command(modifiers: egui::Modifiers, keycode: VirtualKeyCode) -> bool {
-//     (modifiers.command && keycode == VirtualKeyCode::C)
-//         || (cfg!(target_os = "windows") && modifiers.ctrl && keycode == VirtualKeyCode::Insert)
+// fn is_copy_command(modifiers: egui::Modifiers, keycode: KeyCode) -> bool {
+//     (modifiers.command && keycode == KeyCode::C)
+//         || (cfg!(target_os = "windows") && modifiers.ctrl && keycode == KeyCode::Insert)
 // }
 
-// fn is_paste_command(modifiers: egui::Modifiers, keycode: VirtualKeyCode) -> bool {
-//     (modifiers.command && keycode == VirtualKeyCode::V)
-//         || (cfg!(target_os = "windows") && modifiers.shift && keycode == VirtualKeyCode::Insert)
+// fn is_paste_command(modifiers: egui::Modifiers, keycode: KeyCode) -> bool {
+//     (modifiers.command && keycode == KeyCode::V)
+//         || (cfg!(target_os = "windows") && modifiers.shift && keycode == KeyCode::Insert)
 // }
 
 fn translate_mouse_button(button: MouseButton) -> Option<egui::PointerButton> {
@@ -29,92 +29,92 @@ fn translate_mouse_button(button: MouseButton) -> Option<egui::PointerButton> {
     }
 }
 
-fn translate_virtual_key_code(key: VirtualKeyCode) -> Option<egui::Key> {
+fn translate_key_code(key: Key) -> Option<egui::Key> {
     use egui::Key;
 
     Some(match key {
-        VirtualKeyCode::Down => Key::ArrowDown,
-        VirtualKeyCode::Left => Key::ArrowLeft,
-        VirtualKeyCode::Right => Key::ArrowRight,
-        VirtualKeyCode::Up => Key::ArrowUp,
+        KeyCode::ArrowDown => Key::ArrowDown,
+        KeyCode::ArrowLeft => Key::ArrowLeft,
+        KeyCode::ArrowRight => Key::ArrowRight,
+        KeyCode::ArrowUp => Key::ArrowUp,
 
-        VirtualKeyCode::Escape => Key::Escape,
-        VirtualKeyCode::Tab => Key::Tab,
-        VirtualKeyCode::Back => Key::Backspace,
-        VirtualKeyCode::Return | VirtualKeyCode::NumpadEnter => Key::Enter,
-        VirtualKeyCode::Space => Key::Space,
+        KeyCode::Escape => Key::Escape,
+        KeyCode::Tab => Key::Tab,
+        KeyCode::Backspace => Key::Backspace,
+        KeyCode::Enter | KeyCode::NumpadEnter => Key::Enter,
+        KeyCode::Space => Key::Space,
 
-        VirtualKeyCode::Insert => Key::Insert,
-        VirtualKeyCode::Delete => Key::Delete,
-        VirtualKeyCode::Home => Key::Home,
-        VirtualKeyCode::End => Key::End,
-        VirtualKeyCode::PageUp => Key::PageUp,
-        VirtualKeyCode::PageDown => Key::PageDown,
+        KeyCode::Insert => Key::Insert,
+        KeyCode::Delete => Key::Delete,
+        KeyCode::Home => Key::Home,
+        KeyCode::End => Key::End,
+        KeyCode::PageUp => Key::PageUp,
+        KeyCode::PageDown => Key::PageDown,
 
-        VirtualKeyCode::Minus | VirtualKeyCode::NumpadSubtract => Key::Minus,
+        KeyCode::Minus | KeyCode::NumpadSubtract => Key::Minus,
         // Using Mac the key with the Plus sign on it is reported as the Equals key
         // (with both English and Swedish keyboard).
-        VirtualKeyCode::Equals => Key::Equals,
-        VirtualKeyCode::Plus | VirtualKeyCode::NumpadAdd => Key::Plus,
+        KeyCode::Equal => Key::Equals,
+        KeyCode::Plus | KeyCode::NumpadAdd => Key::Plus,
 
-        VirtualKeyCode::Key0 | VirtualKeyCode::Numpad0 => Key::Num0,
-        VirtualKeyCode::Key1 | VirtualKeyCode::Numpad1 => Key::Num1,
-        VirtualKeyCode::Key2 | VirtualKeyCode::Numpad2 => Key::Num2,
-        VirtualKeyCode::Key3 | VirtualKeyCode::Numpad3 => Key::Num3,
-        VirtualKeyCode::Key4 | VirtualKeyCode::Numpad4 => Key::Num4,
-        VirtualKeyCode::Key5 | VirtualKeyCode::Numpad5 => Key::Num5,
-        VirtualKeyCode::Key6 | VirtualKeyCode::Numpad6 => Key::Num6,
-        VirtualKeyCode::Key7 | VirtualKeyCode::Numpad7 => Key::Num7,
-        VirtualKeyCode::Key8 | VirtualKeyCode::Numpad8 => Key::Num8,
-        VirtualKeyCode::Key9 | VirtualKeyCode::Numpad9 => Key::Num9,
+        KeyCode::Key0 | KeyCode::Numpad0 => Key::Num0,
+        KeyCode::Key1 | KeyCode::Numpad1 => Key::Num1,
+        KeyCode::Key2 | KeyCode::Numpad2 => Key::Num2,
+        KeyCode::Key3 | KeyCode::Numpad3 => Key::Num3,
+        KeyCode::Key4 | KeyCode::Numpad4 => Key::Num4,
+        KeyCode::Key5 | KeyCode::Numpad5 => Key::Num5,
+        KeyCode::Key6 | KeyCode::Numpad6 => Key::Num6,
+        KeyCode::Key7 | KeyCode::Numpad7 => Key::Num7,
+        KeyCode::Key8 | KeyCode::Numpad8 => Key::Num8,
+        KeyCode::Key9 | KeyCode::Numpad9 => Key::Num9,
 
-        VirtualKeyCode::A => Key::A,
-        VirtualKeyCode::B => Key::B,
-        VirtualKeyCode::C => Key::C,
-        VirtualKeyCode::D => Key::D,
-        VirtualKeyCode::E => Key::E,
-        VirtualKeyCode::F => Key::F,
-        VirtualKeyCode::G => Key::G,
-        VirtualKeyCode::H => Key::H,
-        VirtualKeyCode::I => Key::I,
-        VirtualKeyCode::J => Key::J,
-        VirtualKeyCode::K => Key::K,
-        VirtualKeyCode::L => Key::L,
-        VirtualKeyCode::M => Key::M,
-        VirtualKeyCode::N => Key::N,
-        VirtualKeyCode::O => Key::O,
-        VirtualKeyCode::P => Key::P,
-        VirtualKeyCode::Q => Key::Q,
-        VirtualKeyCode::R => Key::R,
-        VirtualKeyCode::S => Key::S,
-        VirtualKeyCode::T => Key::T,
-        VirtualKeyCode::U => Key::U,
-        VirtualKeyCode::V => Key::V,
-        VirtualKeyCode::W => Key::W,
-        VirtualKeyCode::X => Key::X,
-        VirtualKeyCode::Y => Key::Y,
-        VirtualKeyCode::Z => Key::Z,
+        KeyCode::A => Key::A,
+        KeyCode::B => Key::B,
+        KeyCode::C => Key::C,
+        KeyCode::D => Key::D,
+        KeyCode::E => Key::E,
+        KeyCode::F => Key::F,
+        KeyCode::G => Key::G,
+        KeyCode::H => Key::H,
+        KeyCode::I => Key::I,
+        KeyCode::J => Key::J,
+        KeyCode::K => Key::K,
+        KeyCode::L => Key::L,
+        KeyCode::M => Key::M,
+        KeyCode::N => Key::N,
+        KeyCode::O => Key::O,
+        KeyCode::P => Key::P,
+        KeyCode::Q => Key::Q,
+        KeyCode::R => Key::R,
+        KeyCode::S => Key::S,
+        KeyCode::T => Key::T,
+        KeyCode::U => Key::U,
+        KeyCode::V => Key::V,
+        KeyCode::W => Key::W,
+        KeyCode::X => Key::X,
+        KeyCode::Y => Key::Y,
+        KeyCode::Z => Key::Z,
 
-        VirtualKeyCode::F1 => Key::F1,
-        VirtualKeyCode::F2 => Key::F2,
-        VirtualKeyCode::F3 => Key::F3,
-        VirtualKeyCode::F4 => Key::F4,
-        VirtualKeyCode::F5 => Key::F5,
-        VirtualKeyCode::F6 => Key::F6,
-        VirtualKeyCode::F7 => Key::F7,
-        VirtualKeyCode::F8 => Key::F8,
-        VirtualKeyCode::F9 => Key::F9,
-        VirtualKeyCode::F10 => Key::F10,
-        VirtualKeyCode::F11 => Key::F11,
-        VirtualKeyCode::F12 => Key::F12,
-        VirtualKeyCode::F13 => Key::F13,
-        VirtualKeyCode::F14 => Key::F14,
-        VirtualKeyCode::F15 => Key::F15,
-        VirtualKeyCode::F16 => Key::F16,
-        VirtualKeyCode::F17 => Key::F17,
-        VirtualKeyCode::F18 => Key::F18,
-        VirtualKeyCode::F19 => Key::F19,
-        VirtualKeyCode::F20 => Key::F20,
+        KeyCode::F1 => Key::F1,
+        KeyCode::F2 => Key::F2,
+        KeyCode::F3 => Key::F3,
+        KeyCode::F4 => Key::F4,
+        KeyCode::F5 => Key::F5,
+        KeyCode::F6 => Key::F6,
+        KeyCode::F7 => Key::F7,
+        KeyCode::F8 => Key::F8,
+        KeyCode::F9 => Key::F9,
+        KeyCode::F10 => Key::F10,
+        KeyCode::F11 => Key::F11,
+        KeyCode::F12 => Key::F12,
+        KeyCode::F13 => Key::F13,
+        KeyCode::F14 => Key::F14,
+        KeyCode::F15 => Key::F15,
+        KeyCode::F16 => Key::F16,
+        KeyCode::F17 => Key::F17,
+        KeyCode::F18 => Key::F18,
+        KeyCode::F19 => Key::F19,
+        KeyCode::F20 => Key::F20,
 
         _ => {
             return None;
@@ -194,9 +194,9 @@ impl Egui {
                     .native_pixels_per_point = Some(scale_factor);
                 false
             }
-            ViewportEvent::KeyboardInput { input, .. } => {
-                if let Some(keycode) = input.virtual_keycode {
-                    let pressed = input.state == ElementState::Pressed;
+            ViewportEvent::KeyboardInput { event, .. } => {
+                if let Some(keycode) = event.physical_key {
+                    let pressed = event.state == ElementState::Pressed;
 
                     if let Some(key) = translate_virtual_key_code(keycode) {
                         self.raw_input.events.push(egui::Event::Key {

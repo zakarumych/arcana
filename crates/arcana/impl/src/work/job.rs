@@ -1,14 +1,12 @@
-use std::{borrow::Cow, cell::RefCell, slice::Iter};
+use std::{cell::RefCell, slice::Iter};
 
-use arcana_project::{Ident, IdentBuf};
-use hashbrown::{HashMap, HashSet};
+use hashbrown::HashSet;
 
-use crate::{arena::Arena, make_id, Stid};
+use crate::{arena::Arena, make_id, stid::WithStid, Stid};
 
-use super::{
-    graph::Edge,
-    target::{Target, TargetHub, TargetId},
-};
+use super::target::{Target, TargetHub, TargetId};
+
+make_id!(pub JobId);
 
 /// Descroption of job creating a target.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -16,61 +14,118 @@ pub struct JobCreateDesc {
     /// Target name.
     pub name: String,
 
-    /// Target kind.
-    pub kind: Stid,
+    /// Target type.
+    pub ty: Stid,
+}
+
+impl JobCreateDesc {
+    pub fn new<T: WithStid>(name: impl Into<String>) -> Self {
+        JobCreateDesc {
+            name: name.into(),
+            ty: T::stid(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct JobUpdateDesc {
-    /// Target kind.
-    pub kind: Stid,
+    /// Target type.
+    pub ty: Stid,
+}
+
+impl JobUpdateDesc {
+    pub fn new<T: WithStid>() -> Self {
+        JobUpdateDesc { ty: T::stid() }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct JobReadDesc {
-    /// Target kind.
-    pub kind: Stid,
+    /// Target type.
+    pub ty: Stid,
 }
 
+impl JobReadDesc {
+    pub fn new<T: WithStid>() -> Self {
+        JobReadDesc { ty: T::stid() }
+    }
+}
+
+/// Job description.
+/// A set of targets a job creates, updates and reads.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct JobDesc {
-    pub updates: Vec<JobUpdateDesc>,
-    pub creates: Vec<JobCreateDesc>,
+    /// List of targets job reads.
+    /// They are inputs of the job.
     pub reads: Vec<JobReadDesc>,
+
+    /// List of targets job updates.
+    /// They are inputs and outputs of the job.
+    pub updates: Vec<JobUpdateDesc>,
+
+    /// List of targets job creates.
+    /// They are outputs of the job.
+    pub creates: Vec<JobCreateDesc>,
 }
 
-pub enum Input {
-    Update,
-    Read,
+#[doc(hidden)]
+#[macro_export]
+macro_rules! add_job_desc {
+    (($reads:ident, $updates:ident, $creates:ident)) => {};
+    (($reads:ident, $updates:ident, $creates:ident) $ty:ty $($rest:tt)+) => {
+        $reads.push($crate::work::JobReadDesc::new::< $ty >());
+        add_job_desc!(($reads, $updates, $creates) $($rest)+);
+    };
+    (($reads:ident, $updates:ident, $creates:ident) mut $ty:ty $($rest:tt)+) => {
+        $crate::work::JobUpdateDesc::new::< $ty >(),
+        add_job_desc!(($reads, $updates, $creates) $($rest)+);
+    };
+    (($reads:ident, $updates:ident, $creates:ident) +$ty:ty => $name:expr $($rest:tt)+) => {
+        $crate::work::JobCreateDesc::new::< $ty >($name),
+        add_job_desc!(($reads, $updates, $creates) $($rest)+);
+    };
 }
 
-pub enum Output {
-    Update,
-    Create,
+#[macro_export]
+macro_rules! job_desc {
+    ($($descs:tt)*) => {{
+        let mut reads = Vec::new();
+        let mut updates = Vec::new();
+        let mut creates = Vec::new();
+        $crate::add_job_desc!((reads, updates, creates) $($descs)*);
+        $crate::work::JobDesc {
+            reads,
+            updates,
+            creates,
+        }
+    }};
 }
 
 impl JobDesc {
-    pub fn input_kind(&self, input: usize) -> Stid {
+    /// Returns input stable type ID by index.
+    pub fn input_type(&self, input: usize) -> Stid {
         if input < self.updates.len() {
-            self.updates[input].kind
+            self.updates[input].ty
         } else {
-            self.reads[input - self.updates.len()].kind
+            self.reads[input - self.updates.len()].ty
         }
     }
 
-    pub fn output_kind(&self, output: usize) -> Stid {
-        if output < self.updates.len() {
-            self.updates[output].kind
+    /// Returns output stable type ID by index.
+    pub fn output_type(&self, output: usize) -> Stid {
+        if output < self.creates.len() {
+            self.creates[output].ty
         } else {
-            self.creates[output - self.updates.len()].kind
+            self.updates[output - self.creates.len()].ty
         }
     }
 
+    /// Returns output name by index.
     pub fn output_name(&self, output: usize) -> Option<&str> {
-        if output < self.updates.len() {
-            None
+        if output < self.creates.len() {
+            Some(&self.creates[output].name)
         } else {
-            Some(&self.creates[output - self.updates.len()].name)
+            None
         }
     }
 }
@@ -86,7 +141,7 @@ pub trait Job {
     /// This phase is executed for each frame, so considered hot path.
     /// It is important to keep it simple and fast,
     /// keep allocations to minimum and reuse as much as possible.
-    fn plan(&mut self, planner: Planner<'_>);
+    fn plan(&mut self, planner: Planner<'_>, world: &mut WorldLocal);
 
     /// Second phase of a job is execution.
     ///
@@ -96,38 +151,40 @@ pub trait Job {
     /// - Creating pipelines
     /// - Binding resources
     /// - Recording draw/dispatch calls
-    fn exec(&mut self, runner: Exec<'_>);
+    fn exec(&mut self, runner: Exec<'_>, world: &mut WorldLocal);
 }
 
 pub struct JobCreateTarget {
     /// Target name.
     pub name: String,
 
-    /// Target kind.
-    pub kind: Stid,
+    /// Target type.
+    pub ty: Stid,
 
-    // Assigned target id.
+    /// Assigned target id.
     pub id: Option<TargetId>,
 }
 
 pub struct JobUpdateTarget {
-    /// Target kind.
-    pub kind: Stid,
+    /// Target type.
+    pub ty: Stid,
 
-    // Assigned target id.
+    /// Assigned target id.
     pub id: Option<TargetId>,
 
-    pub dep_idx: Option<usize>,
+    /// Job ID that outputs this target.
+    pub dep_id: Option<JobId>,
 }
 
 pub struct JobReadTarget {
-    /// Target kind.
-    pub kind: Stid,
+    /// Target type.
+    pub ty: Stid,
 
-    // Assigned target id.
+    /// Assigned target id.
     pub id: Option<TargetId>,
 
-    pub dep_idx: Option<usize>,
+    /// Job ID that outputs this target.
+    pub dep_id: Option<JobId>,
 }
 
 pub struct Planner<'a> {
@@ -144,28 +201,12 @@ pub struct Planner<'a> {
     hub: &'a mut TargetHub,
 
     /// Set of selected jobs.
-    selected_jobs: &'a mut HashSet<usize>,
+    selected_jobs: &'a mut HashSet<JobId>,
 
     device: mev::Device,
 }
 
 impl Planner<'_> {
-    /// Fetcehs resource description for next update.
-    pub fn update<T>(&mut self) -> Option<&T::Info>
-    where
-        T: Target,
-    {
-        let update = self.updates.next().expect("No more updates");
-        assert_eq!(update.kind, Stid::of::<T>());
-        let info = self.hub.plan_update::<T>(update.id?)?;
-
-        if let Some(dep_idx) = update.dep_idx {
-            self.selected_jobs.insert(dep_idx);
-        }
-
-        Some(info)
-    }
-
     /// Provide resource description for next input.
     /// Allows merging resource description other readers.
     pub fn create<T>(&mut self) -> Option<&T::Info>
@@ -173,9 +214,25 @@ impl Planner<'_> {
         T: Target,
     {
         let create = self.creates.next().expect("No more creates");
-        assert_eq!(create.kind, Stid::of::<T>());
+        assert_eq!(create.ty, Stid::of::<T>());
         self.hub
             .plan_create::<T>(create.id?, &create.name, &self.device)
+    }
+
+    /// Fetcehs resource description for next update.
+    pub fn update<T>(&mut self) -> Option<&T::Info>
+    where
+        T: Target,
+    {
+        let update = self.updates.next().expect("No more updates");
+        assert_eq!(update.ty, Stid::of::<T>());
+        let info = self.hub.plan_update::<T>(update.id?)?;
+
+        if let Some(dep_id) = update.dep_id {
+            self.selected_jobs.insert(dep_id);
+        }
+
+        Some(info)
     }
 
     /// Provide resource description for next input.
@@ -185,14 +242,14 @@ impl Planner<'_> {
         T: Target,
     {
         let read = self.reads.next().expect("No more reads");
-        assert_eq!(read.kind, Stid::of::<T>());
+        assert_eq!(read.ty, Stid::of::<T>());
         let Some(id) = read.id else {
             return;
         };
         self.hub.plan_read::<T>(id, info);
 
-        if let Some(dep_idx) = read.dep_idx {
-            self.selected_jobs.insert(dep_idx);
+        if let Some(dep_id) = read.dep_id {
+            self.selected_jobs.insert(dep_id);
         }
     }
 }
@@ -277,6 +334,7 @@ pub struct JobNode {
 }
 
 impl JobNode {
+    /// Construct new job node from description and job instance.
     pub fn new(desc: JobDesc, job: Box<dyn Job>) -> Self {
         JobNode {
             job,
@@ -284,16 +342,16 @@ impl JobNode {
                 .updates
                 .into_iter()
                 .map(|u| JobUpdateTarget {
-                    kind: u.kind,
+                    ty: u.ty,
                     id: None,
-                    dep_idx: None,
+                    dep_id: None,
                 })
                 .collect(),
             creates: desc
                 .creates
                 .into_iter()
                 .map(|c| JobCreateTarget {
-                    kind: c.kind,
+                    ty: c.ty,
                     name: c.name,
                     id: None,
                 })
@@ -302,9 +360,9 @@ impl JobNode {
                 .reads
                 .into_iter()
                 .map(|c| JobReadTarget {
-                    kind: c.kind,
+                    ty: c.ty,
                     id: None,
-                    dep_idx: None,
+                    dep_id: None,
                 })
                 .collect(),
         }
@@ -313,8 +371,9 @@ impl JobNode {
     pub(super) fn plan(
         &mut self,
         hub: &mut TargetHub,
-        selected_jobs: &mut HashSet<usize>,
+        selected_jobs: &mut HashSet<JobId>,
         device: mev::Device,
+        world: &mut WorldLocal,
     ) {
         let planner = Planner {
             updates: self.updates.iter(),
@@ -324,7 +383,7 @@ impl JobNode {
             selected_jobs,
             device,
         };
-        self.job.plan(planner);
+        self.job.plan(planner, world);
     }
 
     pub(super) fn exec(
@@ -333,6 +392,7 @@ impl JobNode {
         device: mev::Device,
         queue: &mut mev::Queue,
         cbufs: &Arena<mev::CommandEncoder>,
+        world: &mut WorldLocal,
     ) {
         let exec = Exec {
             updates: self.updates.iter(),
@@ -344,6 +404,6 @@ impl JobNode {
             cbufs,
         };
 
-        self.job.exec(exec);
+        self.job.exec(exec, world);
     }
 }

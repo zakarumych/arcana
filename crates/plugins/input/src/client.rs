@@ -4,8 +4,8 @@ use arcana::{
     blink_alloc::Blink,
     edict::{EntityId, NoSuchEntity, World},
     events::{
-        DeviceId, ElementState, Event, EventFilter, KeyboardInput, MouseButton, ScanCode,
-        ViewportEvent, VirtualKeyCode,
+        DeviceId, ElementState, Event, EventFilter, KeyCode, KeyEvent, MouseButton, PhysicalKey,
+        ViewportEvent,
     },
 };
 use hashbrown::HashMap;
@@ -53,13 +53,15 @@ impl InputFilter {
         match *event {
             Event::ViewportEvent { ref event } => match *event {
                 ViewportEvent::KeyboardInput {
-                    device_id, input, ..
+                    device_id,
+                    ref event,
+                    ..
                 } => {
                     if let Some(controller) = self.device.get_mut(&device_id) {
-                        controller.on_keyboard_input(world, &input);
+                        controller.on_key_event(world, event);
                         return true;
                     } else if let Some(controller) = &mut self.global {
-                        controller.on_keyboard_input(world, &input);
+                        controller.on_key_event(world, event);
                         return true;
                     }
                 }
@@ -112,8 +114,8 @@ impl InputHandler {
 /// When added to InputHandler it may be associated with
 /// a specific device or window.
 pub trait Controller: Send {
-    fn on_keyboard_input(&mut self, world: &mut World, input: &KeyboardInput) {
-        let _ = (world, input);
+    fn on_key_event(&mut self, world: &mut World, event: &KeyEvent) {
+        let _ = (world, event);
     }
     fn on_mouse_button(&mut self, world: &mut World, button: MouseButton, state: ElementState) {
         let _ = (world, button, state);
@@ -126,8 +128,8 @@ pub trait Controller: Send {
 pub trait Translator: Send {
     type Action;
 
-    fn on_keyboard_input(&mut self, input: &KeyboardInput) -> Option<Self::Action> {
-        let _ = input;
+    fn on_key_event(&mut self, event: &KeyEvent) -> Option<Self::Action> {
+        let _ = event;
         None
     }
     fn on_mouse_button(
@@ -145,8 +147,7 @@ pub trait Translator: Send {
 }
 
 pub struct Mapper<A> {
-    keyboard_map: HashMap<(VirtualKeyCode, ElementState), A>,
-    scancode_map: HashMap<(ScanCode, ElementState), A>,
+    keyboard_map: HashMap<(PhysicalKey, ElementState), A>,
     mouse_map: HashMap<(MouseButton, ElementState), A>,
     move_map: fn(f64, f64) -> Option<A>,
 }
@@ -157,14 +158,8 @@ where
 {
     type Action = A;
 
-    fn on_keyboard_input(&mut self, input: &KeyboardInput) -> Option<A> {
-        if let Some(action) = input
-            .virtual_keycode
-            .and_then(|code| self.keyboard_map.get(&(code, input.state)))
-        {
-            return Some(action.clone());
-        }
-        if let Some(action) = self.scancode_map.get(&(input.scancode, input.state)) {
+    fn on_key_event(&mut self, event: &KeyEvent) -> Option<A> {
+        if let Some(action) = self.keyboard_map.get(&(event.physical_key, event.state)) {
             return Some(action.clone());
         }
         None
@@ -204,8 +199,8 @@ where
     T: Translator,
     T::Action: Send + 'static,
 {
-    fn on_keyboard_input(&mut self, world: &mut World, input: &KeyboardInput) {
-        if let Some(action) = self.translator.on_keyboard_input(input) {
+    fn on_key_event(&mut self, world: &mut World, event: &KeyEvent) {
+        if let Some(action) = self.translator.on_key_event(event) {
             self.send(world, action);
         }
     }

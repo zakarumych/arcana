@@ -15,8 +15,6 @@ use hashbrown::HashSet;
 
 use crate::{data::ProjectData, get_profile, sync_project, systems::Systems};
 
-use super::Tab;
-
 pub struct PluginsLibrary {
     /// Linked library
     #[allow(unused)]

@@ -19,7 +19,7 @@ license = "MIT OR Apache-2.0"
 version = "0.1.0"
 
 [workspace.dependencies]
-ahash = { version = "0.4" }
+ahash = { version = "0.8" }
 alkahest = { version = "0.3", features = ["derive"] }
 # amity = { git = "https://github.com/zakarumych/amity.git" }
 amity = { path = "../../amity" }
@@ -34,7 +34,7 @@ bit-vec = { version = "0.6" }
 blink-alloc = { version = "0.3.1", features = ["nightly"] }
 bytemuck = { version = "1.7", features = ["derive"] }
 camino = "1.1"
-cargo_toml = "0.16"
+cargo_toml = "0.19"
 const-random = "0.1"
 clap = { version = "4.3", features = ["derive"] }
 codespan-reporting = "0.11"
@@ -47,11 +47,11 @@ dunce = "1"
 # ], git = "http://github.com/zakarumych/edict" }
 
 edict = { version = "0.5", path = "../../edict" }
-egui = { version = "0.25", features = ["bytemuck"] }
-egui_dnd = { version = "0.6" }
-egui_dock = { version = "0.10" }
-egui_file = { version = "0.14" }
-egui-phosphor = { version = "0.3.2" }
+egui = { version = "0.26", features = ["bytemuck"] }
+egui_dnd = { version = "0.7" }
+egui_dock = { version = "0.11" }
+egui_file = { version = "0.16" }
+egui-phosphor = { version = "0.4" }
 egui-snarl = { path = "../../egui-snarl" }
 egui_tracing = { version = "0.2.2", git = "http://github.com/zakarumych/egui_tracing" }
 flume = "0.11"
@@ -65,11 +65,11 @@ gpu-alloc = { version = "0.6" }
 hashbrown = { version = "=0.14", features = ["nightly"] }
 hidden-trait = "0.1"
 libloading = "0.8"
-metal = { version = "0.26" }
-miette = "5.9"
+metal = { version = "0.27" }
+miette = "7.0"
 na = { package = "nalgebra", version = "0.32", features = ["libm"] }
-naga = { version = "0.13", features = ["spv-in", "wgsl-in", "glsl-in"] }
-nucleo = { version = "0.2" }
+naga = { version = "0.19", features = ["spv-in", "wgsl-in", "glsl-in"] }
+nucleo = { version = "0.4" }
 objc = { version = "0.2" }
 palette = { version = "0.7" }
 parking_lot = "0.12"
@@ -77,11 +77,11 @@ percent-encoding = "2.3"
 proc-macro2 = "1"
 rand = "0.8"
 rapid-qoi = "0.6"
-rapier2d = "0.17"
+rapier2d = "0.18"
 proc-easy = "0.3"
 parry2d = "0.13"
 quote = "1"
-raw-window-handle = "0.5"
+raw-window-handle = "0.6"
 relevant = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
@@ -103,7 +103,7 @@ tracing-error = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 unicode-ident = "1"
 uuid = { version = "1.6" }
-winit = { version = "0.28" }
+winit = { version = "0.29" }
 
 [profile.dev.package.ahash]
 opt-level = 3
