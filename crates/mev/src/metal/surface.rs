@@ -66,11 +66,7 @@ unsafe fn view_size(view: *mut Object) -> CGSize {
 
 #[hidden_trait::expose]
 impl crate::traits::Surface for Surface {
-    fn next_frame(
-        &mut self,
-        _queue: &mut Queue,
-        _before: PipelineStages,
-    ) -> Result<Frame, SurfaceError> {
+    fn next_frame(&mut self) -> Result<Frame, SurfaceError> {
         if self.suboptimal_retire_cooldown == 0 {
             if !self.view.is_null() {
                 unsafe {
@@ -106,7 +102,6 @@ impl crate::traits::Surface for Surface {
         })
     }
 }
-
 
 pub struct Frame {
     drawable: metal::MetalDrawable,

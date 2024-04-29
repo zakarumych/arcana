@@ -3,8 +3,8 @@ use std::ops::Mul;
 use metal::MTLTextureType;
 
 use crate::generic::{
-    ArgumentKind, Automatic, ComponentSwizzle, Extent1, Extent2, Extent3, ImageDimensions,
-    OutOfMemory, PixelFormat, Sampled, Storage, Swizzle, ViewDesc,
+    ArgumentKind, Automatic, ComponentSwizzle, Extent1, Extent2, Extent3, ImageExtent, OutOfMemory,
+    PixelFormat, Sampled, Storage, Swizzle, ViewDesc,
 };
 
 use super::{
@@ -40,12 +40,12 @@ impl crate::traits::Image for Image {
         match self.texture.texture_type() {
             MTLTextureType::D1 | MTLTextureType::D1Array => {
                 let width = self.texture.width();
-                ImageDimensions::D1(Extent1::new(width as u32))
+                ImageExtent::D1(Extent1::new(width as u32))
             }
             MTLTextureType::D2 | MTLTextureType::D2Array => {
                 let width = self.texture.width();
                 let height = self.texture.height();
-                ImageDimensions::D2(Extent2::new(width as u32, height as u32))
+                ImageExtent::D2(Extent2::new(width as u32, height as u32))
             }
             MTLTextureType::D2Multisample => unimplemented!(),
             MTLTextureType::D2MultisampleArray => unimplemented!(),
@@ -55,7 +55,7 @@ impl crate::traits::Image for Image {
                 let width = self.texture.width();
                 let height = self.texture.height();
                 let depth = self.texture.depth();
-                ImageDimensions::D3(Extent3::new(width as u32, height as u32, depth as u32))
+                ImageExtent::D3(Extent3::new(width as u32, height as u32, depth as u32))
             }
         }
     }

@@ -11,14 +11,15 @@ use objc::{
 };
 
 use raw_window_handle::{
-    HasRawDisplayHandle, HasRawWindowHandle, RawDisplayHandle, RawWindowHandle,
+    HasDisplayHandle, HasRawDisplayHandle, HasRawWindowHandle, HasWindowHandle, RawDisplayHandle,
+    RawWindowHandle,
 };
 
 use crate::generic::{
     parse_shader, ArgumentKind, BlasDesc, BufferDesc, BufferInitDesc, ComputePipelineDesc,
-    CreateLibraryError, CreatePipelineError, ImageDesc, ImageDimensions, ImageExtent, LibraryDesc,
-    LibraryInput, Memory, OutOfMemory, RenderPipelineDesc, SamplerDesc, ShaderCompileError,
-    ShaderLanguage, SurfaceError, TlasDesc, VertexStepMode,
+    CreateLibraryError, CreatePipelineError, ImageDesc, ImageExtent, LibraryDesc, LibraryInput,
+    Memory, OutOfMemory, RenderPipelineDesc, SamplerDesc, ShaderCompileError, ShaderLanguage,
+    SurfaceError, TlasDesc, VertexStepMode,
 };
 
 use super::{
@@ -296,16 +297,16 @@ impl crate::traits::Device for Device {
         let mdesc = metal::TextureDescriptor::new();
         mdesc.set_pixel_format(desc.format.try_into_metal().unwrap());
         match desc.dimensions {
-            ImageDimensions::D1(extent) => {
+            ImageExtent::D1(extent) => {
                 mdesc.set_texture_type(metal::MTLTextureType::D1);
                 mdesc.set_width(extent.width() as _);
             }
-            ImageDimensions::D2(extent) => {
+            ImageExtent::D2(extent) => {
                 mdesc.set_texture_type(metal::MTLTextureType::D2);
                 mdesc.set_width(extent.width() as _);
                 mdesc.set_height(extent.height() as _);
             }
-            ImageDimensions::D3(extent) => {
+            ImageExtent::D3(extent) => {
                 mdesc.set_texture_type(metal::MTLTextureType::D3);
                 mdesc.set_width(extent.width() as _);
                 mdesc.set_height(extent.height() as _);
@@ -342,21 +343,25 @@ impl crate::traits::Device for Device {
 
     fn new_surface(
         &self,
-        window: &impl HasRawWindowHandle,
-        display: &impl HasRawDisplayHandle,
+        window: &impl HasWindowHandle,
+        display: &impl HasDisplayHandle,
     ) -> Result<Surface, SurfaceError> {
-        let window = window.raw_window_handle();
-        let display = display.raw_display_handle();
-        match (window, display) {
+        let window = window
+            .window_handle()
+            .map_err(|_| SurfaceError::SurfaceLost)?;
+        let display = display
+            .display_handle()
+            .map_err(|_| SurfaceError::SurfaceLost)?;
+        match (window.as_raw(), display.as_raw()) {
             (RawWindowHandle::UiKit(handle), RawDisplayHandle::UiKit(_)) => unsafe {
-                let layer = layer_from_view(handle.ui_view.cast());
+                let layer = layer_from_view(handle.ui_view.cast().as_ptr());
                 layer.set_device(&self.device);
                 Ok(Surface::new(layer, std::ptr::null_mut()))
             },
             (RawWindowHandle::AppKit(handle), RawDisplayHandle::AppKit(_)) => unsafe {
-                let layer = layer_from_view(handle.ns_view.cast());
+                let layer = layer_from_view(handle.ns_view.cast().as_ptr());
                 layer.set_device(&self.device);
-                Ok(Surface::new(layer, handle.ns_view.cast()))
+                Ok(Surface::new(layer, handle.ns_view.cast().as_ptr()))
             },
             (RawWindowHandle::UiKit(_), _) | (RawWindowHandle::AppKit(_), _) => {
                 panic!("Mismatched window and display type")

@@ -3,12 +3,11 @@ use std::ops::Range;
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 
 use crate::generic::{
-    Arguments, AsBufferSlice, BlasBuildDesc, BlasDesc, BufferDesc, BufferDesc, BufferInitDesc,
-    BufferInitDesc, BufferSlice, Capabilities, ComputePipelineDesc, CreateError,
-    CreateLibraryError, CreatePipelineError, DeviceDesc, DeviceError, DeviceRepr, Extent2, Extent3,
-    ImageDesc, ImageDimensions, ImageExtent, LibraryDesc, Offset2, Offset3, OutOfMemory,
-    PipelineStages, PixelFormat, RenderPassDesc, RenderPipelineDesc, SamplerDesc, SurfaceError,
-    TlasBuildDesc, TlasDesc, ViewDesc,
+    Arguments, AsBufferSlice, BlasBuildDesc, BlasDesc, BufferDesc, BufferInitDesc, BufferSlice,
+    Capabilities, ComputePipelineDesc, CreateError, CreateLibraryError, CreatePipelineError,
+    DeviceDesc, DeviceError, DeviceRepr, Extent2, Extent3, ImageDesc, ImageExtent, LibraryDesc,
+    Offset2, Offset3, OutOfMemory, PipelineStages, PixelFormat, RenderPassDesc, RenderPipelineDesc,
+    SamplerDesc, SurfaceError, TlasBuildDesc, TlasDesc, ViewDesc,
 };
 
 pub trait Instance {

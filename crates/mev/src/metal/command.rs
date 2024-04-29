@@ -571,8 +571,10 @@ impl crate::traits::AccelerationStructureCommandEncoder
                     unsafe {
                         msg_send![mdesc, setBoundingBoxStride: (aabbs.box_stride as NSUInteger)]
                     }
-                    mdesc.set_bounding_box_buffer_offset(aabbs.offset as NSUInteger);
-                    mdesc.set_bounding_box_buffer(Some(aabbs.buffer.metal()));
+                    unsafe {
+                        msg_send![mdesc, setBoundingBoxBufferOffset: (aabbs.boxes.offset as NSUInteger)]
+                    }
+                    mdesc.set_bounding_box_buffer(Some(aabbs.boxes.buffer.metal()));
 
                     geometry_descs.push((**mdesc).to_owned());
                 }

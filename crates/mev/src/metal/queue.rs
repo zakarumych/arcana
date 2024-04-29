@@ -1,6 +1,6 @@
-use crate::generic::{DeviceError, OutOfMemory};
+use crate::generic::{DeviceError, OutOfMemory, PipelineStages};
 
-use super::{CommandBuffer, CommandEncoder};
+use super::{CommandBuffer, CommandEncoder, Frame};
 
 pub struct Queue {
     device: metal::Device,
@@ -50,4 +50,6 @@ impl crate::traits::Queue for Queue {
     {
         command_buffers.into_iter().for_each(drop);
     }
+
+    fn sync_frame(&mut self, _frame: &mut Frame, _before: PipelineStages) {}
 }
