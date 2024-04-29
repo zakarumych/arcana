@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::OutOfMemory;
+use crate::generic::OutOfMemory;
 
 #[derive(Debug)]
 pub enum SurfaceError {

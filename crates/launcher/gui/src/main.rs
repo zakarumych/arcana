@@ -569,7 +569,7 @@ struct NewProject {
     path: String,
 
     /// List of plugins to add to new project.
-    /// Pluings list may be modified later.
+    /// Plugins list may be modified later.
     plugins: Vec<Dependency>,
 
     /// If true, advanced options are shown.
@@ -657,6 +657,15 @@ impl NewProject {
                                     );
                                 }
                             });
+
+                            let r = ui.small_button(egui_phosphor::regular::DOTS_THREE);
+                            if r.clicked() {
+                                let mut dialog =
+                                    FileDialog::select_folder(None).title("Select engine path");
+                                dialog.open();
+                                self.dialog = Some(NewProjectDialog::PickPath(dialog));
+                            }
+
                             ui.end_row();
                         }
                     });

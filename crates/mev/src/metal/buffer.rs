@@ -1,8 +1,16 @@
+use std::{
+    fmt,
+    hash::{Hash, Hasher},
+};
+
+use foreign_types::ForeignType;
+
 use crate::generic::{ArgumentKind, Automatic, Storage, Uniform};
 
 use super::{arguments::ArgumentsField, out_of_bounds};
 
 #[derive(Clone)]
+#[repr(transparent)]
 pub struct Buffer {
     buffer: metal::Buffer,
 }
@@ -18,6 +26,28 @@ impl Buffer {
 }
 
 unsafe impl Send for Buffer {}
+
+impl fmt::Debug for Buffer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Buffer")
+            .field("buffer", &self.buffer)
+            .finish()
+    }
+}
+
+impl Hash for Buffer {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.buffer.as_ptr().hash(state);
+    }
+}
+
+impl PartialEq for Buffer {
+    fn eq(&self, other: &Self) -> bool {
+        self.buffer.as_ptr() == other.buffer.as_ptr()
+    }
+}
+
+impl Eq for Buffer {}
 
 #[hidden_trait::expose]
 impl crate::traits::Buffer for Buffer {

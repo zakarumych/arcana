@@ -2,12 +2,9 @@ use std::ops::Mul;
 
 use metal::MTLTextureType;
 
-use crate::{
-    generic::{
-        ArgumentKind, Automatic, ComponentSwizzle, ImageDimensions, OutOfMemory, PixelFormat,
-        Sampled, Storage, Swizzle, ViewDesc,
-    },
-    Extent1, Extent2, Extent3,
+use crate::generic::{
+    ArgumentKind, Automatic, ComponentSwizzle, Extent1, Extent2, Extent3, ImageDimensions,
+    OutOfMemory, PixelFormat, Sampled, Storage, Swizzle, ViewDesc,
 };
 
 use super::{

@@ -7,7 +7,7 @@ use codespan_reporting::{
 };
 use naga::FastHashMap;
 
-use crate::{backend::Library, OutOfMemory};
+use crate::{backend::Library, generic::OutOfMemory};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ShaderStage {

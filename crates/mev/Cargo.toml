@@ -5,7 +5,7 @@ authors.workspace = true
 readme.workspace = true
 license.workspace = true
 version.workspace = true
-description = "MEtal + Vulkan abstraction"
+description = "Metal Et Vulkan abstraction"
 
 [features]
 handle-device-lost = [] # Enable to handle device lost errors.

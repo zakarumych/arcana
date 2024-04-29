@@ -1,3 +1,4 @@
+mod acst;
 mod arguments;
 mod buffer;
 mod command;
@@ -13,8 +14,12 @@ mod shader;
 mod surface;
 
 pub use self::{
+    acst::{Blas, Tlas},
     buffer::Buffer,
-    command::{CommandBuffer, CommandEncoder, CopyCommandEncoder, RenderCommandEncoder},
+    command::{
+        AccelerationStructureCommandEncoder, CommandBuffer, CommandEncoder, CopyCommandEncoder,
+        RenderCommandEncoder,
+    },
     compute_pipeline::ComputePipeline,
     device::Device,
     image::Image,

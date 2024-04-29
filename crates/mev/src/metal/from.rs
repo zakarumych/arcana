@@ -341,6 +341,71 @@ impl TryMetalFrom<VertexFormat> for metal::MTLVertexFormat {
     }
 }
 
+impl TryMetalFrom<VertexFormat> for metal::MTLAttributeFormat {
+    #[inline(always)]
+    fn try_metal_from(format: VertexFormat) -> Option<Self> {
+        Some(match format {
+            VertexFormat::Uint8 => metal::MTLAttributeFormat::UChar,
+            VertexFormat::Uint16 => metal::MTLAttributeFormat::UShort,
+            VertexFormat::Uint32 => metal::MTLAttributeFormat::UInt,
+            VertexFormat::Sint8 => metal::MTLAttributeFormat::Char,
+            VertexFormat::Sint16 => metal::MTLAttributeFormat::Short,
+            VertexFormat::Sint32 => metal::MTLAttributeFormat::Int,
+            VertexFormat::Unorm8 => metal::MTLAttributeFormat::UCharNormalized,
+            VertexFormat::Unorm16 => metal::MTLAttributeFormat::UShortNormalized,
+            // VertexFormat::Unorm32 => metal::MTLAttributeFormat::UIntNormalized,
+            VertexFormat::Snorm8 => metal::MTLAttributeFormat::CharNormalized,
+            VertexFormat::Snorm16 => metal::MTLAttributeFormat::ShortNormalized,
+            // VertexFormat::Snorm32 => metal::MTLAttributeFormat::IntNormalized,
+            VertexFormat::Float16 => metal::MTLAttributeFormat::Half,
+            VertexFormat::Float32 => metal::MTLAttributeFormat::Float,
+            VertexFormat::Uint8x2 => metal::MTLAttributeFormat::UChar2,
+            VertexFormat::Uint16x2 => metal::MTLAttributeFormat::UShort2,
+            VertexFormat::Uint32x2 => metal::MTLAttributeFormat::UInt2,
+            VertexFormat::Sint8x2 => metal::MTLAttributeFormat::Char2,
+            VertexFormat::Sint16x2 => metal::MTLAttributeFormat::Short2,
+            VertexFormat::Sint32x2 => metal::MTLAttributeFormat::Int2,
+            VertexFormat::Unorm8x2 => metal::MTLAttributeFormat::UChar2Normalized,
+            VertexFormat::Unorm16x2 => metal::MTLAttributeFormat::UShort2Normalized,
+            // VertexFormat::Unorm32x2 => metal::MTLAttributeFormat::UInt2Normalized,
+            VertexFormat::Snorm8x2 => metal::MTLAttributeFormat::Char2Normalized,
+            VertexFormat::Snorm16x2 => metal::MTLAttributeFormat::Short2Normalized,
+            // VertexFormat::Snorm32x2 => metal::MTLAttributeFormat::Int2Normalized,
+            VertexFormat::Float16x2 => metal::MTLAttributeFormat::Half2,
+            VertexFormat::Float32x2 => metal::MTLAttributeFormat::Float2,
+            VertexFormat::Uint8x3 => metal::MTLAttributeFormat::UChar3,
+            VertexFormat::Uint16x3 => metal::MTLAttributeFormat::UShort3,
+            VertexFormat::Uint32x3 => metal::MTLAttributeFormat::UInt3,
+            VertexFormat::Sint8x3 => metal::MTLAttributeFormat::Char3,
+            VertexFormat::Sint16x3 => metal::MTLAttributeFormat::Short3,
+            VertexFormat::Sint32x3 => metal::MTLAttributeFormat::Int3,
+            VertexFormat::Unorm8x3 => metal::MTLAttributeFormat::UChar3Normalized,
+            VertexFormat::Unorm16x3 => metal::MTLAttributeFormat::UShort3Normalized,
+            // VertexFormat::Unorm32x3 => metal::MTLAttributeFormat::UInt3Normalized,
+            VertexFormat::Snorm8x3 => metal::MTLAttributeFormat::Char3Normalized,
+            VertexFormat::Snorm16x3 => metal::MTLAttributeFormat::Short3Normalized,
+            // VertexFormat::Snorm32x3 => metal::MTLAttributeFormat::Int3Normalized,
+            VertexFormat::Float16x3 => metal::MTLAttributeFormat::Half3,
+            VertexFormat::Float32x3 => metal::MTLAttributeFormat::Float3,
+            VertexFormat::Uint8x4 => metal::MTLAttributeFormat::UChar4,
+            VertexFormat::Uint16x4 => metal::MTLAttributeFormat::UShort4,
+            VertexFormat::Uint32x4 => metal::MTLAttributeFormat::UInt4,
+            VertexFormat::Sint8x4 => metal::MTLAttributeFormat::Char4,
+            VertexFormat::Sint16x4 => metal::MTLAttributeFormat::Short4,
+            VertexFormat::Sint32x4 => metal::MTLAttributeFormat::Int4,
+            VertexFormat::Unorm8x4 => metal::MTLAttributeFormat::UChar4Normalized,
+            VertexFormat::Unorm16x4 => metal::MTLAttributeFormat::UShort4Normalized,
+            // VertexFormat::Unorm32x4 => metal::MTLAttributeFormat::UInt4Normalized,
+            VertexFormat::Snorm8x4 => metal::MTLAttributeFormat::Char4Normalized,
+            VertexFormat::Snorm16x4 => metal::MTLAttributeFormat::Short4Normalized,
+            // VertexFormat::Snorm32x4 => metal::MTLAttributeFormat::Int4Normalized,
+            VertexFormat::Float16x4 => metal::MTLAttributeFormat::Half4,
+            VertexFormat::Float32x4 => metal::MTLAttributeFormat::Float4,
+            _ => return None,
+        })
+    }
+}
+
 impl MetalFrom<PrimitiveTopology> for metal::MTLPrimitiveTopologyClass {
     #[inline(always)]
     fn metal_from(t: PrimitiveTopology) -> Self {

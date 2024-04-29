@@ -12,26 +12,29 @@ union TransmuteUnchecked<A: Copy, B: Copy> {
     b: B,
 }
 
+/// Transmutes type without compile-time check of sizes.
+///
+/// # Safety
+///
+/// Sizes must have equal size.
+/// Current bits of argument must be valid for type `B`.
 #[inline(always)]
 unsafe fn transmute_unchecked<A: Copy, B: Copy>(a: A) -> B {
     debug_assert_eq!(size_of::<A>(), size_of::<B>());
     unsafe { TransmuteUnchecked { a }.b }
 }
 
-/// Type represetable as a POD type with layout with GPU compatible.
+/// Type represetable as a POD type with GPU compatible layout
 pub trait DeviceRepr: Sized + 'static {
-    /// The POD type with layout compatible with shaders.
+    /// A POD type that can represent same data with layout compatible with shaders.
+    /// It is `Self` or another type with same data and manual padding.
     type Repr: bytemuck::Pod + Debug;
 
-    /// The POD type with layout compatible with shaders.
+    /// A POD type with layout compatible with shaders.
     /// This is the same as `Self::Repr` but with tail padding up to `Self::ALIGN`.
     type ArrayRepr: bytemuck::Pod + Debug;
 
     /// Construct a `Self::Repr` from `&self`.
-    ///
-    /// This needs to be implemented if `Self::Repr` is not the same size as `Self`.
-    /// Typically implemented by `DeviceRepr` proc-macro and executed when
-    /// non-zero padding is required.
     #[inline(always)]
     fn as_repr(&self) -> Self::Repr;
 

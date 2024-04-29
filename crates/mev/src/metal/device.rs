@@ -14,20 +14,18 @@ use raw_window_handle::{
     HasRawDisplayHandle, HasRawWindowHandle, RawDisplayHandle, RawWindowHandle,
 };
 
-use crate::{
-    generic::{
-        parse_shader, BufferDesc, BufferInitDesc, CreateLibraryError, CreatePipelineError,
-        ImageDesc, ImageExtent, LibraryDesc, LibraryInput, Memory, OutOfMemory, RenderPipelineDesc,
-        SamplerDesc, ShaderCompileError, ShaderLanguage, SurfaceError, VertexStepMode,
-    },
-    ArgumentKind,
+use crate::generic::{
+    parse_shader, ArgumentKind, BlasDesc, BufferDesc, BufferInitDesc, ComputePipelineDesc,
+    CreateLibraryError, CreatePipelineError, ImageDesc, ImageDimensions, ImageExtent, LibraryDesc,
+    LibraryInput, Memory, OutOfMemory, RenderPipelineDesc, SamplerDesc, ShaderCompileError,
+    ShaderLanguage, SurfaceError, TlasDesc, VertexStepMode,
 };
 
 use super::{
     from::{IntoMetal, TryIntoMetal},
     shader::Bindings,
-    Buffer, CreatePipelineErrorKind, Image, Library, RenderPipeline, Sampler, Surface,
-    MAX_VERTEX_BUFFERS,
+    Blas, Buffer, ComputePipeline, CreatePipelineErrorKind, Image, Library, RenderPipeline,
+    Sampler, Surface, Tlas, MAX_VERTEX_BUFFERS,
 };
 
 #[derive(Clone)]
@@ -85,11 +83,37 @@ impl crate::traits::Device for Device {
         }
     }
 
+    fn new_compute_pipeline(
+        &self,
+        desc: ComputePipelineDesc,
+    ) -> Result<ComputePipeline, CreatePipelineError> {
+        let mdesc = metal::ComputePipelineDescriptor::new();
+        mdesc.set_label(desc.name);
+
+        let compute_function = desc
+            .shader
+            .library
+            .get_function(&desc.shader.entry)
+            .ok_or_else(|| CreatePipelineError(CreatePipelineErrorKind::InvalidShaderEntry))?;
+
+        mdesc.set_compute_function(Some(&compute_function));
+
+        let pipeline = self
+            .device
+            .new_compute_pipeline_state(&mdesc)
+            .map_err(|err| {
+                CreatePipelineError(CreatePipelineErrorKind::FailedToBuildPipeline(err))
+            })?;
+
+        Ok(ComputePipeline::new(pipeline))
+    }
+
     fn new_render_pipeline(
         &self,
         desc: RenderPipelineDesc,
     ) -> Result<RenderPipeline, CreatePipelineError> {
         let mdesc = metal::RenderPipelineDescriptor::new();
+        mdesc.set_label(desc.name);
 
         let vertex_function = desc
             .vertex_shader
@@ -269,50 +293,50 @@ impl crate::traits::Device for Device {
     }
 
     fn new_image(&self, desc: ImageDesc) -> Result<Image, OutOfMemory> {
-        let texture_descriptor = metal::TextureDescriptor::new();
-        texture_descriptor.set_pixel_format(desc.format.try_into_metal().unwrap());
+        let mdesc = metal::TextureDescriptor::new();
+        mdesc.set_pixel_format(desc.format.try_into_metal().unwrap());
         match desc.dimensions {
             ImageDimensions::D1(extent) => {
-                texture_descriptor.set_texture_type(metal::MTLTextureType::D1);
-                texture_descriptor.set_width(extent.width() as _);
+                mdesc.set_texture_type(metal::MTLTextureType::D1);
+                mdesc.set_width(extent.width() as _);
             }
             ImageDimensions::D2(extent) => {
-                texture_descriptor.set_texture_type(metal::MTLTextureType::D2);
-                texture_descriptor.set_width(extent.width() as _);
-                texture_descriptor.set_height(extent.height() as _);
+                mdesc.set_texture_type(metal::MTLTextureType::D2);
+                mdesc.set_width(extent.width() as _);
+                mdesc.set_height(extent.height() as _);
             }
             ImageDimensions::D3(extent) => {
-                texture_descriptor.set_texture_type(metal::MTLTextureType::D3);
-                texture_descriptor.set_width(extent.width() as _);
-                texture_descriptor.set_height(extent.height() as _);
-                texture_descriptor.set_depth(extent.depth() as _);
+                mdesc.set_texture_type(metal::MTLTextureType::D3);
+                mdesc.set_width(extent.width() as _);
+                mdesc.set_height(extent.height() as _);
+                mdesc.set_depth(extent.depth() as _);
             }
         }
-        texture_descriptor.set_mipmap_level_count(desc.levels as _);
-        texture_descriptor.set_array_length(desc.layers as _);
-        texture_descriptor.set_sample_count(1);
-        texture_descriptor.set_usage(desc.usage.into_metal());
-        texture_descriptor.set_storage_mode(metal::MTLStorageMode::Private);
+        mdesc.set_mipmap_level_count(desc.levels as _);
+        mdesc.set_array_length(desc.layers as _);
+        mdesc.set_sample_count(1);
+        mdesc.set_usage(desc.usage.into_metal());
+        mdesc.set_storage_mode(metal::MTLStorageMode::Private);
 
-        let texture = self.device.new_texture(&texture_descriptor);
+        let texture = self.device.new_texture(&mdesc);
         Ok(Image::new(texture))
     }
 
     fn new_sampler(&self, desc: SamplerDesc) -> Result<Sampler, OutOfMemory> {
-        let sdesc = SamplerDescriptor::new();
-        sdesc.set_min_filter(desc.min_filter.into_metal());
-        sdesc.set_mag_filter(desc.mag_filter.into_metal());
-        sdesc.set_mip_filter(desc.mip_map_mode.into_metal());
-        sdesc.set_address_mode_s(desc.address_mode[0].into_metal());
-        sdesc.set_address_mode_t(desc.address_mode[1].into_metal());
-        sdesc.set_address_mode_r(desc.address_mode[2].into_metal());
+        let mdesc = SamplerDescriptor::new();
+        mdesc.set_min_filter(desc.min_filter.into_metal());
+        mdesc.set_mag_filter(desc.mag_filter.into_metal());
+        mdesc.set_mip_filter(desc.mip_map_mode.into_metal());
+        mdesc.set_address_mode_s(desc.address_mode[0].into_metal());
+        mdesc.set_address_mode_t(desc.address_mode[1].into_metal());
+        mdesc.set_address_mode_r(desc.address_mode[2].into_metal());
         if let Some(anisotropy) = desc.anisotropy {
-            sdesc.set_max_anisotropy((anisotropy as NSUInteger).clamp(1, 16));
+            mdesc.set_max_anisotropy((anisotropy as NSUInteger).clamp(1, 16));
         }
-        sdesc.set_lod_min_clamp(desc.min_lod);
-        sdesc.set_lod_max_clamp(desc.max_lod);
-        sdesc.set_normalized_coordinates(desc.normalized);
-        let state = self.device.new_sampler(&sdesc);
+        mdesc.set_lod_min_clamp(desc.min_lod);
+        mdesc.set_lod_max_clamp(desc.max_lod);
+        mdesc.set_normalized_coordinates(desc.normalized);
+        let state = self.device.new_sampler(&mdesc);
         Ok(Sampler::new(state))
     }
 
@@ -339,6 +363,22 @@ impl crate::traits::Device for Device {
             }
             _ => unreachable!("Unsupported window type for the metal backend"),
         }
+    }
+
+    fn new_blas(&self, desc: BlasDesc) -> Result<Blas, OutOfMemory> {
+        let Ok(size) = u64::try_from(desc.size) else {
+            return Err(OutOfMemory);
+        };
+        let blas = self.device.new_acceleration_structure_with_size(size);
+        Ok(Blas::new(blas))
+    }
+
+    fn new_tlas(&self, desc: TlasDesc) -> Result<Tlas, OutOfMemory> {
+        let Ok(size) = u64::try_from(desc.size) else {
+            return Err(OutOfMemory);
+        };
+        let tlas = self.device.new_acceleration_structure_with_size(size);
+        Ok(Tlas::new(tlas))
     }
 }
 

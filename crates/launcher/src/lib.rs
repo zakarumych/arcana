@@ -52,17 +52,18 @@ fn dependency_sort(a: &Dependency, b: &Dependency) -> Ordering {
 }
 
 fn update_config_from_path(config: &mut Config, path: &Path) {
-    let s = match std::fs::read_to_string(path) {
-        Ok(s) => s,
-        Err(err) => {
-            if err.kind() == std::io::ErrorKind::NotFound {
-                tracing::debug!("No config found at {}", path.display());
-            } else {
-                tracing::warn!("Failed to read config from {}: {}", path.display(), err);
+    let s =
+        match std::fs::read_to_string(path) {
+            Ok(s) => s,
+            Err(err) => {
+                if err.kind() == std::io::ErrorKind::NotFound {
+                    tracing::debug!("No config found at {}", path.display());
+                } else {
+                    tracing::warn!("Failed to read config from {}: {}", path.display(), err);
+                }
+                return;
             }
-            return;
-        }
-    };
+        };
 
     if let Err(err) = config.update(toml::Deserializer::new(&s)) {
         tracing::warn!("Failed to update config from {}: {}", path.display(), err);

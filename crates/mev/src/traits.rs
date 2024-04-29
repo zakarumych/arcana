@@ -3,10 +3,12 @@ use std::ops::Range;
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 
 use crate::generic::{
-    Arguments, BufferDesc, BufferInitDesc, Capabilities, CreateError, CreateLibraryError,
-    CreatePipelineError, DeviceDesc, DeviceError, DeviceRepr, Extent2, Extent3, ImageDesc,
-    ImageExtent, LibraryDesc, Offset2, Offset3, OutOfMemory, PipelineStages, PixelFormat,
-    RenderPassDesc, RenderPipelineDesc, SamplerDesc, SurfaceError, ViewDesc,
+    Arguments, AsBufferSlice, BlasBuildDesc, BlasDesc, BufferDesc, BufferDesc, BufferInitDesc,
+    BufferInitDesc, BufferSlice, Capabilities, ComputePipelineDesc, CreateError,
+    CreateLibraryError, CreatePipelineError, DeviceDesc, DeviceError, DeviceRepr, Extent2, Extent3,
+    ImageDesc, ImageDimensions, ImageExtent, LibraryDesc, Offset2, Offset3, OutOfMemory,
+    PipelineStages, PixelFormat, RenderPassDesc, RenderPipelineDesc, SamplerDesc, SurfaceError,
+    TlasBuildDesc, TlasDesc, ViewDesc,
 };
 
 pub trait Instance {
@@ -23,6 +25,12 @@ pub trait Device {
         &self,
         desc: LibraryDesc,
     ) -> Result<crate::backend::Library, CreateLibraryError>;
+
+    /// Create a new render pipeline.
+    fn new_compute_pipeline(
+        &self,
+        desc: ComputePipelineDesc,
+    ) -> Result<crate::backend::ComputePipeline, CreatePipelineError>;
 
     /// Create a new render pipeline.
     fn new_render_pipeline(
@@ -48,6 +56,12 @@ pub trait Device {
         window: &impl HasWindowHandle,
         display: &impl HasDisplayHandle,
     ) -> Result<crate::backend::Surface, SurfaceError>;
+
+    /// Create a new bottom-level acceleration structure.
+    fn new_blas(&self, desc: BlasDesc) -> Result<crate::backend::Blas, OutOfMemory>;
+
+    /// Create a new top-level acceleration structure.
+    fn new_tlas(&self, desc: TlasDesc) -> Result<crate::backend::Tlas, OutOfMemory>;
 }
 
 pub trait Queue {
@@ -61,7 +75,7 @@ pub trait Queue {
     /// Submit command buffers to the queue.
     ///
     /// If `check_point` is `true`, inserts a checkpoint into queue and check previous checkpoints.
-    /// Checkpoints are required to synchronize resource use and reclamation.
+    /// Checkpoints are required for resource reclamation.
     fn submit<I>(
         &mut self,
         command_buffers: I,
@@ -103,6 +117,9 @@ pub trait CommandEncoder {
     /// Starts rendering and returns encoder for render commands.
     fn render(&mut self, desc: RenderPassDesc) -> crate::backend::RenderCommandEncoder<'_>;
 
+    fn acceleration_structure(&mut self)
+        -> crate::backend::AccelerationStructureCommandEncoder<'_>;
+
     /// Presents the frame to the surface.
     fn present(&mut self, frame: crate::backend::Frame, after: PipelineStages);
 
@@ -125,23 +142,18 @@ pub trait CopyCommandEncoder {
     );
 
     /// Writes data to the buffer.
-    fn write_buffer_raw(&mut self, buffer: &crate::backend::Buffer, offset: usize, data: &[u8]);
+    fn write_buffer_raw<'a>(&mut self, buffer: impl AsBufferSlice, data: &[u8]);
 
     /// Writes data to the buffer.
-    fn write_buffer(
-        &mut self,
-        buffer: &crate::backend::Buffer,
-        offset: usize,
-        data: &impl bytemuck::Pod,
-    );
+    #[inline(always)]
+    fn write_buffer(&mut self, buffer: impl AsBufferSlice, data: &impl bytemuck::Pod) {
+        self.write_buffer_slice(buffer, bytemuck::bytes_of(data))
+    }
 
     /// Writes data to the buffer.
-    fn write_buffer_slice(
-        &mut self,
-        buffer: &crate::backend::Buffer,
-        offset: usize,
-        data: &[impl bytemuck::Pod],
-    );
+    fn write_buffer_slice(&mut self, buffer: impl AsBufferSlice, data: &[impl bytemuck::Pod]) {
+        self.write_buffer_raw(buffer, bytemuck::cast_slice(data))
+    }
 
     /// Copies pixels from src image to dst image.
     fn copy_buffer_to_image(
@@ -186,16 +198,32 @@ pub trait RenderCommandEncoder {
     fn with_constants(&mut self, constants: &impl DeviceRepr);
 
     /// Bind vertex buffer to the current pipeline.
-    fn bind_vertex_buffers(&mut self, start: u32, buffers: &[(&crate::backend::Buffer, usize)]);
+    fn bind_vertex_buffers(&mut self, start: u32, buffers: &[impl AsBufferSlice]);
 
     /// Bind index buffer to the current pipeline.
-    fn bind_index_buffer(&mut self, buffer: &crate::backend::Buffer, offset: usize);
+    fn bind_index_buffer(&mut self, buffer: impl AsBufferSlice);
 
     /// Draws primitives.
     fn draw(&mut self, vertices: Range<u32>, instances: Range<u32>);
 
     /// Draws primitives with indices.
     fn draw_indexed(&mut self, vertex_offset: i32, indices: Range<u32>, instances: Range<u32>);
+}
+
+pub trait AccelerationStructureCommandEncoder {
+    fn build_blas(
+        &mut self,
+        blas: &crate::backend::Blas,
+        desc: BlasBuildDesc,
+        scratch: impl AsBufferSlice,
+    );
+
+    fn build_tlas(
+        &mut self,
+        tlas: &crate::backend::Tlas,
+        desc: TlasBuildDesc,
+        scratch: impl AsBufferSlice,
+    );
 }
 
 pub trait Surface {

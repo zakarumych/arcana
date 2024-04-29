@@ -39,11 +39,6 @@ pub trait Arguments: ArgumentsSealed + 'static {
     // fn bind_compute(&self, group: u32, encoder: &mut ComputeCommandEncoder);
 }
 
-// /// Marker type for `Argument` trait.
-// pub enum Constant {}
-
-// impl ArgumentsSealed for Constant {}
-
 /// Marker type for `Argument` trait.
 pub enum Uniform {}
 

@@ -1,14 +1,19 @@
 use std::{marker::PhantomData, ops::Range, sync::Arc};
 
 use metal::NSUInteger;
+use objc::Message;
 use smallvec::SmallVec;
 
 use crate::generic::{
-    Arguments, ClearColor, ClearDepthStencil, DeviceRepr, Extent2, Extent3, LoadOp, Offset2,
-    Offset3, OutOfMemory, PipelineStages, RenderPassDesc, StoreOp,
+    AccelerationStructureBuildFlags, AccelerationStructurePerformance, Arguments, AsBufferSlice,
+    BlasBuildDesc, BlasGeometryDesc, ClearColor, ClearDepthStencil, DeviceRepr, Extent2, Extent3,
+    LoadOp, Offset2, Offset3, OutOfMemory, PipelineStages, RenderPassDesc, StoreOp, TlasBuildDesc,
 };
 
-use super::{out_of_bounds, shader::Bindings, Buffer, Frame, Image, RenderPipeline};
+use super::{
+    from::TryIntoMetal, out_of_bounds, shader::Bindings, Blas, Buffer, Frame, Image,
+    RenderPipeline, Tlas,
+};
 
 pub struct CommandBuffer {
     buffer: metal::CommandBuffer,
@@ -133,6 +138,16 @@ impl crate::traits::CommandEncoder for CommandEncoder {
     }
 
     #[inline(always)]
+    fn acceleration_structure(&mut self) -> AccelerationStructureCommandEncoder<'_> {
+        let encoder = self.buffer.new_acceleration_structure_command_encoder();
+        AccelerationStructureCommandEncoder {
+            device: &mut self.device,
+            encoder: encoder.to_owned(),
+            _marker: PhantomData,
+        }
+    }
+
+    #[inline(always)]
     fn present(&mut self, frame: Frame, _after: PipelineStages) {
         self.buffer.present_drawable(frame.drawable());
     }
@@ -244,55 +259,28 @@ impl crate::traits::CopyCommandEncoder for CopyCommandEncoder<'_> {
     }
 
     #[inline(never)]
-    fn write_buffer_raw(&mut self, buffer: &Buffer, offset: usize, data: &[u8]) {
+    fn write_buffer_raw(&mut self, buffer: impl AsBufferSlice, data: &[u8]) {
         if data.is_empty() {
             return;
         }
-
-        let length = buffer.metal().length();
-        let mut data_len = 0;
-        let fits = match (u64::try_from(offset), u64::try_from(data.len())) {
-            (Ok(off), Ok(len)) => {
-                data_len = len;
-                match off.checked_add(len) {
-                    Some(end) => end <= length,
-                    None => false,
-                }
-            }
-            _ => false,
-        };
-        if !fits {
+        let buffer_slice = buffer.as_buffer_slice();
+        if data.len() > buffer_slice.size {
             out_of_bounds();
         }
 
         let staged = self.device.new_buffer_with_data(
             data.as_ptr().cast(),
-            data_len,
+            data.len() as NSUInteger,
             metal::MTLResourceOptions::StorageModeShared,
         );
 
-        self.encoder
-            .copy_from_buffer(&staged, 0, buffer.metal(), offset as NSUInteger, data_len);
-    }
-
-    #[inline(never)]
-    fn write_buffer(
-        &mut self,
-        buffer: &crate::backend::Buffer,
-        offset: usize,
-        data: &impl bytemuck::Pod,
-    ) {
-        self.write_buffer_raw(buffer, offset, bytemuck::bytes_of(data))
-    }
-
-    #[inline(never)]
-    fn write_buffer_slice(
-        &mut self,
-        buffer: &crate::backend::Buffer,
-        offset: usize,
-        data: &[impl bytemuck::Pod],
-    ) {
-        self.write_buffer_raw(buffer, offset, bytemuck::cast_slice(data))
+        self.encoder.copy_from_buffer(
+            &staged,
+            0,
+            buffer_slice.buffer.metal(),
+            buffer_slice.offset as NSUInteger,
+            data.len() as NSUInteger,
+        );
     }
 }
 
@@ -398,27 +386,29 @@ impl crate::traits::RenderCommandEncoder for RenderCommandEncoder<'_> {
     }
 
     /// Bind vertex buffer to the current pipeline.
-    fn bind_vertex_buffers(&mut self, start: u32, buffers: &[(&crate::backend::Buffer, usize)]) {
-        let offsets = buffers
+    fn bind_vertex_buffers(&mut self, start: u32, buffers: &[(impl AsBufferSlice)]) {
+        let (buffers, offsets) = buffers
             .iter()
-            .map(|(_, o)| *o as NSUInteger)
-            .collect::<SmallVec<[_; 8]>>();
+            .map(|slice| {
+                let slice = slice.as_buffer_slice();
+                let offset = slice.offset as NSUInteger;
+                let buffer = slice.buffer.metal();
+                (Some(buffer), offset)
+            })
+            .unzip::<_, _, SmallVec<[_; 8]>, SmallVec<[_; 8]>>();
 
         let first = self.vertex_buffers_count + start;
-
-        let buffers = buffers
-            .iter()
-            .map(|(b, _)| Some(b.metal()))
-            .collect::<SmallVec<[_; 8]>>();
 
         self.encoder
             .set_vertex_buffers(first as NSUInteger, &buffers, &offsets);
     }
 
     /// Bind index buffer to the current pipeline.
-    fn bind_index_buffer(&mut self, buffer: &crate::backend::Buffer, offset: usize) {
-        self.index_buffer = Some(buffer.metal().to_owned());
-        self.index_buffer_offset = offset as NSUInteger;
+    fn bind_index_buffer(&mut self, buffer: impl AsBufferSlice) {
+        let buffer_slice = buffer.as_buffer_slice();
+
+        self.index_buffer = Some(buffer_slice.buffer.metal().to_owned());
+        self.index_buffer_offset = buffer_slice.offset as NSUInteger;
     }
 
     fn draw(&mut self, vertices: Range<u32>, instances: Range<u32>) {
@@ -506,4 +496,93 @@ impl crate::traits::RenderCommandEncoder for RenderCommandEncoder<'_> {
                 );
         }
     }
+}
+
+pub struct AccelerationStructureCommandEncoder<'a> {
+    device: &'a mut metal::DeviceRef,
+    encoder: metal::AccelerationStructureCommandEncoder,
+    _marker: PhantomData<&'a mut CommandBuffer>,
+}
+
+#[hidden_trait::expose]
+impl crate::traits::AccelerationStructureCommandEncoder
+    for AccelerationStructureCommandEncoder<'_>
+{
+    fn build_blas(&mut self, blas: &Blas, desc: BlasBuildDesc, scratch: impl AsBufferSlice) {
+        use objc::{
+            class, msg_send,
+            runtime::{Object, BOOL, YES},
+            sel, sel_impl,
+        };
+
+        let mut mdesc = metal::PrimitiveAccelerationStructureDescriptor::descriptor();
+        match desc.performance {
+            AccelerationStructurePerformance::FastBuild => unsafe {
+                msg_send![mdesc, usage: 0x2u64]
+            },
+            _ => {}
+        }
+
+        let mut geometry_descs = Vec::<metal::AccelerationStructureGeometryDescriptor>::new();
+
+        for geometry in desc.geometry {
+            match geometry {
+                BlasGeometryDesc::Triangles(triangles) => {
+                    let mut mdesc =
+                        metal::AccelerationStructureTriangleGeometryDescriptor::descriptor();
+
+                    mdesc.set_opaque(triangles.opaque);
+
+                    let mut count =
+                        (triangles.vertices.size / triangles.vertex_stride) as NSUInteger;
+
+                    if let Some(indices) = triangles.indices {
+                        mdesc.set_index_type(metal::MTLIndexType::UInt32);
+                        mdesc.set_index_buffer_offset(indices.offset as _);
+                        mdesc.set_index_buffer(Some(indices.buffer.metal()));
+                        count = indices.size as NSUInteger / 4;
+                    }
+
+                    mdesc.set_triangle_count(count as NSUInteger);
+
+                    if let Some(transform) = triangles.transform {
+                        mdesc.set_transformation_matrix_buffer_offset(
+                            transform.offset as NSUInteger,
+                        );
+                        mdesc.set_transformation_matrix_buffer(Some(transform.buffer.metal()));
+                    }
+
+                    mdesc.set_vertex_format(triangles.vertex_format.try_into_metal().unwrap());
+                    mdesc.set_vertex_stride(triangles.vertex_stride as NSUInteger);
+                    mdesc.set_vertex_buffer_offset(triangles.vertices.offset as NSUInteger);
+                    mdesc.set_vertex_buffer(Some(triangles.vertices.buffer.metal()));
+
+                    geometry_descs.push((**mdesc).to_owned());
+                }
+                BlasGeometryDesc::AABBs(aabbs) => {
+                    let mut mdesc =
+                        metal::AccelerationStructureBoundingBoxGeometryDescriptor::descriptor();
+
+                    mdesc.set_opaque(aabbs.opaque);
+
+                    mdesc.set_bounding_box_count(
+                        (aabbs.boxes.size / aabbs.box_stride) as NSUInteger,
+                    );
+                    unsafe {
+                        msg_send![mdesc, setBoundingBoxStride: (aabbs.box_stride as NSUInteger)]
+                    }
+                    mdesc.set_bounding_box_buffer_offset(aabbs.offset as NSUInteger);
+                    mdesc.set_bounding_box_buffer(Some(aabbs.buffer.metal()));
+
+                    geometry_descs.push((**mdesc).to_owned());
+                }
+            }
+        }
+
+        let geometry_descs = metal::Array::from_owned_slice(&*geometry_descs);
+
+        mdesc.set_geometry_descriptors(geometry_descs);
+    }
+
+    fn build_tlas(&mut self, tlas: &Tlas, desc: TlasBuildDesc, scratch: impl AsBufferSlice) {}
 }

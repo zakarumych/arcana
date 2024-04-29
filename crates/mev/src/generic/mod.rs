@@ -1,6 +1,8 @@
 // mod _arguments;
+mod acst;
 mod arguments;
 mod buffer;
+mod compute_pipeline;
 mod data;
 mod feature;
 mod format;
@@ -17,11 +19,17 @@ mod surface;
 use std::{error::Error, fmt};
 
 pub use self::{
+    acst::{
+        AccelerationStructureBuildFlags, AccelerationStructurePerformance, BlasAABBs,
+        BlasBuildDesc, BlasDesc, BlasFlags, BlasGeometryDesc, BlasTriangles, TlasBuildDesc,
+        TlasDesc, TlasFlags, TlasInstanceDesc,
+    },
     arguments::{
         ArgumentGroupLayout, ArgumentKind, ArgumentLayout, Arguments, ArgumentsField, Automatic,
         /*Constant,*/ Sampled, Storage, Uniform,
     },
-    buffer::{BufferDesc, BufferInitDesc, BufferUsage, Memory},
+    buffer::{AsBufferSlice, BufferDesc, BufferInitDesc, BufferSlice, BufferUsage, Memory},
+    compute_pipeline::ComputePipelineDesc,
     data::*,
     feature::Features,
     format::{PixelFormat, VertexFormat},
