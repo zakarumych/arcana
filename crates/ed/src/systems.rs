@@ -314,24 +314,6 @@ impl SnarlViewer<SystemNode> for SystemViewer<'_> {
         1
     }
 
-    fn input_color(
-        &mut self,
-        _: &InPin,
-        _style: &egui::Style,
-        _snarl: &mut Snarl<SystemNode>,
-    ) -> Color32 {
-        Color32::LIGHT_GRAY
-    }
-
-    fn output_color(
-        &mut self,
-        _: &OutPin,
-        _style: &egui::Style,
-        _snarl: &mut Snarl<SystemNode>,
-    ) -> Color32 {
-        Color32::LIGHT_GRAY
-    }
-
     fn show_input(
         &mut self,
         pin: &InPin,
@@ -412,7 +394,11 @@ impl SnarlViewer<SystemNode> for SystemViewer<'_> {
         self.modified = true;
     }
 
-    fn graph_menu(
+    fn has_graph_menu(&mut self, _pos: egui::Pos2, _snarl: &mut Snarl<SystemNode>) -> bool {
+        true
+    }
+
+    fn show_graph_menu(
         &mut self,
         pos: egui::Pos2,
         ui: &mut Ui,
@@ -430,7 +416,11 @@ impl SnarlViewer<SystemNode> for SystemViewer<'_> {
         }
     }
 
-    fn node_menu(
+    fn has_node_menu(&mut self, _node: &SystemNode) -> bool {
+        true
+    }
+
+    fn show_node_menu(
         &mut self,
         id: NodeId,
         _inputs: &[InPin],

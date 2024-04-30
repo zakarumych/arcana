@@ -60,7 +60,7 @@ pub use {
 pub use arcana_proc::*;
 
 pub use mev;
-pub mod alloc;
+// pub mod alloc;
 pub mod arena;
 pub mod assets;
 pub mod bundle;
@@ -68,7 +68,7 @@ mod color_hash;
 pub mod events;
 pub mod flow;
 pub mod game;
-mod id;
+pub mod id;
 mod num2name;
 pub mod plugin;
 pub mod render;

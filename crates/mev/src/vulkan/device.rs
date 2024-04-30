@@ -14,14 +14,11 @@ use raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawDisplayHandle, Raw
 use slab::Slab;
 use smallvec::SmallVec;
 
-use crate::{
-    generic::{
-        BufferDesc, BufferInitDesc, CreateLibraryError, CreatePipelineError, Features, ImageDesc,
-        ImageExtent, LibraryDesc, LibraryInput, Memory, OutOfMemory, PrimitiveTopology,
-        RenderPipelineDesc, SamplerDesc, ShaderLanguage, SurfaceError, Swizzle, VertexStepMode,
-        ViewDesc,
-    },
-    parse_shader, ShaderCompileError,
+use crate::generic::{
+    parse_shader, BlasDesc, BufferDesc, BufferInitDesc, ComputePipelineDesc, CreateLibraryError,
+    CreatePipelineError, Features, ImageDesc, ImageExtent, LibraryDesc, LibraryInput, Memory,
+    OutOfMemory, PrimitiveTopology, RenderPipelineDesc, SamplerDesc, ShaderCompileError,
+    ShaderLanguage, SurfaceError, Swizzle, TlasDesc, VertexStepMode, ViewDesc,
 };
 
 use super::{
@@ -40,7 +37,7 @@ use super::{
     sampler::WeakSampler,
     shader::Library,
     surface::Surface,
-    unexpected_error, Sampler, Version,
+    unexpected_error, Blas, ComputePipeline, Sampler, Tlas, Version,
 };
 
 impl gpu_alloc::MemoryDevice<(vk::DeviceMemory, usize)> for DeviceInner {
@@ -53,14 +50,14 @@ impl gpu_alloc::MemoryDevice<(vk::DeviceMemory, usize)> for DeviceInner {
     ) -> Result<(vk::DeviceMemory, usize), gpu_alloc::OutOfMemory> {
         assert!((flags & !(gpu_alloc::AllocationFlags::DEVICE_ADDRESS)).is_empty());
 
-        let mut info = vk::MemoryAllocateInfo::builder()
+        let mut info = vk::MemoryAllocateInfo::default()
             .allocation_size(size)
             .memory_type_index(memory_type);
 
         let mut info_flags;
 
         if flags.contains(AllocationFlags::DEVICE_ADDRESS) {
-            info_flags = vk::MemoryAllocateFlagsInfo::builder()
+            info_flags = vk::MemoryAllocateFlagsInfo::default()
                 .flags(vk::MemoryAllocateFlags::DEVICE_ADDRESS);
             info = info.push_next(&mut info_flags);
         }
@@ -135,11 +132,10 @@ impl gpu_alloc::MemoryDevice<(vk::DeviceMemory, usize)> for DeviceInner {
                 &ranges
                     .iter()
                     .map(|range| {
-                        vk::MappedMemoryRange::builder()
+                        vk::MappedMemoryRange::default()
                             .memory(range.memory.0)
                             .offset(range.offset)
                             .size(range.size)
-                            .build()
                     })
                     .collect::<SmallVec<[_; 4]>>(),
             )
@@ -162,11 +158,10 @@ impl gpu_alloc::MemoryDevice<(vk::DeviceMemory, usize)> for DeviceInner {
                 &ranges
                     .iter()
                     .map(|range| {
-                        vk::MappedMemoryRange::builder()
+                        vk::MappedMemoryRange::default()
                             .memory(range.memory.0)
                             .offset(range.offset)
                             .size(range.size)
-                            .build()
                     })
                     .collect::<SmallVec<[_; 4]>>(),
             )
@@ -250,19 +245,19 @@ pub(super) struct DeviceInner {
 
     _entry: ash::Entry,
 
-    push_descriptor: ash::extensions::khr::PushDescriptor,
-    surface: Option<ash::extensions::khr::Surface>,
-    swapchain: Option<ash::extensions::khr::Swapchain>,
+    push_descriptor: ash::khr::push_descriptor::Device,
+    surface: Option<ash::khr::surface::Instance>,
+    swapchain: Option<ash::khr::swapchain::Device>,
 
     /// Epochs of all queues.
     /// Cleared when `wait_idle` is called.
     epochs: Vec<Arc<PendingEpochs>>,
 
     #[cfg(target_os = "windows")]
-    win32_surface: Option<ash::extensions::khr::Win32Surface>,
+    win32_surface: Option<ash::khr::win32_surface::Instance>,
 
     #[cfg(any(debug_assertions, feature = "debug"))]
-    debug_utils: Option<ash::extensions::ext::DebugUtils>,
+    debug_utils: Option<ash::ext::debug_utils::Device>,
 }
 
 impl Drop for DeviceInner {
@@ -544,13 +539,13 @@ impl Device {
         features: Features,
         properties: ash::vk::PhysicalDeviceProperties,
         allocator: gpu_alloc::GpuAllocator<(vk::DeviceMemory, usize)>,
-        push_descriptor: ash::extensions::khr::PushDescriptor,
-        surface: Option<ash::extensions::khr::Surface>,
-        swapchain: Option<ash::extensions::khr::Swapchain>,
+        push_descriptor: ash::khr::push_descriptor::Device,
+        surface: Option<ash::khr::surface::Instance>,
+        swapchain: Option<ash::khr::swapchain::Device>,
         epochs: Vec<Arc<PendingEpochs>>,
-        #[cfg(target_os = "windows")] win32_surface: Option<ash::extensions::khr::Win32Surface>,
+        #[cfg(target_os = "windows")] win32_surface: Option<ash::khr::win32_surface::Instance>,
         #[cfg(any(debug_assertions, feature = "debug"))] debug_utils: Option<
-            ash::extensions::ext::DebugUtils,
+            ash::ext::debug_utils::Device,
         >,
     ) -> Self {
         Device {
@@ -617,17 +612,17 @@ impl Device {
     }
 
     #[inline(never)]
-    pub(super) fn swapchain(&self) -> &ash::extensions::khr::Swapchain {
+    pub(super) fn swapchain(&self) -> &ash::khr::swapchain::Device {
         self.inner.swapchain.as_ref().unwrap()
     }
 
     #[inline(never)]
-    pub fn push_descriptor(&self) -> &ash::extensions::khr::PushDescriptor {
+    pub fn push_descriptor(&self) -> &ash::khr::push_descriptor::Device {
         &self.inner.push_descriptor
     }
 
     #[inline(never)]
-    pub(super) fn surface(&self) -> &ash::extensions::khr::Surface {
+    pub(super) fn surface(&self) -> &ash::khr::surface::Instance {
         self.inner.surface.as_ref().unwrap()
     }
 
@@ -662,15 +657,13 @@ impl Device {
 
     #[inline(never)]
     #[cfg(any(debug_assertions, feature = "debug"))]
-    fn set_object_name(&self, ty: vk::ObjectType, handle: u64, name: &str) {
+    fn set_object_name<T: Handle>(&self, handle: T, name: &str) {
         if !name.is_empty() {
             if let Some(debug_utils) = &self.inner.debug_utils {
                 let name_cstr = ffi::CString::new(name).unwrap();
                 let _ = unsafe {
                     debug_utils.set_debug_utils_object_name(
-                        self.inner.device.handle(),
-                        &vk::DebugUtilsObjectNameInfoEXT::builder()
-                            .object_type(ty)
+                        &vk::DebugUtilsObjectNameInfoEXT::default()
                             .object_handle(handle)
                             .object_name(&name_cstr),
                     )
@@ -687,7 +680,7 @@ impl Device {
 
         let result = unsafe {
             self.ash().create_sampler(
-                &ash::vk::SamplerCreateInfo::builder()
+                &ash::vk::SamplerCreateInfo::default()
                     .min_filter(desc.min_filter.into_ash())
                     .mag_filter(desc.mag_filter.into_ash())
                     .mipmap_mode(desc.mip_map_mode.into_ash())
@@ -719,20 +712,19 @@ impl Device {
             .iter()
             .enumerate()
             .map(|(idx, arg)| {
-                ash::vk::DescriptorSetLayoutBinding::builder()
+                ash::vk::DescriptorSetLayoutBinding::default()
                     .binding(u32::try_from(idx).expect("Too many descriptor bindings"))
                     .descriptor_count(
                         u32::try_from(arg.size).expect("Too many descriptors in array"),
                     )
                     .descriptor_type(descriptor_type(arg.kind))
                     .stage_flags(arg.stages.into_ash())
-                    .build()
             })
             .collect::<Vec<_>>();
 
         let result = unsafe {
             self.ash().create_descriptor_set_layout(
-                &ash::vk::DescriptorSetLayoutCreateInfo::builder()
+                &ash::vk::DescriptorSetLayoutCreateInfo::default()
                     .flags(ash::vk::DescriptorSetLayoutCreateFlags::PUSH_DESCRIPTOR_KHR)
                     .bindings(&bindings),
                 None,
@@ -789,12 +781,12 @@ impl Device {
             .map(|set_layout| set_layout.handle())
             .collect::<Vec<_>>();
 
-        let mut info = ash::vk::PipelineLayoutCreateInfo::builder().set_layouts(&handles);
+        let mut info = ash::vk::PipelineLayoutCreateInfo::default().set_layouts(&handles);
 
         let push_constant_ranges;
 
         if desc.constants > 0 {
-            push_constant_ranges = ash::vk::PushConstantRange::builder()
+            push_constant_ranges = ash::vk::PushConstantRange::default()
                 .stage_flags(ash::vk::ShaderStageFlags::ALL)
                 .size((desc.constants as u32 + 3) & !3);
 
@@ -847,7 +839,7 @@ impl Device {
             hashbrown::hash_map::Entry::Vacant(entry) => {
                 let result = unsafe {
                     self.ash().create_descriptor_update_template(
-                        &ash::vk::DescriptorUpdateTemplateCreateInfo::builder()
+                        &ash::vk::DescriptorUpdateTemplateCreateInfo::default()
                             .template_type(
                                 ash::vk::DescriptorUpdateTemplateType::PUSH_DESCRIPTORS_KHR,
                             )
@@ -881,18 +873,17 @@ impl Device {
     ) -> Result<(ash::vk::ImageView, usize), OutOfMemory> {
         let result = unsafe {
             self.inner.device.create_image_view(
-                &vk::ImageViewCreateInfo::builder()
+                &vk::ImageViewCreateInfo::default()
                     .image(image)
                     .view_type(view_type)
                     .format(desc.format.try_into_ash().unwrap())
                     .subresource_range(
-                        vk::ImageSubresourceRange::builder()
+                        vk::ImageSubresourceRange::default()
                             .aspect_mask(format_aspect(desc.format))
                             .base_mip_level(desc.base_level)
                             .level_count(desc.levels)
                             .base_array_layer(desc.base_layer)
-                            .layer_count(desc.layers)
-                            .build(),
+                            .layer_count(desc.layers),
                     )
                     .components(desc.swizzle.into_ash()),
                 None,
@@ -944,7 +935,7 @@ impl crate::traits::Device for Device {
                 };
                 let result = unsafe {
                     me.device.create_shader_module(
-                        &vk::ShaderModuleCreateInfo::builder().code(code),
+                        &vk::ShaderModuleCreateInfo::default().code(code),
                         None,
                     )
                 };
@@ -957,11 +948,19 @@ impl crate::traits::Device for Device {
                 let idx = self.inner.libraries.lock().insert(module);
 
                 #[cfg(any(debug_assertions, feature = "debug"))]
-                self.set_object_name(vk::ObjectType::SHADER_MODULE, module.as_raw(), desc.name);
+                self.set_object_name(module, desc.name);
 
                 Ok(Library::new(self.weak(), module, idx))
             }
         }
+    }
+
+    /// Create a new render pipeline.
+    fn new_compute_pipeline(
+        &self,
+        desc: ComputePipelineDesc,
+    ) -> Result<ComputePipeline, CreatePipelineError> {
+        todo!()
     }
 
     fn new_render_pipeline(
@@ -1015,23 +1014,22 @@ impl crate::traits::Device for Device {
             })
             .collect::<Vec<_>>();
 
-        let mut names = Vec::with_capacity(2);
+        let vertex_shader_name;
+        let fragment_shader_name;
 
-        let mut stages = vec![vk::PipelineShaderStageCreateInfo::builder()
+        let mut stages = vec![vk::PipelineShaderStageCreateInfo::default()
             .stage(vk::ShaderStageFlags::VERTEX)
             .module(desc.vertex_shader.library.module())
             .name({
-                let entry = std::ffi::CString::new(&*desc.vertex_shader.entry).unwrap();
-                names.push(entry);
-                names.last().unwrap() // Here CStr will not outlive `stages`, but we only use a raw pointer from it, which will be valid until end of this function.
-            })
-            .build()];
+                vertex_shader_name = ffi::CString::new(&*desc.vertex_shader.entry).unwrap();
+                &*vertex_shader_name
+            })];
 
-        let mut raster_state = vk::PipelineRasterizationStateCreateInfo::builder();
-        let mut depth_state = vk::PipelineDepthStencilStateCreateInfo::builder();
+        let mut raster_state = vk::PipelineRasterizationStateCreateInfo::default();
+        let mut depth_state = vk::PipelineDepthStencilStateCreateInfo::default();
         let mut attachments = Vec::new();
         let mut color_attachment_formats = Vec::new();
-        let mut rendering = vk::PipelineRenderingCreateInfo::builder();
+        let mut rendering = vk::PipelineRenderingCreateInfo::default();
 
         let vertex_library = desc.vertex_shader.library;
         let mut fragment_library = None;
@@ -1039,15 +1037,14 @@ impl crate::traits::Device for Device {
         if let Some(raster) = desc.raster {
             if let Some(fragment_shader) = raster.fragment_shader {
                 stages.push(
-                    vk::PipelineShaderStageCreateInfo::builder()
+                    vk::PipelineShaderStageCreateInfo::default()
                         .stage(vk::ShaderStageFlags::FRAGMENT)
                         .module(fragment_shader.library.module())
                         .name({
-                            let entry = std::ffi::CString::new(&*fragment_shader.entry).unwrap();
-                            names.push(entry);
-                            names.last().unwrap() // Here CStr will not outlive `stages`, but we only use a raw pointer from it, which will be valid until end of this function.
-                        })
-                        .build(),
+                            fragment_shader_name =
+                                ffi::CString::new(&*fragment_shader.entry).unwrap();
+                            &*fragment_shader_name
+                        }),
                 );
 
                 fragment_library = Some(fragment_shader.library);
@@ -1077,7 +1074,7 @@ impl crate::traits::Device for Device {
             }
 
             for color in &raster.color_targets {
-                let mut blend_state = vk::PipelineColorBlendAttachmentState::builder();
+                let mut blend_state = vk::PipelineColorBlendAttachmentState::default();
                 if let Some(blend) = color.blend {
                     blend_state = blend_state
                         .blend_enable(true)
@@ -1089,7 +1086,7 @@ impl crate::traits::Device for Device {
                         .alpha_blend_op(blend.alpha.op.into_ash())
                         .color_write_mask(blend.mask.into_ash());
                 }
-                attachments.push(blend_state.build());
+                attachments.push(blend_state);
                 color_attachment_formats.push(color.format.try_into_ash().unwrap());
             }
         } else {
@@ -1099,7 +1096,7 @@ impl crate::traits::Device for Device {
         rendering = rendering
             .view_mask(0)
             .color_attachment_formats(&color_attachment_formats);
-        let create_info = vk::GraphicsPipelineCreateInfo::builder().push_next(&mut rendering);
+        let create_info = vk::GraphicsPipelineCreateInfo::default().push_next(&mut rendering);
 
         let result = unsafe {
             self.inner.device.create_graphics_pipelines(
@@ -1108,12 +1105,12 @@ impl crate::traits::Device for Device {
                     &create_info
                         .stages(&stages)
                         .vertex_input_state(
-                            &vk::PipelineVertexInputStateCreateInfo::builder()
+                            &vk::PipelineVertexInputStateCreateInfo::default()
                                 .vertex_attribute_descriptions(&vertex_attributes)
                                 .vertex_binding_descriptions(&vertex_bindings),
                         )
                         .input_assembly_state(
-                            &vk::PipelineInputAssemblyStateCreateInfo::builder().topology(
+                            &vk::PipelineInputAssemblyStateCreateInfo::default().topology(
                                 match desc.primitive_topology {
                                     PrimitiveTopology::Point => vk::PrimitiveTopology::POINT_LIST,
                                     PrimitiveTopology::Line => vk::PrimitiveTopology::LINE_LIST,
@@ -1125,17 +1122,17 @@ impl crate::traits::Device for Device {
                         )
                         .rasterization_state(&raster_state)
                         .multisample_state(
-                            &vk::PipelineMultisampleStateCreateInfo::builder()
+                            &vk::PipelineMultisampleStateCreateInfo::default()
                                 .rasterization_samples(vk::SampleCountFlags::TYPE_1),
                         )
                         .depth_stencil_state(&depth_state)
                         .color_blend_state(
-                            &vk::PipelineColorBlendStateCreateInfo::builder()
+                            &vk::PipelineColorBlendStateCreateInfo::default()
                                 .attachments(&attachments)
                                 .blend_constants([1.0; 4]),
                         )
                         .viewport_state(
-                            &ash::vk::PipelineViewportStateCreateInfo::builder()
+                            &ash::vk::PipelineViewportStateCreateInfo::default()
                                 .scissors(&[vk::Rect2D {
                                     offset: vk::Offset2D { x: 0, y: 0 },
                                     extent: vk::Extent2D {
@@ -1153,7 +1150,7 @@ impl crate::traits::Device for Device {
                                 }]),
                         )
                         .dynamic_state(
-                            &vk::PipelineDynamicStateCreateInfo::builder().dynamic_states(&[
+                            &vk::PipelineDynamicStateCreateInfo::default().dynamic_states(&[
                                 vk::DynamicState::VIEWPORT,
                                 vk::DynamicState::SCISSOR,
                             ]),
@@ -1172,7 +1169,7 @@ impl crate::traits::Device for Device {
         let pipeline = pipelines[0];
 
         #[cfg(any(debug_assertions, feature = "debug"))]
-        self.set_object_name(vk::ObjectType::PIPELINE, pipeline.as_raw(), desc.name);
+        self.set_object_name(pipeline, desc.name);
 
         let idx = self.inner.pipelines.lock().insert(pipeline);
 
@@ -1191,7 +1188,7 @@ impl crate::traits::Device for Device {
 
         let buffer = unsafe {
             self.inner.device.create_buffer(
-                &vk::BufferCreateInfo::builder()
+                &vk::BufferCreateInfo::default()
                     .size(size)
                     .sharing_mode(vk::SharingMode::EXCLUSIVE)
                     .usage(desc.usage.into_ash()),
@@ -1234,7 +1231,7 @@ impl crate::traits::Device for Device {
         match result {
             Ok(()) => {
                 #[cfg(any(debug_assertions, feature = "debug"))]
-                self.set_object_name(vk::ObjectType::BUFFER, buffer.as_raw(), desc.name);
+                self.set_object_name(buffer, desc.name);
 
                 let idx = self.inner.buffers.lock().insert(buffer);
 
@@ -1278,7 +1275,7 @@ impl crate::traits::Device for Device {
     fn new_image(&self, desc: ImageDesc) -> Result<Image, OutOfMemory> {
         let image = unsafe {
             self.inner.device.create_image(
-                &vk::ImageCreateInfo::builder()
+                &vk::ImageCreateInfo::default()
                     .image_type(desc.dimensions.into_ash())
                     .format(desc.format.try_into_ash().expect("Unsupported format"))
                     .extent(desc.dimensions.to_3d().into_ash())
@@ -1372,7 +1369,7 @@ impl crate::traits::Device for Device {
         };
 
         #[cfg(any(debug_assertions, feature = "debug"))]
-        self.set_object_name(vk::ObjectType::IMAGE, image.as_raw(), desc.name);
+        self.set_object_name(image, desc.name);
 
         let idx = self.inner.images.lock().insert(image);
 
@@ -1436,7 +1433,7 @@ impl crate::traits::Device for Device {
                 let win32_surface = me.win32_surface.as_ref().unwrap();
                 let result = unsafe {
                     win32_surface.create_win32_surface(
-                        &ash::vk::Win32SurfaceCreateInfoKHR::builder()
+                        &ash::vk::Win32SurfaceCreateInfoKHR::default()
                             // .hinstance(hinstance)
                             .hwnd(window.hwnd.get() as _),
                         None,
@@ -1510,6 +1507,16 @@ impl crate::traits::Device for Device {
                 unreachable!("Unsupported window type for this platform")
             }
         }
+    }
+
+    /// Create a new bottom-level acceleration structure.
+    fn new_blas(&self, desc: BlasDesc) -> Result<Blas, OutOfMemory> {
+        todo!()
+    }
+
+    /// Create a new top-level acceleration structure.
+    fn new_tlas(&self, desc: TlasDesc) -> Result<Tlas, OutOfMemory> {
+        todo!()
     }
 }
 

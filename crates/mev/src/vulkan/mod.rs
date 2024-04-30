@@ -3,9 +3,11 @@ use std::{alloc::Layout, fmt};
 use ash::vk;
 
 mod access;
+mod acst;
 mod arguments;
 mod buffer;
 mod command;
+mod compute_pipeline;
 mod device;
 mod from;
 mod image;
@@ -18,11 +20,16 @@ mod sampler;
 mod shader;
 mod surface;
 
-use crate::{generic::PixelFormat, DeviceError, OutOfMemory};
+use crate::generic::{DeviceError, OutOfMemory, PixelFormat};
 
 pub use self::{
+    acst::{Blas, Tlas},
     buffer::Buffer,
-    command::{CommandBuffer, CommandEncoder, CopyCommandEncoder, RenderCommandEncoder},
+    command::{
+        AccelerationStructureCommandEncoder, CommandBuffer, CommandEncoder, CopyCommandEncoder,
+        RenderCommandEncoder,
+    },
+    compute_pipeline::ComputePipeline,
     device::Device,
     image::Image,
     instance::Instance,
@@ -121,7 +128,7 @@ fn map_oom(err: vk::Result) -> OutOfMemory {
 fn map_device_error(err: vk::Result) -> DeviceError {
     match err {
         ash::vk::Result::ERROR_OUT_OF_HOST_MEMORY => handle_host_oom(),
-        ash::vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => DeviceError::OutOfMemory(()),
+        ash::vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => DeviceError::OutOfMemory,
         ash::vk::Result::ERROR_DEVICE_LOST => DeviceError::DeviceLost,
         _ => unexpected_error(err),
     }

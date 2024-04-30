@@ -192,12 +192,14 @@ pub struct MainJob {
 
 impl MainJob {
     pub fn desc() -> JobDesc {
-        job_desc!(+Image2D => "main")
+        arcana::job_desc! [
+            +Image2D => "main",
+        ]
     }
 }
 
 impl Job for MainJob {
-    fn plan(&mut self, mut planner: Planner<'_>) {
+    fn plan(&mut self, mut planner: Planner<'_>, _world: &mut World) {
         let Some(target) = planner.create::<Image2D>() else {
             return;
         };
@@ -213,13 +215,13 @@ impl Job for MainJob {
         };
     }
 
-    fn exec(&mut self, mut runner: Exec<'_>) {
+    fn exec(&mut self, mut runner: Exec<'_>, _world: &mut World) {
         let Some(target) = runner.create::<Image2D>() else {
             return;
         };
 
         let pipeline = self.pipeline.get_or_insert_with(|| {
-            let main_library = ctx
+            let main_library = runner
                 .device()
                 .new_shader_library(mev::LibraryDesc {
                     name: "main",
@@ -227,7 +229,8 @@ impl Job for MainJob {
                 })
                 .unwrap();
 
-            ctx.device()
+            runner
+                .device()
                 .new_render_pipeline(mev::RenderPipelineDesc {
                     name: "main",
                     vertex_shader: mev::Shader {

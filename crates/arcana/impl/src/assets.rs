@@ -90,9 +90,8 @@ impl Assets {
 
         match queue.submit(Some(encoder.finish()?), false) {
             Ok(()) => {}
-            Err(mev::DeviceError::OutOfMemory(cbufs)) => {
-                queue.drop_command_buffer(cbufs);
-                return Err(mev::DeviceError::OutOfMemory(()));
+            Err(mev::DeviceError::OutOfMemory) => {
+                return Err(mev::DeviceError::OutOfMemory);
             }
             Err(mev::DeviceError::DeviceLost) => return Err(mev::DeviceError::DeviceLost),
         }

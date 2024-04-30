@@ -70,39 +70,39 @@ impl fmt::Display for OutOfMemory {
 
 impl Error for OutOfMemory {}
 
-pub enum DeviceError<T = ()> {
-    OutOfMemory(T),
+pub enum DeviceError {
+    OutOfMemory,
     DeviceLost,
 }
 
 impl From<OutOfMemory> for DeviceError {
     #[inline(never)]
     fn from(_: OutOfMemory) -> Self {
-        DeviceError::OutOfMemory(())
+        DeviceError::OutOfMemory
     }
 }
 
-impl<T> fmt::Debug for DeviceError<T> {
+impl fmt::Debug for DeviceError {
     #[inline(never)]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            DeviceError::OutOfMemory(_) => write!(f, "DeviceError::OutOfMemory"),
+            DeviceError::OutOfMemory => write!(f, "DeviceError::OutOfMemory"),
             DeviceError::DeviceLost => write!(f, "DeviceError::DeviceLost"),
         }
     }
 }
 
-impl<T> fmt::Display for DeviceError<T> {
+impl fmt::Display for DeviceError {
     #[inline(never)]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            DeviceError::OutOfMemory(_) => write!(f, "out of memory"),
+            DeviceError::OutOfMemory => write!(f, "out of memory"),
             DeviceError::DeviceLost => write!(f, "device lost"),
         }
     }
 }
 
-impl<T> Error for DeviceError<T> {}
+impl Error for DeviceError {}
 
 pub trait Zero {
     const ZERO: Self;

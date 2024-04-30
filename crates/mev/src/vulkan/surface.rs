@@ -7,9 +7,8 @@ use std::{
 
 use ash::vk;
 
-use crate::{
-    generic::{ImageExtent, OutOfMemory, PipelineStages, SurfaceError, Swizzle, ViewDesc},
-    Extent2,
+use crate::generic::{
+    Extent2, ImageExtent, OutOfMemory, PipelineStages, SurfaceError, Swizzle, ViewDesc,
 };
 
 use super::{
@@ -160,7 +159,7 @@ impl Surface {
 
         let result = unsafe {
             self.device.swapchain().create_swapchain(
-                &vk::SwapchainCreateInfoKHR::builder()
+                &vk::SwapchainCreateInfoKHR::default()
                     .surface(self.surface)
                     .min_image_count(3.clamp(self.caps.min_image_count, self.caps.max_image_count))
                     .image_format(self.preferred_format.format)
@@ -201,7 +200,7 @@ impl Surface {
 
         let semaphore = |device: &ash::Device| {
             let result =
-                unsafe { device.create_semaphore(&vk::SemaphoreCreateInfo::builder(), None) };
+                unsafe { device.create_semaphore(&vk::SemaphoreCreateInfo::default(), None) };
             result.map_err(|err| match err {
                 vk::Result::ERROR_OUT_OF_HOST_MEMORY => handle_host_oom(),
                 vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => SurfaceError::OutOfMemory,

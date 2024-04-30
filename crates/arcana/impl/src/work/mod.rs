@@ -6,6 +6,8 @@ mod graph;
 mod job;
 mod target;
 
+use std::ops::Deref;
+
 use crate::with_stid;
 
 pub use self::{
@@ -17,12 +19,18 @@ pub use self::{
     target::{Target, TargetHub, TargetId},
 };
 
-const X: &str = "qwe";
-
 /// Generic 2d image target.
 /// It does not hold particular meaning behind pixel values.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Image2D(pub mev::Image);
+
+impl Deref for Image2D {
+    type Target = mev::Image;
+
+    fn deref(&self) -> &mev::Image {
+        &self.0
+    }
+}
 
 with_stid!(Image2D = 0x9010634f06624678);
 
@@ -62,13 +70,22 @@ impl target::Target for Image2D {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct SampledImage2D(pub mev::Image);
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct SampledImage2DInfo {
-    pub extent: mev::Extent2,
-    pub usage: mev::ImageUsage,
+impl Deref for SampledImage2D {
+    type Target = mev::Image;
+
+    fn deref(&self) -> &mev::Image {
+        &self.0
+    }
 }
 
 with_stid!(SampledImage2D = 0x9010634f06624679);
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct SampledImage2DInfo {
+    pub extent: mev::Extent2,
+    pub format: mev::PixelFormat,
+    pub usage: mev::ImageUsage,
+}
 
 impl target::Target for SampledImage2D {
     type Info = SampledImage2DInfo;
@@ -77,7 +94,7 @@ impl target::Target for SampledImage2D {
         let image = device
             .new_image(mev::ImageDesc {
                 dimensions: info.extent.into(),
-                format: todo!(),
+                format: info.format,
                 usage: info.usage,
                 layers: 1,
                 levels: 1,
@@ -88,11 +105,18 @@ impl target::Target for SampledImage2D {
         SampledImage2D(image)
     }
 
-    fn merge_info(info: &mut SampledImage2DInfo, other: &SampledImage2DInfo) {
+    fn merge_info(info: &mut SampledImage2DInfo, other: &SampledImage2DInfo) -> bool {
+        if info.format != other.format {
+            return false;
+        }
+
         info.extent = mev::Extent2::new(
             info.extent.width().max(other.extent.width()),
             info.extent.height().max(other.extent.height()),
         );
+
         info.usage |= other.usage;
+
+        true
     }
 }

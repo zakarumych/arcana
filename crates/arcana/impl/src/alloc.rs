@@ -3,7 +3,7 @@
 use std::{
     alloc::{GlobalAlloc, Layout, System},
     cell::Cell,
-    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
+    sync::atomic::{AtomicUsize, Ordering},
 };
 
 pub struct ArcanaAllocator;

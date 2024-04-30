@@ -18,15 +18,15 @@ use egui::vec2;
 use egui_file::FileDialog;
 use winit::{
     event::WindowEvent,
-    event_loop::EventLoopBuilder,
-    window::{Window, WindowBuilder},
+    event_loop::{ControlFlow, EventLoopBuilder},
+    window::{Window, WindowAttributes},
 };
 
 pub enum UserEvent {}
 
-pub type Event<'a> = winit::event::Event<'a, UserEvent>;
+pub type Event = winit::event::Event<UserEvent>;
 pub type EventLoop = winit::event_loop::EventLoop<UserEvent>;
-pub type EventLoopWindowTarget = winit::event_loop::EventLoopWindowTarget<UserEvent>;
+pub type ActiveEventLoop = winit::event_loop::ActiveEventLoop;
 
 struct ErrorDialog {
     title: String,
@@ -98,12 +98,12 @@ impl App {
         builder.register_component::<Egui>();
         builder.register_external::<mev::Surface>();
 
-        let mut world = builder.build_local();
+        let mut world = builder.build();
         let mut graph = RenderGraph::new();
 
-        let builder = WindowBuilder::new().with_title("Arcana Launcher");
-        let window = builder
-            .build(events)
+        let builder = Window::default_attributes().with_title("Arcana Launcher");
+        let window = events
+            .create_window(builder)
             .map_err(|err| miette::miette!("Failed to create Ed window: {err}"))
             .unwrap();
 
@@ -122,7 +122,7 @@ impl App {
         graph.present(target);
 
         App {
-            world,
+            world: world.into(),
             graph,
             resources: RenderResources::default(),
             device,
@@ -136,8 +136,14 @@ impl App {
         }
     }
 
-    pub fn on_event<'a>(&mut self, event: Event<'a>, step: ClockStep) {
+    pub fn on_event(&mut self, event: Event) {
         match event {
+            Event::WindowEvent {
+                window_id,
+                event: WindowEvent::RedrawRequested,
+            } => {
+                self.render();
+            }
             Event::WindowEvent { window_id, event } => {
                 let world = self.world.local();
 
@@ -154,12 +160,6 @@ impl App {
                     }
                     _ => {}
                 }
-            }
-            Event::MainEventsCleared => {
-                self.tick(step);
-            }
-            Event::RedrawEventsCleared => {
-                self.render();
             }
             _ => {}
         }
@@ -524,30 +524,33 @@ fn main() {
         panic!("Failed to install tracing subscriber: {}", err);
     }
 
-    let events = EventLoopBuilder::<UserEvent>::with_user_event().build();
+    let events = EventLoop::with_user_event().build().unwrap();
     let mut app = App::new(&events);
     let mut clock = Clock::new();
     let mut limiter = clock.ticker(60.hz());
 
-    events.run(move |event, _, flow| {
-        let step = clock.step();
-        limiter.ticks(step.step);
+    events
+        .run(move |event, el| {
+            let step = clock.step();
+            limiter.ticks(step.step);
 
-        app.on_event(event, step);
+            app.on_event(event);
+            app.tick(step);
 
-        if app.should_quit() {
-            flow.set_exit();
-            return;
-        }
+            if app.should_quit() {
+                el.exit();
+                return;
+            }
 
-        let next = limiter.next_tick().unwrap();
-        let until = clock.stamp_instant(next);
-        let now = clock.stamp_instant(clock.now());
+            let next = limiter.next_tick().unwrap();
+            let until = clock.stamp_instant(next);
+            let now = clock.stamp_instant(clock.now());
 
-        assert!(until - now < Duration::from_millis(100));
+            assert!(until - now < Duration::from_millis(100));
 
-        flow.set_wait_until(until);
-    })
+            el.set_control_flow(ControlFlow::WaitUntil(until));
+        })
+        .unwrap();
 }
 
 enum NewProjectDialog {

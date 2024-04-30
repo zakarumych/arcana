@@ -4,14 +4,15 @@ use ash::vk;
 use smallvec::SmallVec;
 
 use crate::generic::{
-    Arguments, ClearColor, ClearDepthStencil, DeviceRepr, Extent2, Extent3, LoadOp, Offset2,
-    Offset3, OutOfMemory, PipelineStages, RenderPassDesc, StoreOp,
+    Arguments, AsBufferSlice, BlasBuildDesc, ClearColor, ClearDepthStencil, DeviceRepr, Extent2,
+    Extent3, LoadOp, Offset2, Offset3, OutOfMemory, PipelineStages, RenderPassDesc, StoreOp,
+    TlasBuildDesc,
 };
 
 use super::{
     access::access_for_stages, format_aspect, from::IntoAsh, handle_host_oom,
-    layout::PipelineLayout, refs::Refs, unexpected_error, Buffer, Device, Frame, Image,
-    RenderPipeline,
+    layout::PipelineLayout, refs::Refs, unexpected_error, Blas, Buffer, Device, Frame, Image,
+    RenderPipeline, Tlas,
 };
 
 pub struct CommandBuffer {
@@ -83,7 +84,7 @@ impl crate::traits::CommandEncoder for CommandEncoder {
             extent.width = extent.width.min(color_extent.width);
             extent.height = extent.height.min(color_extent.height);
 
-            let mut attachment = vk::RenderingAttachmentInfo::builder();
+            let mut attachment = vk::RenderingAttachmentInfo::default();
 
             self.refs.add_image(color.image.clone());
 
@@ -105,10 +106,10 @@ impl crate::traits::CommandEncoder for CommandEncoder {
                 StoreOp::Store => vk::AttachmentStoreOp::STORE,
                 StoreOp::DontCare => vk::AttachmentStoreOp::DONT_CARE,
             };
-            color_attachments.push(attachment.build());
+            color_attachments.push(attachment);
         }
 
-        let mut info = vk::RenderingInfo::builder().color_attachments(&color_attachments);
+        let mut info = vk::RenderingInfo::default().color_attachments(&color_attachments);
 
         let depth_attachment;
         let stencil_attachment;
@@ -122,7 +123,7 @@ impl crate::traits::CommandEncoder for CommandEncoder {
             extent.height = extent.height.min(depth_extent.height);
 
             if format.is_depth() {
-                let mut attachment = vk::RenderingAttachmentInfo::builder();
+                let mut attachment = vk::RenderingAttachmentInfo::default();
 
                 self.refs.add_image(depth.image.clone());
 
@@ -143,10 +144,10 @@ impl crate::traits::CommandEncoder for CommandEncoder {
                     StoreOp::DontCare => vk::AttachmentStoreOp::DONT_CARE,
                 };
                 depth_attachment = attachment;
-                info.p_depth_attachment = &*depth_attachment;
+                info.p_depth_attachment = &depth_attachment;
             }
             if format.is_stencil() {
-                let mut attachment = vk::RenderingAttachmentInfo::builder();
+                let mut attachment = vk::RenderingAttachmentInfo::default();
 
                 self.refs.add_image(depth.image.clone());
 
@@ -166,7 +167,7 @@ impl crate::traits::CommandEncoder for CommandEncoder {
                     StoreOp::DontCare => vk::AttachmentStoreOp::DONT_CARE,
                 };
                 stencil_attachment = attachment;
-                info.p_stencil_attachment = &*stencil_attachment;
+                info.p_stencil_attachment = &stencil_attachment;
             }
         }
 
@@ -190,6 +191,14 @@ impl crate::traits::CommandEncoder for CommandEncoder {
         }
     }
 
+    fn acceleration_structure(&mut self) -> AccelerationStructureCommandEncoder<'_> {
+        AccelerationStructureCommandEncoder {
+            device: self.device.clone(),
+            handle: self.handle,
+            refs: &mut self.refs,
+        }
+    }
+
     #[inline(never)]
     fn present(&mut self, frame: Frame, after: PipelineStages) {
         unsafe {
@@ -200,7 +209,7 @@ impl crate::traits::CommandEncoder for CommandEncoder {
                 vk::DependencyFlags::empty(),
                 &[],
                 &[],
-                &[ash::vk::ImageMemoryBarrier::builder()
+                &[ash::vk::ImageMemoryBarrier::default()
                     .src_access_mask(access_for_stages(after))
                     .dst_access_mask(ash::vk::AccessFlags::empty())
                     .old_layout(ash::vk::ImageLayout::GENERAL)
@@ -212,8 +221,7 @@ impl crate::traits::CommandEncoder for CommandEncoder {
                         level_count: 1,
                         base_array_layer: 0,
                         layer_count: 1,
-                    })
-                    .build()],
+                    })],
             )
         }
 
@@ -296,14 +304,13 @@ impl crate::traits::RenderCommandEncoder for RenderCommandEncoder<'_> {
             self.device.ash().cmd_set_viewport(
                 self.handle,
                 0,
-                &[ash::vk::Viewport::builder()
+                &[ash::vk::Viewport::default()
                     .x(offset.x())
                     .y(offset.y())
                     .width(extent.width())
                     .height(extent.height())
                     .min_depth(offset.z())
-                    .max_depth(extent.depth())
-                    .build()],
+                    .max_depth(extent.depth())],
             );
         }
     }
@@ -314,7 +321,7 @@ impl crate::traits::RenderCommandEncoder for RenderCommandEncoder<'_> {
             self.device.ash().cmd_set_scissor(
                 self.handle,
                 0,
-                &[ash::vk::Rect2D::builder()
+                &[ash::vk::Rect2D::default()
                     .offset(ash::vk::Offset2D {
                         x: offset.x(),
                         y: offset.y(),
@@ -322,8 +329,7 @@ impl crate::traits::RenderCommandEncoder for RenderCommandEncoder<'_> {
                     .extent(ash::vk::Extent2D {
                         width: extent.width(),
                         height: extent.height(),
-                    })
-                    .build()],
+                    })],
             );
         }
     }
@@ -353,13 +359,14 @@ impl crate::traits::RenderCommandEncoder for RenderCommandEncoder<'_> {
     }
 
     #[inline(never)]
-    fn bind_vertex_buffers(&mut self, start: u32, buffers: &[(&crate::backend::Buffer, usize)]) {
-        let mut handles = smallvec::SmallVec::<[_; 8]>::with_capacity(buffers.len());
-        let mut offsets = smallvec::SmallVec::<[_; 8]>::with_capacity(buffers.len());
-        for &(buffer, offset) in buffers.iter() {
-            handles.push(buffer.handle());
-            offsets.push(offset as u64);
-            self.refs.add_buffer(buffer.clone());
+    fn bind_vertex_buffers(&mut self, start: u32, slices: &[impl AsBufferSlice]) {
+        let mut handles = smallvec::SmallVec::<[_; 8]>::with_capacity(slices.len());
+        let mut offsets = smallvec::SmallVec::<[_; 8]>::with_capacity(slices.len());
+        for slice in slices.iter() {
+            let slice: crate::generic::BufferSlice = slice.as_buffer_slice();
+            handles.push(slice.buffer.handle());
+            offsets.push(slice.offset as u64);
+            self.refs.add_buffer(slice.buffer.clone());
         }
 
         unsafe {
@@ -370,16 +377,17 @@ impl crate::traits::RenderCommandEncoder for RenderCommandEncoder<'_> {
     }
 
     #[inline(never)]
-    fn bind_index_buffer(&mut self, buffer: &crate::backend::Buffer, offset: usize) {
+    fn bind_index_buffer(&mut self, slice: impl AsBufferSlice) {
+        let slice: crate::generic::BufferSlice = slice.as_buffer_slice();
         unsafe {
             self.device.ash().cmd_bind_index_buffer(
                 self.handle,
-                buffer.handle(),
-                offset as u64,
+                slice.buffer.handle(),
+                slice.offset as u64,
                 vk::IndexType::UINT32,
             )
         }
-        self.refs.add_buffer(buffer.clone());
+        self.refs.add_buffer(slice.buffer.clone());
     }
 
     #[inline(never)]
@@ -537,12 +545,15 @@ impl crate::traits::CopyCommandEncoder for CopyCommandEncoder<'_> {
     }
 
     #[inline(never)]
-    fn write_buffer_raw(&mut self, buffer: &Buffer, offset: usize, data: &[u8]) {
+    fn write_buffer_raw(&mut self, slice: impl AsBufferSlice, data: &[u8]) {
         if data.is_empty() {
             return;
         }
 
-        self.refs.add_buffer(buffer.clone());
+        let slice = slice.as_buffer_slice();
+        assert!(slice.size >= data.len());
+
+        self.refs.add_buffer(slice.buffer.clone());
 
         const CHUNK_SIZE: usize = 65536;
 
@@ -552,8 +563,8 @@ impl crate::traits::CopyCommandEncoder for CopyCommandEncoder<'_> {
             unsafe {
                 self.device.ash().cmd_update_buffer(
                     self.handle,
-                    buffer.handle(),
-                    (offset + i * CHUNK_SIZE) as u64,
+                    slice.buffer.handle(),
+                    (slice.offset + i * CHUNK_SIZE) as u64,
                     &data[i * CHUNK_SIZE..(i + 1) * CHUNK_SIZE],
                 )
             }
@@ -564,32 +575,42 @@ impl crate::traits::CopyCommandEncoder for CopyCommandEncoder<'_> {
             unsafe {
                 self.device.ash().cmd_update_buffer(
                     self.handle,
-                    buffer.handle(),
-                    (offset + full_chunks * CHUNK_SIZE) as u64,
+                    slice.buffer.handle(),
+                    (slice.offset + full_chunks * CHUNK_SIZE) as u64,
                     &data[full_chunks * CHUNK_SIZE..],
                 )
             }
         }
     }
 
-    #[inline(never)]
-    fn write_buffer(
-        &mut self,
-        buffer: &crate::backend::Buffer,
-        offset: usize,
-        data: &impl bytemuck::Pod,
-    ) {
-        self.write_buffer_raw(buffer, offset, bytemuck::bytes_of(data))
+    #[inline(always)]
+    fn write_buffer(&mut self, slice: impl AsBufferSlice, data: &impl bytemuck::Pod) {
+        self.write_buffer_slice(slice, bytemuck::bytes_of(data))
     }
 
-    #[inline(never)]
-    fn write_buffer_slice(
-        &mut self,
-        buffer: &crate::backend::Buffer,
-        offset: usize,
-        data: &[impl bytemuck::Pod],
-    ) {
-        self.write_buffer_raw(buffer, offset, bytemuck::cast_slice(data))
+    /// Writes data to the buffer.
+    #[inline(always)]
+    fn write_buffer_slice(&mut self, slice: impl AsBufferSlice, data: &[impl bytemuck::Pod]) {
+        self.write_buffer_raw(slice, bytemuck::cast_slice(data))
+    }
+}
+
+pub struct AccelerationStructureCommandEncoder<'a> {
+    device: Device,
+    handle: vk::CommandBuffer,
+    refs: &'a mut Refs,
+}
+
+#[hidden_trait::expose]
+impl crate::traits::AccelerationStructureCommandEncoder
+    for AccelerationStructureCommandEncoder<'_>
+{
+    fn build_blas(&mut self, blas: &Blas, desc: BlasBuildDesc, scratch: impl AsBufferSlice) {
+        todo!();
+    }
+
+    fn build_tlas(&mut self, tlas: &Tlas, desc: TlasBuildDesc, scratch: impl AsBufferSlice) {
+        todo!();
     }
 }
 
@@ -606,10 +627,9 @@ fn barrier(
             ash::vk::PipelineStageFlags::BOTTOM_OF_PIPE | after.into_ash(),
             ash::vk::PipelineStageFlags::TOP_OF_PIPE | before.into_ash(),
             vk::DependencyFlags::empty(),
-            &[vk::MemoryBarrier::builder()
+            &[vk::MemoryBarrier::default()
                 .src_access_mask(access_for_stages(after))
-                .dst_access_mask(access_for_stages(before))
-                .build()],
+                .dst_access_mask(access_for_stages(before))],
             &[],
             &[],
         )
@@ -643,7 +663,7 @@ fn image_barrier(
             vk::DependencyFlags::empty(),
             &[],
             &[],
-            &[ash::vk::ImageMemoryBarrier::builder()
+            &[ash::vk::ImageMemoryBarrier::default()
                 .src_access_mask(access_for_stages(after))
                 .dst_access_mask(access_for_stages(before))
                 .old_layout(ash::vk::ImageLayout::UNDEFINED)
@@ -655,8 +675,7 @@ fn image_barrier(
                     level_count: image.levels(),
                     base_array_layer: 0,
                     layer_count: image.layers(),
-                })
-                .build()],
+                })],
         )
     }
 }

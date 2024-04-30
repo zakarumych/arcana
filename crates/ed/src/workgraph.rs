@@ -84,12 +84,12 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer {
                 if pin.id.input < job.updates.len() {
                     let update = &job.updates[pin.id.input];
                     ui.label("updates");
-                    let [r, g, b] = color_hash(&update.kind);
+                    let [r, g, b] = color_hash(&update.ty);
                     PinInfo::square().with_fill(egui::Color32::from_rgb(r, g, b))
                 } else {
                     let read = &job.reads[pin.id.input - job.updates.len()];
                     ui.label("reads");
-                    let [r, g, b] = color_hash(&read.kind);
+                    let [r, g, b] = color_hash(&read.ty);
                     PinInfo::circle().with_fill(egui::Color32::from_rgb(r, g, b))
                 }
             }
@@ -115,12 +115,12 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer {
                 if pin.id.output < job.updates.len() {
                     let update = &job.updates[pin.id.output];
                     ui.label("updates");
-                    let [r, g, b] = color_hash(&update.kind);
+                    let [r, g, b] = color_hash(&update.ty);
                     PinInfo::square().with_fill(egui::Color32::from_rgb(r, g, b))
                 } else {
                     let create = &job.creates[pin.id.output - job.updates.len()];
                     ui.label("creates");
-                    let [r, g, b] = color_hash(&create.kind);
+                    let [r, g, b] = color_hash(&create.ty);
                     PinInfo::triangle().with_fill(egui::Color32::from_rgb(r, g, b))
                 }
             }
@@ -130,56 +130,12 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer {
         }
     }
 
-    fn input_color(
-        &mut self,
-        pin: &InPin,
-        _style: &egui::Style,
-        snarl: &mut Snarl<WorkGraphNode>,
-    ) -> egui::Color32 {
-        match snarl[pin.id.node] {
-            WorkGraphNode::Job { ref job, .. } => {
-                if pin.id.input < job.updates.len() {
-                    let update = &job.updates[pin.id.input];
-                    let [r, g, b] = color_hash(&update.kind);
-                    egui::Color32::from_rgb(r, g, b)
-                } else {
-                    let read = &job.reads[pin.id.input - job.updates.len()];
-                    let [r, g, b] = color_hash(&read.kind);
-                    egui::Color32::from_rgb(r, g, b)
-                }
-            }
-            WorkGraphNode::MainPresent => present_pin_color(),
-        }
-    }
-
-    fn output_color(
-        &mut self,
-        pin: &OutPin,
-        _style: &egui::Style,
-        snarl: &mut Snarl<WorkGraphNode>,
-    ) -> egui::Color32 {
-        match snarl[pin.id.node] {
-            WorkGraphNode::Job { ref job, .. } => {
-                if pin.id.output < job.updates.len() {
-                    let update = &job.updates[pin.id.output];
-                    let [r, g, b] = color_hash(&update.kind);
-                    egui::Color32::from_rgb(r, g, b)
-                } else {
-                    let create = &job.creates[pin.id.output - job.updates.len()];
-                    let [r, g, b] = color_hash(&create.kind);
-                    egui::Color32::from_rgb(r, g, b)
-                }
-            }
-            WorkGraphNode::MainPresent => present_pin_color(),
-        }
-    }
-
     fn connect(&mut self, from: &OutPin, to: &InPin, snarl: &mut Snarl<WorkGraphNode>) {
         let from_node = &snarl[from.id.node];
         let to_node = &snarl[to.id.node];
         match (from_node, to_node) {
             (WorkGraphNode::Job { job: from_job, .. }, WorkGraphNode::Job { job: to_job, .. }) => {
-                if from_job.output_kind(from.id.output) == to_job.input_kind(to.id.input) {
+                if from_job.output_type(from.id.output) == to_job.input_type(to.id.input) {
                     debug_assert!(to.remotes.len() <= 1);
                     for &r in &to.remotes {
                         snarl.disconnect(r, to.id);
@@ -189,7 +145,7 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer {
                 }
             }
             (WorkGraphNode::Job { job: from_job, .. }, WorkGraphNode::MainPresent) => {
-                if from_job.output_kind(from.id.output) == present_kind() {
+                if from_job.output_type(from.id.output) == present_kind() {
                     debug_assert!(to.remotes.len() <= 1);
                     for &r in &to.remotes {
                         snarl.disconnect(r, to.id);
@@ -200,15 +156,6 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer {
             }
             _ => unreachable!(),
         }
-    }
-
-    fn graph_menu(
-        &mut self,
-        pos: egui::Pos2,
-        ui: &mut Ui,
-        scale: f32,
-        snarl: &mut Snarl<WorkGraphNode>,
-    ) {
     }
 }
 

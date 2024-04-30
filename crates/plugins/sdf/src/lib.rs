@@ -333,9 +333,9 @@ impl Render for SdfRender {
 
         {
             let mut copy = encoder.copy();
-            copy.write_buffer_slice(&arguments.shapes, 0, &self.shapes_device);
-            copy.write_buffer_slice(&arguments.circles, 0, &self.circles_device);
-            copy.write_buffer_slice(&arguments.rects, 0, &self.rects_device);
+            copy.write_buffer_slice(&arguments.shapes, &self.shapes_device);
+            copy.write_buffer_slice(&arguments.circles, &self.circles_device);
+            copy.write_buffer_slice(&arguments.rects, &self.rects_device);
         }
 
         let mut render = encoder.render(mev::RenderPassDesc {

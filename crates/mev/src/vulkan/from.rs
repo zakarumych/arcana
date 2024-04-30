@@ -106,7 +106,7 @@ impl FromAsh<vk::QueueFamilyProperties> for FamilyCapabilities {
     }
 }
 
-impl FromAsh<vk::QueueFamilyProperties2> for FamilyCapabilities {
+impl FromAsh<vk::QueueFamilyProperties2<'_>> for FamilyCapabilities {
     #[inline(never)]
     fn from_ash(value: vk::QueueFamilyProperties2) -> Self {
         value.queue_family_properties.ash_into()

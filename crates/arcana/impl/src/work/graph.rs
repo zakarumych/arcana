@@ -1,4 +1,4 @@
-use edict::world::WorldLocal;
+use edict::{world::WorldLocal, Res};
 use hashbrown::{hash_map::Entry, HashMap, HashSet};
 
 use crate::{arena::Arena, id::IdGen};
@@ -252,7 +252,12 @@ impl WorkGraph {
         }
     }
 
-    pub fn run(&mut self, device: mev::Device, queue: &mut mev::Queue, world: &mut WorldLocal) {
+    pub fn run(
+        &mut self,
+        device: mev::Device,
+        queue: &mut mev::Queue,
+        world: &mut WorldLocal,
+    ) -> Result<(), mev::DeviceError> {
         self.selected_jobs.clear();
 
         for (&PinId { job, .. }, _) in &self.sinks {
@@ -262,7 +267,7 @@ impl WorkGraph {
         // Plan in reverse order.
         // This allows to collect all target descriptors before creating them.
         // And select dependencies for execution before planning loop considers them.
-        for (_, job) in self.plan.iter_mut().rev() {
+        for (job_id, job) in self.plan.iter_mut().rev() {
             if !self.selected_jobs.contains(job_id) {
                 continue;
             }
@@ -274,13 +279,13 @@ impl WorkGraph {
             );
         }
 
-        for (_, job) in self.plan.iter_mut() {
+        for (job_id, job) in self.plan.iter_mut() {
             if !self.selected_jobs.contains(job_id) {
                 continue;
             }
             job.exec(&mut self.hub, device.clone(), queue, &self.cbufs, world);
         }
 
-        queue.submit(self.cbufs.drain().filter_map(|e| e.finish().ok()), true);
+        queue.submit(self.cbufs.drain().filter_map(|e| e.finish().ok()), true)
     }
 }

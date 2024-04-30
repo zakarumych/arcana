@@ -3,6 +3,7 @@ use std::{
     convert::identity,
     ffi::{c_void, CStr},
     fmt,
+    mem::transmute,
     sync::Arc,
 };
 
@@ -33,12 +34,12 @@ pub struct Instance {
     capabilities: Capabilities,
 
     #[cfg(any(debug_assertions, feature = "debug"))]
-    debug_utils: Option<ash::extensions::ext::DebugUtils>,
+    debug_utils: Option<ash::ext::debug_utils::Instance>,
 
-    surface: Option<ash::extensions::khr::Surface>,
+    surface: Option<ash::khr::surface::Instance>,
 
     #[cfg(target_os = "windows")]
-    win32_surface: Option<ash::extensions::khr::Win32Surface>,
+    win32_surface: Option<ash::khr::win32_surface::Instance>,
 }
 
 #[derive(Debug)]
@@ -108,14 +109,17 @@ impl Instance {
     pub fn load() -> Result<Self, LoadError> {
         // Load the Vulkan entry points.
 
+        // SAFETY:
+        // This call is unsafe and cannot be made completely safe.
+        // It loads dynamic library and some function pointers.
+        // The library must behave correctly in order for the rest of the code to be safe.
         let entry =
             unsafe { Entry::load() }.map_err(|err| LoadError(LoadErrorKind::LoadingError(err)))?;
 
         // Collect instance layers and extensions.
 
-        let layers = entry
-            .enumerate_instance_layer_properties()
-            .map_err(|err| match err {
+        let layers =
+            unsafe { entry.enumerate_instance_layer_properties() }.map_err(|err| match err {
                 vk::Result::ERROR_OUT_OF_HOST_MEMORY => {
                     std::alloc::handle_alloc_error(Layout::new::<()>())
                 }
@@ -125,14 +129,14 @@ impl Instance {
 
         let mut enabled_layer_names = Vec::new();
 
-        let extensions = entry
-            .enumerate_instance_extension_properties(None)
-            .map_err(|err| match err {
+        let extensions = unsafe { entry.enumerate_instance_extension_properties(None) }.map_err(
+            |err| match err {
                 vk::Result::ERROR_OUT_OF_HOST_MEMORY => handle_host_oom(),
                 vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => LoadError(LoadErrorKind::OutOfMemory),
                 vk::Result::ERROR_LAYER_NOT_PRESENT => unreachable!("No layer specified"),
                 err => unexpected_error(err),
-            })?;
+            },
+        )?;
 
         // Enable layers and instance extensions.
 
@@ -166,8 +170,7 @@ impl Instance {
 
         // Choose latest Vulkan version.
 
-        let api_version = entry
-            .try_enumerate_instance_version()
+        let api_version = unsafe { entry.try_enumerate_instance_version() }
             .map_err(|err| match err {
                 vk::Result::ERROR_OUT_OF_HOST_MEMORY => handle_host_oom(),
                 _ => unreachable!(),
@@ -195,9 +198,9 @@ impl Instance {
 
         let result = unsafe {
             entry.create_instance(
-                &vk::InstanceCreateInfo::builder()
+                &vk::InstanceCreateInfo::default()
                     .application_info(
-                        &vk::ApplicationInfo::builder()
+                        &vk::ApplicationInfo::default()
                             .api_version(api_version)
                             .application_version(0)
                             .engine_name(CStr::from_bytes_with_nul(b"nothing-engine\0").unwrap())
@@ -206,7 +209,7 @@ impl Instance {
                     .enabled_layer_names(&enabled_layer_names)
                     .enabled_extension_names(&enabled_extension_names)
                     .push_next(
-                        &mut vk::DebugUtilsMessengerCreateInfoEXT::builder()
+                        &mut vk::DebugUtilsMessengerCreateInfoEXT::default()
                             .message_severity(vk::DebugUtilsMessageSeverityFlagsEXT::VERBOSE)
                             .message_type(
                                 vk::DebugUtilsMessageTypeFlagsEXT::GENERAL
@@ -236,7 +239,7 @@ impl Instance {
 
         #[cfg(any(debug_assertions, feature = "debug"))]
         let debug_utils =
-            debug_utils.then(|| ash::extensions::ext::DebugUtils::new(&entry, &instance));
+            debug_utils.then(|| ash::ext::debug_utils::Instance::new(&entry, &instance));
 
         // Init surface extension functions
         let mut surface = None;
@@ -244,11 +247,11 @@ impl Instance {
         #[cfg(target_os = "windows")]
         let mut win32_surface = None;
         if has_surface {
-            surface = Some(ash::extensions::khr::Surface::new(&entry, &instance));
+            surface = Some(ash::khr::surface::Instance::new(&entry, &instance));
 
             #[cfg(target_os = "windows")]
             {
-                win32_surface = Some(ash::extensions::khr::Win32Surface::new(&entry, &instance));
+                win32_surface = Some(ash::khr::win32_surface::Instance::new(&entry, &instance));
             }
         }
 
@@ -275,10 +278,10 @@ impl Instance {
                 err => unexpected_error(err),
             })?;
 
-            let mut features = vk::PhysicalDeviceFeatures2::builder();
-            let mut features11 = vk::PhysicalDeviceVulkan11Features::builder();
-            let mut features12 = vk::PhysicalDeviceVulkan12Features::builder();
-            let mut features13 = vk::PhysicalDeviceVulkan13Features::builder();
+            let mut features = vk::PhysicalDeviceFeatures2::default();
+            let mut features11 = vk::PhysicalDeviceVulkan11Features::default();
+            let mut features12 = vk::PhysicalDeviceVulkan12Features::default();
+            let mut features13 = vk::PhysicalDeviceVulkan13Features::default();
 
             if version >= Version::V1_1 || has_physical_device_properties2 {
                 if version >= Version::V1_1 {
@@ -341,11 +344,11 @@ impl Instance {
                 }
             }
 
-            let mut properties = vk::PhysicalDeviceProperties2::builder();
-            let mut properties11 = vk::PhysicalDeviceVulkan11Properties::builder();
-            let mut properties12 = vk::PhysicalDeviceVulkan12Properties::builder();
-            let mut properties13 = vk::PhysicalDeviceVulkan13Properties::builder();
-            let mut properties_pd = vk::PhysicalDevicePushDescriptorPropertiesKHR::builder();
+            let mut properties = vk::PhysicalDeviceProperties2::default();
+            let mut properties11 = vk::PhysicalDeviceVulkan11Properties::default();
+            let mut properties12 = vk::PhysicalDeviceVulkan12Properties::default();
+            let mut properties13 = vk::PhysicalDeviceVulkan13Properties::default();
+            let mut properties_pd = vk::PhysicalDevicePushDescriptorPropertiesKHR::default();
 
             if version >= Version::V1_1 || has_physical_device_properties2 {
                 if version >= Version::V1_1 {
@@ -502,10 +505,10 @@ impl crate::traits::Instance for Instance {
 
         let mut enabled_extension_names = Vec::new();
 
-        let mut features = vk::PhysicalDeviceFeatures2::builder();
-        let mut features11 = vk::PhysicalDeviceVulkan11Features::builder();
-        let mut features12 = vk::PhysicalDeviceVulkan12Features::builder();
-        let mut features13 = vk::PhysicalDeviceVulkan13Features::builder();
+        let mut features = vk::PhysicalDeviceFeatures2::default();
+        let mut features11 = vk::PhysicalDeviceVulkan11Features::default();
+        let mut features12 = vk::PhysicalDeviceVulkan12Features::default();
+        let mut features13 = vk::PhysicalDeviceVulkan13Features::default();
 
         if self.version < Version::V1_1 {
             enabled_extension_names.push(extension_name!("VK_KHR_descriptor_update_template"));
@@ -528,7 +531,7 @@ impl crate::traits::Instance for Instance {
             enabled_extension_names.push(extension_name!("VK_KHR_swapchain"));
         }
 
-        let mut info = vk::DeviceCreateInfo::builder()
+        let mut info = vk::DeviceCreateInfo::default()
             .enabled_extension_names(&enabled_extension_names)
             .queue_create_infos(&queue_create_infos);
 
@@ -564,9 +567,15 @@ impl crate::traits::Instance for Instance {
         let swapchain = desc
             .features
             .contains(Features::SURFACE)
-            .then(|| ash::extensions::khr::Swapchain::new(&self.instance, &device));
+            .then(|| ash::khr::swapchain::Device::new(&self.instance, &device));
 
-        let push_descriptor = ash::extensions::khr::PushDescriptor::new(&self.instance, &device);
+        let push_descriptor = ash::khr::push_descriptor::Device::new(&self.instance, &device);
+
+        #[cfg(any(debug_assertions, feature = "debug"))]
+        let debug_utils = self
+            .debug_utils
+            .is_some()
+            .then(|| ash::ext::debug_utils::Device::new(&self.instance, &device));
 
         let epochs = std::iter::repeat_with(|| Arc::new(PendingEpochs::new()))
             .take(desc.queues.len())
@@ -591,7 +600,7 @@ impl crate::traits::Instance for Instance {
             #[cfg(target_os = "windows")]
             self.win32_surface.clone(),
             #[cfg(any(debug_assertions, feature = "debug"))]
-            self.debug_utils.clone(),
+            debug_utils,
         );
 
         // Collect queues from the device.

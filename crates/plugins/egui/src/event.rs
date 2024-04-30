@@ -1,4 +1,7 @@
-use arcana::events::{ElementState, Key, MouseButton, MouseScrollDelta, ViewportEvent};
+use arcana::events::{
+    ElementState, KeyCode, ModifiersState, MouseButton, MouseScrollDelta, PhysicalKey,
+    ViewportEvent,
+};
 use egui::{pos2, vec2, MouseWheelUnit};
 
 use crate::Egui;
@@ -26,95 +29,95 @@ fn translate_mouse_button(button: MouseButton) -> Option<egui::PointerButton> {
         MouseButton::Other(1) => Some(egui::PointerButton::Extra1),
         MouseButton::Other(2) => Some(egui::PointerButton::Extra2),
         MouseButton::Other(_) => None,
+        MouseButton::Back => None,
+        MouseButton::Forward => None,
     }
 }
 
-fn translate_key_code(key: Key) -> Option<egui::Key> {
-    use egui::Key;
-
+fn translate_key_code(key: KeyCode) -> Option<egui::Key> {
     Some(match key {
-        KeyCode::ArrowDown => Key::ArrowDown,
-        KeyCode::ArrowLeft => Key::ArrowLeft,
-        KeyCode::ArrowRight => Key::ArrowRight,
-        KeyCode::ArrowUp => Key::ArrowUp,
+        KeyCode::ArrowDown => egui::Key::ArrowDown,
+        KeyCode::ArrowLeft => egui::Key::ArrowLeft,
+        KeyCode::ArrowRight => egui::Key::ArrowRight,
+        KeyCode::ArrowUp => egui::Key::ArrowUp,
 
-        KeyCode::Escape => Key::Escape,
-        KeyCode::Tab => Key::Tab,
-        KeyCode::Backspace => Key::Backspace,
-        KeyCode::Enter | KeyCode::NumpadEnter => Key::Enter,
-        KeyCode::Space => Key::Space,
+        KeyCode::Escape => egui::Key::Escape,
+        KeyCode::Tab => egui::Key::Tab,
+        KeyCode::Backspace => egui::Key::Backspace,
+        KeyCode::Enter | KeyCode::NumpadEnter => egui::Key::Enter,
+        KeyCode::Space => egui::Key::Space,
 
-        KeyCode::Insert => Key::Insert,
-        KeyCode::Delete => Key::Delete,
-        KeyCode::Home => Key::Home,
-        KeyCode::End => Key::End,
-        KeyCode::PageUp => Key::PageUp,
-        KeyCode::PageDown => Key::PageDown,
+        KeyCode::Insert => egui::Key::Insert,
+        KeyCode::Delete => egui::Key::Delete,
+        KeyCode::Home => egui::Key::Home,
+        KeyCode::End => egui::Key::End,
+        KeyCode::PageUp => egui::Key::PageUp,
+        KeyCode::PageDown => egui::Key::PageDown,
 
-        KeyCode::Minus | KeyCode::NumpadSubtract => Key::Minus,
+        KeyCode::Minus | KeyCode::NumpadSubtract => egui::Key::Minus,
         // Using Mac the key with the Plus sign on it is reported as the Equals key
         // (with both English and Swedish keyboard).
-        KeyCode::Equal => Key::Equals,
-        KeyCode::Plus | KeyCode::NumpadAdd => Key::Plus,
+        KeyCode::Equal => egui::Key::Equals,
+        KeyCode::NumpadAdd => egui::Key::Plus,
 
-        KeyCode::Key0 | KeyCode::Numpad0 => Key::Num0,
-        KeyCode::Key1 | KeyCode::Numpad1 => Key::Num1,
-        KeyCode::Key2 | KeyCode::Numpad2 => Key::Num2,
-        KeyCode::Key3 | KeyCode::Numpad3 => Key::Num3,
-        KeyCode::Key4 | KeyCode::Numpad4 => Key::Num4,
-        KeyCode::Key5 | KeyCode::Numpad5 => Key::Num5,
-        KeyCode::Key6 | KeyCode::Numpad6 => Key::Num6,
-        KeyCode::Key7 | KeyCode::Numpad7 => Key::Num7,
-        KeyCode::Key8 | KeyCode::Numpad8 => Key::Num8,
-        KeyCode::Key9 | KeyCode::Numpad9 => Key::Num9,
+        KeyCode::Digit0 | KeyCode::Numpad0 => egui::Key::Num0,
+        KeyCode::Digit1 | KeyCode::Numpad1 => egui::Key::Num1,
+        KeyCode::Digit2 | KeyCode::Numpad2 => egui::Key::Num2,
+        KeyCode::Digit3 | KeyCode::Numpad3 => egui::Key::Num3,
+        KeyCode::Digit4 | KeyCode::Numpad4 => egui::Key::Num4,
+        KeyCode::Digit5 | KeyCode::Numpad5 => egui::Key::Num5,
+        KeyCode::Digit6 | KeyCode::Numpad6 => egui::Key::Num6,
+        KeyCode::Digit7 | KeyCode::Numpad7 => egui::Key::Num7,
+        KeyCode::Digit8 | KeyCode::Numpad8 => egui::Key::Num8,
+        KeyCode::Digit9 | KeyCode::Numpad9 => egui::Key::Num9,
 
-        KeyCode::A => Key::A,
-        KeyCode::B => Key::B,
-        KeyCode::C => Key::C,
-        KeyCode::D => Key::D,
-        KeyCode::E => Key::E,
-        KeyCode::F => Key::F,
-        KeyCode::G => Key::G,
-        KeyCode::H => Key::H,
-        KeyCode::I => Key::I,
-        KeyCode::J => Key::J,
-        KeyCode::K => Key::K,
-        KeyCode::L => Key::L,
-        KeyCode::M => Key::M,
-        KeyCode::N => Key::N,
-        KeyCode::O => Key::O,
-        KeyCode::P => Key::P,
-        KeyCode::Q => Key::Q,
-        KeyCode::R => Key::R,
-        KeyCode::S => Key::S,
-        KeyCode::T => Key::T,
-        KeyCode::U => Key::U,
-        KeyCode::V => Key::V,
-        KeyCode::W => Key::W,
-        KeyCode::X => Key::X,
-        KeyCode::Y => Key::Y,
-        KeyCode::Z => Key::Z,
+        KeyCode::KeyA => egui::Key::A,
+        KeyCode::KeyB => egui::Key::B,
+        KeyCode::KeyC => egui::Key::C,
+        KeyCode::KeyD => egui::Key::D,
+        KeyCode::KeyE => egui::Key::E,
+        KeyCode::KeyF => egui::Key::F,
+        KeyCode::KeyG => egui::Key::G,
+        KeyCode::KeyH => egui::Key::H,
+        KeyCode::KeyI => egui::Key::I,
+        KeyCode::KeyJ => egui::Key::J,
+        KeyCode::KeyK => egui::Key::K,
+        KeyCode::KeyL => egui::Key::L,
+        KeyCode::KeyM => egui::Key::M,
+        KeyCode::KeyN => egui::Key::N,
+        KeyCode::KeyO => egui::Key::O,
+        KeyCode::KeyP => egui::Key::P,
+        KeyCode::KeyQ => egui::Key::Q,
+        KeyCode::KeyR => egui::Key::R,
+        KeyCode::KeyS => egui::Key::S,
+        KeyCode::KeyT => egui::Key::T,
+        KeyCode::KeyU => egui::Key::U,
+        KeyCode::KeyV => egui::Key::V,
+        KeyCode::KeyW => egui::Key::W,
+        KeyCode::KeyX => egui::Key::X,
+        KeyCode::KeyY => egui::Key::Y,
+        KeyCode::KeyZ => egui::Key::Z,
 
-        KeyCode::F1 => Key::F1,
-        KeyCode::F2 => Key::F2,
-        KeyCode::F3 => Key::F3,
-        KeyCode::F4 => Key::F4,
-        KeyCode::F5 => Key::F5,
-        KeyCode::F6 => Key::F6,
-        KeyCode::F7 => Key::F7,
-        KeyCode::F8 => Key::F8,
-        KeyCode::F9 => Key::F9,
-        KeyCode::F10 => Key::F10,
-        KeyCode::F11 => Key::F11,
-        KeyCode::F12 => Key::F12,
-        KeyCode::F13 => Key::F13,
-        KeyCode::F14 => Key::F14,
-        KeyCode::F15 => Key::F15,
-        KeyCode::F16 => Key::F16,
-        KeyCode::F17 => Key::F17,
-        KeyCode::F18 => Key::F18,
-        KeyCode::F19 => Key::F19,
-        KeyCode::F20 => Key::F20,
+        KeyCode::F1 => egui::Key::F1,
+        KeyCode::F2 => egui::Key::F2,
+        KeyCode::F3 => egui::Key::F3,
+        KeyCode::F4 => egui::Key::F4,
+        KeyCode::F5 => egui::Key::F5,
+        KeyCode::F6 => egui::Key::F6,
+        KeyCode::F7 => egui::Key::F7,
+        KeyCode::F8 => egui::Key::F8,
+        KeyCode::F9 => egui::Key::F9,
+        KeyCode::F10 => egui::Key::F10,
+        KeyCode::F11 => egui::Key::F11,
+        KeyCode::F12 => egui::Key::F12,
+        KeyCode::F13 => egui::Key::F13,
+        KeyCode::F14 => egui::Key::F14,
+        KeyCode::F15 => egui::Key::F15,
+        KeyCode::F16 => egui::Key::F16,
+        KeyCode::F17 => egui::Key::F17,
+        KeyCode::F18 => egui::Key::F18,
+        KeyCode::F19 => egui::Key::F19,
+        KeyCode::F20 => egui::Key::F20,
 
         _ => {
             return None;
@@ -194,11 +197,11 @@ impl Egui {
                     .native_pixels_per_point = Some(scale_factor);
                 false
             }
-            ViewportEvent::KeyboardInput { event, .. } => {
-                if let Some(keycode) = event.physical_key {
+            ViewportEvent::KeyboardInput { ref event, .. } => {
+                if let PhysicalKey::Code(keycode) = event.physical_key {
                     let pressed = event.state == ElementState::Pressed;
 
-                    if let Some(key) = translate_virtual_key_code(keycode) {
+                    if let Some(key) = translate_key_code(keycode) {
                         self.raw_input.events.push(egui::Event::Key {
                             key,
                             pressed,
@@ -209,23 +212,27 @@ impl Egui {
                     }
                 }
 
-                self.cx.wants_keyboard_input()
-            }
-            ViewportEvent::Text { ref text } => {
-                self.raw_input.events.push(egui::Event::Text(text.clone()));
+                // TODO: Check if `logical_key` matched to `Character` is better here.
+                if let Some(text) = &event.text {
+                    self.raw_input
+                        .events
+                        .push(egui::Event::Text(text.to_string()));
+                }
+
                 self.cx.wants_keyboard_input()
             }
             ViewportEvent::ModifiersChanged(modifiers) => {
                 self.raw_input.modifiers = egui::Modifiers {
-                    alt: modifiers.alt(),
-                    ctrl: modifiers.ctrl(),
-                    shift: modifiers.shift(),
+                    alt: modifiers.state().contains(ModifiersState::ALT),
+                    ctrl: modifiers.state().contains(ModifiersState::CONTROL),
+                    shift: modifiers.state().contains(ModifiersState::SHIFT),
                     command: if cfg!(target_os = "macos") {
-                        modifiers.logo()
+                        modifiers.state().contains(ModifiersState::SUPER)
                     } else {
-                        modifiers.ctrl()
+                        modifiers.state().contains(ModifiersState::CONTROL)
                     },
-                    mac_cmd: cfg!(target_os = "macos") && modifiers.logo(),
+                    mac_cmd: cfg!(target_os = "macos")
+                        && modifiers.state().contains(ModifiersState::SUPER),
                 };
                 false
             }

@@ -1,16 +1,12 @@
 use std::{
-    any::{Any, TypeId},
-    fmt::Debug,
-    hash::{Hash, Hasher},
-    marker::PhantomData,
+    any::TypeId,
+    hash::Hash,
     mem::{transmute, ManuallyDrop},
-    num::NonZeroU64,
-    sync::Arc,
 };
 
 use hashbrown::HashMap;
 
-use crate::{make_id, stid::WithStid, Id, IdGen, Stid};
+use crate::{make_id, stid::WithStid};
 
 make_id!(pub TargetId);
 
@@ -21,11 +17,14 @@ pub trait Target: WithStid + 'static {
     where
         Self: Sized;
 
-    fn merge_info(info: &mut Self::Info, other: &Self::Info)
+    /// Merge two target info instances.
+    /// Returns true if the info merged successfully.
+    /// If the info is not mergeable, it must return false.
+    fn merge_info(_info: &mut Self::Info, _other: &Self::Info) -> bool
     where
         Self: Sized,
     {
-        assert!(*info == *other, "Target info mismatch");
+        false
     }
 }
 

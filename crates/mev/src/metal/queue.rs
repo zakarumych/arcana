@@ -29,11 +29,7 @@ impl crate::traits::Queue for Queue {
         ))
     }
 
-    fn submit<I>(
-        &mut self,
-        command_buffers: I,
-        _check_point: bool,
-    ) -> Result<(), DeviceError<Vec<CommandBuffer>>>
+    fn submit<I>(&mut self, command_buffers: I, _check_point: bool) -> Result<(), DeviceError>
     where
         I: IntoIterator<Item = CommandBuffer>,
     {

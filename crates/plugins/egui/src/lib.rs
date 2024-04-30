@@ -418,20 +418,18 @@ impl Render for EguiRender {
                         }
                     }
 
-                    let vertex_buffer =
-                        match &mut self.vertex_buffer {
-                            Some(buffer) if buffer.size() >= total_vertex_size => buffer,
-                            slot => {
-                                *slot = None;
-                                slot.get_or_insert(cx.device().new_buffer(mev::BufferDesc {
-                                    size: total_vertex_size,
-                                    usage: mev::BufferUsage::VERTEX
-                                        | mev::BufferUsage::TRANSFER_DST,
-                                    memory: mev::Memory::Device,
-                                    name: "egui-vertex-buffer",
-                                })?)
-                            }
-                        };
+                    let vertex_buffer = match &mut self.vertex_buffer {
+                        Some(buffer) if buffer.size() >= total_vertex_size => buffer,
+                        slot => {
+                            *slot = None;
+                            slot.get_or_insert(cx.device().new_buffer(mev::BufferDesc {
+                                size: total_vertex_size,
+                                usage: mev::BufferUsage::VERTEX | mev::BufferUsage::TRANSFER_DST,
+                                memory: mev::Memory::Device,
+                                name: "egui-vertex-buffer",
+                            })?)
+                        }
+                    };
 
                     let index_buffer = match &mut self.index_buffer {
                         Some(buffer) if buffer.size() >= total_index_size => buffer,
@@ -453,13 +451,11 @@ impl Render for EguiRender {
                         match &primitive.primitive {
                             Primitive::Mesh(mesh) => {
                                 copy_encoder.write_buffer_slice(
-                                    &vertex_buffer,
-                                    vertex_buffer_offset,
+                                    vertex_buffer.slice(vertex_buffer_offset..),
                                     &mesh.vertices[..],
                                 );
                                 copy_encoder.write_buffer_slice(
-                                    &index_buffer,
-                                    index_buffer_offset,
+                                    index_buffer.slice(index_buffer_offset..),
                                     &mesh.indices[..],
                                 );
                                 vertex_buffer_offset += size_of_val(&mesh.vertices[..]);
@@ -487,114 +483,114 @@ impl Render for EguiRender {
                             .unwrap()
                     });
 
-                    let pipeline =
-                        if target.format().is_srgb() {
-                            self.srgb_pipeline.get_or_insert_with(|| {
-                                cx.device()
-                                    .new_render_pipeline(mev::RenderPipelineDesc {
-                                        name: "egui",
-                                        vertex_shader: mev::Shader {
-                                            library: library.clone(),
-                                            entry: "vs_main".into(),
+                    let pipeline = if target.format().is_srgb() {
+                        self.srgb_pipeline.get_or_insert_with(|| {
+                            cx.device()
+                                .new_render_pipeline(mev::RenderPipelineDesc {
+                                    name: "egui",
+                                    vertex_shader: mev::Shader {
+                                        library: library.clone(),
+                                        entry: "vs_main".into(),
+                                    },
+                                    vertex_attributes: vec![
+                                        mev::VertexAttributeDesc {
+                                            format: mev::VertexFormat::Float32x2,
+                                            offset: offset_of!(Vertex.pos) as u32,
+                                            buffer_index: 0,
                                         },
-                                        vertex_attributes: vec![
-                                            mev::VertexAttributeDesc {
-                                                format: mev::VertexFormat::Float32x2,
-                                                offset: offset_of!(Vertex.pos) as u32,
-                                                buffer_index: 0,
-                                            },
-                                            mev::VertexAttributeDesc {
-                                                format: mev::VertexFormat::Float32x2,
-                                                offset: offset_of!(Vertex.uv) as u32,
-                                                buffer_index: 0,
-                                            },
-                                            mev::VertexAttributeDesc {
-                                                format: mev::VertexFormat::Unorm8x4,
-                                                offset: offset_of!(Vertex.color) as u32,
-                                                buffer_index: 0,
-                                            },
-                                        ],
-                                        vertex_layouts: vec![mev::VertexLayoutDesc {
-                                            stride: std::mem::size_of::<Vertex>() as u32,
-                                            step_mode: mev::VertexStepMode::Vertex,
-                                        }],
-                                        primitive_topology: mev::PrimitiveTopology::Triangle,
-                                        raster: Some(mev::RasterDesc {
-                                            fragment_shader: Some(mev::Shader {
-                                                library: library.clone(),
-                                                entry: "fs_main_srgb".into(),
-                                            }),
-                                            color_targets: vec![mev::ColorTargetDesc {
-                                                format: target.format(),
-                                                blend: Some(mev::BlendDesc::default()),
-                                            }],
-                                            depth_stencil: None,
-                                            front_face: mev::FrontFace::default(),
-                                            culling: mev::Culling::None,
-                                        }),
-                                        arguments: &[EguiArguments::LAYOUT],
-                                        constants: EguiConstants::SIZE,
-                                    })
-                                    .unwrap()
-                            })
-                        } else {
-                            self.linear_pipeline.get_or_insert_with(|| {
-                                cx.device()
-                                    .new_render_pipeline(mev::RenderPipelineDesc {
-                                        name: "egui",
-                                        vertex_shader: mev::Shader {
-                                            library: library.clone(),
-                                            entry: "vs_main".into(),
+                                        mev::VertexAttributeDesc {
+                                            format: mev::VertexFormat::Float32x2,
+                                            offset: offset_of!(Vertex.uv) as u32,
+                                            buffer_index: 0,
                                         },
-                                        vertex_attributes: vec![
-                                            mev::VertexAttributeDesc {
-                                                format: mev::VertexFormat::Float32x2,
-                                                offset: offset_of!(Vertex.pos) as u32,
-                                                buffer_index: 0,
-                                            },
-                                            mev::VertexAttributeDesc {
-                                                format: mev::VertexFormat::Float32x2,
-                                                offset: offset_of!(Vertex.uv) as u32,
-                                                buffer_index: 0,
-                                            },
-                                            mev::VertexAttributeDesc {
-                                                format: mev::VertexFormat::Unorm8x4,
-                                                offset: offset_of!(Vertex.color) as u32,
-                                                buffer_index: 0,
-                                            },
-                                        ],
-                                        vertex_layouts: vec![mev::VertexLayoutDesc {
-                                            stride: std::mem::size_of::<Vertex>() as u32,
-                                            step_mode: mev::VertexStepMode::Vertex,
-                                        }],
-                                        primitive_topology: mev::PrimitiveTopology::Triangle,
-                                        raster: Some(mev::RasterDesc {
-                                            fragment_shader: Some(mev::Shader {
-                                                library: library.clone(),
-                                                entry: "fs_main_linear".into(),
-                                            }),
-                                            color_targets: vec![mev::ColorTargetDesc {
-                                                format: target.format(),
-                                                blend: Some(mev::BlendDesc::default()),
-                                            }],
-                                            depth_stencil: None,
-                                            front_face: mev::FrontFace::default(),
-                                            culling: mev::Culling::None,
+                                        mev::VertexAttributeDesc {
+                                            format: mev::VertexFormat::Unorm8x4,
+                                            offset: offset_of!(Vertex.color) as u32,
+                                            buffer_index: 0,
+                                        },
+                                    ],
+                                    vertex_layouts: vec![mev::VertexLayoutDesc {
+                                        stride: std::mem::size_of::<Vertex>() as u32,
+                                        step_mode: mev::VertexStepMode::Vertex,
+                                    }],
+                                    primitive_topology: mev::PrimitiveTopology::Triangle,
+                                    raster: Some(mev::RasterDesc {
+                                        fragment_shader: Some(mev::Shader {
+                                            library: library.clone(),
+                                            entry: "fs_main_srgb".into(),
                                         }),
-                                        arguments: &[EguiArguments::LAYOUT],
-                                        constants: EguiConstants::SIZE,
-                                    })
-                                    .unwrap()
-                            })
-                        };
+                                        color_targets: vec![mev::ColorTargetDesc {
+                                            format: target.format(),
+                                            blend: Some(mev::BlendDesc::default()),
+                                        }],
+                                        depth_stencil: None,
+                                        front_face: mev::FrontFace::default(),
+                                        culling: mev::Culling::None,
+                                    }),
+                                    arguments: &[EguiArguments::LAYOUT],
+                                    constants: EguiConstants::SIZE,
+                                })
+                                .unwrap()
+                        })
+                    } else {
+                        self.linear_pipeline.get_or_insert_with(|| {
+                            cx.device()
+                                .new_render_pipeline(mev::RenderPipelineDesc {
+                                    name: "egui",
+                                    vertex_shader: mev::Shader {
+                                        library: library.clone(),
+                                        entry: "vs_main".into(),
+                                    },
+                                    vertex_attributes: vec![
+                                        mev::VertexAttributeDesc {
+                                            format: mev::VertexFormat::Float32x2,
+                                            offset: offset_of!(Vertex.pos) as u32,
+                                            buffer_index: 0,
+                                        },
+                                        mev::VertexAttributeDesc {
+                                            format: mev::VertexFormat::Float32x2,
+                                            offset: offset_of!(Vertex.uv) as u32,
+                                            buffer_index: 0,
+                                        },
+                                        mev::VertexAttributeDesc {
+                                            format: mev::VertexFormat::Unorm8x4,
+                                            offset: offset_of!(Vertex.color) as u32,
+                                            buffer_index: 0,
+                                        },
+                                    ],
+                                    vertex_layouts: vec![mev::VertexLayoutDesc {
+                                        stride: std::mem::size_of::<Vertex>() as u32,
+                                        step_mode: mev::VertexStepMode::Vertex,
+                                    }],
+                                    primitive_topology: mev::PrimitiveTopology::Triangle,
+                                    raster: Some(mev::RasterDesc {
+                                        fragment_shader: Some(mev::Shader {
+                                            library: library.clone(),
+                                            entry: "fs_main_linear".into(),
+                                        }),
+                                        color_targets: vec![mev::ColorTargetDesc {
+                                            format: target.format(),
+                                            blend: Some(mev::BlendDesc::default()),
+                                        }],
+                                        depth_stencil: None,
+                                        front_face: mev::FrontFace::default(),
+                                        culling: mev::Culling::None,
+                                    }),
+                                    arguments: &[EguiArguments::LAYOUT],
+                                    constants: EguiConstants::SIZE,
+                                })
+                                .unwrap()
+                        })
+                    };
 
                     drop(copy_encoder);
 
                     let dims = target.dimensions().to_2d();
 
                     let mut render = encoder.render(mev::RenderPassDesc {
-                        color_attachments: &[mev::AttachmentDesc::new(&target)
-                            .load_op(self.load_op)],
+                        color_attachments: &[
+                            mev::AttachmentDesc::new(&target).load_op(self.load_op)
+                        ],
                         ..Default::default()
                     });
 
@@ -676,9 +672,9 @@ impl Render for EguiRender {
 
                                 render.bind_vertex_buffers(
                                     0,
-                                    &[(&vertex_buffer, vertex_buffer_offset)],
+                                    &[vertex_buffer.slice(vertex_buffer_offset..)],
                                 );
-                                render.bind_index_buffer(&index_buffer, index_buffer_offset);
+                                render.bind_index_buffer(index_buffer.slice(index_buffer_offset..));
                                 render.draw_indexed(0, 0..mesh.indices.len() as u32, 0..1);
 
                                 next_mesh!();

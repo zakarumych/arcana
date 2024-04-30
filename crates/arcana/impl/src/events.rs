@@ -172,10 +172,6 @@ impl TryFrom<&WindowEvent> for ViewportEvent {
                     button,
                 })
             }
-            // WindowEvent::ReceivedCharacter(ch) if is_printable_char(ch) => {
-            //     let text = ch.to_string();
-            //     Ok(ViewportEvent::Text { text })
-            // }
             _ => Err(UnsupportedEvent),
         }
     }

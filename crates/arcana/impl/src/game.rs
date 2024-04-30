@@ -17,7 +17,7 @@ use mev::ImageDesc;
 use parking_lot::Mutex;
 use winit::{
     event::WindowEvent,
-    window::{Window, WindowBuilder, WindowId},
+    window::{Window, WindowId},
 };
 
 use crate::{

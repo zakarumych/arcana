@@ -25,7 +25,7 @@ pub trait Device {
         desc: LibraryDesc,
     ) -> Result<crate::backend::Library, CreateLibraryError>;
 
-    /// Create a new render pipeline.
+    /// Create a new compute pipeline.
     fn new_compute_pipeline(
         &self,
         desc: ComputePipelineDesc,
@@ -75,11 +75,7 @@ pub trait Queue {
     ///
     /// If `check_point` is `true`, inserts a checkpoint into queue and check previous checkpoints.
     /// Checkpoints are required for resource reclamation.
-    fn submit<I>(
-        &mut self,
-        command_buffers: I,
-        check_point: bool,
-    ) -> Result<(), DeviceError<Vec<crate::backend::CommandBuffer>>>
+    fn submit<I>(&mut self, command_buffers: I, check_point: bool) -> Result<(), DeviceError>
     where
         I: IntoIterator<Item = crate::backend::CommandBuffer>;
 
@@ -141,18 +137,15 @@ pub trait CopyCommandEncoder {
     );
 
     /// Writes data to the buffer.
-    fn write_buffer_raw<'a>(&mut self, buffer: impl AsBufferSlice, data: &[u8]);
+    fn write_buffer_raw(&mut self, slice: impl AsBufferSlice, data: &[u8]);
 
     /// Writes data to the buffer.
     #[inline(always)]
-    fn write_buffer(&mut self, buffer: impl AsBufferSlice, data: &impl bytemuck::Pod) {
-        self.write_buffer_slice(buffer, bytemuck::bytes_of(data))
-    }
+    fn write_buffer(&mut self, slice: impl AsBufferSlice, data: &impl bytemuck::Pod);
 
     /// Writes data to the buffer.
-    fn write_buffer_slice(&mut self, buffer: impl AsBufferSlice, data: &[impl bytemuck::Pod]) {
-        self.write_buffer_raw(buffer, bytemuck::cast_slice(data))
-    }
+    #[inline(always)]
+    fn write_buffer_slice(&mut self, slice: impl AsBufferSlice, data: &[impl bytemuck::Pod]);
 
     /// Copies pixels from src image to dst image.
     fn copy_buffer_to_image(
@@ -197,10 +190,10 @@ pub trait RenderCommandEncoder {
     fn with_constants(&mut self, constants: &impl DeviceRepr);
 
     /// Bind vertex buffer to the current pipeline.
-    fn bind_vertex_buffers(&mut self, start: u32, buffers: &[impl AsBufferSlice]);
+    fn bind_vertex_buffers(&mut self, start: u32, slices: &[impl AsBufferSlice]);
 
     /// Bind index buffer to the current pipeline.
-    fn bind_index_buffer(&mut self, buffer: impl AsBufferSlice);
+    fn bind_index_buffer(&mut self, slice: impl AsBufferSlice);
 
     /// Draws primitives.
     fn draw(&mut self, vertices: Range<u32>, instances: Range<u32>);

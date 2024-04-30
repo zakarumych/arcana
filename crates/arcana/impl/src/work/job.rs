@@ -1,5 +1,6 @@
 use std::{cell::RefCell, slice::Iter};
 
+use edict::World;
 use hashbrown::HashSet;
 
 use crate::{arena::Arena, make_id, stid::WithStid, Stid};
@@ -72,17 +73,17 @@ pub struct JobDesc {
 #[macro_export]
 macro_rules! add_job_desc {
     (($reads:ident, $updates:ident, $creates:ident)) => {};
-    (($reads:ident, $updates:ident, $creates:ident) $ty:ty $($rest:tt)+) => {
+    (($reads:ident, $updates:ident, $creates:ident) $ty:ty , $($rest:tt)*) => {
         $reads.push($crate::work::JobReadDesc::new::< $ty >());
-        add_job_desc!(($reads, $updates, $creates) $($rest)+);
+        $crate::add_job_desc!(($reads, $updates, $creates) $($rest)*);
     };
-    (($reads:ident, $updates:ident, $creates:ident) mut $ty:ty $($rest:tt)+) => {
-        $crate::work::JobUpdateDesc::new::< $ty >(),
-        add_job_desc!(($reads, $updates, $creates) $($rest)+);
+    (($reads:ident, $updates:ident, $creates:ident) mut $ty:ty , $($rest:tt)*) => {
+        $updates.push($crate::work::JobUpdateDesc::new::< $ty >());
+        $crate::add_job_desc!(($reads, $updates, $creates) $($rest)*);
     };
-    (($reads:ident, $updates:ident, $creates:ident) +$ty:ty => $name:expr $($rest:tt)+) => {
-        $crate::work::JobCreateDesc::new::< $ty >($name),
-        add_job_desc!(($reads, $updates, $creates) $($rest)+);
+    (($reads:ident, $updates:ident, $creates:ident) +$ty:ty => $name:expr , $($rest:tt)*) => {
+        $creates.push($crate::work::JobCreateDesc::new::< $ty >($name));
+        $crate::add_job_desc!(($reads, $updates, $creates) $($rest)*);
     };
 }
 
@@ -141,7 +142,7 @@ pub trait Job {
     /// This phase is executed for each frame, so considered hot path.
     /// It is important to keep it simple and fast,
     /// keep allocations to minimum and reuse as much as possible.
-    fn plan(&mut self, planner: Planner<'_>, world: &mut WorldLocal);
+    fn plan(&mut self, planner: Planner<'_>, world: &mut World);
 
     /// Second phase of a job is execution.
     ///
@@ -151,7 +152,7 @@ pub trait Job {
     /// - Creating pipelines
     /// - Binding resources
     /// - Recording draw/dispatch calls
-    fn exec(&mut self, runner: Exec<'_>, world: &mut WorldLocal);
+    fn exec(&mut self, runner: Exec<'_>, world: &mut World);
 }
 
 pub struct JobCreateTarget {
@@ -373,7 +374,7 @@ impl JobNode {
         hub: &mut TargetHub,
         selected_jobs: &mut HashSet<JobId>,
         device: mev::Device,
-        world: &mut WorldLocal,
+        world: &mut World,
     ) {
         let planner = Planner {
             updates: self.updates.iter(),
@@ -392,7 +393,7 @@ impl JobNode {
         device: mev::Device,
         queue: &mut mev::Queue,
         cbufs: &Arena<mev::CommandEncoder>,
-        world: &mut WorldLocal,
+        world: &mut World,
     ) {
         let exec = Exec {
             updates: self.updates.iter(),

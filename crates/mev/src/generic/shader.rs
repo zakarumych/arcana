@@ -130,7 +130,7 @@ pub(crate) enum ShaderCompileError {
     NonUtf8(std::str::Utf8Error),
     ParseSpirV(naga::front::spv::Error),
     ParseWgsl(naga::front::wgsl::ParseError),
-    ParseGlsl(Vec<naga::front::glsl::Error>),
+    ParseGlsl(naga::front::glsl::ParseError),
     ValidationFailed,
 
     #[cfg(any(windows, all(unix, not(any(target_os = "macos", target_os = "ios")))))]
@@ -146,13 +146,7 @@ impl fmt::Display for ShaderCompileError {
             ShaderCompileError::NonUtf8(err) => write!(f, "non-utf8: {}", err),
             ShaderCompileError::ParseSpirV(err) => write!(f, "parse SPIR-V: {}", err),
             ShaderCompileError::ParseWgsl(err) => write!(f, "parse WGSL: {}", err),
-            ShaderCompileError::ParseGlsl(errs) => {
-                write!(f, "parse GLSL: ")?;
-                for err in errs {
-                    write!(f, "{}", err)?;
-                }
-                Ok(())
-            }
+            ShaderCompileError::ParseGlsl(err) => write!(f, "parse GLSL: {}", err),
             ShaderCompileError::ValidationFailed => write!(f, "validation failed"),
             #[cfg(any(windows, all(unix, not(any(target_os = "macos", target_os = "ios")))))]
             ShaderCompileError::GenSpirV(err) => write!(f, "generate SPIR-V: {}", err),
