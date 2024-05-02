@@ -2,7 +2,6 @@ use std::{collections::VecDeque, fmt, path::Path};
 
 use arcana::{
     edict::world::WorldLocal,
-    game::Game,
     plugin::{ArcanaPlugin, GLOBAL_CHECK},
     project::{BuildProcess, Dependency, Ident, IdentBuf, Profile, Project, ProjectManifest},
     With, World,
@@ -382,62 +381,62 @@ impl Plugins {
             }
         }
 
-        if world.view::<With<Game>>().iter().count() == 0 {
-            if let Some(mut lib) = plugins.pending.take() {
-                tracing::info!("New plugins lib version linked");
+        // if world.view::<With<Game>>().iter().count() == 0 {
+        //     if let Some(mut lib) = plugins.pending.take() {
+        //         tracing::info!("New plugins lib version linked");
 
-                if let Err(err) = lib.sort_plugins(&mut project.plugins_mut()) {
-                    for (name, dep) in err.missing_dependencies {
-                        tracing::info!("Missing dependency '{name}'");
-                        if let Err(err) = plugins.add_plugin(name.to_buf(), dep, &mut project) {
-                            tracing::error!("Failed to add missing dependency '{name}'. {err}");
-                        }
-                    }
-                    for (name, dep) in err.circular_dependencies {
-                        plugins.failure = Some(miette::miette!(
-                            "Circular dependency between '{name}' and '{dep}'",
-                            name = name,
-                            dep = dep
-                        ));
-                    }
-                }
+        //         if let Err(err) = lib.sort_plugins(&mut project.plugins_mut()) {
+        //             for (name, dep) in err.missing_dependencies {
+        //                 tracing::info!("Missing dependency '{name}'");
+        //                 if let Err(err) = plugins.add_plugin(name.to_buf(), dep, &mut project) {
+        //                     tracing::error!("Failed to add missing dependency '{name}'. {err}");
+        //                 }
+        //             }
+        //             for (name, dep) in err.circular_dependencies {
+        //                 plugins.failure = Some(miette::miette!(
+        //                     "Circular dependency between '{name}' and '{dep}'",
+        //                     name = name,
+        //                     dep = dep
+        //                 ));
+        //             }
+        //         }
 
-                let mut data = world.expect_resource_mut::<ProjectData>();
-                plugins.active_plugins = lib
-                    .active_plugins(&data.enabled_plugins)
-                    .map(|(name, _)| name.to_buf())
-                    .collect();
+        //         let mut data = world.expect_resource_mut::<ProjectData>();
+        //         plugins.active_plugins = lib
+        //             .active_plugins(&data.enabled_plugins)
+        //             .map(|(name, _)| name.to_buf())
+        //             .collect();
 
-                // Update systems and filters.
-                let ProjectData {
-                    enabled_plugins,
-                    systems,
-                    ..
-                } = &mut *data;
+        //         // Update systems and filters.
+        //         let ProjectData {
+        //             enabled_plugins,
+        //             systems,
+        //             ..
+        //         } = &mut *data;
 
-                // Filters::update_plugins(&mut *data, active_plugins);
-                world.expect_resource_mut::<Systems>().update_plugins(
-                    &mut *systems.borrow_mut(),
-                    lib.active_plugins(&*enabled_plugins),
-                );
+        //         // Filters::update_plugins(&mut *data, active_plugins);
+        //         world.expect_resource_mut::<Systems>().update_plugins(
+        //             &mut *systems.borrow_mut(),
+        //             lib.active_plugins(&*enabled_plugins),
+        //         );
 
-                // Lib is self-consistent.
-                // Replace old lib with new one.
-                plugins.linked = Some(lib);
-            }
+        //         // Lib is self-consistent.
+        //         // Replace old lib with new one.
+        //         plugins.linked = Some(lib);
+        //     }
 
-            if plugins.failure.is_none()
-                && plugins.build.is_none()
-                && !plugins.all_plugins_linked(project.manifest())
-            {
-                // If not building and has no last-build error and not all plugins are linked
-                // - rebuild plugins library.
+        //     if plugins.failure.is_none()
+        //         && plugins.build.is_none()
+        //         && !plugins.all_plugins_linked(project.manifest())
+        //     {
+        //         // If not building and has no last-build error and not all plugins are linked
+        //         // - rebuild plugins library.
 
-                tracing::info!("Plugins lib is not linked. Building...");
-                let build = try_log_err!(project.build_plugins_library(plugins.profile));
-                plugins.build = Some(build);
-            }
-        }
+        //         tracing::info!("Plugins lib is not linked. Building...");
+        //         let build = try_log_err!(project.build_plugins_library(plugins.profile));
+        //         plugins.build = Some(build);
+        //     }
+        // }
     }
 
     pub fn show(world: &WorldLocal, ui: &mut Ui) {

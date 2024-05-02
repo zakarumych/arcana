@@ -13,12 +13,11 @@ use arcana::{
     project::Project,
 };
 use data::ProjectData;
-use games::GamesTab;
 use parking_lot::Mutex;
 use project::Profile;
 use winit::{
     event::Event,
-    event_loop::{ControlFlow, EventLoopBuilder},
+    event_loop::{ControlFlow, EventLoop, EventLoopBuilder},
 };
 
 use crate::app::UserEvent;
@@ -106,7 +105,7 @@ fn _run(path: &Path) -> miette::Result<()> {
 
     let mut limiter = clock.ticker(240.hz());
 
-    let events = EventLoopBuilder::<UserEvent>::with_user_event().build();
+    let events = EventLoop::<UserEvent>::with_user_event().build();
     let mut app = app::App::new(&events, event_collector, project, data);
 
     events.run(move |event, _events, flow| match event {

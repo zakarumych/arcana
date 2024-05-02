@@ -16,7 +16,7 @@ use std::path::Path;
 
 use arcana::plugin::ArcanaPlugin;
 use arcana_project::Ident;
-use miette::{Diagnostic, IntoDiagnostic, WrapErr};
+use miette::Diagnostic;
 use thiserror::Error;
 
 /// Container that encapsulates all plugin data and objects that use it directly.

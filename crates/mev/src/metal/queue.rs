@@ -54,9 +54,7 @@ impl crate::traits::Queue for Queue {
     where
         I: IntoIterator<Item = CommandBuffer>,
     {
-        for buffer in command_buffers {
-            buffer.commit();
-        }
+        command_buffers.into_iter().for_each(CommandBuffer::commit);
         Ok(())
     }
 

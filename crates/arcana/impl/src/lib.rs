@@ -91,6 +91,16 @@ pub fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
-//
-// #[global_allocator]
-// static ALLOC: alloc::ArcanaAllocator = alloc::ArcanaAllocator;
+/// Triggers panic.
+/// Use when too large capacity is requested.
+#[inline(never)]
+fn capacity_overflow() -> ! {
+    panic!("capacity overflow");
+}
+
+#[inline]
+fn alloc_guard(alloc_size: usize) {
+    if usize::BITS < 64 && alloc_size > isize::MAX as usize {
+        capacity_overflow()
+    }
+}
