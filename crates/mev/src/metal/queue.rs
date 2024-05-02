@@ -1,3 +1,7 @@
+use std::fmt;
+
+use foreign_types::ForeignType;
+
 use crate::generic::{DeviceError, OutOfMemory, PipelineStages};
 
 use super::{CommandBuffer, CommandEncoder, Frame};
@@ -9,6 +13,23 @@ pub struct Queue {
 
 unsafe impl Send for Queue {}
 unsafe impl Sync for Queue {}
+
+impl fmt::Debug for Queue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Queue")
+            .field("device", &self.device.as_ptr())
+            .field("queue", &self.queue.as_ptr())
+            .finish()
+    }
+}
+
+impl PartialEq for Queue {
+    fn eq(&self, other: &Self) -> bool {
+        self.queue.as_ptr() == other.queue.as_ptr()
+    }
+}
+
+impl Eq for Queue {}
 
 impl Queue {
     pub(super) fn new(device: metal::Device, queue: metal::CommandQueue) -> Self {

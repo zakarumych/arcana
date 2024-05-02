@@ -282,6 +282,17 @@ impl crate::traits::CopyCommandEncoder for CopyCommandEncoder<'_> {
             data.len() as NSUInteger,
         );
     }
+
+    #[inline(always)]
+    fn write_buffer(&mut self, slice: impl AsBufferSlice, data: &impl bytemuck::Pod) {
+        self.write_buffer_slice(slice, bytemuck::bytes_of(data))
+    }
+
+    /// Writes data to the buffer.
+    #[inline(always)]
+    fn write_buffer_slice(&mut self, slice: impl AsBufferSlice, data: &[impl bytemuck::Pod]) {
+        self.write_buffer_raw(slice, bytemuck::cast_slice(data))
+    }
 }
 
 pub struct RenderCommandEncoder<'a> {

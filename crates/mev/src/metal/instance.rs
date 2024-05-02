@@ -24,6 +24,7 @@ impl fmt::Display for CreateErrorKind {
     }
 }
 
+#[derive(Clone)]
 pub struct Instance {
     capabilities: Capabilities,
 }
@@ -48,6 +49,20 @@ impl Instance {
         })
     }
 }
+
+impl fmt::Debug for Instance {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("Instance").finish()
+    }
+}
+
+impl PartialEq for Instance {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for Instance {}
 
 #[hidden_trait::expose]
 impl crate::traits::Instance for Instance {

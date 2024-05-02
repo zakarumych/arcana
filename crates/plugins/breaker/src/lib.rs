@@ -28,31 +28,32 @@ arcana::export_arcana_plugin! {
             cursor ...,
         ],
         systems: [
-            target_cursor: move |cursor: Res<MainCursor>,
-                viewport: Res<Viewport>,
-                mut motion: View<&mut Motion>,
-                cameras: View<(&Camera2, &Global)>| {
-                    let extent = viewport.extent();
+            target_cursor: target_cursor,
+            // move |cursor: Res<MainCursor>,
+            //     viewport: Res<Viewport>,
+            //     mut motion: View<&mut Motion>,
+            //     cameras: View<(&Camera2, &Global)>| {
+            //         let extent = viewport.extent();
 
-                    // Ignore when viewport is zero-sized.
-                    if extent.width() == 0 || extent.height() == 0 {
-                        return;
-                    }
+            //         // Ignore when viewport is zero-sized.
+            //         if extent.width() == 0 || extent.height() == 0 {
+            //             return;
+            //         }
 
-                    let point = na::Point2::new(cursor.x / extent.width() as f32 * 2.0 - 1.0, 1.0 - cursor.y / extent.height() as f32 * 2.0);
+            //         let point = na::Point2::new(cursor.x / extent.width() as f32 * 2.0 - 1.0, 1.0 - cursor.y / extent.height() as f32 * 2.0);
 
-                    let ratio = extent.width() as f32 / extent.height() as f32;
+            //         let ratio = extent.width() as f32 / extent.height() as f32;
 
-                    let (camera, camera_global) = cameras.try_get(camera).unwrap();
+            //         let (camera, camera_global) = cameras.try_get(camera).unwrap();
 
-                    let position = camera
-                        .viewport
-                        .transform(1.0, ratio)
-                        .transform_point(&point);
+            //         let position = camera
+            //             .viewport
+            //             .transform(1.0, ratio)
+            //             .transform_point(&point);
 
-                    let position = camera_global.iso.transform_point(&position);
-                    *motion.try_get_mut(target).unwrap() = MoveTo::new(position).into();
-                },
+            //         let position = camera_global.iso.transform_point(&position);
+            //         *motion.try_get_mut(target).unwrap() = MoveTo::new(position).into();
+            //     },
             burst_system,
         ],
 
@@ -210,4 +211,12 @@ fn burst_system(
             burst.scale = new_scale;
         }
     }
+}
+
+fn target_cursor(
+    // cursor: Res<MainCursor>,
+    viewport: Res<Viewport>,
+    // mut motion: View<&mut Motion>,
+    // cameras: View<(&Camera2, &Global)>,
+) {
 }

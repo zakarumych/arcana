@@ -1,5 +1,9 @@
-use std::ops::Mul;
+use std::{
+    hash::{Hash, Hasher},
+    ops::Mul,
+};
 
+use foreign_types::ForeignType;
 use metal::MTLTextureType;
 
 use crate::generic::{
@@ -13,12 +17,27 @@ use super::{
     Device,
 };
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Image {
     texture: metal::Texture,
 }
 
+impl PartialEq for Image {
+    fn eq(&self, other: &Self) -> bool {
+        self.texture.as_ptr() == other.texture.as_ptr()
+    }
+}
+
+impl Eq for Image {}
+
+impl Hash for Image {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.texture.as_ptr().hash(state);
+    }
+}
+
 unsafe impl Send for Image {}
+unsafe impl Sync for Image {}
 
 impl Image {
     pub(super) fn new(texture: metal::Texture) -> Self {

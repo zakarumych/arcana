@@ -199,7 +199,7 @@ impl MainJob {
 }
 
 impl Job for MainJob {
-    fn plan(&mut self, mut planner: Planner<'_>, _world: &mut World) {
+    fn plan(&mut self, mut planner: Planner<'_>, world: &mut World) {
         let Some(target) = planner.create::<Image2D>() else {
             return;
         };
@@ -215,7 +215,7 @@ impl Job for MainJob {
         };
     }
 
-    fn exec(&mut self, mut runner: Exec<'_>, _world: &mut World) {
+    fn exec(&mut self, runner: Exec<'_>, _world: &mut World) {
         let Some(target) = runner.create::<Image2D>() else {
             return;
         };
@@ -270,7 +270,7 @@ impl Job for MainJob {
         let dims = target.dimensions().to_2d();
 
         let arguments = self.arguments.get_or_insert_with(|| {
-            let colors = ctx
+            let colors = runner
                 .device()
                 .new_buffer_init(mev::BufferInitDesc {
                     data: arcana::bytemuck::cast_slice(&[
@@ -306,8 +306,6 @@ impl Job for MainJob {
         render.with_scissor(mev::Offset2::ZERO, dims);
         render.draw(0..3, 0..1);
         drop(render);
-        ctx.commit(encoder.finish()?);
-        Ok(())
     }
 }
 

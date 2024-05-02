@@ -1,4 +1,6 @@
-//! Definitions to work with Arcana projects.
+//! Provides types to crete, save, open and manipulate Arcana projects.
+//!
+//!
 #![allow(warnings)]
 
 use std::{
@@ -39,16 +41,26 @@ const MANIFEST_NAME: &'static str = "Arcana.toml";
 const CARGO_TOML_NAME: &'static str = "Cargo.toml";
 const WORKSPACE_DIR_NAME: &'static str = "crates";
 
-/// Open project object.
+/// An open project object.
 ///
-/// When open from manifest file it locks the file and syncs changes to it.
+/// It contains project manifest,
+/// manifest file path
+/// and project root path.
+///
+/// Manifest file is a TOML file and is written when project is synced.
+/// When new project is created file with initial manifest is created.
+///
+/// If file is edited or deleted project will silently overwrite it on sync.
+///
+/// TODO: Figure out why not to lock the file?
 pub struct Project {
+    /// Actual project manifest.
     manifest: ProjectManifest,
 
     // Contains path assigned to the project.
     // It will sync with the manifest file at the path both ways.
     // Whenever changes happen to the manifest file, the user will be asked what to do:
-    // reaload or overwrite.
+    // reload or overwrite.
     // If file is deleted the user will be notified on save.
     // On save the file will be created if it doesn't exist.
     manifest_path: PathBuf,
@@ -69,10 +81,11 @@ impl fmt::Debug for Project {
 impl Project {
     /// Creates new project with the given name at the given path.
     /// Path will become project root directory.
+    /// Manifest file will be `Arcana.toml` in the root directory.
     ///
     /// # Errors
     ///
-    /// * If `engine` dependency is provided and it is invalid.
+    /// * If `engine` dependency is invalid.
     ///   Path dependency is invalid if it is not a valid path to directory containing `Cargo.toml`.
     /// * If `new` is true and `path` is already exists.
     /// * If `path` already contains Arcana project.

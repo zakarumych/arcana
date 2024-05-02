@@ -18,6 +18,7 @@ pub struct Surface {
     suboptimal_retire_cooldown: u64,
 }
 
+unsafe impl Sync for Surface {}
 unsafe impl Send for Surface {}
 
 impl Drop for Surface {

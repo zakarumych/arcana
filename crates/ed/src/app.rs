@@ -21,7 +21,7 @@ use parking_lot::Mutex;
 use winit::{
     dpi,
     event::WindowEvent,
-    window::{Window, WindowBuilder, WindowId},
+    window::{Window, WindowAttributes, WindowId},
 };
 
 use crate::{
@@ -36,9 +36,9 @@ use crate::{
 
 pub enum UserEvent {}
 
-pub type Event<'a> = winit::event::Event<'a, UserEvent>;
+pub type Event = winit::event::Event<UserEvent>;
 pub type EventLoop = winit::event_loop::EventLoop<UserEvent>;
-pub type EventLoopWindowTarget = winit::event_loop::EventLoopWindowTarget<UserEvent>;
+pub type ActiveEventLoop = winit::event_loop::ActiveEventLoop;
 
 /// Editor tab.
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -175,7 +175,7 @@ impl App {
 
         let builder = WorldBuilder::new();
 
-        let mut world = builder.build_local();
+        let mut world = builder.build();
         world.insert_resource(project);
         world.insert_resource(Plugins::new());
         world.insert_resource(Console::new(event_collector));
@@ -192,9 +192,9 @@ impl App {
         let mut dock_states = HashMap::new();
 
         if state.windows.is_empty() {
-            let builder = WindowBuilder::new().with_title("Ed");
-            let window = builder
-                .build(events)
+            let builder = Window::default_attributes().with_title("Ed");
+            let window = events
+                .create_window(builder)
                 .map_err(|err| miette::miette!("Failed to create Ed window: {err}"))
                 .unwrap();
 
@@ -214,13 +214,13 @@ impl App {
         }
 
         for w in state.windows {
-            let builder = WindowBuilder::new()
+            let builder = WindowAttributes::new()
                 .with_title("Ed")
                 .with_position(w.pos)
                 .with_inner_size(w.size);
 
-            let window: Window = builder
-                .build(&events)
+            let window: Window = events
+                .create_window(builder)
                 .map_err(|err| miette::miette!("Failed to create Ed window: {err}"))
                 .unwrap();
 
@@ -245,7 +245,7 @@ impl App {
 
         App {
             dock_states,
-            world,
+            world: world.into(),
             graph,
             resources: RenderResources::default(),
             blink: BlinkAlloc::new(),
@@ -256,7 +256,7 @@ impl App {
         }
     }
 
-    pub fn on_event<'a>(&mut self, window_id: WindowId, event: WindowEvent<'a>) {
+    pub fn on_event<'a>(&mut self, window_id: WindowId, event: WindowEvent) {
         let world = self.world.local();
 
         if Games::handle_event(world, window_id, &event) {

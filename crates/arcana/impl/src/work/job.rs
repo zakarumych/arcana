@@ -1,4 +1,7 @@
-use std::{cell::RefCell, slice::Iter};
+use std::{
+    cell::{Cell, RefCell},
+    slice::Iter,
+};
 
 use edict::World;
 use hashbrown::HashSet;
@@ -257,13 +260,16 @@ impl Planner<'_> {
 
 pub struct Exec<'a> {
     /// List of targets updates of the job correspond to.
-    updates: Iter<'a, JobUpdateTarget>,
+    updates: &'a [JobUpdateTarget],
+    next_update: Cell<usize>,
 
     /// List of targets creates of the job correspond to.
-    creates: Iter<'a, JobCreateTarget>,
+    creates: &'a [JobCreateTarget],
+    next_create: Cell<usize>,
 
     /// List of targets reads of the job correspond to.
-    reads: Iter<'a, JobReadTarget>,
+    reads: &'a [JobReadTarget],
+    next_read: Cell<usize>,
 
     /// Where all targets live.
     hub: &'a mut TargetHub,
@@ -281,33 +287,39 @@ impl Exec<'_> {
     /// Fetches next resource to update.
     ///
     /// Returns none if not connected to next input.
-    pub fn update<T>(&mut self) -> Option<&T>
+    pub fn update<T>(&self) -> Option<&T>
     where
         T: Target,
     {
-        let update = self.updates.next().expect("No more updates");
+        let idx = self.next_update.get();
+        let update = self.updates.get(idx).expect("No more updates");
+        self.next_update.set(idx + 1);
         self.hub.get::<T>(update.id?)
     }
 
     /// Fetches next resource to create.
     ///
     /// Returns none if not connected.
-    pub fn create<T>(&mut self) -> Option<&T>
+    pub fn create<T>(&self) -> Option<&T>
     where
         T: Target,
     {
-        let create = self.creates.next().expect("No more creates");
+        let idx = self.next_create.get();
+        let create = self.creates.get(idx).expect("No more creates");
+        self.next_create.set(idx + 1);
         self.hub.get::<T>(create.id?)
     }
 
     /// Fetches next resource to read.
     ///
     /// Returns none if not connected.
-    pub fn read<T>(&mut self) -> Option<&T>
+    pub fn read<T>(&self) -> Option<&T>
     where
         T: Target,
     {
-        let read = self.reads.next().expect("No more reads");
+        let idx = self.next_read.get();
+        let read = self.reads.get(idx).expect("No more reads");
+        self.next_read.set(idx + 1);
         self.hub.get::<T>(read.id?)
     }
 
@@ -396,9 +408,12 @@ impl JobNode {
         world: &mut World,
     ) {
         let exec = Exec {
-            updates: self.updates.iter(),
-            creates: self.creates.iter(),
-            reads: self.reads.iter(),
+            updates: &self.updates,
+            next_update: Cell::new(0),
+            creates: &self.creates,
+            next_create: Cell::new(0),
+            reads: &self.reads,
+            next_read: Cell::new(0),
             hub,
             device,
             queue: RefCell::new(queue),

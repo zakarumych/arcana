@@ -2,21 +2,20 @@
 //! Game Tool is responsible for managing game's plugins
 //! and run instances of the game.
 
-use std::{cmp::Reverse, collections::BinaryHeap, rc::Rc, sync::Arc};
+use std::{rc::Rc, sync::Arc};
 
 use arcana::{
     const_format,
     edict::world::WorldLocal,
-    events::{Event, EventFunnel, ViewportEvent},
+    events::{Event, KeyCode, ViewportEvent},
     game::{Game, GameInit, FPS},
     gametime::{TimeSpan, TimeStamp},
     mev,
-    plugin::{ArcanaPlugin, PluginsHub},
-    project::{Ident, Project},
+    plugin::PluginsHub,
+    project::Project,
     texture::Texture,
     Blink, ClockStep, Component, Entities, EntityId, World,
 };
-use hashbrown::HashMap;
 use parking_lot::Mutex;
 use winit::{
     event::WindowEvent,
@@ -193,11 +192,7 @@ impl Games {
         }
     }
 
-    pub fn handle_event<'a>(
-        world: &mut World,
-        window_id: WindowId,
-        event: &WindowEvent<'a>,
-    ) -> bool {
+    pub fn handle_event<'a>(world: &mut World, window_id: WindowId, event: &WindowEvent) -> bool {
         let world = world.local();
         for game in world.view_mut::<&mut Game>() {
             if game.window_id() == Some(window_id) {
@@ -269,9 +264,9 @@ impl Games {
                         | ViewportEvent::ScaleFactorChanged { .. } => {
                             consume = false;
                         }
-                        ViewportEvent::KeyboardInput { input, .. }
-                            if input.virtual_keycode
-                                == Some(winit::event::VirtualKeyCode::Escape) =>
+                        ViewportEvent::KeyboardInput { event, .. }
+                            if event.physical_key
+                                == winit::keyboard::PhysicalKey::Code(KeyCode::Escape) =>
                         {
                             games.focus = None;
                         }

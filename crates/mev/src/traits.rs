@@ -1,4 +1,4 @@
-use std::ops::Range;
+use std::{fmt::Debug, hash::Hash, ops::Range};
 
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 
@@ -10,7 +10,7 @@ use crate::generic::{
     SamplerDesc, SurfaceError, TlasBuildDesc, TlasDesc, ViewDesc,
 };
 
-pub trait Instance {
+pub trait Instance: Clone + Debug + Eq + Send + Sync + 'static {
     fn capabilities(&self) -> &Capabilities;
     fn create(
         &self,
@@ -18,7 +18,7 @@ pub trait Instance {
     ) -> Result<(crate::backend::Device, Vec<crate::backend::Queue>), CreateError>;
 }
 
-pub trait Device {
+pub trait Device: Clone + Debug + Eq + Send + Sync + 'static {
     /// Create a new shader library.
     fn new_shader_library(
         &self,
@@ -63,7 +63,7 @@ pub trait Device {
     fn new_tlas(&self, desc: TlasDesc) -> Result<crate::backend::Tlas, OutOfMemory>;
 }
 
-pub trait Queue {
+pub trait Queue: Debug + Eq + Send + Sync + 'static {
     /// Get the queue family index.
     fn family(&self) -> u32;
 
@@ -218,16 +218,16 @@ pub trait AccelerationStructureCommandEncoder {
     );
 }
 
-pub trait Surface {
+pub trait Surface: Send + Sync + 'static {
     /// Acquires next frame from the surface.
     fn next_frame(&mut self) -> Result<crate::backend::Frame, SurfaceError>;
 }
 
-pub trait Frame {
+pub trait Frame: Send + Sync + 'static {
     fn image(&self) -> &crate::backend::Image;
 }
 
-pub trait Image {
+pub trait Image: Clone + Debug + Eq + Hash + Send + Sync + 'static {
     /// Returns the pixel format of the image.
     fn format(&self) -> PixelFormat;
 
@@ -259,7 +259,7 @@ pub trait Image {
     fn detached(&self) -> bool;
 }
 
-pub trait Buffer {
+pub trait Buffer: Clone + Debug + Eq + Hash + Send + Sync + 'static {
     /// Returns the size of the buffer in bytes.
     fn size(&self) -> usize;
 
@@ -282,6 +282,6 @@ pub trait Buffer {
     /// Other threads or GPU may access the same buffer region.
     ///
     /// Use [`CommandEncoder::write_buffer`] to update
-    /// buffer in safer way.
+    /// buffer in a bit safer way.
     unsafe fn write_unchecked(&mut self, offset: usize, data: &[u8]);
 }

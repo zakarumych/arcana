@@ -13,25 +13,42 @@ make_id!(pub SystemId);
 make_id!(pub FilterId);
 make_id!(pub JobId);
 
+/// System information declared by a plugin.
 #[derive(Clone)]
 pub struct SystemInfo {
+    /// Unique identified of the system.
     pub id: SystemId,
+
+    /// Name of the system.
     pub name: Cow<'static, Ident>,
 }
 
+/// Filter information declared by a plugin.
 #[derive(Clone)]
 pub struct FilterInfo {
+    /// Unique identified of the filter.
     pub id: FilterId,
+
+    /// Name of the filter.
     pub name: Cow<'static, Ident>,
 }
 
+/// Job information declared by a plugin.
 #[derive(Clone)]
 pub struct JobInfo {
+    /// Unique identified of the job.
     pub id: JobId,
+
+    /// Name of the job.
     pub name: Cow<'static, Ident>,
+
+    /// Description of the job.
     pub desc: JobDesc,
 }
 
+/// Active plugin hub contains
+/// systems, filters and jobs
+/// populated from plugins.
 pub struct PluginsHub {
     pub systems: HashMap<SystemId, Box<dyn System + Send>>,
     pub filters: HashMap<FilterId, Box<dyn EventFilter>>,
@@ -39,7 +56,7 @@ pub struct PluginsHub {
 }
 
 impl PluginsHub {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         PluginsHub {
             systems: HashMap::new(),
             filters: HashMap::new(),
@@ -47,6 +64,7 @@ impl PluginsHub {
         }
     }
 
+    /// Adds a system from a plugin to the hub.
     pub fn add_system<S, M>(&mut self, id: SystemId, system: S)
     where
         S: IntoSystem<M>,
@@ -54,10 +72,12 @@ impl PluginsHub {
         self.systems.insert(id, Box::new(system.into_system()));
     }
 
+    /// Adds a filter from a plugin to the hub.
     pub fn add_filter(&mut self, id: FilterId, filter: impl EventFilter + 'static) {
         self.filters.insert(id, Box::new(filter));
     }
 
+    /// Adds a job from a plugin to the hub.
     pub fn add_job<F, J>(&mut self, id: JobId, make_job: F)
     where
         F: Fn() -> J + 'static,
@@ -161,6 +181,11 @@ pub trait ArcanaPlugin: Any + Sync {
     fn __eq(&self, other: &dyn ArcanaPlugin) -> bool {
         self.type_id() == other.type_id()
     }
+}
+
+/// List of loaded plugins.
+pub struct LinkedPlugins {
+    plugins: Vec<&'static dyn ArcanaPlugin>,
 }
 
 #[doc(hidden)]

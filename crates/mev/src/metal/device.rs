@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{fmt, sync::Arc};
 
 use core_graphics_types::{base::CGFloat, geometry::CGRect};
 use foreign_types::ForeignType;
@@ -36,6 +36,22 @@ pub struct Device {
 
 unsafe impl Sync for Device {}
 unsafe impl Send for Device {}
+
+impl fmt::Debug for Device {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("Device")
+            .field(&self.device.as_ptr())
+            .finish()
+    }
+}
+
+impl PartialEq for Device {
+    fn eq(&self, other: &Self) -> bool {
+        self.device.as_ptr() == other.device.as_ptr()
+    }
+}
+
+impl Eq for Device {}
 
 impl Device {
     pub(super) fn new(device: metal::Device) -> Self {
