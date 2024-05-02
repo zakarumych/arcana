@@ -1,11 +1,10 @@
 use std::{any::Any, borrow::Cow, sync::atomic::AtomicBool};
 
-use arcana_project::{Dependency, Ident, IdentBuf};
-use edict::{IntoSystem, Scheduler, System, World};
+use arcana_project::{Dependency, Ident};
+use edict::{IntoSystem, System, World};
 use hashbrown::HashMap;
 
 use crate::events::EventFilter;
-use crate::id::Id;
 use crate::make_id;
 use crate::work::{Job, JobDesc};
 
@@ -56,7 +55,7 @@ pub struct PluginsHub {
 }
 
 impl PluginsHub {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         PluginsHub {
             systems: HashMap::new(),
             filters: HashMap::new(),

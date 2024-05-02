@@ -228,3 +228,17 @@ fn get_profile() -> Profile {
         _ => panic!("Invalid profile: {}", s),
     }
 }
+
+pub fn init_mev() -> (mev::Device, mev::Queue) {
+    let instance = mev::Instance::load().expect("Failed to init graphics");
+
+    let (device, mut queues) = instance
+        .create(mev::DeviceDesc {
+            idx: 0,
+            queues: &[0],
+            features: mev::Features::SURFACE,
+        })
+        .unwrap();
+    let queue = queues.pop().unwrap();
+    (device, queue)
+}

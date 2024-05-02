@@ -57,8 +57,6 @@ pub use {
     na, parking_lot, tokio,
 };
 
-pub use arcana_proc::*;
-
 pub use mev;
 // pub mod alloc;
 pub mod arena;
@@ -67,7 +65,7 @@ pub mod bundle;
 mod color_hash;
 pub mod events;
 pub mod flow;
-pub mod game;
+// pub mod game;
 pub mod id;
 mod num2name;
 pub mod plugin;
@@ -81,7 +79,7 @@ pub mod work;
 pub use self::{
     color_hash::color_hash,
     id::{BaseId, Id, IdGen},
-    num2name::num_to_name,
+    num2name::{hash_to_name, num_to_name},
     stable_hasher::{stable_hash, stable_hasher},
     stid::Stid,
 };
@@ -94,19 +92,5 @@ pub fn version() -> &'static str {
 }
 
 //
-pub fn init_mev() -> (mev::Device, mev::Queue) {
-    let instance = mev::Instance::load().expect("Failed to init graphics");
-
-    let (device, mut queues) = instance
-        .create(mev::DeviceDesc {
-            idx: 0,
-            queues: &[0],
-            features: mev::Features::SURFACE,
-        })
-        .unwrap();
-    let queue = queues.pop().unwrap();
-    (device, queue)
-}
-
 // #[global_allocator]
 // static ALLOC: alloc::ArcanaAllocator = alloc::ArcanaAllocator;

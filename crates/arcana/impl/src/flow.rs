@@ -1,12 +1,11 @@
 use std::{
     cmp::Ordering,
-    collections::{binary_heap::PeekMut, BinaryHeap},
-    future::poll_fn,
+    collections::BinaryHeap,
     task::{Poll, Waker},
 };
 
 pub use edict::flow::*;
-use edict::{Res, ResMut, Scheduler, World};
+use edict::World;
 use gametime::{ClockStep, TimeSpan, TimeStamp};
 
 /// Causes flow to sleep for the specified duration.

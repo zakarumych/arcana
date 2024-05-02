@@ -1,6 +1,4 @@
-use std::hash::{BuildHasher, Hash, Hasher};
-
-use ahash::AHasher;
+use std::hash::Hash;
 
 use crate::stable_hash;
 

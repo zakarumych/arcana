@@ -1,12 +1,25 @@
 use std::{
     alloc::Layout,
-    boxed,
-    cell::{Cell, RefCell, RefMut, UnsafeCell},
+    cell::{Cell, RefCell},
     mem,
     ptr::NonNull,
 };
 
 /// Very simple typed arena.
+/// Is able to hold values of single type.
+/// User may put new values and keep mutable references to them.
+/// Arena uses interior mutability to allow putting values via shared reference,
+/// so it is allowed to put new values while references to previously put values are alive.
+///
+/// With exclusive access to arena user may drain all put values or drop them.
+///
+/// Note that arena may grow while references to contained values are alive.
+/// This is due to the fact that growth does not move existing values.
+/// Instead buffers are chained into a list where all buffers except the root are exhausted -
+/// contain maximum number of values.
+///
+/// On reset all exhausted buffers are deallocated and the root buffer is reset.
+/// All values are dropped unless drained.
 pub struct Arena<T> {
     head: Head<T>,
     tail: RefCell<Vec<Exhausted<T>>>,
@@ -66,21 +79,6 @@ impl<T> Head<T> {
         Head {
             ptr: Cell::new(NonNull::dangling()),
             cap: Cell::new(0),
-            len: Cell::new(0),
-        }
-    }
-
-    fn new(cap: usize) -> Self {
-        if cap == 0 {
-            return Head::empty();
-        }
-
-        let layout = Layout::array::<T>(cap).unwrap();
-        let ptr = unsafe { std::alloc::alloc(layout) } as *mut T;
-
-        Head {
-            ptr: Cell::new(NonNull::new(ptr).unwrap()),
-            cap: Cell::new(cap),
             len: Cell::new(0),
         }
     }

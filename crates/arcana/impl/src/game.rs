@@ -23,7 +23,6 @@ use winit::{
 use crate::{
     events::{Event, EventFilter, EventFunnel},
     flow::{init_flows, wake_flows},
-    init_mev,
     plugin::{ArcanaPlugin, PluginsHub},
     render::{render_system, RenderGraph, RenderState},
     viewport::Viewport,
@@ -195,7 +194,7 @@ pub struct GameInit {
 
 impl Game {
     pub fn launch<'a>(
-        init: impl FnOnce(&mut World) -> GameInit,
+        init: impl FnOnce(&PluginsHub) -> GameInit,
         device: mev::Device,
         queue: Arc<Mutex<mev::Queue>>,
         window: Option<Window>,

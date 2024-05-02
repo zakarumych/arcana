@@ -152,7 +152,7 @@ impl TryFrom<&WindowEvent> for ViewportEvent {
             WindowEvent::MouseWheel {
                 device_id,
                 delta,
-                phase,
+                phase: _,
             } => {
                 let device_id = DeviceId::from(device_id);
                 let delta = delta;
@@ -183,7 +183,7 @@ pub enum DeviceEvent {}
 impl TryFrom<&winit::event::DeviceEvent> for DeviceEvent {
     type Error = UnsupportedEvent;
 
-    fn try_from(value: &winit::event::DeviceEvent) -> Result<Self, UnsupportedEvent> {
+    fn try_from(_value: &winit::event::DeviceEvent) -> Result<Self, UnsupportedEvent> {
         Err(UnsupportedEvent)
     }
 }
@@ -234,10 +234,10 @@ impl EventFilter for EventFunnel {
     }
 }
 
-fn is_printable_char(chr: char) -> bool {
-    let is_in_private_use_area = '\u{e000}' <= chr && chr <= '\u{f8ff}'
-        || '\u{f0000}' <= chr && chr <= '\u{ffffd}'
-        || '\u{100000}' <= chr && chr <= '\u{10fffd}';
+// fn is_printable_char(chr: char) -> bool {
+//     let is_in_private_use_area = '\u{e000}' <= chr && chr <= '\u{f8ff}'
+//         || '\u{f0000}' <= chr && chr <= '\u{ffffd}'
+//         || '\u{100000}' <= chr && chr <= '\u{10fffd}';
 
-    !is_in_private_use_area && !chr.is_ascii_control()
-}
+//     !is_in_private_use_area && !chr.is_ascii_control()
+// }
