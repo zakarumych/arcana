@@ -189,6 +189,7 @@ impl TryFrom<&winit::event::DeviceEvent> for DeviceEvent {
 }
 
 pub trait EventFilter: 'static {
+    /// Returns `true` if the event is consumed.
     fn filter(&mut self, blink: &Blink, world: &mut World, event: &Event) -> bool;
 }
 

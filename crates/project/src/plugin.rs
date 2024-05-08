@@ -31,6 +31,7 @@ pub struct Plugin {
 }
 
 impl Plugin {
+    /// Create plugin from dependency.
     pub fn from_dependency(name: IdentBuf, dependency: Dependency) -> miette::Result<Self> {
         match dependency {
             Dependency::Crates(version) => Ok(Plugin::released(name, version)),
@@ -48,6 +49,7 @@ impl Plugin {
         }
     }
 
+    /// Create plugin from crates.io.
     pub fn released(name: IdentBuf, version: String) -> Self {
         Plugin {
             name,
@@ -56,6 +58,7 @@ impl Plugin {
         }
     }
 
+    /// Create plugin from git repository.
     pub fn from_git(name: IdentBuf, git: String, branch: Option<String>) -> Self {
         Plugin {
             name,
@@ -64,6 +67,7 @@ impl Plugin {
         }
     }
 
+    /// Open local plugin from path.
     pub fn open_local(path: Utf8PathBuf) -> miette::Result<Self> {
         let Some(real_path) = real_path(path.as_std_path()) else {
             miette::bail!("Failed to resolve plugin path: {}", path);
@@ -74,7 +78,7 @@ impl Plugin {
         let manifest = match cargo_toml::Manifest::from_path(cargo_toml_path) {
             Ok(manifest) => manifest,
             Err(err) => {
-                miette::bail!("Failed to read plugin manifest '{path}/{CARGO_TOML_NAME}': {err}",);
+                miette::bail!("Failed to read plugin manifest '{path}/{CARGO_TOML_NAME}': {err:?}",);
             }
         };
 

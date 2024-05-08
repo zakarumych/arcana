@@ -23,14 +23,6 @@ impl fmt::Debug for Queue {
     }
 }
 
-impl PartialEq for Queue {
-    fn eq(&self, other: &Self) -> bool {
-        self.queue.as_ptr() == other.queue.as_ptr()
-    }
-}
-
-impl Eq for Queue {}
-
 impl Queue {
     pub(super) fn new(device: metal::Device, queue: metal::CommandQueue) -> Self {
         Queue { device, queue }

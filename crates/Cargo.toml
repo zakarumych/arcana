@@ -84,6 +84,7 @@ raw-window-handle = "0.6"
 relevant = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
+serde-nothing = "0.1"
 sha2 = "0.10"
 slab = "0.4"
 smallvec = "1.6"

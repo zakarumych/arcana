@@ -156,7 +156,7 @@ impl Project {
                     Ok(manifest) => manifest,
                     Err(err) => {
                         miette::bail!(
-                            "Failed to read engine manifest '{engine_path}/{CARGO_TOML_NAME}': {err}",
+                            "Failed to read engine manifest '{engine_path}/{CARGO_TOML_NAME}': {err:?}",
                         );
                     }
                 };
@@ -191,13 +191,13 @@ impl Project {
         let manifest_str = match toml::to_string(&manifest) {
             Ok(s) => s,
             Err(err) => {
-                miette::bail!("Failed to serialize project manifest. {err}");
+                miette::bail!("Failed to serialize project manifest. {err:?}");
             }
         };
 
         if let Err(err) = std::fs::create_dir_all(&path) {
             miette::bail!(
-                "Cannot create new project. Failed to create directory '{}': {err}",
+                "Cannot create new project. Failed to create directory '{}': {err:?}",
                 path.display()
             );
         }
@@ -205,7 +205,7 @@ impl Project {
         let manifest_path = path.join(MANIFEST_NAME);
         if let Err(err) = std::fs::write(&*manifest_path, &*manifest_str) {
             miette::bail!(
-                "Cannot create new project. Failed to write manifest to '{}': {err}",
+                "Cannot create new project. Failed to write manifest to '{}': {err:?}",
                 manifest_path.display()
             );
         }
@@ -239,7 +239,7 @@ impl Project {
         let m = match path.metadata() {
             Ok(m) => m,
             Err(err) => {
-                miette::bail!("Cannot open project at '{}': {err}", path.display());
+                miette::bail!("Cannot open project at '{}': {err:?}", path.display());
             }
         };
 
@@ -274,7 +274,7 @@ impl Project {
             Ok(s) => s,
             Err(err) => {
                 miette::bail!(
-                    "Cannot open project at '{}': failed to read project manifest: {err}",
+                    "Cannot open project at '{}': failed to read project manifest: {err:?}",
                     path.display()
                 );
             }
@@ -283,7 +283,7 @@ impl Project {
         let manifest: ProjectManifest = match toml::from_str(&arcana_toml) {
             Ok(manifest) => manifest,
             Err(err) => {
-                miette::bail!("Cannot deserialize project manifest from \"Arcana.toml\": {err}");
+                miette::bail!("Cannot deserialize project manifest from \"Arcana.toml\": {err:?}");
             }
         };
 
@@ -338,20 +338,20 @@ impl Project {
         &self.root_path
     }
 
-    pub fn sync(&self) -> miette::Result<()> {
+    pub fn sync(&mut self) -> miette::Result<()> {
         // let serialized_manifest = toml::to_string(&self.manifest).map_err(|err| {
-        //     miette::miette!("Cannot serialize project manifest to \"Arcana.toml\": {err}")
+        //     miette::miette!("Cannot serialize project manifest to \"Arcana.toml\": {err:?}")
         // })?;
 
         let serialized_manifest = serialize_manifest(&self.manifest).map_err(|err| {
-            miette::miette!("Cannot serialize project manifest to \"Arcana.toml\": {err}")
+            miette::miette!("Cannot serialize project manifest to \"Arcana.toml\": {err:?}")
         })?;
 
         match std::fs::write(&self.manifest_path, serialized_manifest) {
             Ok(()) => Ok(()),
             Err(err) => {
                 miette::bail!(
-                    "Cannot write project manifest to \"Arcana.toml\": {err}",
+                    "Cannot write project manifest to \"Arcana.toml\": {err:?}",
                     err = err
                 );
             }
@@ -412,7 +412,7 @@ impl Project {
             .status()
             .map_err(|err| {
                 miette::miette!(
-                    "Cannot run \"ed\" on \"{}\": {err}",
+                    "Cannot run \"ed\" on \"{}\": {err:?}",
                     self.root_path.display()
                 )
             })?;
@@ -430,7 +430,7 @@ impl Project {
             Ok(child) => Ok(child),
             Err(err) => {
                 miette::bail!(
-                    "Cannot build \"ed\" on \"{}\": {err}",
+                    "Cannot build \"ed\" on \"{}\": {err:?}",
                     self.root_path.display()
                 )
             }
@@ -443,7 +443,7 @@ impl Project {
             Ok(child) => Ok(child),
             Err(err) => {
                 miette::bail!(
-                    "Cannot run \"ed\" on \"{}\": {err}",
+                    "Cannot run \"ed\" on \"{}\": {err:?}",
                     self.root_path.display()
                 )
             }
@@ -455,7 +455,7 @@ impl Project {
         let status = wrapper::build_game(&self.root_path, profile)
             .status()
             .map_err(|err| {
-                miette::miette!("Cannot build game \"{}\": {err}", self.root_path.display())
+                miette::miette!("Cannot build game \"{}\": {err:?}", self.root_path.display())
             })?;
 
         match status.code() {
@@ -472,7 +472,7 @@ impl Project {
         let status = wrapper::run_game(&self.root_path, profile)
             .status()
             .map_err(|err| {
-                miette::miette!("Cannot run game on \"{}\": {err}", self.root_path.display())
+                miette::miette!("Cannot run game on \"{}\": {err:?}", self.root_path.display())
             })?;
 
         match status.code() {

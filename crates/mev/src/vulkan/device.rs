@@ -517,6 +517,15 @@ pub struct Device {
     inner: Arc<DeviceInner>,
 }
 
+impl PartialEq for Device {
+    #[inline(never)]
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
+    }
+}
+
+impl Eq for Device {}
+
 impl fmt::Debug for Device {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(

@@ -2,6 +2,7 @@ use std::{path::PathBuf, sync::Arc};
 
 use arcana::{
     blink_alloc::BlinkAlloc,
+    edict::world::WorldLocal,
     events::ViewportEvent,
     gametime::TimeStamp,
     make_id, mev,
@@ -189,7 +190,7 @@ impl App {
             let builder = Window::default_attributes().with_title("Ed");
             let window = events
                 .create_window(builder)
-                .map_err(|err| miette::miette!("Failed to create Ed window: {err}"))
+                .map_err(|err| miette::miette!("Failed to create Ed window: {err:?}"))
                 .unwrap();
 
             let size = window.inner_size();
@@ -215,7 +216,7 @@ impl App {
 
             let window: Window = events
                 .create_window(builder)
-                .map_err(|err| miette::miette!("Failed to create Ed window: {err}"))
+                .map_err(|err| miette::miette!("Failed to create Ed window: {err:?}"))
                 .unwrap();
 
             if w.maximized {
@@ -276,7 +277,7 @@ impl App {
                 }
                 if let Some(window_entity) = window_entity {
                     if windows_count < 2 {
-                        world.insert_resource(Quit);
+                        self.should_quit = true;
                     } else {
                         let _ = world.despawn(window_entity);
                     }
@@ -299,7 +300,9 @@ impl App {
         // // Simulate games.
         // Games::tick(&mut self.world, step);
 
-        for (viewport, egui) in self.world.view::<(&Viewport, &mut Egui)>() {
+        let world: &WorldLocal = self.world.local();
+
+        for (viewport, egui) in world.view::<(&Viewport, &mut Egui)>() {
             let window = viewport.get_window();
             let dock_state = self
                 .dock_states
@@ -312,26 +315,26 @@ impl App {
                     ui.horizontal(|ui| {
                         ui.menu_button("File", |ui| {
                             if ui.button("Exit").clicked() {
-                                self.world.insert_resource_defer(Quit);
+                                self.should_quit = true;
                                 ui.close_menu();
                             }
                         });
-                        ui.menu_button("Run", |ui| {
-                            if ui.button("New game").clicked() {
-                                tabs.push_to_first_leaf(Tab::game(
-                                    &mut self.tab_idgen,
-                                    GamesTab::new(&self.world),
-                                ));
-                            }
-                        });
+                        // ui.menu_button("Run", |ui| {
+                        //     if ui.button("New game").clicked() {
+                        //         tabs.push_to_first_leaf(Tab::game(
+                        //             &mut self.tab_idgen,
+                        //             GamesTab::new(&self.world),
+                        //         ));
+                        //     }
+                        // });
                         ui.menu_button("View", |ui| {
-                            if ui.button("Game").clicked() {
-                                tabs.push_to_first_leaf(Tab::game(
-                                    &mut self.tab_idgen,
-                                    GamesTab::default(),
-                                ));
-                                ui.close_menu();
-                            }
+                            // if ui.button("Game").clicked() {
+                            //     tabs.push_to_first_leaf(Tab::game(
+                            //         &mut self.tab_idgen,
+                            //         GamesTab::default(),
+                            //     ));
+                            //     ui.close_menu();
+                            // }
                             if ui.button("Plugins").clicked() {
                                 tabs.push_to_first_leaf(Tab::plugins(&mut self.tab_idgen));
                                 ui.close_menu();
@@ -355,13 +358,7 @@ impl App {
                         });
                     });
                 });
-                egui_dock::DockArea::new(dock_state).show(
-                    cx,
-                    &mut AppModel {
-                        world: &self.world,
-                        window,
-                    },
-                )
+                egui_dock::DockArea::new(dock_state).show(cx, &mut AppModel { world, window })
             });
         }
 
@@ -377,7 +374,7 @@ impl App {
     }
 
     pub fn render(&mut self, now: TimeStamp) {
-        Games::render(&mut self.world, now);
+        // Games::render(&mut self.world, now);
 
         if self.world.view_mut::<With<Viewport>>().into_iter().count() == 0 {
             return;
@@ -395,7 +392,7 @@ impl App {
     }
 
     pub fn should_quit(&self) -> bool {
-        if self.world.get_resource::<Quit>().is_none() {
+        if !self.should_quit {
             return false;
         }
         let subprocesses = std::mem::take(&mut *super::SUBPROCESSES.lock());
@@ -441,7 +438,7 @@ impl TabViewer for AppModel<'_> {
             TabKind::Systems => Systems::show(self.world, ui),
             TabKind::Filters => Filters::show(self.world, ui),
             TabKind::WorkGraph => WorkGraph::show(self.world, ui),
-            TabKind::Game { ref mut tab } => tab.show(ui, self.world, self.window),
+            // TabKind::Game { ref mut tab } => tab.show(ui, self.world, self.window),
             // TabKind::Memory => Memory::show(&mut self.world, ui),
         }
     }
@@ -453,16 +450,16 @@ impl TabViewer for AppModel<'_> {
             TabKind::Systems => "Systems".into(),
             TabKind::Filters => "Filters".into(),
             TabKind::WorkGraph => "Work Graph".into(),
-            TabKind::Game { .. } => "Game".into(),
+            // TabKind::Game { .. } => "Game".into(),
             // TabKind::Memory => "Memory".into(),
         }
     }
 
     fn on_close(&mut self, tab: &mut Tab) -> bool {
         match &mut tab.kind {
-            TabKind::Game { tab } => {
-                tab.on_close(self.world);
-            }
+            // TabKind::Game { tab } => {
+            //     tab.on_close(self.world);
+            // }
             _ => {}
         }
         true
@@ -470,7 +467,7 @@ impl TabViewer for AppModel<'_> {
 
     fn scroll_bars(&self, tab: &Tab) -> [bool; 2] {
         match tab.kind {
-            TabKind::Game { .. } => [false, false],
+            // TabKind::Game { .. } => [false, false],
             TabKind::Systems => [false, false],
             TabKind::Console => [false, false],
             _ => [true, true],

@@ -10,7 +10,7 @@ use crate::generic::{
     SamplerDesc, SurfaceError, TlasBuildDesc, TlasDesc, ViewDesc,
 };
 
-pub trait Instance: Clone + Debug + Eq + Send + Sync + 'static {
+pub trait Instance: Debug + Send + Sync + 'static {
     fn capabilities(&self) -> &Capabilities;
     fn create(
         &self,
@@ -63,7 +63,7 @@ pub trait Device: Clone + Debug + Eq + Send + Sync + 'static {
     fn new_tlas(&self, desc: TlasDesc) -> Result<crate::backend::Tlas, OutOfMemory>;
 }
 
-pub trait Queue: Debug + Eq + Send + Sync + 'static {
+pub trait Queue: Debug + Send + Sync + 'static {
     /// Get the queue family index.
     fn family(&self) -> u32;
 

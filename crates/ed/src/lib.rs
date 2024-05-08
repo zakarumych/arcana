@@ -9,7 +9,6 @@ use std::{
 
 use arcana::{
     gametime::{FrequencyNumExt, TimeSpan, TimeStamp},
-    plugin::GLOBAL_CHECK,
     project::Project,
 };
 use data::ProjectData;
@@ -30,7 +29,7 @@ macro_rules! ok_log_err {
         match { $res } {
             Ok(ok) => Some(ok),
             Err(err) => {
-                tracing::error!("{err}");
+                tracing::error!("{err:?}");
                 None
             }
         }
@@ -44,7 +43,7 @@ macro_rules! try_log_err {
         match {$res} {
             Ok(ok) => ok,
             Err(err) => {
-                tracing::error!("{err}");
+                tracing::error!("{err:?}");
                 return $($ret)?;
             }
         }
@@ -60,6 +59,7 @@ mod ide;
 mod workgraph;
 // mod memory;
 mod container;
+mod error;
 mod plugins;
 mod systems;
 mod tools;
@@ -74,7 +74,7 @@ pub fn run(path: &Path) {
 fn _run(path: &Path) -> miette::Result<()> {
     // Marks the running instance of Arcana library.
     // This flag is checked in plugins to ensure they are linked to this arcana.
-    GLOBAL_CHECK.store(true, std::sync::atomic::Ordering::SeqCst);
+    arcana::plugin::GLOBAL_LINK_CHECK.store(true, std::sync::atomic::Ordering::SeqCst);
 
     // `path` is `<project-dir>/crates/ed`
     let mut path = path.to_owned();
@@ -150,31 +150,6 @@ fn move_element<T>(slice: &mut [T], from_index: usize, to_index: usize) {
     } else {
         let sub = &mut slice[to_index..=from_index];
         sub.rotate_right(1);
-    }
-}
-
-fn sync_project(project: &Project, data: &ProjectData) -> miette::Result<()> {
-    project.sync()?;
-
-    let path = project.root_path().join("Arcana.bin");
-
-    let mut file = match std::fs::File::create(path) {
-        Ok(file) => file,
-        Err(err) => {
-            miette::bail!("Failed to create Arcana.bin to store project data: {}", err);
-        }
-    };
-
-    match bincode::serialize(data) {
-        Ok(bytes) => match file.write_all(&bytes) {
-            Ok(()) => Ok(()),
-            Err(err) => {
-                miette::bail!("Failed to write project data: {}", err);
-            }
-        },
-        Err(err) => {
-            miette::bail!("Failed to serialize project data: {}", err);
-        }
     }
 }
 

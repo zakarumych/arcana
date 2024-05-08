@@ -50,6 +50,7 @@ impl ErrorDialog {
 enum AppDialog {
     NewProject(NewProject),
     OpenProject(FileDialog),
+    AddEngine(FileDialog),
     Error(ErrorDialog),
 }
 
@@ -101,7 +102,7 @@ impl App {
         let builder = Window::default_attributes().with_title("Arcana Launcher");
         let window = events
             .create_window(builder)
-            .map_err(|err| miette::miette!("Failed to create Ed window: {err}"))
+            .map_err(|err| miette::miette!("Failed to create Ed window: {err:?}"))
             .unwrap();
 
         let size = window.inner_size();
@@ -275,6 +276,20 @@ impl App {
                         });
                     }
 
+                    let r = ui.button("Add Engine path");
+                    if r.clicked() {
+                        let mut dialog: FileDialog =
+                            FileDialog::select_folder(None).title("Add engine");
+                        dialog.open();
+                        self.dialog = Some(AppDialog::AddEngine(dialog));
+
+                        ui.close_menu();
+                    } else {
+                        r.on_hover_ui(|ui| {
+                            ui.label("Add new engine to Arcana Launcher");
+                        });
+                    }
+
                     let r = ui.button("Exit");
                     if r.clicked() {
                         action = Some(Action::Quit);
@@ -345,7 +360,7 @@ impl App {
                                                 ));
 
                                                 ui.vertical(|ui| {
-                                                    ui.label(format!("cannot open project. {err}"));
+                                                    ui.label(format!("cannot open project. {err:?}"));
                                                     ui.label(path.display().to_string());
                                                 });
                                                 let r = ui.button(egui_phosphor::regular::X);
@@ -438,6 +453,31 @@ impl App {
                             },
                         }
                     }
+                    Some(AppDialog::AddEngine(ref mut file_dialog)) => {
+                        match file_dialog.show(cx).state() {
+                            egui_file::State::Open => {}
+                            egui_file::State::Closed | egui_file::State::Cancelled => {
+                                self.dialog = None;
+                            }
+                            egui_file::State::Selected => match file_dialog.path() {
+                                None => {
+                                    self.dialog = None;
+                                }
+                                Some(path) => match Dependency::from_path(path) {
+                                    Some(engine) => {
+                                        self.start.add_engine(engine);
+                                        self.dialog = None;
+                                    }
+                                    None => {
+                                        self.dialog = Some(AppDialog::Error(ErrorDialog {
+                                            title: "Failed to add engine".to_owned(),
+                                            message: "Invalid engine path".to_owned(),
+                                        }));
+                                    }
+                                },
+                            },
+                        }
+                    }
                     Some(AppDialog::NewProject(ref mut new_project)) => {
                         match new_project.show(&self.start, cx) {
                             None => {}
@@ -465,6 +505,10 @@ impl App {
                 Some(AppChild::EditorRunning(_)) => {
                     unreachable!()
                 }
+            }
+
+            if cx.requested_repaint_last_frame() {
+                window.request_redraw();
             }
         });
 

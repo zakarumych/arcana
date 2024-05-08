@@ -1,12 +1,10 @@
-use std::{cell::RefCell, collections::VecDeque, rc::Rc};
+use std::collections::VecDeque;
 
 use arcana::{
-    edict::world::WorldLocal,
-    plugin::{ArcanaPlugin, SystemId},
-    project::Project,
-    ActionBufferSliceExt, System, World,
+    edict::world::WorldLocal, plugin::SystemId, project::Project, ActionBufferSliceExt, System,
+    World,
 };
-use arcana_project::{Ident, IdentBuf};
+use arcana_project::IdentBuf;
 use egui::{Color32, Ui};
 use egui_snarl::{
     ui::{PinInfo, PinShape, SnarlStyle, SnarlViewer},
@@ -14,7 +12,7 @@ use egui_snarl::{
 };
 use hashbrown::{HashMap, HashSet};
 
-use crate::{data::ProjectData, sync_project, toggle_ui};
+use crate::{container::Container, data::ProjectData, toggle_ui};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Category {
@@ -29,11 +27,6 @@ impl Category {
             Category::Var => PinShape::Triangle,
         }
     }
-}
-
-pub struct Systems {
-    schedule: Rc<RefCell<Schedule>>,
-    available: Vec<SystemNode>,
 }
 
 pub struct Schedule {
@@ -65,7 +58,7 @@ impl Schedule {
         let mut buffers = Vec::new();
 
         for id in schedule {
-            let system = &mut systems.get_mut(id).unwrap();
+            let system = systems.get_mut(id).unwrap();
             system.run(world, &mut buffers);
         }
 
@@ -110,31 +103,20 @@ fn order_systems(snarl: &Snarl<SystemNode>, category: Category) -> Vec<SystemId>
     order
 }
 
+pub struct Systems {
+    schedule: Schedule,
+    available: Vec<SystemNode>,
+}
+
 impl Systems {
     pub fn new() -> Self {
         Systems {
-            schedule: Rc::new(RefCell::new(Schedule {
+            schedule: Schedule {
                 fix_schedule: Vec::new(),
                 var_schedule: Vec::new(),
                 reschedule: true,
-            })),
+            },
             available: Vec::new(),
-        }
-    }
-
-    pub fn scheduler(
-        &self,
-        data: &ProjectData,
-        mut systems: HashMap<SystemId, Box<dyn System + Send>>,
-    ) -> impl FnMut(&mut World, Category) {
-        let schedule = self.schedule.clone();
-        let graph = data.systems.clone();
-
-        move |world, category| {
-            let mut schedule = schedule.borrow_mut();
-            let graph = graph.borrow_mut();
-
-            schedule.run(category, world, &graph, &mut systems);
         }
     }
 
@@ -150,32 +132,24 @@ impl Systems {
             available: &mut me.available,
         };
 
-        data.systems
-            .borrow_mut()
-            .snarl
-            .show(&mut viewer, &STYLE, "systems", ui);
+        data.systems.snarl.show(&mut viewer, &STYLE, "systems", ui);
 
         if viewer.modified {
-            me.schedule.borrow_mut().reschedule = true;
+            me.schedule.reschedule = true;
+            try_log_err!(data.sync(&project));
         }
-
-        try_log_err!(sync_project(&project, &mut data));
     }
 
-    pub fn update_plugins<'a>(
-        &mut self,
-        systems: &mut SystemGraph,
-        plugins: impl Iterator<Item = (&'a Ident, &'a dyn ArcanaPlugin)>,
-    ) {
+    pub fn update_plugins(&mut self, data: &mut ProjectData, container: &Container) {
         let mut all_systems = HashMap::new();
 
-        for (name, plugin) in plugins {
+        for (name, plugin) in container.iter() {
             for system in plugin.systems() {
                 all_systems.insert(system.id, (name, system.name));
             }
         }
 
-        for node in systems.snarl.nodes_mut() {
+        for node in data.systems.snarl.nodes_mut() {
             node.active = all_systems.remove(&node.system).is_some();
         }
 

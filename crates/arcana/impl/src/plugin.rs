@@ -13,7 +13,7 @@ make_id!(pub FilterId);
 make_id!(pub JobId);
 
 /// System information declared by a plugin.
-#[derive(Clone)]
+#[derive(Clone, Hash)]
 pub struct SystemInfo {
     /// Unique identified of the system.
     pub id: SystemId,
@@ -23,7 +23,7 @@ pub struct SystemInfo {
 }
 
 /// Filter information declared by a plugin.
-#[derive(Clone)]
+#[derive(Clone, Hash)]
 pub struct FilterInfo {
     /// Unique identified of the filter.
     pub id: FilterId,
@@ -33,7 +33,7 @@ pub struct FilterInfo {
 }
 
 /// Job information declared by a plugin.
-#[derive(Clone)]
+#[derive(Clone, Hash)]
 pub struct JobInfo {
     /// Unique identified of the job.
     pub id: JobId,
@@ -72,7 +72,7 @@ impl PluginsHub {
     }
 
     /// Adds a filter from a plugin to the hub.
-    pub fn add_filter(&mut self, id: FilterId, filter: impl EventFilter + 'static) {
+    pub fn add_filter(&mut self, id: FilterId, filter: impl EventFilter) {
         self.filters.insert(id, Box::new(filter));
     }
 
@@ -80,7 +80,7 @@ impl PluginsHub {
     pub fn add_job<F, J>(&mut self, id: JobId, make_job: F)
     where
         F: Fn() -> J + 'static,
-        J: Job + 'static,
+        J: Job,
     {
         self.jobs.insert(id, Box::new(move || Box::new(make_job())));
     }
@@ -145,7 +145,9 @@ pub trait ArcanaPlugin: Any + Sync {
     /// Removes resources that belongs to this plugin.
     /// This method is called when game instance is closed,
     /// plugin is disabled or replaced with another version.
-    fn deinit(&self, world: &mut World) {}
+    fn deinit(&self, world: &mut World) {
+        let _ = world;
+    }
 
     /// Returns true if this plugin can be replaced with the `updated` plugin.
     /// The updated plugin should typically be a newer version of the same plugin.
@@ -153,6 +155,7 @@ pub trait ArcanaPlugin: Any + Sync {
     /// Plugins may conservatively return `false` here.
     /// And then they may not implement `dump` and `load` methods.
     fn compatible(&self, updated: &dyn ArcanaPlugin) -> bool {
+        let _ = updated;
         false
     }
 
@@ -161,30 +164,15 @@ pub trait ArcanaPlugin: Any + Sync {
     /// before `deinit` method.
     /// New version, if compatible, will load the state from the dump.
     fn dump(&self, world: &World, scratch: &mut [u8]) -> usize {
+        let _ = (world, scratch);
         0
     }
 
     /// Load state of the world known to this plugin dumped by previous version.
     fn load(&self, world: &mut World, scratch: &[u8]) {
+        let _ = (world, scratch);
         unimplemented!()
     }
-
-    #[doc(hidden)]
-    fn __running_arcana_instance_check(&self, check: &AtomicBool) -> bool {
-        (check as *const _ == &GLOBAL_CHECK as *const _)
-            && GLOBAL_CHECK.load(::core::sync::atomic::Ordering::Relaxed)
-    }
-
-    #[cfg(feature = "ed")]
-    #[doc(hidden)]
-    fn __eq(&self, other: &dyn ArcanaPlugin) -> bool {
-        self.type_id() == other.type_id()
-    }
-}
-
-/// List of loaded plugins.
-pub struct LinkedPlugins {
-    plugins: Vec<&'static dyn ArcanaPlugin>,
 }
 
 #[doc(hidden)]
@@ -372,7 +360,19 @@ macro_rules! export_arcana_plugin {
 }
 
 #[doc(hidden)]
-pub static GLOBAL_CHECK: AtomicBool = AtomicBool::new(false);
+pub static GLOBAL_LINK_CHECK: AtomicBool = AtomicBool::new(false);
+
+#[doc(hidden)]
+pub fn running_arcana_instance_check(check: &AtomicBool) -> bool {
+    (check as *const _ == &GLOBAL_LINK_CHECK as *const _)
+        && GLOBAL_LINK_CHECK.load(::core::sync::atomic::Ordering::SeqCst)
+}
+
+#[doc(hidden)]
+pub fn set_running_arcana_instance() {
+    let old = GLOBAL_LINK_CHECK.swap(true, ::core::sync::atomic::Ordering::SeqCst);
+    assert!(!old, "Arcana instance is already running");
+}
 
 pub fn unknown_dependency() -> ! {
     panic!("Unknown dependency")

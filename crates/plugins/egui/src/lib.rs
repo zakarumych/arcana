@@ -93,7 +93,7 @@ impl Egui {
         }
     }
 
-    pub fn run<R>(&mut self, time: TimeStamp, run_ui: impl FnOnce(&Context) -> R) -> Option<R> {
+    pub fn run<R>(&mut self, time: TimeStamp, run_ui: impl FnOnce(&Context) -> R) -> R {
         self.raw_input.time = Some(time.elapsed_since_start().as_secs_f64());
 
         self.cx.begin_frame(self.raw_input.take());
@@ -105,7 +105,7 @@ impl Egui {
 
         self.textures_delta.append(output.textures_delta);
         self.shapes = output.shapes;
-        Some(ret)
+        ret
     }
 }
 

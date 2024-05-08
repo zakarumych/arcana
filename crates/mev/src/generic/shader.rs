@@ -195,7 +195,7 @@ pub(crate) fn parse_shader<'a>(
     };
 
     let flags = naga::valid::ValidationFlags::all();
-    let caps = naga::valid::Capabilities::empty();
+    let caps = naga::valid::Capabilities::all();
     let info = naga::valid::Validator::new(flags, caps)
         .validate(&module)
         .map_err(|e| {

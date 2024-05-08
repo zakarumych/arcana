@@ -80,7 +80,7 @@ pub use self::{
     color_hash::color_hash,
     id::{BaseId, Id, IdGen},
     num2name::{hash_to_name, num_to_name},
-    stable_hasher::{stable_hash, stable_hasher},
+    stable_hasher::{stable_hash, stable_hash_read, stable_hasher},
     stid::Stid,
 };
 

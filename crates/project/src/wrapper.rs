@@ -119,7 +119,7 @@ pub fn build_plugins(root: &Path, profile: Profile) -> miette::Result<BuildProce
         .spawn()
         .map_err(|err| {
             miette::miette!(
-                "Failed to start building plugins '{}'. {err}",
+                "Failed to start building plugins '{}'. {err:?}",
                 workspace.display()
             )
         })?;
@@ -159,7 +159,7 @@ impl BuildProcess {
     pub fn finished(&mut self) -> miette::Result<bool> {
         match self.child.try_wait() {
             Err(err) => {
-                miette::bail!("Failed to wait for build process to finish. {err}",);
+                miette::bail!("Failed to wait for build process to finish. {err:?}",);
             }
             Ok(None) => Ok(false),
             Ok(Some(status)) if status.success() => Ok(true),

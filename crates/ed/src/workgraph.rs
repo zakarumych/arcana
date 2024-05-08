@@ -2,8 +2,8 @@ use arcana::{
     color_hash,
     edict::world::WorldLocal,
     plugin::JobId,
-    work::{Image2D, JobDesc, Target},
-    Stid, World,
+    work::{Image2D, JobDesc},
+    Stid,
 };
 use arcana_project::{IdentBuf, Project};
 use egui::Ui;
@@ -12,7 +12,7 @@ use egui_snarl::{
     InPin, NodeId, OutPin, Snarl,
 };
 
-use crate::{data::ProjectData, sync_project};
+use crate::data::ProjectData;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum WorkGraphNode {
@@ -186,14 +186,13 @@ impl WorkGraph {
         let mut viewer = WorkGraphViewer { modified: false };
 
         data.workgraph
-            .borrow_mut()
             .snarl
             .show(&mut viewer, &STYLE, "workgraph", ui);
 
         if viewer.modified {
-            data.workgraph.borrow_mut().modification += 1;
+            data.workgraph.modification += 1;
         }
 
-        try_log_err!(sync_project(&project, &mut data));
+        try_log_err!(data.sync(&project));
     }
 }

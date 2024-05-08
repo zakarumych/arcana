@@ -134,7 +134,7 @@ impl JobDesc {
     }
 }
 
-pub trait Job {
+pub trait Job: 'static {
     /// First phase of a job is planning.
     ///
     /// This phase is responsible for:

@@ -42,6 +42,17 @@ pub struct Instance {
     win32_surface: Option<ash::khr::win32_surface::Instance>,
 }
 
+impl fmt::Debug for Instance {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Instance")
+            .field("version", &self.version)
+            .field("instance", &self.instance.handle())
+            .field("devices", &self.devices)
+            .field("capabilities", &self.capabilities)
+            .finish()
+    }
+}
+
 #[derive(Debug)]
 pub(crate) enum LoadErrorKind {
     OutOfMemory,

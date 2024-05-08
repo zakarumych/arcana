@@ -81,7 +81,7 @@ pub fn new_plugin_crate(name: &str, path: &Utf8Path, engine: Dependency) -> miet
 
     std::fs::create_dir_all(&path).map_err(|err| {
         miette::miette!(
-            "Failed to create project plugin crate directory: '{}'. {err}",
+            "Failed to create project plugin crate directory: '{}'. {err:?}",
             path
         )
     })?;
@@ -104,7 +104,7 @@ arcana = {engine}
     let cargo_toml_path = path.join("Cargo.toml");
     write_file(&cargo_toml_path, &cargo_toml).map_err(|err| {
         miette::miette!(
-            "Failed to create project game crate Cargo.toml '{}'. {err}",
+            "Failed to create project game crate Cargo.toml '{}'. {err:?}",
             cargo_toml_path
         )
     })?;
@@ -112,7 +112,7 @@ arcana = {engine}
     let src_path = path.join("src");
     std::fs::create_dir_all(&src_path).map_err(|err| {
         miette::miette!(
-            "Failed to create project game crate src directory: '{}'. {err}",
+            "Failed to create project game crate src directory: '{}'. {err:?}",
             src_path
         )
     })?;
@@ -144,7 +144,7 @@ impl ArcanaPlugin for ThePlugin {{
     let lib_rs_path = src_path.join("lib.rs");
     write_file(&lib_rs_path, &lib_rs).map_err(|err| {
         miette::miette!(
-            "Failed to create project plugins crate source: '{}'. {err}",
+            "Failed to create project plugins crate source: '{}'. {err:?}",
             lib_rs_path
         )
     })?;
@@ -162,7 +162,7 @@ pub fn init_workspace(
     let workspace = root.join(WORKSPACE_DIR_NAME);
     std::fs::create_dir_all(&*workspace).map_err(|err| {
         miette::miette!(
-            "Failed to create project workspace directory: '{}'. {err}",
+            "Failed to create project workspace directory: '{}'. {err:?}",
             workspace.display()
         )
     })?;
@@ -191,7 +191,7 @@ arcana-ed = {arcana_ed}
     let cargo_toml_path = workspace.join("Cargo.toml");
     write_file(&cargo_toml_path, &cargo_toml).map_err(|err| {
         miette::miette!(
-            "Failed to create project workspace Cargo.toml: '{}'. {err}",
+            "Failed to create project workspace Cargo.toml: '{}'. {err:?}",
             cargo_toml_path.display()
         )
     })?;
@@ -203,7 +203,7 @@ channel = "nightly"
     let rust_toolchain_path = workspace.join("rust-toolchain.toml");
     write_file(&rust_toolchain_path, &rust_toolchain).map_err(|err| {
         miette::miette!(
-            "Failed to create project workspace rust-toolchain.toml: '{}'. {err}",
+            "Failed to create project workspace rust-toolchain.toml: '{}'. {err:?}",
             rust_toolchain_path.display()
         )
     })?;
@@ -221,7 +221,7 @@ fn init_ed_crate(root: &Path, workspace: &Path) -> miette::Result<()> {
 
     std::fs::create_dir_all(&ed_path).map_err(|err| {
         miette::miette!(
-            "Failed to create project ed crate directory: '{}'. {err}",
+            "Failed to create project ed crate directory: '{}'. {err:?}",
             ed_path.display()
         )
     })?;
@@ -247,7 +247,7 @@ arcana-ed = {{ workspace = true }}
     let cargo_toml_path = ed_path.join("Cargo.toml");
     write_file(&cargo_toml_path, &cargo_toml).map_err(|err| {
         miette::miette!(
-            "Failed to create project ed crate Cargo.toml '{}'. {err}",
+            "Failed to create project ed crate Cargo.toml '{}'. {err:?}",
             cargo_toml_path.display()
         )
     })?;
@@ -255,7 +255,7 @@ arcana-ed = {{ workspace = true }}
     let src_path = ed_path.join("src");
     std::fs::create_dir_all(&src_path).map_err(|err| {
         miette::miette!(
-            "Failed to create project ed crate src directory: '{}'. {err}",
+            "Failed to create project ed crate src directory: '{}'. {err:?}",
             src_path.display()
         )
     })?;
@@ -276,7 +276,7 @@ fn main() {{
     let main_rs_path = src_path.join("main.rs");
     write_file(&main_rs_path, &main_rs).map_err(|err| {
         miette::miette!(
-            "Failed to create project ed crate source: '{}'. {err}",
+            "Failed to create project ed crate source: '{}'. {err:?}",
             main_rs_path.display()
         )
     })?;
@@ -291,7 +291,7 @@ fn init_plugins_crate(root: &Path, workspace: &Path, plugins: &[Plugin]) -> miet
 
     std::fs::create_dir_all(&plugins_path).map_err(|err| {
         miette::miette!(
-            "Failed to create project plugins crate directory: '{}'. {err}",
+            "Failed to create project plugins crate directory: '{}'. {err:?}",
             plugins_path.display()
         )
     })?;
@@ -333,7 +333,7 @@ arcana-ed = {{ workspace = true }}
     let cargo_toml_path = plugins_path.join("Cargo.toml");
     write_file(&cargo_toml_path, &cargo_toml).map_err(|err| {
         miette::miette!(
-            "Failed to create project plugins crate Cargo.toml '{}'. {err}",
+            "Failed to create project plugins crate Cargo.toml '{}'. {err:?}",
             cargo_toml_path.display()
         )
     })?;
@@ -341,7 +341,7 @@ arcana-ed = {{ workspace = true }}
     let src_path = plugins_path.join("src");
     std::fs::create_dir_all(&src_path).map_err(|err| {
         miette::miette!(
-            "Failed to create project plugins crate src directory: '{}'. {err}",
+            "Failed to create project plugins crate src directory: '{}'. {err:?}",
             src_path.display()
         )
     })?;
@@ -351,6 +351,16 @@ arcana-ed = {{ workspace = true }}
 //! It should not require manual editing.
 //! If manual editing is required, consider posting your motivation in new GitHub issue
 //! [{gh_issue}]
+
+#[no_mangle]
+pub fn arcana_version() -> &'static str {{
+    arcana::version()
+}}
+
+#[no_mangle]
+pub fn arcana_linked(check: &::core::sync::atomic::AtomicBool) -> bool {{
+    arcana::plugin::running_arcana_instance_check(check)
+}}
 
 #[no_mangle]
 pub fn arcana_plugins() -> &'static [(&'static arcana::project::Ident, &'static dyn arcana::plugin::ArcanaPlugin)] {{
@@ -379,7 +389,7 @@ pub fn arcana_plugins() -> &'static [(&'static arcana::project::Ident, &'static 
     let lib_rs_path = src_path.join("lib.rs");
     write_file(&lib_rs_path, &lib_rs).map_err(|err| {
         miette::miette!(
-            "Failed to create project plugins crate source: '{}'. {err}",
+            "Failed to create project plugins crate source: '{}'. {err:?}",
             lib_rs_path.display()
         )
     })?;
@@ -399,7 +409,7 @@ fn init_game_crate(
 
     std::fs::create_dir_all(&game_path).map_err(|err| {
         miette::miette!(
-            "Failed to create project game crate directory: '{}'. {err}",
+            "Failed to create project game crate directory: '{}'. {err:?}",
             game_path.display()
         )
     })?;
@@ -441,7 +451,7 @@ arcana = {{ workspace = true }}
     let cargo_toml_path = game_path.join("Cargo.toml");
     write_file(&cargo_toml_path, &cargo_toml).map_err(|err| {
         miette::miette!(
-            "Failed to create project game crate Cargo.toml '{}'. {err}",
+            "Failed to create project game crate Cargo.toml '{}'. {err:?}",
             cargo_toml_path.display()
         )
     })?;
@@ -449,7 +459,7 @@ arcana = {{ workspace = true }}
     let src_path = game_path.join("src");
     std::fs::create_dir_all(&src_path).map_err(|err| {
         miette::miette!(
-            "Failed to create project game crate src directory: '{}'. {err}",
+            "Failed to create project game crate src directory: '{}'. {err:?}",
             src_path.display()
         )
     })?;
@@ -486,7 +496,7 @@ fn main() {{
     let main_rs_path = src_path.join("main.rs");
     write_file(&main_rs_path, &main_rs).map_err(|err| {
         miette::miette!(
-            "Failed to create project game crate source: '{}'. {err}",
+            "Failed to create project game crate source: '{}'. {err:?}",
             main_rs_path.display()
         )
     })?;
