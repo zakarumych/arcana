@@ -55,7 +55,7 @@ mod app;
 mod console;
 mod data;
 mod filters;
-mod games;
+// mod games;
 mod ide;
 mod workgraph;
 // mod memory;
@@ -105,32 +105,37 @@ fn _run(path: &Path) -> miette::Result<()> {
 
     let mut limiter = clock.ticker(240.hz());
 
-    let events = EventLoop::<UserEvent>::with_user_event().build();
+    let events = EventLoop::<UserEvent>::with_user_event()
+        .build()
+        .expect("Failed to create event loop");
     let mut app = app::App::new(&events, event_collector, project, data);
 
-    events.run(move |event, _events, flow| match event {
+    events.run(move |event, events| match event {
         Event::WindowEvent { window_id, event } => {
             app.on_event(window_id, event);
         }
-        Event::MainEventsCleared => {
+        Event::AboutToWait => {
             let step = clock.step();
 
             app.tick(step);
 
             if app.should_quit() {
-                *flow = ControlFlow::Exit;
+                events.exit();
                 return;
             }
 
             limiter.ticks(step.step);
             let until = clock.stamp_instant(limiter.next_tick().unwrap());
-            flow.set_wait_until(until);
-        }
-        Event::RedrawEventsCleared => {
+
+            events.set_control_flow(ControlFlow::WaitUntil(until));
+            // }
+            // Event::RedrawEventsCleared => {
             app.render(TimeStamp::start() + TimeSpan::from(start.elapsed()));
         }
         _ => {}
-    })
+    });
+
+    Ok(())
 }
 
 static SUBPROCESSES: Mutex<Vec<Child>> = Mutex::new(Vec::new());

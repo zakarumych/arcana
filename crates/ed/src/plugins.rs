@@ -1,10 +1,10 @@
-use std::{collections::VecDeque, fmt, path::Path};
+use std::{collections::VecDeque, fmt, path::Path, sync::Arc};
 
 use arcana::{
     edict::world::WorldLocal,
     plugin::{ArcanaPlugin, GLOBAL_CHECK},
     project::{BuildProcess, Dependency, Ident, IdentBuf, Profile, Project, ProjectManifest},
-    With, World,
+    World,
 };
 use arcana_project::{new_plugin_crate, process_path_name, Plugin};
 use camino::{Utf8Path, Utf8PathBuf};
@@ -14,11 +14,18 @@ use hashbrown::HashSet;
 
 use crate::{data::ProjectData, get_profile, sync_project, systems::Systems};
 
+#[derive(Clone)]
 pub struct PluginsLibrary {
     /// Linked library
     #[allow(unused)]
-    lib: libloading::Library,
+    lib: Arc<libloading::Library>,
     plugins: Vec<(&'static Ident, &'static dyn ArcanaPlugin)>,
+}
+
+impl PartialEq for PluginsLibrary {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.lib, &other.lib)
+    }
 }
 
 impl fmt::Display for PluginsLibrary {
@@ -70,7 +77,7 @@ impl PluginsLibrary {
 
     /// Sort plugins placing dependencies first.
     /// Errors on circular dependencies, missing dependencies and not linked plugins.
-    fn sort_plugins(&mut self, plugins: &mut [Plugin]) -> Result<(), SortError> {
+    fn sort_plugins(&mut self) -> Result<(), SortError> {
         let mut queue = VecDeque::new();
 
         let mut error = SortError {

@@ -2,14 +2,13 @@ use std::{path::PathBuf, sync::Arc};
 
 use arcana::{
     blink_alloc::BlinkAlloc,
-    edict::world::WorldLocal,
     events::ViewportEvent,
     gametime::TimeStamp,
     make_id, mev,
     project::Project,
     render::{render, RenderGraph, RenderResources},
     viewport::Viewport,
-    ClockStep, Entities, IdGen, With, WorldBuilder,
+    ClockStep, Entities, IdGen, With, World,
 };
 use arcana_egui::{Egui, EguiRender, TopBottomPanel, Ui, WidgetText};
 use egui::vec2;
@@ -24,13 +23,8 @@ use winit::{
 };
 
 use crate::{
-    console::Console,
-    data::ProjectData,
-    filters::Filters,
-    games::{Games, GamesTab},
-    plugins::Plugins,
-    systems::Systems,
-    workgraph::WorkGraph,
+    console::Console, data::ProjectData, filters::Filters, init_mev, plugins::Plugins,
+    systems::Systems, workgraph::WorkGraph,
 };
 
 pub enum UserEvent {}
@@ -47,10 +41,10 @@ enum TabKind {
     Systems,
     Filters,
     WorkGraph,
-    Game {
-        #[serde(skip)]
-        tab: GamesTab,
-    },
+    // Game {
+    //     #[serde(skip)]
+    //     tab: GamesTab,
+    // },
     // Memory,
 }
 
@@ -98,12 +92,12 @@ impl Tab {
         }
     }
 
-    pub fn game(idgen: &mut IdGen, tab: GamesTab) -> Self {
-        Tab {
-            kind: TabKind::Game { tab },
-            id: egui::Id::new(idgen.next::<TabId>()),
-        }
-    }
+    // pub fn game(idgen: &mut IdGen, tab: GamesTab) -> Self {
+    //     Tab {
+    //         kind: TabKind::Game { tab },
+    //         id: egui::Id::new(idgen.next::<TabId>()),
+    //     }
+    // }
 }
 
 /// Editor app instance.
@@ -113,7 +107,7 @@ pub struct App {
     dock_states: HashMap<WindowId, DockState<Tab>>,
 
     // App state is stored in World.
-    world: WorldLocal,
+    world: World,
 
     graph: RenderGraph,
     resources: RenderResources,
@@ -124,6 +118,8 @@ pub struct App {
     queue: Arc<Mutex<mev::Queue>>,
 
     tab_idgen: IdGen,
+
+    should_quit: bool,
 }
 
 impl Drop for App {
@@ -172,13 +168,12 @@ impl App {
         let (device, queue) = init_mev();
         let queue = Arc::new(Mutex::new(queue));
 
-        let builder = WorldBuilder::new();
+        let builder = World::builder();
 
         let mut world = builder.build();
         world.insert_resource(project);
         world.insert_resource(Plugins::new());
         world.insert_resource(Console::new(event_collector));
-        world.insert_resource(Games::new());
         world.insert_resource(Systems::new());
         world.insert_resource(device.clone());
         world.insert_resource(queue.clone());
@@ -244,7 +239,7 @@ impl App {
 
         App {
             dock_states,
-            world: world.into(),
+            world,
             graph,
             resources: RenderResources::default(),
             blink: BlinkAlloc::new(),
@@ -252,15 +247,12 @@ impl App {
             queue,
 
             tab_idgen: state.tab_idgen,
+            should_quit: false,
         }
     }
 
     pub fn on_event<'a>(&mut self, window_id: WindowId, event: WindowEvent) {
         let world = self.world.local();
-
-        if Games::handle_event(world, window_id, &event) {
-            return;
-        };
 
         for (v, egui) in world.view_mut::<(&Viewport, &mut Egui)>() {
             if v.get_window().id() == window_id {
@@ -297,15 +289,15 @@ impl App {
     pub fn tick(&mut self, step: ClockStep) {
         // Quit if last window was closed.
         if self.world.view_mut::<With<Viewport>>().into_iter().count() == 0 {
-            self.world.insert_resource(Quit);
+            self.should_quit = true;
             return;
         }
 
         // Update plugins state.
         Plugins::tick(&mut self.world);
 
-        // Simulate games.
-        Games::tick(&mut self.world, step);
+        // // Simulate games.
+        // Games::tick(&mut self.world, step);
 
         for (viewport, egui) in self.world.view::<(&Viewport, &mut Egui)>() {
             let window = viewport.get_window();

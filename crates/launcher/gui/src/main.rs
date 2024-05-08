@@ -2,25 +2,20 @@ use std::{process::Child, time::Duration};
 
 use arcana::{
     blink_alloc::BlinkAlloc,
-    edict::world::WorldLocal,
+    edict::world::World,
     events::ViewportEvent,
-    game::Quit,
     gametime::FrequencyNumExt,
-    init_mev, mev,
+    mev,
     project::{Dependency, Ident, IdentBuf, Profile, Project},
     render::{render, RenderGraph, RenderResources},
     viewport::Viewport,
-    Clock, ClockStep, WorldBuilder,
+    Clock, ClockStep,
 };
 use arcana_egui::{Egui, EguiRender};
 use arcana_launcher::Start;
 use egui::vec2;
 use egui_file::FileDialog;
-use winit::{
-    event::WindowEvent,
-    event_loop::{ControlFlow, EventLoopBuilder},
-    window::{Window, WindowAttributes},
-};
+use winit::{event::WindowEvent, event_loop::ControlFlow, window::Window};
 
 pub enum UserEvent {}
 
@@ -67,7 +62,7 @@ enum AppChild {
 /// Contains state of the editor.
 pub struct App {
     // App state is stored in World.
-    world: WorldLocal,
+    world: World,
 
     graph: RenderGraph,
     resources: RenderResources,
@@ -87,13 +82,15 @@ pub struct App {
     ///
     /// When child app finishes, launcher is shown again.
     child: Option<AppChild>,
+
+    should_quit: bool,
 }
 
 impl App {
     pub fn new(events: &EventLoop) -> Self {
         let (device, queue) = init_mev();
 
-        let mut builder = WorldBuilder::new();
+        let mut builder = World::builder();
         builder.register_external::<Window>();
         builder.register_component::<Egui>();
         builder.register_external::<mev::Surface>();
@@ -133,14 +130,15 @@ impl App {
 
             dialog: None,
             child: None,
+            should_quit: false,
         }
     }
 
     pub fn on_event(&mut self, event: Event) {
         match event {
             Event::WindowEvent {
-                window_id,
                 event: WindowEvent::RedrawRequested,
+                ..
             } => {
                 self.render();
             }
@@ -156,7 +154,7 @@ impl App {
 
                 match event {
                     WindowEvent::CloseRequested => {
-                        self.world.insert_resource(Quit);
+                        self.should_quit = true;
                     }
                     _ => {}
                 }
@@ -475,7 +473,7 @@ impl App {
             Some(Action::Quit) => {
                 drop(viewport);
                 drop(egui);
-                self.world.insert_resource(Quit);
+                self.should_quit = true;
             }
             Some(Action::RunEditor(project)) => {
                 self.start.add_recent(project.root_path().to_owned());
@@ -508,7 +506,7 @@ impl App {
     }
 
     fn should_quit(&self) -> bool {
-        self.world.get_resource::<Quit>().is_some()
+        self.should_quit
     }
 }
 
@@ -776,4 +774,18 @@ fn display_dependency(dep: &Dependency) -> String {
             format!("{}{}", egui_phosphor::regular::FILE_CODE, path)
         }
     }
+}
+
+fn init_mev() -> (mev::Device, mev::Queue) {
+    let instance = mev::Instance::load().expect("Failed to init graphics");
+
+    let (device, mut queues) = instance
+        .create(mev::DeviceDesc {
+            idx: 0,
+            queues: &[0],
+            features: mev::Features::SURFACE,
+        })
+        .unwrap();
+    let queue = queues.pop().unwrap();
+    (device, queue)
 }
