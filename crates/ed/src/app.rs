@@ -176,6 +176,7 @@ impl App {
         world.insert_resource(Plugins::new());
         world.insert_resource(Console::new(event_collector));
         world.insert_resource(Systems::new());
+        world.insert_resource(Filters::new());
         world.insert_resource(device.clone());
         world.insert_resource(queue.clone());
         world.insert_resource(data);

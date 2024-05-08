@@ -1,29 +1,39 @@
 use arcana::{edict::world::WorldLocal, plugin::FilterId, project::Project};
 use arcana_project::IdentBuf;
 use egui::{Color32, Ui, WidgetText};
+use hashbrown::HashMap;
 
-use crate::{data::ProjectData, move_element};
+use crate::{container::Container, data::ProjectData, move_element};
 
 use super::plugins::Plugins;
 
-#[derive(Hash)]
+#[derive(Clone, Debug, Hash, serde::Serialize, serde::Deserialize)]
 struct FilterInfo {
     plugin: IdentBuf,
     name: IdentBuf,
     id: FilterId,
     enabled: bool,
+
+    #[serde(skip)]
+    active: bool,
 }
 
 pub struct Filters {
-    infos: Vec<FilterInfo>,
+    available: Vec<FilterInfo>,
 }
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Funnel {
-    filters: Vec<FilterId>,
+    filters: Vec<FilterInfo>,
 }
 
 impl Filters {
+    pub fn new() -> Self {
+        Filters {
+            available: Vec::new(),
+        }
+    }
+
     pub fn show(world: &WorldLocal, ui: &mut Ui) {
         let mut filters = world.expect_resource_mut::<Filters>();
         let project = world.expect_resource_mut::<Project>();
@@ -33,7 +43,7 @@ impl Filters {
         let mut toggle_filter = None;
         let mut remove_filter = None;
         let r = egui_dnd::dnd(ui, "filter-list").show(
-            filters.infos.iter(),
+            data.funnel.filters.iter(),
             |ui, filter, handle, state| {
                 let mut heading = WidgetText::from(filter.name.as_str());
                 let mut tooltip = "";
@@ -93,29 +103,50 @@ impl Filters {
         let mut sync = false;
 
         if let Some(idx) = toggle_filter {
-            filters.infos[idx].enabled = !filters.infos[idx].enabled;
+            data.funnel.filters[idx].enabled = !data.funnel.filters[idx].enabled;
             sync = true;
         }
 
         if let Some(idx) = remove_filter {
-            filters.infos.remove(idx);
+            data.funnel.filters.remove(idx);
             sync = true;
         }
 
         if let Some(update) = r.update {
-            move_element(&mut filters.infos, update.from, update.to);
+            move_element(&mut data.funnel.filters, update.from, update.to);
             sync = true;
         }
 
         if sync {
-            data.funnel.filters = filters
-                .infos
-                .iter()
-                .filter(|f| f.enabled && plugins.is_active(&f.plugin))
-                .map(|f| f.id)
-                .collect();
-
             try_log_err!(data.sync(&project));
         }
+    }
+
+    pub fn update_plugins(&mut self, data: &mut ProjectData, container: &Container) {
+        let mut all_filters = HashMap::new();
+
+        for (name, plugin) in container.iter() {
+            for filter in plugin.filters() {
+                all_filters.insert(filter.id, (name, filter.name));
+            }
+        }
+
+        for info in data.funnel.filters.iter_mut() {
+            info.active = all_filters.remove(&info.id).is_some();
+        }
+
+        let new_filters = all_filters
+            .into_iter()
+            .map(|(id, (plugin, name))| FilterInfo {
+                name: name.into_owned(),
+                plugin: plugin.to_owned(),
+                id,
+                enabled: false,
+                active: true,
+            })
+            .collect::<Vec<_>>();
+
+        self.available = new_filters;
+        self.available.sort_by_cached_key(|info| info.name.clone());
     }
 }

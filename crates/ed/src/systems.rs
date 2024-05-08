@@ -160,7 +160,7 @@ impl Systems {
                 name: system.into_owned(),
                 plugin: plugin.to_owned(),
                 active: true,
-                enabled: true,
+                enabled: false,
                 category: Category::Fix,
             })
             .collect::<Vec<_>>();

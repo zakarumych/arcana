@@ -166,7 +166,7 @@ impl Container {
         let tmp = copy_dylib(path).context("Failed to copy dylib to temp location")?;
 
         // Safety: nope.
-        let r = unsafe { libloading::Library::new(&path) };
+        let r = unsafe { libloading::Library::new(tmp.path()) };
 
         let lib = match r {
             Ok(lib) => lib,
@@ -372,7 +372,7 @@ impl TmpFile {
 impl Drop for TmpFile {
     fn drop(&mut self) {
         if let Err(err) = std::fs::remove_file(&self.path) {
-            tracing::error!(
+            tracing::warn!(
                 "Failed to remove temp file '{}': {}",
                 self.path.display(),
                 err
@@ -419,11 +419,19 @@ fn copy_dylib(path: &Path) -> miette::Result<TmpFile> {
 
     let new_path = path.with_file_name(new_filename);
 
-    std::fs::copy(&path, &new_path).map_err(|source| FileCopyError {
-        from: path.to_owned(),
-        to: new_path.to_owned(),
-        source,
-    })?;
+    if !new_path.exists() {
+        std::fs::copy(&path, &new_path).map_err(|source| FileCopyError {
+            from: path.to_owned(),
+            to: new_path.to_owned(),
+            source,
+        })?;
+
+        tracing::info!(
+            "Copied dylib from '{}' to '{}'",
+            path.display(),
+            new_path.display()
+        );
+    }
 
     Ok(TmpFile { path: new_path })
 }
