@@ -10,18 +10,22 @@ use arcana::{
 use camino::{Utf8Path, Utf8PathBuf};
 use egui::{Color32, RichText, Ui};
 use egui_file::FileDialog;
+use hashbrown::HashSet;
 
 use crate::{
-    container::{Container, PluginsError},
+    container::{Container, Loader, PluginsError},
     data::ProjectData,
     filters::Filters,
     get_profile,
+    instance::Main,
     systems::Systems,
 };
 
 /// Tool to manage plugins libraries
 /// and enable/disable plugins.
 pub(super) struct Plugins {
+    loader: Loader,
+
     // Linked plugins container.
     linked: Option<Container>,
 
@@ -41,6 +45,8 @@ pub(super) struct Plugins {
     dialog: Option<PluginsDialog>,
 
     profile: Profile,
+
+    active_plugins: HashSet<IdentBuf>,
 }
 
 enum PluginsDialog {
@@ -51,12 +57,14 @@ enum PluginsDialog {
 impl Plugins {
     pub fn new() -> Self {
         Plugins {
+            loader: Loader::new(),
             linked: None,
             pending: None,
             failure: None,
             build: None,
             dialog: None,
             profile: get_profile(),
+            active_plugins: HashSet::new(),
         }
     }
 
@@ -106,6 +114,7 @@ impl Plugins {
         let mut data = world.expect_resource_mut::<ProjectData>();
         let mut systems = world.expect_resource_mut::<Systems>();
         let mut filters = world.expect_resource_mut::<Filters>();
+        let mut main = world.expect_resource_mut::<Main>();
 
         if let Some(mut build) = plugins.build.take() {
             match build.finished() {
@@ -116,7 +125,7 @@ impl Plugins {
                         build.artifact().display()
                     );
                     let path = build.artifact();
-                    match Container::load(path) {
+                    match plugins.loader.load(&path, &data.enabled_plugins) {
                         Ok(container) => {
                             if !Self::check_plugins(project.manifest(), &container) {
                                 tracing::warn!("Not all plugins are linked. Rebuilding");
@@ -180,8 +189,8 @@ impl Plugins {
                         plugins.build = Some(build);
                     }
                 }
-                Some(mut c) => {
-                    c.activate_plugins(&data.enabled_plugins);
+                Some(c) => {
+                    main.update_plugins(&c);
                     systems.update_plugins(&mut data, &c);
                     filters.update_plugins(&mut data, &c);
                     plugins.linked = Some(c);
@@ -191,7 +200,7 @@ impl Plugins {
     }
 
     pub fn show(world: &WorldLocal, ui: &mut Ui) {
-        let plugins = &mut *world.expect_resource_mut::<Plugins>();
+        let mut plugins = world.expect_resource_mut::<Plugins>();
         let mut project = world.expect_resource_mut::<Project>();
         let mut data = world.expect_resource_mut::<ProjectData>();
 
@@ -276,7 +285,7 @@ impl Plugins {
                                 tooltip = "Pending";
                                 heading = heading.color(ui.visuals().warn_fg_color);
                             } else {
-                                tooltip = "Build failed";
+                                tooltip = "Plugin is missing in library";
                                 heading = heading.color(ui.visuals().error_fg_color);
                             }
                         } else if !data.enabled_plugins.contains(&plugin.name) {
@@ -419,23 +428,26 @@ impl Plugins {
             },
         }
 
+        assert!(sync || !rebuild, "Rebuild without sync");
+
         if sync {
-            if let Some(c) = &mut plugins.linked {
-                c.activate_plugins(&data.enabled_plugins);
-            }
+            try_log_err!(data.sync(&project));
 
             if rebuild {
                 try_log_err!(project.sync());
+
+                plugins.build = None;
+                plugins.pending = None;
+                try_log_err!(project.init_workspace());
+                plugins.build = ok_log_err!(project.build_plugins_library(plugins.profile));
             }
 
-            try_log_err!(data.sync(&project));
-        }
-
-        if rebuild {
-            plugins.build = None;
-            plugins.pending = None;
-            try_log_err!(project.init_workspace());
-            plugins.build = ok_log_err!(project.build_plugins_library(plugins.profile));
+            if let Some(c) = &plugins.linked {
+                plugins.linked = Some(c.with_plugins(&data.enabled_plugins));
+            }
+            if let Some(c) = &plugins.pending {
+                plugins.pending = Some(c.with_plugins(&data.enabled_plugins));
+            }
         }
     }
 

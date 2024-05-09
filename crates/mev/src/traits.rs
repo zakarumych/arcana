@@ -2,12 +2,15 @@ use std::{fmt::Debug, hash::Hash, ops::Range};
 
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 
-use crate::generic::{
-    Arguments, AsBufferSlice, BlasBuildDesc, BlasDesc, BufferDesc, BufferInitDesc, BufferSlice,
-    Capabilities, ComputePipelineDesc, CreateError, CreateLibraryError, CreatePipelineError,
-    DeviceDesc, DeviceError, DeviceRepr, Extent2, Extent3, ImageDesc, ImageExtent, LibraryDesc,
-    Offset2, Offset3, OutOfMemory, PipelineStages, PixelFormat, RenderPassDesc, RenderPipelineDesc,
-    SamplerDesc, SurfaceError, TlasBuildDesc, TlasDesc, ViewDesc,
+use crate::{
+    generic::{
+        Arguments, AsBufferSlice, BlasBuildDesc, BlasDesc, BufferDesc, BufferInitDesc, BufferSlice,
+        Capabilities, ComputePipelineDesc, CreateError, CreateLibraryError, CreatePipelineError,
+        DeviceDesc, DeviceError, DeviceRepr, Extent2, Extent3, ImageDesc, ImageExtent, LibraryDesc,
+        Offset2, Offset3, OutOfMemory, PipelineStages, PixelFormat, RenderPassDesc,
+        RenderPipelineDesc, SamplerDesc, SurfaceError, TlasBuildDesc, TlasDesc, ViewDesc,
+    },
+    ImageUsage,
 };
 
 pub trait Instance: Debug + Send + Sync + 'static {
@@ -140,11 +143,11 @@ pub trait CopyCommandEncoder {
     fn write_buffer_raw(&mut self, slice: impl AsBufferSlice, data: &[u8]);
 
     /// Writes data to the buffer.
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn write_buffer(&mut self, slice: impl AsBufferSlice, data: &impl bytemuck::Pod);
 
     /// Writes data to the buffer.
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn write_buffer_slice(&mut self, slice: impl AsBufferSlice, data: &[impl bytemuck::Pod]);
 
     /// Copies pixels from src image to dst image.
@@ -239,6 +242,9 @@ pub trait Image: Clone + Debug + Eq + Hash + Send + Sync + 'static {
 
     /// Returns the number of mip levels in the image.
     fn levels(&self) -> u32;
+
+    /// Returns the usage of the image.
+    fn usage(&self) -> ImageUsage;
 
     /// Returns new image that is a view into this image.
     fn view(

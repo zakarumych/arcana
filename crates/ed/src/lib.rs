@@ -1,27 +1,22 @@
 #![forbid(unsafe_op_in_unsafe_fn)]
+#![feature(float_next_up_down)]
 
-use std::{
-    io::{ErrorKind, Write},
-    path::Path,
-    process::Child,
-    time::Instant,
-};
+use std::{hash::Hash, io::ErrorKind, path::Path, process::Child, time::Instant};
 
 use arcana::{
     gametime::{FrequencyNumExt, TimeSpan, TimeStamp},
-    project::Project,
+    mev,
+    project::{Profile, Project},
+    Clock,
 };
 use data::ProjectData;
 use parking_lot::Mutex;
-use project::Profile;
 use winit::{
     event::Event,
-    event_loop::{ControlFlow, EventLoop, EventLoopBuilder},
+    event_loop::{ControlFlow, EventLoop},
 };
 
 use crate::app::UserEvent;
-
-pub use arcana::*;
 
 /// Result::ok, but logs Err case.
 macro_rules! ok_log_err {
@@ -61,6 +56,7 @@ mod workgraph;
 mod container;
 mod error;
 mod instance;
+mod monitor;
 mod plugins;
 mod systems;
 mod tools;
@@ -209,7 +205,7 @@ fn get_profile() -> Profile {
     }
 }
 
-pub fn init_mev() -> (mev::Device, mev::Queue) {
+fn init_mev() -> (mev::Device, mev::Queue) {
     let instance = mev::Instance::load().expect("Failed to init graphics");
 
     let (device, mut queues) = instance
@@ -221,4 +217,12 @@ pub fn init_mev() -> (mev::Device, mev::Queue) {
         .unwrap();
     let queue = queues.pop().unwrap();
     (device, queue)
+}
+
+fn hue_hash<T>(value: &T) -> egui::Color32
+where
+    T: Hash + ?Sized,
+{
+    let [r, g, b] = ::arcana::hue_hash(value);
+    egui::Color32::from_rgb(r, g, b)
 }

@@ -6,6 +6,7 @@ pub trait Id: fmt::Debug + Copy + Ord + Eq + Hash {
     fn get_nonzero(self) -> NonZeroU64;
 }
 
+/// Creates id from integer literal.
 #[macro_export]
 macro_rules! static_id {
     ($value:literal) => {{
@@ -26,6 +27,9 @@ macro_rules! static_id {
     }};
 }
 
+/// Produces hash based on hashable values.
+/// The hash is guaranteed to be stable across different runs and compilations of the program
+/// as long as the values do not change.
 #[macro_export]
 macro_rules! hash_id {
     ($($value:expr),+ $(,)?) => {{
@@ -40,6 +44,29 @@ macro_rules! hash_id {
         let hash = ::core::hash::Hasher::finish(&hasher);
         <$id as $crate::Id>::new(unsafe { ::core::num::NonZeroU64::new_unchecked(hash | 1) })
     }};
+}
+
+/// Produces id by hashing the module path and values.
+/// The hash is guaranteed to be stable across different runs and compilations of the program.
+///
+/// Unlike `hash_id!` result will change if macro invocation is moved to different module or module path changes.
+/// Use it if you may use same values in different modules but want to have different ids.
+///
+/// It also supports hashing single identifier.
+#[macro_export]
+macro_rules! local_hash_id {
+    ($type:ident $(,)?) => {{
+        $crate::hash_id!(::core::module_path!(), ::core::stringify!($type))
+    }};
+    ($type:ident => $id:ty) => {{
+        $crate::hash_id!(::core::module_path!(), ::core::stringify!($type) => $id)
+    }};
+    ($($value:expr),+ $(,)?) => {
+        $crate::hash_id!(::core::module_path!(), $($value,)+)
+    };
+    ($($value:expr),+ => $id:ty) => {
+        $crate::hash_id!(::core::module_path!(), $($value,)+ => $id)
+    };
 }
 
 #[macro_export]
@@ -62,38 +89,38 @@ macro_rules! make_id {
         }
 
         impl $name {
-            #[inline(always)]
+            #[cfg_attr(inline_more, inline(always))]
             pub const fn new(value: ::core::num::NonZeroU64) -> Self {
                 $name {
                     value,
                 }
             }
 
-            #[inline(always)]
+            #[cfg_attr(inline_more, inline(always))]
             pub const fn get(self) -> u64 {
                 self.value.get()
             }
 
-            #[inline(always)]
+            #[cfg_attr(inline_more, inline(always))]
             pub const fn get_nonzero(self) -> ::core::num::NonZeroU64 {
                 self.value
             }
         }
 
         impl $crate::Id for $name {
-            #[inline(always)]
+            #[cfg_attr(inline_more, inline(always))]
             fn new(value: ::core::num::NonZeroU64) -> Self {
                 $name {
                     value,
                 }
             }
 
-            #[inline(always)]
+            #[cfg_attr(inline_more, inline(always))]
             fn get(self) -> u64 {
                 self.value.get()
             }
 
-            #[inline(always)]
+            #[cfg_attr(inline_more, inline(always))]
             fn get_nonzero(self) -> ::core::num::NonZeroU64 {
                 self.value
             }
@@ -127,23 +154,23 @@ pub struct BaseId {
 }
 
 impl BaseId {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     pub const fn new(value: NonZeroU64) -> Self {
         BaseId { value }
     }
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     pub const fn get(self) -> u64 {
         self.value.get()
     }
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     pub const fn get_nonzero(self) -> NonZeroU64 {
         self.value
     }
 }
 
-#[inline(always)]
+#[cfg_attr(inline_more, inline(always))]
 #[doc(hidden)]
 pub fn fmt_id(mut value: u64, kind: &str, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     const BASE32: &[u8; 32] = b"0123456789abcdefghjkmnpqrstuvyxz";

@@ -137,7 +137,7 @@ impl crate::traits::CommandEncoder for CommandEncoder {
         }
     }
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn acceleration_structure(&mut self) -> AccelerationStructureCommandEncoder<'_> {
         let encoder = self.buffer.new_acceleration_structure_command_encoder();
         AccelerationStructureCommandEncoder {
@@ -147,12 +147,12 @@ impl crate::traits::CommandEncoder for CommandEncoder {
         }
     }
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn present(&mut self, frame: Frame, _after: PipelineStages) {
         self.buffer.present_drawable(frame.drawable());
     }
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn finish(self) -> Result<CommandBuffer, OutOfMemory> {
         Ok(CommandBuffer {
             buffer: self.buffer,
@@ -167,7 +167,7 @@ pub struct CopyCommandEncoder<'a> {
 }
 
 impl Drop for CopyCommandEncoder<'_> {
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn drop(&mut self) {
         self.encoder.end_encoding();
     }
@@ -175,13 +175,13 @@ impl Drop for CopyCommandEncoder<'_> {
 
 #[hidden_trait::expose]
 impl crate::traits::CopyCommandEncoder for CopyCommandEncoder<'_> {
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn barrier(&mut self, _after: PipelineStages, _before: PipelineStages) {}
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn init_image(&mut self, _after: PipelineStages, _before: PipelineStages, _image: &Image) {}
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn copy_buffer_to_image(
         &mut self,
         src: &Buffer,
@@ -219,7 +219,7 @@ impl crate::traits::CopyCommandEncoder for CopyCommandEncoder<'_> {
         );
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn copy_image_region(
         &mut self,
         src: &Image,
@@ -258,7 +258,7 @@ impl crate::traits::CopyCommandEncoder for CopyCommandEncoder<'_> {
         }
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn write_buffer_raw(&mut self, buffer: impl AsBufferSlice, data: &[u8]) {
         if data.is_empty() {
             return;
@@ -283,13 +283,13 @@ impl crate::traits::CopyCommandEncoder for CopyCommandEncoder<'_> {
         );
     }
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn write_buffer(&mut self, slice: impl AsBufferSlice, data: &impl bytemuck::Pod) {
         self.write_buffer_slice(slice, bytemuck::bytes_of(data))
     }
 
     /// Writes data to the buffer.
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn write_buffer_slice(&mut self, slice: impl AsBufferSlice, data: &[impl bytemuck::Pod]) {
         self.write_buffer_raw(slice, bytemuck::cast_slice(data))
     }
@@ -324,7 +324,7 @@ impl RenderCommandEncoder<'_> {
 }
 
 impl Drop for RenderCommandEncoder<'_> {
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn drop(&mut self) {
         self.encoder.end_encoding();
     }

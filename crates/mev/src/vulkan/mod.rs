@@ -95,13 +95,13 @@ impl Version {
 }
 
 impl fmt::Display for Version {
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}.{}.{}", self.major, self.minor, self.patch)
     }
 }
 
-#[inline(always)]
+#[cfg_attr(inline_more, inline(always))]
 fn format_aspect(format: PixelFormat) -> vk::ImageAspectFlags {
     let mut aspect = vk::ImageAspectFlags::empty();
     if format.is_color() {

@@ -197,6 +197,121 @@ pub trait EventFilter: 'static {
     fn filter(&mut self, blink: &Blink, world: &mut World, event: &Event) -> bool;
 }
 
+pub trait IntoEventFilter<M> {
+    type EventFilter: EventFilter;
+
+    fn into_event_filter(self) -> Self::EventFilter;
+}
+
+pub struct IsEventFilter;
+
+impl<F> IntoEventFilter<IsEventFilter> for F
+where
+    F: EventFilter,
+{
+    type EventFilter = F;
+
+    #[cfg_attr(inline_more, inline(always))]
+    fn into_event_filter(self) -> F {
+        self
+    }
+}
+
+pub struct EventFilterFn<F>(F);
+
+impl<F> EventFilter for EventFilterFn<F>
+where
+    F: FnMut(&Event) -> bool + 'static,
+{
+    #[cfg_attr(inline_more, inline(always))]
+    fn filter(&mut self, _blink: &Blink, _world: &mut World, event: &Event) -> bool {
+        self.0(event)
+    }
+}
+
+impl<F> IntoEventFilter<()> for F
+where
+    F: FnMut(&Event) -> bool + 'static,
+{
+    type EventFilter = EventFilterFn<F>;
+
+    fn into_event_filter(self) -> EventFilterFn<F> {
+        EventFilterFn(self)
+    }
+}
+
+pub struct EventFilterWorldFn<F>(F);
+
+impl<F> EventFilter for EventFilterWorldFn<F>
+where
+    F: FnMut(&mut World, &Event) -> bool + 'static,
+{
+    #[cfg_attr(inline_more, inline(always))]
+    fn filter(&mut self, _blink: &Blink, world: &mut World, event: &Event) -> bool {
+        self.0(world, event)
+    }
+}
+
+impl<F> IntoEventFilter<(&mut World,)> for F
+where
+    F: FnMut(&mut World, &Event) -> bool + 'static,
+{
+    type EventFilter = EventFilterWorldFn<F>;
+
+    #[cfg_attr(inline_more, inline(always))]
+    fn into_event_filter(self) -> EventFilterWorldFn<F> {
+        EventFilterWorldFn(self)
+    }
+}
+
+pub struct EventFilterBlinkFn<F>(F);
+
+impl<F> EventFilter for EventFilterBlinkFn<F>
+where
+    F: FnMut(&Blink, &Event) -> bool + 'static,
+{
+    #[cfg_attr(inline_more, inline(always))]
+    fn filter(&mut self, blink: &Blink, _world: &mut World, event: &Event) -> bool {
+        self.0(blink, event)
+    }
+}
+
+impl<F> IntoEventFilter<(&Blink,)> for F
+where
+    F: FnMut(&Blink, &Event) -> bool + 'static,
+{
+    type EventFilter = EventFilterBlinkFn<F>;
+
+    #[cfg_attr(inline_more, inline(always))]
+    fn into_event_filter(self) -> EventFilterBlinkFn<F> {
+        EventFilterBlinkFn(self)
+    }
+}
+
+pub struct EventFilterBlinkWorldFn<F>(F);
+
+impl<F> EventFilter for EventFilterBlinkWorldFn<F>
+where
+    F: FnMut(&Blink, &mut World, &Event) -> bool + 'static,
+{
+    #[cfg_attr(inline_more, inline(always))]
+    fn filter(&mut self, blink: &Blink, world: &mut World, event: &Event) -> bool {
+        self.0(blink, world, event)
+    }
+}
+
+impl<F> IntoEventFilter<(&Blink, &mut World)> for F
+where
+    F: FnMut(&Blink, &mut World, &Event) -> bool + 'static,
+{
+    type EventFilter = EventFilterBlinkWorldFn<F>;
+
+    #[cfg_attr(inline_more, inline(always))]
+    fn into_event_filter(self) -> EventFilterBlinkWorldFn<F> {
+        EventFilterBlinkWorldFn(self)
+    }
+}
+
 pub struct EventFunnel {
     pub filters: Vec<Box<dyn EventFilter>>,
 }
@@ -208,7 +323,7 @@ impl EventFunnel {
         }
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     pub fn add<F>(&mut self, filter: F)
     where
         F: EventFilter,
@@ -216,12 +331,12 @@ impl EventFunnel {
         self.filters.push(Box::new(filter));
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     pub fn add_boxed(&mut self, filter: Box<dyn EventFilter>) {
         self.filters.push(filter);
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     pub fn filter(&mut self, blink: &Blink, world: &mut World, event: &Event) -> bool {
         for filter in self.filters.iter_mut() {
             if filter.filter(blink, world, event) {
@@ -232,20 +347,11 @@ impl EventFunnel {
     }
 }
 
+/// Allow composing `EventFunnel` into super-funnels.
 impl EventFilter for EventFunnel {
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn filter(&mut self, blink: &Blink, world: &mut World, event: &Event) -> bool {
         self.filter(blink, world, event)
-    }
-}
-
-impl<F> EventFilter for F
-where
-    F: FnMut(&Blink, &mut World, &Event) -> bool + 'static,
-{
-    #[inline(always)]
-    fn filter(&mut self, blink: &Blink, world: &mut World, event: &Event) -> bool {
-        self(blink, world, event)
     }
 }
 

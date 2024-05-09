@@ -125,3 +125,9 @@ opt-level = 3
 
 [profile.dev.package.hashbrown]
 opt-level = 3
+
+[profile.dev.package.metal]
+opt-level = 3
+
+[profile.dev.package.ash]
+opt-level = 3

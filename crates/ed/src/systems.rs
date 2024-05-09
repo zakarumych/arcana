@@ -134,7 +134,7 @@ impl Systems {
     pub fn update_plugins(&mut self, data: &mut ProjectData, container: &Container) {
         let mut all_systems = HashMap::new();
 
-        for (name, plugin) in container.iter() {
+        for (name, plugin) in container.plugins() {
             for system in plugin.systems() {
                 all_systems.insert(system.id, (name, system.name));
             }
@@ -364,7 +364,7 @@ impl SnarlViewer<SystemNode> for SystemViewer<'_> {
     }
 
     /// Checks if the snarl has something to show in context menu if wire drag is stopped at `pos`.
-    #[inline]
+    #[cfg_attr(inline_more, inline)]
     fn has_dropped_wire_menu(&mut self, _: AnyPins, _: &mut Snarl<SystemNode>) -> bool {
         true
     }
@@ -372,7 +372,7 @@ impl SnarlViewer<SystemNode> for SystemViewer<'_> {
     /// Show context menu for the snarl. This menu is opened when releasing a pin to empty
     /// space. It can be used to implement menu for adding new node, and directly
     /// connecting it to the released wire.
-    #[inline]
+    #[cfg_attr(inline_more, inline)]
     fn show_dropped_wire_menu(
         &mut self,
         pos: egui::Pos2,

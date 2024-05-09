@@ -64,7 +64,7 @@ pub struct ActionQueueIter<'a, A> {
 impl<'a, A> Iterator for ActionQueueIter<'a, A> {
     type Item = A;
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn next(&mut self) -> Option<A> {
         self.iter.next()
     }

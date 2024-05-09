@@ -1,9 +1,7 @@
 use arcana::{
-    color_hash,
     edict::world::WorldLocal,
-    plugin::JobId,
     project::{IdentBuf, Project},
-    work::{Image2D, JobDesc},
+    work::{Image2D, JobDesc, JobId},
     Stid,
 };
 use egui::Ui;
@@ -12,7 +10,7 @@ use egui_snarl::{
     InPin, NodeId, OutPin, Snarl,
 };
 
-use crate::data::ProjectData;
+use crate::{data::ProjectData, hue_hash};
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum WorkGraphNode {
@@ -84,13 +82,11 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer {
                 if pin.id.input < job.updates.len() {
                     let update = &job.updates[pin.id.input];
                     ui.label("updates");
-                    let [r, g, b] = color_hash(&update.ty);
-                    PinInfo::square().with_fill(egui::Color32::from_rgb(r, g, b))
+                    PinInfo::square().with_fill(hue_hash(&update.ty))
                 } else {
                     let read = &job.reads[pin.id.input - job.updates.len()];
                     ui.label("reads");
-                    let [r, g, b] = color_hash(&read.ty);
-                    PinInfo::circle().with_fill(egui::Color32::from_rgb(r, g, b))
+                    PinInfo::circle().with_fill(hue_hash(&read.ty))
                 }
             }
             WorkGraphNode::MainPresent => {
@@ -115,13 +111,11 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer {
                 if pin.id.output < job.updates.len() {
                     let update = &job.updates[pin.id.output];
                     ui.label("updates");
-                    let [r, g, b] = color_hash(&update.ty);
-                    PinInfo::square().with_fill(egui::Color32::from_rgb(r, g, b))
+                    PinInfo::square().with_fill(hue_hash(&update.ty))
                 } else {
                     let create = &job.creates[pin.id.output - job.updates.len()];
                     ui.label("creates");
-                    let [r, g, b] = color_hash(&create.ty);
-                    PinInfo::triangle().with_fill(egui::Color32::from_rgb(r, g, b))
+                    PinInfo::triangle().with_fill(hue_hash(&create.ty))
                 }
             }
             WorkGraphNode::MainPresent => {
@@ -164,8 +158,7 @@ fn present_kind() -> Stid {
 }
 
 fn present_pin_color() -> egui::Color32 {
-    let [r, g, b] = color_hash(&present_kind());
-    egui::Color32::from_rgb(r, g, b)
+    hue_hash(&present_kind())
 }
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]

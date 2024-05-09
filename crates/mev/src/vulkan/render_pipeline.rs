@@ -65,7 +65,7 @@ pub enum CreatePipelineErrorKind {
 }
 
 impl From<OutOfMemory> for CreatePipelineErrorKind {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn from(_: OutOfMemory) -> Self {
         CreatePipelineErrorKind::OutOfMemory
     }

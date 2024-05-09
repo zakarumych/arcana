@@ -29,6 +29,8 @@ pub struct Arena<T> {
     count: Cell<usize>,
 }
 
+unsafe impl<T> Send for Arena<T> where T: Send {}
+
 struct Exhausted<T> {
     ptr: NonNull<T>,
     len: usize,
@@ -280,7 +282,7 @@ impl<T> Drop for ExhaustedDrain<T> {
 impl<T> Iterator for ExhaustedDrain<T> {
     type Item = T;
 
-    #[inline]
+    #[cfg_attr(inline_more, inline)]
     fn next(&mut self) -> Option<Self::Item> {
         if self.idx == self.len {
             return None;
@@ -293,7 +295,7 @@ impl<T> Iterator for ExhaustedDrain<T> {
         Some(unsafe { ptr.read() })
     }
 
-    #[inline]
+    #[cfg_attr(inline_more, inline)]
     fn nth(&mut self, n: usize) -> Option<Self::Item> {
         // Limit number of elements to skip.
         let n = n.min(self.len - self.idx);
@@ -313,7 +315,7 @@ impl<T> Iterator for ExhaustedDrain<T> {
         self.next()
     }
 
-    #[inline]
+    #[cfg_attr(inline_more, inline)]
     fn count(self) -> usize {
         let n = self.len - self.idx;
 
@@ -348,7 +350,7 @@ impl<'a, T: 'a> Drop for HeadDrain<'a, T> {
 impl<'a, T: 'a> Iterator for HeadDrain<'a, T> {
     type Item = T;
 
-    #[inline]
+    #[cfg_attr(inline_more, inline)]
     fn next(&mut self) -> Option<Self::Item> {
         if self.idx == self.len {
             return None;
@@ -361,7 +363,7 @@ impl<'a, T: 'a> Iterator for HeadDrain<'a, T> {
         Some(unsafe { ptr.read() })
     }
 
-    #[inline]
+    #[cfg_attr(inline_more, inline)]
     fn nth(&mut self, n: usize) -> Option<Self::Item> {
         // Limit number of elements to skip.
         let n = n.min(self.len - self.idx);
@@ -381,7 +383,7 @@ impl<'a, T: 'a> Iterator for HeadDrain<'a, T> {
         self.next()
     }
 
-    #[inline]
+    #[cfg_attr(inline_more, inline)]
     fn count(self) -> usize {
         let n = self.len - self.idx;
 

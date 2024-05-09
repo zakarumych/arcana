@@ -1,10 +1,9 @@
 use arcana::{
     edict::World,
     gametime::ClockStep,
-    mev::{self, Arguments, DeviceRepr, Image},
+    mev::{self, Arguments, DeviceRepr},
     render::{Render, RenderBuilderContext, RenderContext, RenderError, RenderGraph, TargetId},
-    stid::WithStid,
-    work::{Exec, Image2D, Job, JobCreateDesc, JobDesc, Planner},
+    work::{Exec, Image2D, Job, JobDesc, Planner},
 };
 
 #[derive(mev::Arguments)]
@@ -100,7 +99,7 @@ impl Render for MainPass {
             ..Default::default()
         });
 
-        let dims = target.dimensions().to_2d();
+        let dims = target.dimensions().expect_2d();
 
         let arguments = self.arguments.get_or_insert_with(|| {
             let colors = ctx
@@ -165,6 +164,18 @@ impl MainJob {
         arcana::job_desc! [
             +Image2D => "main",
         ]
+    }
+
+    pub fn new() -> Self {
+        MainJob {
+            pipeline: None,
+            arguments: None,
+            constants: MainConstants {
+                angle: 0.0,
+                width: 0,
+                height: 0,
+            },
+        }
     }
 }
 
@@ -237,7 +248,7 @@ impl Job for MainJob {
             ..Default::default()
         });
 
-        let dims = target.dimensions().to_2d();
+        let dims = target.dimensions().expect_2d();
 
         let arguments = self.arguments.get_or_insert_with(|| {
             let colors = runner
@@ -281,26 +292,32 @@ impl Job for MainJob {
 
 arcana::export_arcana_plugin! {
     TrianglePlugin {
+        // List dependencies
         dependencies: [dummy ...],
-        in world => {
-            let world = world.local();
 
-            // let window = world.expect_resource::<Window>().id();
+        // List jobs
+        jobs: [MainJob],
 
-            let mut graph = world.expect_resource_mut::<RenderGraph>();
-            // Create main pass.
-            // It returns target id that it renders to.
-            let target = MainPass::build(&mut graph);
+        // // Init block
+        // in world => {
+        //     let world = world.local();
 
-            // let id = world.spawn_one(Egui::new()).id();
+        //     // let window = world.expect_resource::<Window>().id();
 
-            // if world.get_resource::<EguiResource>().is_some() {
-            //     target = EguiRender::build_overlay(id, target, &mut graph);
-            // }
+        //     let mut graph = world.expect_resource_mut::<RenderGraph>();
+        //     // Create main pass.
+        //     // It returns target id that it renders to.
+        //     let target = MainPass::build(&mut graph);
 
-            // Use window's surface for the render target.
-            graph.present(target);
-            drop(graph);
-        }
+        //     // let id = world.spawn_one(Egui::new()).id();
+
+        //     // if world.get_resource::<EguiResource>().is_some() {
+        //     //     target = EguiRender::build_overlay(id, target, &mut graph);
+        //     // }
+
+        //     // Use window's surface for the render target.
+        //     graph.present(target);
+        //     drop(graph);
+        // }
     }
 }

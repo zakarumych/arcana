@@ -59,9 +59,6 @@ impl JobReadDesc {
 /// A set of targets a job creates, updates and reads.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct JobDesc {
-    /// Job unique ID.
-    pub id: JobId,
-
     /// List of targets job reads.
     /// They are inputs of the job.
     pub reads: Vec<JobReadDesc>,
@@ -95,13 +92,12 @@ macro_rules! add_job_desc {
 
 #[macro_export]
 macro_rules! job_desc {
-    ($id:expr => {$($descs:tt)*}) => {{
+    ($($descs:tt)*) => {{
         let mut reads = Vec::new();
         let mut updates = Vec::new();
         let mut creates = Vec::new();
         $crate::add_job_desc!((reads, updates, creates) $($descs)*);
         $crate::work::JobDesc {
-            id: $id.into(),
             reads,
             updates,
             creates,
@@ -352,9 +348,9 @@ pub struct JobNode {
 
 impl JobNode {
     /// Construct new job node from description and job instance.
-    pub fn new(desc: JobDesc) -> Self {
+    pub fn new(id: JobId, desc: JobDesc) -> Self {
         JobNode {
-            id: desc.id,
+            id,
             updates: desc
                 .updates
                 .into_iter()

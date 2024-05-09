@@ -1,10 +1,12 @@
 use arcana::{
     edict::world::WorldLocal,
-    plugin::FilterId,
+    events::{Event, FilterId},
+    plugin::PluginsHub,
     project::{IdentBuf, Project},
+    Blink, World,
 };
 use egui::{Color32, Ui, WidgetText};
-use hashbrown::HashMap;
+use hashbrown::{HashMap, HashSet};
 
 use crate::{container::Container, data::ProjectData, move_element};
 
@@ -28,6 +30,28 @@ pub struct Filters {
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Funnel {
     filters: Vec<FilterInfo>,
+}
+
+impl Funnel {
+    pub fn filter(
+        &self,
+        hub: &mut PluginsHub,
+        blink: &Blink,
+        world: &mut World,
+        event: &Event,
+    ) -> bool {
+        for filter in self.filters.iter() {
+            if filter.enabled {
+                if let Some(filter) = hub.filters.get_mut(&filter.id) {
+                    if filter.filter(blink, world, event) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        false
+    }
 }
 
 impl Filters {
@@ -150,7 +174,7 @@ impl Filters {
     pub fn update_plugins(&mut self, data: &mut ProjectData, container: &Container) {
         let mut all_filters = HashMap::new();
 
-        for (name, plugin) in container.iter() {
+        for (name, plugin) in container.plugins() {
             for filter in plugin.filters() {
                 all_filters.insert(filter.id, (name, filter.name));
             }

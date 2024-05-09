@@ -1,4 +1,4 @@
-use edict::{world::WorldLocal, Res};
+use edict::World;
 use hashbrown::{hash_map::Entry, HashMap, HashSet};
 
 use crate::{arena::Arena, id::IdGen, plugin::PluginsHub};
@@ -121,7 +121,6 @@ impl WorkGraph {
             }
         }
 
-        let mut hub = TargetHub::new();
         let mut plan = Vec::new();
 
         let mut job_order = HashMap::<JobId, usize>::new();
@@ -185,7 +184,7 @@ impl WorkGraph {
             plan,
             job_order,
             // edges,
-            hub,
+            hub: TargetHub::new(),
             idgen,
             sinks: HashMap::new(),
             selected_jobs: HashSet::new(),
@@ -255,9 +254,9 @@ impl WorkGraph {
 
     pub fn run(
         &mut self,
-        device: mev::Device,
+        device: &mev::Device,
         queue: &mut mev::Queue,
-        world: &mut WorldLocal,
+        world: &mut World,
         hub: &mut PluginsHub,
     ) -> Result<(), mev::DeviceError> {
         self.selected_jobs.clear();

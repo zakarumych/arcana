@@ -286,7 +286,7 @@ pub enum RenderError {
 }
 
 impl From<mev::OutOfMemory> for RenderError {
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn from(err: mev::OutOfMemory) -> Self {
         RenderError::OutOfMemory(err)
     }

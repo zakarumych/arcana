@@ -110,7 +110,7 @@ pub struct Frame {
 }
 
 impl Frame {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     pub(super) fn drawable(&self) -> &metal::MetalDrawableRef {
         &self.drawable
     }
@@ -118,7 +118,7 @@ impl Frame {
 
 #[hidden_trait::expose]
 impl crate::traits::Frame for Frame {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn image(&self) -> &Image {
         &self.image
     }

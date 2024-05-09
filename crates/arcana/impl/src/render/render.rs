@@ -22,12 +22,12 @@ pub struct TargetId<T: ?Sized>(
 );
 
 impl<T: ?Sized> Clone for TargetId<T> {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn clone(&self) -> Self {
         *self
     }
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn clone_from(&mut self, source: &Self) {
         *self = *source;
     }
@@ -36,7 +36,7 @@ impl<T: ?Sized> Clone for TargetId<T> {
 impl<T: ?Sized> Copy for TargetId<T> {}
 
 impl fmt::Debug for TargetId<mev::Image> {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("TargetId<mev::Image>")
             .field(&self.0)
@@ -46,7 +46,7 @@ impl fmt::Debug for TargetId<mev::Image> {
 }
 
 impl fmt::Debug for TargetId<mev::Buffer> {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("TargetId<mev::Buffer>")
             .field(&self.0)
@@ -56,12 +56,12 @@ impl fmt::Debug for TargetId<mev::Buffer> {
 }
 
 impl<T: ?Sized> PartialEq for TargetId<T> {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn eq(&self, other: &Self) -> bool {
         self.0 == other.0 && self.1 == other.1
     }
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn ne(&self, other: &Self) -> bool {
         self.0 != other.0 || self.1 != other.1
     }
@@ -70,13 +70,13 @@ impl<T: ?Sized> PartialEq for TargetId<T> {
 impl<T: ?Sized> Eq for TargetId<T> {}
 
 impl<T: ?Sized> Hash for TargetId<T> {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn hash<H: Hasher>(&self, state: &mut H) {
         state.write_u64(self.0.get());
         state.write_usize(self.1);
     }
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn hash_slice<H: Hasher>(data: &[Self], state: &mut H) {
         for item in data {
             state.write_u64(item.0.get());

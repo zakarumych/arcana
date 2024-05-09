@@ -25,7 +25,7 @@ pub(super) struct WeakSampler {
 }
 
 impl WeakSampler {
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     pub(super) fn upgrade(&self) -> Option<Sampler> {
         let inner = self.inner.upgrade()?;
         Some(Sampler {
@@ -34,12 +34,12 @@ impl WeakSampler {
         })
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     pub(super) fn unused(&self) -> bool {
         self.inner.strong_count() == 0
     }
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     pub(super) fn handle(&self) -> vk::Sampler {
         self.handle
     }
@@ -58,14 +58,14 @@ impl Drop for Inner {
 }
 
 impl DeviceOwned for Sampler {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn owner(&self) -> &WeakDevice {
         &self.inner.owner
     }
 }
 
 impl Sampler {
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     pub(super) fn new(owner: WeakDevice, handle: vk::Sampler, desc: SamplerDesc) -> Self {
         Sampler {
             handle,
@@ -73,7 +73,7 @@ impl Sampler {
         }
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     pub(super) fn downgrade(&self) -> WeakSampler {
         WeakSampler {
             handle: self.handle,
@@ -81,7 +81,7 @@ impl Sampler {
         }
     }
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     pub(super) fn handle(&self) -> vk::Sampler {
         self.handle
     }
@@ -95,7 +95,7 @@ impl ArgumentsField<Automatic> for Sampler {
 
     type Update = vk::DescriptorImageInfo;
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn update(&self) -> vk::DescriptorImageInfo {
         vk::DescriptorImageInfo {
             sampler: self.handle,
@@ -104,7 +104,7 @@ impl ArgumentsField<Automatic> for Sampler {
         }
     }
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn add_refs(&self, refs: &mut Refs) {
         refs.add_sampler(self.clone());
     }

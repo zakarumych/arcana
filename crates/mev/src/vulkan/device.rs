@@ -41,7 +41,7 @@ use super::{
 };
 
 impl gpu_alloc::MemoryDevice<(vk::DeviceMemory, usize)> for DeviceInner {
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     unsafe fn allocate_memory(
         &self,
         size: u64,
@@ -79,7 +79,7 @@ impl gpu_alloc::MemoryDevice<(vk::DeviceMemory, usize)> for DeviceInner {
         Ok((memory, idx))
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     unsafe fn deallocate_memory(&self, memory: (vk::DeviceMemory, usize)) {
         unsafe {
             self.device.free_memory(memory.0, None);
@@ -88,7 +88,7 @@ impl gpu_alloc::MemoryDevice<(vk::DeviceMemory, usize)> for DeviceInner {
         self.memory.lock().remove(memory.1);
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     unsafe fn map_memory(
         &self,
         memory: &mut (vk::DeviceMemory, usize),
@@ -115,14 +115,14 @@ impl gpu_alloc::MemoryDevice<(vk::DeviceMemory, usize)> for DeviceInner {
         }
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     unsafe fn unmap_memory(&self, memory: &mut (vk::DeviceMemory, usize)) {
         unsafe {
             self.device.unmap_memory(memory.0);
         }
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     unsafe fn invalidate_memory_ranges(
         &self,
         ranges: &[gpu_alloc::MappedMemoryRange<'_, (vk::DeviceMemory, usize)>],
@@ -148,7 +148,7 @@ impl gpu_alloc::MemoryDevice<(vk::DeviceMemory, usize)> for DeviceInner {
         })
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     unsafe fn flush_memory_ranges(
         &self,
         ranges: &[gpu_alloc::MappedMemoryRange<'_, (vk::DeviceMemory, usize)>],
@@ -180,7 +180,7 @@ struct DescriptorUpdateTemplateEntries {
 }
 
 impl PartialEq for DescriptorUpdateTemplateEntries {
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn eq(&self, other: &Self) -> bool {
         self.entries.iter().zip(other.entries.iter()).all(|(a, b)| {
             a.dst_binding == b.dst_binding
@@ -192,7 +192,7 @@ impl PartialEq for DescriptorUpdateTemplateEntries {
         })
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn ne(&self, other: &Self) -> bool {
         self.entries.iter().zip(other.entries.iter()).any(|(a, b)| {
             a.dst_binding != b.dst_binding
@@ -208,7 +208,7 @@ impl PartialEq for DescriptorUpdateTemplateEntries {
 impl Eq for DescriptorUpdateTemplateEntries {}
 
 impl Hash for DescriptorUpdateTemplateEntries {
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn hash<H: Hasher>(&self, state: &mut H) {
         for entry in &self.entries {
             entry.dst_binding.hash(state);
@@ -346,12 +346,12 @@ pub(super) struct WeakDevice {
 }
 
 impl WeakDevice {
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     pub fn upgrade(&self) -> Option<Device> {
         self.inner.upgrade().map(|inner| Device { inner })
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     pub fn drop_buffer(&self, idx: usize, block: MemoryBlock<(vk::DeviceMemory, usize)>) {
         if let Some(inner) = self.inner.upgrade() {
             unsafe { inner.allocator.lock().dealloc(&*inner, block) }
@@ -364,7 +364,7 @@ impl WeakDevice {
         }
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     pub fn drop_image(&self, idx: usize, block: MemoryBlock<(vk::DeviceMemory, usize)>) {
         if let Some(inner) = self.inner.upgrade() {
             unsafe { inner.allocator.lock().dealloc(&*inner, block) }
@@ -377,7 +377,7 @@ impl WeakDevice {
         }
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     pub fn drop_sampler(&self, desc: SamplerDesc) {
         if let Some(inner) = self.inner.upgrade() {
             let mut samplers = inner.samplers.lock();
@@ -401,7 +401,7 @@ impl WeakDevice {
         }
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     pub fn drop_descriptor_set_layout(&self, desc: DescriptorSetLayoutDesc) {
         if let Some(inner) = self.inner.upgrade() {
             let mut samplers = inner.set_layouts.lock();
@@ -427,7 +427,7 @@ impl WeakDevice {
         }
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     pub fn drop_pipeline_layout(
         &self,
         desc: PipelineLayoutDesc,
@@ -463,7 +463,7 @@ impl WeakDevice {
         }
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     pub fn drop_pipeline(&self, idx: usize) {
         if let Some(inner) = self.inner.upgrade() {
             let pipeline = inner.pipelines.lock().remove(idx);
@@ -473,7 +473,7 @@ impl WeakDevice {
         }
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     pub fn drop_image_view(&self, idx: usize) {
         if let Some(inner) = self.inner.upgrade() {
             let mut image_views = inner.image_views.lock();
@@ -484,7 +484,7 @@ impl WeakDevice {
         }
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     pub fn drop_image_views(&self, iter: impl Iterator<Item = usize>) {
         if let Some(inner) = self.inner.upgrade() {
             let mut image_views = inner.image_views.lock();
@@ -497,7 +497,7 @@ impl WeakDevice {
         }
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     pub fn drop_library(&self, idx: usize) {
         if let Some(inner) = self.inner.upgrade() {
             let library = inner.libraries.lock().remove(idx);
@@ -518,7 +518,7 @@ pub struct Device {
 }
 
 impl PartialEq for Device {
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.inner, &other.inner)
     }
@@ -588,64 +588,64 @@ impl Device {
         }
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     pub(super) fn inner(&self) -> &DeviceInner {
         &self.inner
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     pub(super) fn ash(&self) -> &ash::Device {
         &self.inner.device
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     pub(super) fn ash_instance(&self) -> &ash::Instance {
         &self.inner.instance
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     pub(super) fn is(&self, weak: &WeakDevice) -> bool {
         Arc::as_ptr(&self.inner) == Weak::as_ptr(&weak.inner)
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     pub(super) fn is_owner(&self, owned: &impl DeviceOwned) -> bool {
         self.is(owned.owner())
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     pub(super) fn weak(&self) -> WeakDevice {
         WeakDevice {
             inner: Arc::downgrade(&self.inner),
         }
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     pub(super) fn swapchain(&self) -> &ash::khr::swapchain::Device {
         self.inner.swapchain.as_ref().unwrap()
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     pub fn push_descriptor(&self) -> &ash::khr::push_descriptor::Device {
         &self.inner.push_descriptor
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     pub(super) fn surface(&self) -> &ash::khr::surface::Instance {
         self.inner.surface.as_ref().unwrap()
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     pub(super) fn physical_device(&self) -> vk::PhysicalDevice {
         self.inner.physical_device
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     pub(super) fn queue_families(&self) -> &[u32] {
         &self.inner.families
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     pub(super) fn wait_idle(&self) -> Result<(), OutOfMemory> {
         let result = unsafe { self.inner.device.device_wait_idle() };
 
@@ -664,7 +664,7 @@ impl Device {
         result
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     #[cfg(any(debug_assertions, feature = "debug"))]
     fn set_object_name<T: Handle>(&self, handle: T, name: &str) {
         if !name.is_empty() {
@@ -681,7 +681,7 @@ impl Device {
         }
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn new_sampler_slow(&self, count: usize, desc: SamplerDesc) -> Result<Sampler, OutOfMemory> {
         if self.inner.properties.limits.max_sampler_allocation_count as usize <= count {
             return Err(OutOfMemory);
@@ -872,7 +872,7 @@ impl Device {
         }
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     #[cold]
     pub(super) fn new_image_view(
         &self,
@@ -1287,7 +1287,7 @@ impl crate::traits::Device for Device {
                 &vk::ImageCreateInfo::default()
                     .image_type(desc.dimensions.into_ash())
                     .format(desc.format.try_into_ash().expect("Unsupported format"))
-                    .extent(desc.dimensions.to_3d().into_ash())
+                    .extent(desc.dimensions.into_ash())
                     .array_layers(desc.layers)
                     .mip_levels(desc.levels)
                     .samples(vk::SampleCountFlags::TYPE_1)

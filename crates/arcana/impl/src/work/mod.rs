@@ -41,6 +41,17 @@ pub struct Image2DInfo {
     pub usage: mev::ImageUsage,
 }
 
+impl Image2DInfo {
+    #[cfg_attr(inline_more, inline(always))]
+    pub fn from_image(image: &mev::Image) -> Self {
+        Image2DInfo {
+            extent: image.dimensions().expect_2d(),
+            format: image.format(),
+            usage: image.usage(),
+        }
+    }
+}
+
 impl target::Target for Image2D {
     type Info = Image2DInfo;
 

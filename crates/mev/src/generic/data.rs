@@ -18,7 +18,7 @@ union TransmuteUnchecked<A: Copy, B: Copy> {
 ///
 /// Sizes must have equal size.
 /// Current bits of argument must be valid for type `B`.
-#[inline(always)]
+#[cfg_attr(inline_more, inline(always))]
 unsafe fn transmute_unchecked<A: Copy, B: Copy>(a: A) -> B {
     debug_assert_eq!(size_of::<A>(), size_of::<B>());
     unsafe { TransmuteUnchecked { a }.b }
@@ -35,15 +35,15 @@ pub trait DeviceRepr: Sized + 'static {
     type ArrayRepr: bytemuck::Pod + Debug;
 
     /// Construct a `Self::Repr` from `&self`.
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn as_repr(&self) -> Self::Repr;
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn make_array_repr(&self) -> Self::ArrayRepr {
         unimplemented!("<{} as DeviceRepr>::make_array_repr must be implemented if size of `ArrayRepr` is not equal to size of `Repr`", type_name::<Self>());
     }
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn as_array_repr(&self) -> Self::ArrayRepr {
         if size_of::<Self::Repr>() == size_of::<Self::ArrayRepr>() {
             // Safety: transmutting between POD types with same size is safe.
@@ -52,12 +52,12 @@ pub trait DeviceRepr: Sized + 'static {
         self.make_array_repr()
     }
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn as_bytes(repr: &Self::Repr) -> &[u8] {
         bytemuck::bytes_of(repr)
     }
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn as_array_bytes(repr: &[Self::ArrayRepr]) -> &[u8] {
         bytemuck::cast_slice(repr)
     }
@@ -74,7 +74,7 @@ where
     type Repr = [T::ArrayRepr; N];
     type ArrayRepr = [T::ArrayRepr; N];
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn as_repr(&self) -> [T::ArrayRepr; N] {
         if TypeId::of::<Self>() == TypeId::of::<T::ArrayRepr>() {
             // Self is `ArrayRepr` so it is POD and can be copied.
@@ -99,7 +99,7 @@ where
         unsafe { repr.assume_init() }
     }
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn as_array_repr(&self) -> [T::ArrayRepr; N] {
         self.as_repr()
     }
@@ -149,7 +149,7 @@ pub trait Scalar: crate::private::Sealed + Sized + Debug + 'static {
 
     type ScalarRepr: bytemuck::Pod + Debug;
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn as_scalar_repr(&self) -> Self::ScalarRepr {
         assert_eq!(align_of::<Self>(), align_of::<Self::ScalarRepr>());
         assert_eq!(size_of::<Self>(), size_of::<Self::ScalarRepr>());
@@ -164,12 +164,12 @@ where
     type Repr = T::ScalarRepr;
     type ArrayRepr = T::ScalarRepr;
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn as_repr(&self) -> Self::Repr {
         self.as_scalar_repr()
     }
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn as_array_repr(&self) -> Self::ArrayRepr {
         self.as_scalar_repr()
     }
@@ -297,14 +297,14 @@ unsafe impl<T, const N: usize> Zeroable for vec<T, N> where T: Zeroable {}
 unsafe impl<T, const N: usize> Pod for vec<T, N> where T: Pod {}
 
 impl<T, const N: usize> From<vec<T, N>> for [T; N] {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn from(v: vec<T, N>) -> Self {
         v.0
     }
 }
 
 impl<T, const N: usize> From<[T; N]> for vec<T, N> {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn from(v: [T; N]) -> Self {
         vec(v)
     }
@@ -314,7 +314,7 @@ impl<T, const N: usize> From<&[T; N]> for vec<T, N>
 where
     T: Copy,
 {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn from(v: &[T; N]) -> Self {
         vec(*v)
     }
@@ -328,14 +328,14 @@ unsafe impl<T, const N: usize, const M: usize> Zeroable for mat<T, N, M> where T
 unsafe impl<T, const N: usize, const M: usize> Pod for mat<T, N, M> where T: Pod {}
 
 impl<T, const N: usize, const M: usize> From<mat<T, N, M>> for [[T; M]; N] {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn from(m: mat<T, N, M>) -> Self {
         m.0.map(From::from)
     }
 }
 
 impl<T, const N: usize, const M: usize> From<[[T; M]; N]> for mat<T, N, M> {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn from(m: [[T; M]; N]) -> Self {
         mat(m.map(From::from))
     }
@@ -345,7 +345,7 @@ impl<T, const N: usize, const M: usize> From<&[[T; M]; N]> for mat<T, N, M>
 where
     T: Copy,
 {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn from(m: &[[T; M]; N]) -> Self {
         mat(m.map(From::from))
     }
@@ -539,7 +539,7 @@ where
     type Repr = [T::ScalarRepr; 2];
     type ArrayRepr = [T::ScalarRepr; 2];
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn as_repr(&self) -> Self::Repr {
         self.0.as_repr()
     }
@@ -554,12 +554,12 @@ where
     type Repr = [T::ScalarRepr; 3];
     type ArrayRepr = [T::ScalarRepr; 4];
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn as_repr(&self) -> Self::Repr {
         self.0.as_repr()
     }
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn make_array_repr(&self) -> [T::ScalarRepr; 4] {
         let [a, b, c] = self.0.as_repr();
         [a, b, c, Zeroable::zeroed()]
@@ -575,7 +575,7 @@ where
     type Repr = [T::ScalarRepr; 4];
     type ArrayRepr = [T::ScalarRepr; 4];
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn as_repr(&self) -> Self::Repr {
         self.0.as_repr()
     }
@@ -590,7 +590,7 @@ where
     type Repr = [<vec<T, M> as DeviceRepr>::ArrayRepr; 2];
     type ArrayRepr = [<vec<T, M> as DeviceRepr>::ArrayRepr; 2];
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn as_repr(&self) -> Self::Repr {
         self.0.as_repr()
     }
@@ -605,7 +605,7 @@ where
     type Repr = [<vec<T, M> as DeviceRepr>::ArrayRepr; 3];
     type ArrayRepr = [<vec<T, M> as DeviceRepr>::ArrayRepr; 3];
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn as_repr(&self) -> Self::Repr {
         self.0.as_repr()
     }
@@ -620,7 +620,7 @@ where
     type Repr = [<vec<T, M> as DeviceRepr>::ArrayRepr; 4];
     type ArrayRepr = [<vec<T, M> as DeviceRepr>::ArrayRepr; 4];
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn as_repr(&self) -> Self::Repr {
         self.0.as_repr()
     }

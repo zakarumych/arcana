@@ -124,7 +124,7 @@ fn derive_impl(input: syn::DeriveInput) -> syn::Result<proc_macro2::TokenStream>
                         },)*],
                     };
 
-                    #[inline(always)]
+                    #[cfg_attr(inline_more, inline(always))]
                     fn bind_render(&self, group: u32, encoder: &mut mev::RenderCommandEncoder) {
                         let metal = encoder.metal();
                         let vertex_bindings = encoder.vertex_bindings();

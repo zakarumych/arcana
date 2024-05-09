@@ -237,26 +237,26 @@ pub enum Motion {
 }
 
 impl Motion {
-    #[inline]
+    #[cfg_attr(inline_more, inline)]
     pub fn to(target: Point<f32>) -> Self {
         Motion::To(MoveTo::new(target))
     }
 
-    #[inline]
+    #[cfg_attr(inline_more, inline)]
     pub fn after(id: EntityId) -> Self {
         Motion::After(MoveAfter::new(id))
     }
 }
 
 impl From<MoveTo> for Motion {
-    #[inline]
+    #[cfg_attr(inline_more, inline)]
     fn from(m: MoveTo) -> Self {
         Motion::To(m)
     }
 }
 
 impl From<MoveAfter> for Motion {
-    #[inline]
+    #[cfg_attr(inline_more, inline)]
     fn from(m: MoveAfter) -> Self {
         Motion::After(m)
     }

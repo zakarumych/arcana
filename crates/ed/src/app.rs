@@ -12,8 +12,8 @@ use arcana::{
     ClockStep, Entities, IdGen, With, World,
 };
 use arcana_egui::{Egui, EguiRender, TopBottomPanel, Ui, WidgetText};
-use egui::vec2;
-use egui_dock::{DockState, TabViewer};
+use egui::{vec2, Id};
+use egui_dock::{DockState, NodeIndex, TabIndex, TabViewer, Tree};
 use egui_tracing::EventCollector;
 use hashbrown::HashMap;
 use parking_lot::Mutex;
@@ -24,8 +24,8 @@ use winit::{
 };
 
 use crate::{
-    console::Console, data::ProjectData, filters::Filters, init_mev, plugins::Plugins,
-    systems::Systems, workgraph::WorkGraph,
+    console::Console, data::ProjectData, filters::Filters, init_mev, instance::Main,
+    plugins::Plugins, systems::Systems, workgraph::WorkGraph,
 };
 
 pub enum UserEvent {}
@@ -35,70 +35,14 @@ pub type EventLoop = winit::event_loop::EventLoop<UserEvent>;
 pub type ActiveEventLoop = winit::event_loop::ActiveEventLoop;
 
 /// Editor tab.
-#[derive(serde::Serialize, serde::Deserialize)]
-enum TabKind {
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+enum Tab {
     Plugins,
     Console,
     Systems,
     Filters,
     WorkGraph,
-    // Game {
-    //     #[serde(skip)]
-    //     tab: GamesTab,
-    // },
-    // Memory,
-}
-
-#[derive(serde::Serialize, serde::Deserialize)]
-struct Tab {
-    kind: TabKind,
-    id: egui::Id,
-}
-
-make_id!(TabId);
-
-impl Tab {
-    pub fn plugins(idgen: &mut IdGen) -> Self {
-        Tab {
-            kind: TabKind::Plugins,
-            id: egui::Id::new(idgen.next::<TabId>()),
-        }
-    }
-
-    pub fn console(idgen: &mut IdGen) -> Self {
-        Tab {
-            kind: TabKind::Console,
-            id: egui::Id::new(idgen.next::<TabId>()),
-        }
-    }
-
-    pub fn systems(idgen: &mut IdGen) -> Self {
-        Tab {
-            kind: TabKind::Systems,
-            id: egui::Id::new(idgen.next::<TabId>()),
-        }
-    }
-
-    pub fn filters(idgen: &mut IdGen) -> Self {
-        Tab {
-            kind: TabKind::Filters,
-            id: egui::Id::new(idgen.next::<TabId>()),
-        }
-    }
-
-    pub fn workgraph(idgen: &mut IdGen) -> Self {
-        Tab {
-            kind: TabKind::WorkGraph,
-            id: egui::Id::new(idgen.next::<TabId>()),
-        }
-    }
-
-    // pub fn game(idgen: &mut IdGen, tab: GamesTab) -> Self {
-    //     Tab {
-    //         kind: TabKind::Game { tab },
-    //         id: egui::Id::new(idgen.next::<TabId>()),
-    //     }
-    // }
+    Main,
 }
 
 /// Editor app instance.
@@ -177,6 +121,7 @@ impl App {
         world.insert_resource(Console::new(event_collector));
         world.insert_resource(Systems::new());
         world.insert_resource(Filters::new());
+        world.insert_resource(Main::new());
         world.insert_resource(device.clone());
         world.insert_resource(queue.clone());
         world.insert_resource(data);
@@ -298,8 +243,8 @@ impl App {
         // Update plugins state.
         Plugins::tick(&mut self.world);
 
-        // // Simulate games.
-        // Games::tick(&mut self.world, step);
+        // Simulate main isntance.
+        Main::tick(&mut self.world, step);
 
         let world: &WorldLocal = self.world.local();
 
@@ -320,40 +265,29 @@ impl App {
                                 ui.close_menu();
                             }
                         });
-                        // ui.menu_button("Run", |ui| {
-                        //     if ui.button("New game").clicked() {
-                        //         tabs.push_to_first_leaf(Tab::game(
-                        //             &mut self.tab_idgen,
-                        //             GamesTab::new(&self.world),
-                        //         ));
-                        //     }
-                        // });
                         ui.menu_button("View", |ui| {
-                            // if ui.button("Game").clicked() {
-                            //     tabs.push_to_first_leaf(Tab::game(
-                            //         &mut self.tab_idgen,
-                            //         GamesTab::default(),
-                            //     ));
-                            //     ui.close_menu();
-                            // }
                             if ui.button("Plugins").clicked() {
-                                tabs.push_to_first_leaf(Tab::plugins(&mut self.tab_idgen));
+                                focus_or_add_tab(tabs, Tab::Plugins);
                                 ui.close_menu();
                             }
                             if ui.button("Console").clicked() {
-                                tabs.push_to_first_leaf(Tab::console(&mut self.tab_idgen));
+                                focus_or_add_tab(tabs, Tab::Console);
                                 ui.close_menu();
                             }
                             if ui.button("Systems").clicked() {
-                                tabs.push_to_first_leaf(Tab::systems(&mut self.tab_idgen));
+                                focus_or_add_tab(tabs, Tab::Systems);
                                 ui.close_menu();
                             }
                             if ui.button("Filters").clicked() {
-                                tabs.push_to_first_leaf(Tab::filters(&mut self.tab_idgen));
+                                focus_or_add_tab(tabs, Tab::Filters);
                                 ui.close_menu();
                             }
                             if ui.button("WorkGraph").clicked() {
-                                tabs.push_to_first_leaf(Tab::workgraph(&mut self.tab_idgen));
+                                focus_or_add_tab(tabs, Tab::WorkGraph);
+                                ui.close_menu();
+                            }
+                            if ui.button("Main").clicked() {
+                                focus_or_add_tab(tabs, Tab::Main);
                                 ui.close_menu();
                             }
                         });
@@ -375,7 +309,7 @@ impl App {
     }
 
     pub fn render(&mut self, now: TimeStamp) {
-        // Games::render(&mut self.world, now);
+        Main::render(&mut self.world);
 
         if self.world.view_mut::<With<Viewport>>().into_iter().count() == 0 {
             return;
@@ -406,6 +340,24 @@ impl App {
     }
 }
 
+fn find_tab(tabs: &Tree<Tab>, tab: Tab) -> Option<(NodeIndex, TabIndex)> {
+    for (node_idx, node) in tabs.iter().enumerate() {
+        if let Some(tab_idx) = node.iter_tabs().position(|t| *t == tab) {
+            return Some((NodeIndex(node_idx), TabIndex(tab_idx)));
+        }
+    }
+    None
+}
+
+fn focus_or_add_tab(tabs: &mut Tree<Tab>, tab: Tab) {
+    if let Some((node_idx, tab_idx)) = find_tab(tabs, tab) {
+        tabs.set_focused_node(node_idx);
+        tabs.set_active_tab(node_idx, tab_idx);
+    } else {
+        tabs.push_to_first_leaf(tab);
+    }
+}
+
 #[derive(serde::Serialize, serde::Deserialize)]
 struct AppWindowState {
     pos: dpi::LogicalPosition<f64>,
@@ -428,49 +380,36 @@ struct AppModel<'a> {
 impl TabViewer for AppModel<'_> {
     type Tab = Tab;
 
-    fn id(&mut self, tab: &mut Self::Tab) -> egui::Id {
-        tab.id
+    fn id(&mut self, tab: &mut Tab) -> egui::Id {
+        Id::new(*tab)
     }
 
     fn ui(&mut self, ui: &mut Ui, tab: &mut Tab) {
-        match tab.kind {
-            TabKind::Plugins => Plugins::show(self.world, ui),
-            TabKind::Console => Console::show(self.world, ui),
-            TabKind::Systems => Systems::show(self.world, ui),
-            TabKind::Filters => Filters::show(self.world, ui),
-            TabKind::WorkGraph => WorkGraph::show(self.world, ui),
-            // TabKind::Game { ref mut tab } => tab.show(ui, self.world, self.window),
-            // TabKind::Memory => Memory::show(&mut self.world, ui),
+        match *tab {
+            Tab::Plugins => Plugins::show(self.world, ui),
+            Tab::Console => Console::show(self.world, ui),
+            Tab::Systems => Systems::show(self.world, ui),
+            Tab::Filters => Filters::show(self.world, ui),
+            Tab::WorkGraph => WorkGraph::show(self.world, ui),
+            Tab::Main => Main::show(self.world, ui, self.window.id()),
         }
     }
 
     fn title(&mut self, tab: &mut Tab) -> WidgetText {
-        match tab.kind {
-            TabKind::Plugins => "Plugins".into(),
-            TabKind::Console => "Console".into(),
-            TabKind::Systems => "Systems".into(),
-            TabKind::Filters => "Filters".into(),
-            TabKind::WorkGraph => "Work Graph".into(),
-            // TabKind::Game { .. } => "Game".into(),
-            // TabKind::Memory => "Memory".into(),
+        match *tab {
+            Tab::Plugins => "Plugins".into(),
+            Tab::Console => "Console".into(),
+            Tab::Systems => "Systems".into(),
+            Tab::Filters => "Filters".into(),
+            Tab::WorkGraph => "Work Graph".into(),
+            Tab::Main => "Main".into(),
         }
-    }
-
-    fn on_close(&mut self, tab: &mut Tab) -> bool {
-        match &mut tab.kind {
-            // TabKind::Game { tab } => {
-            //     tab.on_close(self.world);
-            // }
-            _ => {}
-        }
-        true
     }
 
     fn scroll_bars(&self, tab: &Tab) -> [bool; 2] {
-        match tab.kind {
-            // TabKind::Game { .. } => [false, false],
-            TabKind::Systems => [false, false],
-            TabKind::Console => [false, false],
+        match tab {
+            Tab::Systems => [false, false],
+            Tab::Console => [false, false],
             _ => [true, true],
         }
     }

@@ -59,7 +59,7 @@ impl Swizzle {
 impl Mul for Swizzle {
     type Output = Self;
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn mul(self, rhs: Self) -> Self {
         use ComponentSwizzle::*;
 
@@ -90,7 +90,7 @@ pub enum ImageExtent {
 }
 
 impl ImageExtent {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     pub fn width(&self) -> u32 {
         match self {
             ImageExtent::D1(e) => e.width(),
@@ -99,7 +99,7 @@ impl ImageExtent {
         }
     }
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     pub fn height(&self) -> u32 {
         match self {
             ImageExtent::D1(e) => 1,
@@ -108,7 +108,7 @@ impl ImageExtent {
         }
     }
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     pub fn depth(&self) -> u32 {
         match self {
             ImageExtent::D1(e) => 1,
@@ -117,26 +117,59 @@ impl ImageExtent {
         }
     }
 
-    #[inline(always)]
-    pub fn to_1d(self) -> Extent1<u32> {
+    // #[cfg_attr(inline_more, inline(always))]
+    // pub fn to_1d(self) -> Extent1<u32> {
+    //     match self {
+    //         ImageExtent::D1(e) => e,
+    //         ImageExtent::D2(e) => e.to_1d(),
+    //         ImageExtent::D3(e) => e.to_1d(),
+    //     }
+    // }
+
+    // #[cfg_attr(inline_more, inline(always))]
+    // pub fn to_2d(self) -> Extent2<u32> {
+    //     match self {
+    //         ImageExtent::D1(e) => e.to_2d(),
+    //         ImageExtent::D2(e) => e,
+    //         ImageExtent::D3(e) => e.to_2d(),
+    //     }
+    // }
+
+    // #[cfg_attr(inline_more, inline(always))]
+    // pub fn to_3d(self) -> Extent3<u32> {
+    //     match self {
+    //         ImageExtent::D1(e) => e.to_3d(),
+    //         ImageExtent::D2(e) => e.to_3d(),
+    //         ImageExtent::D3(e) => e,
+    //     }
+    // }
+
+    #[cfg_attr(inline_more, inline(always))]
+    pub fn expect_1d(self) -> Extent1<u32> {
         match self {
             ImageExtent::D1(e) => e,
-            ImageExtent::D2(e) => e.to_1d(),
-            ImageExtent::D3(e) => e.to_1d(),
+            _ => panic!("Expected 1D image extent"),
         }
     }
 
-    #[inline(always)]
-    pub fn to_2d(self) -> Extent2<u32> {
+    #[cfg_attr(inline_more, inline(always))]
+    pub fn expect_2d(self) -> Extent2<u32> {
         match self {
-            ImageExtent::D1(e) => e.to_2d(),
             ImageExtent::D2(e) => e,
-            ImageExtent::D3(e) => e.to_2d(),
+            _ => panic!("Expected 2D image extent"),
         }
     }
 
-    #[inline(always)]
-    pub fn to_3d(self) -> Extent3<u32> {
+    #[cfg_attr(inline_more, inline(always))]
+    pub fn expect_3d(self) -> Extent3<u32> {
+        match self {
+            ImageExtent::D3(e) => e,
+            _ => panic!("Expected 3D image extent"),
+        }
+    }
+
+    #[cfg_attr(inline_more, inline(always))]
+    pub fn into_3d(self) -> Extent3<u32> {
         match self {
             ImageExtent::D1(e) => e.to_3d(),
             ImageExtent::D2(e) => e.to_3d(),
@@ -176,21 +209,21 @@ impl PartialEq<Extent3> for ImageExtent {
 }
 
 impl From<Extent1> for ImageExtent {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn from(extent: Extent1) -> Self {
         ImageExtent::D1(extent)
     }
 }
 
 impl From<Extent2> for ImageExtent {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn from(extent: Extent2) -> Self {
         ImageExtent::D2(extent)
     }
 }
 
 impl From<Extent3> for ImageExtent {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn from(extent: Extent3) -> Self {
         ImageExtent::D3(extent)
     }

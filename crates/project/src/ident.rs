@@ -62,7 +62,7 @@ impl Hash for Ident {
 impl Deref for Ident {
     type Target = str;
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn deref(&self) -> &str {
         &self.s
     }
@@ -202,7 +202,7 @@ impl Hash for IdentBuf {
 impl Deref for IdentBuf {
     type Target = Ident;
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn deref(&self) -> &Ident {
         Ident::from_ident_str(&*self.s)
     }

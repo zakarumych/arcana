@@ -62,7 +62,6 @@ pub use mev;
 pub mod arena;
 pub mod assets;
 pub mod bundle;
-mod color_hash;
 pub mod events;
 pub mod flow;
 // pub mod game;
@@ -77,10 +76,12 @@ pub mod viewport;
 pub mod work;
 
 pub use self::{
-    color_hash::color_hash,
     id::{BaseId, Id, IdGen},
     num2name::{hash_to_name, num_to_name},
-    stable_hasher::{stable_hash, stable_hash_read, stable_hasher},
+    stable_hasher::{
+        hue_hash, rgb_hash, rgba_hash, rgba_premultiplied_hash, stable_hash, stable_hash_read,
+        stable_hasher,
+    },
     stid::Stid,
 };
 
@@ -93,12 +94,13 @@ pub fn version() -> &'static str {
 
 /// Triggers panic.
 /// Use when too large capacity is requested.
-#[inline(never)]
+#[cfg_attr(inline_more, inline(always))]
+#[cold]
 fn capacity_overflow() -> ! {
     panic!("capacity overflow");
 }
 
-#[inline]
+#[cfg_attr(inline_more, inline)]
 fn alloc_guard(alloc_size: usize) {
     if usize::BITS < 64 && alloc_size > isize::MAX as usize {
         capacity_overflow()

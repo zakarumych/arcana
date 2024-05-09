@@ -75,15 +75,24 @@ pub enum DeviceError {
     DeviceLost,
 }
 
+impl DeviceError {
+    pub fn abort_on_device_lost(self) -> OutOfMemory {
+        match self {
+            DeviceError::OutOfMemory => OutOfMemory,
+            DeviceError::DeviceLost => panic!("device lost"),
+        }
+    }
+}
+
 impl From<OutOfMemory> for DeviceError {
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn from(_: OutOfMemory) -> Self {
         DeviceError::OutOfMemory
     }
 }
 
 impl fmt::Debug for DeviceError {
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             DeviceError::OutOfMemory => write!(f, "DeviceError::OutOfMemory"),
@@ -93,7 +102,7 @@ impl fmt::Debug for DeviceError {
 }
 
 impl fmt::Display for DeviceError {
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             DeviceError::OutOfMemory => write!(f, "out of memory"),

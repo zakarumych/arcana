@@ -15,7 +15,7 @@ where
 {
     const LAYOUT: ArgumentGroupLayout<'static> = T::LAYOUT;
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn bind_render(&self, group: u32, encoder: &mut RenderCommandEncoder) {
         Arguments::bind_render(self, group, encoder)
     }

@@ -113,13 +113,13 @@ pub fn with_stid(stid: Option<StidValue>, input: syn::DeriveInput) -> syn::Resul
         #input
 
         impl #impl_generics ::arcana::stid::WithStid for #name #ty_generics #where_clause {
-            #[inline(always)]
+            #[cfg_attr(inline_more, inline(always))]
             fn stid() -> Stid {
                 let id = #combined_ids;
                 Stid::new(unsafe { ::core::num::NonZeroU64::new_unchecked(id) })
             }
 
-            #[inline(always)]
+            #[cfg_attr(inline_more, inline(always))]
             fn stid_dyn(&self) -> Stid {
                 Self::stid()
             }

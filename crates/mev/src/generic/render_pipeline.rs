@@ -142,7 +142,7 @@ pub enum FrontFace {
 }
 
 impl Default for FrontFace {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn default() -> Self {
         FrontFace::Clockwise
     }
@@ -156,7 +156,7 @@ pub enum Culling {
 }
 
 impl Default for Culling {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn default() -> Self {
         Culling::Back
     }

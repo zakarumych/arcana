@@ -49,18 +49,18 @@ impl CommandEncoder {
 
 #[hidden_trait::expose]
 impl crate::traits::CommandEncoder for CommandEncoder {
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn barrier(&mut self, after: PipelineStages, before: PipelineStages) {
         barrier(&self.device, self.handle, after, before);
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn init_image(&mut self, after: PipelineStages, before: PipelineStages, image: &Image) {
         image_barrier(&self.device, self.handle, after, before, image);
         self.refs.add_image(image.clone());
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn copy(&mut self) -> CopyCommandEncoder<'_> {
         CopyCommandEncoder {
             device: self.device.clone(),
@@ -80,7 +80,7 @@ impl crate::traits::CommandEncoder for CommandEncoder {
             let format = color.image.format();
             debug_assert!(format.is_color());
 
-            let color_extent: ash::vk::Extent2D = color.image.dimensions().to_2d().into_ash();
+            let color_extent: ash::vk::Extent2D = color.image.dimensions().expect_2d().into_ash();
             extent.width = extent.width.min(color_extent.width);
             extent.height = extent.height.min(color_extent.height);
 
@@ -118,7 +118,7 @@ impl crate::traits::CommandEncoder for CommandEncoder {
             let format = depth.image.format();
             debug_assert!(format.is_depth() || format.is_stencil());
 
-            let depth_extent: ash::vk::Extent2D = depth.image.dimensions().to_2d().into_ash();
+            let depth_extent: ash::vk::Extent2D = depth.image.dimensions().expect_2d().into_ash();
             extent.width = extent.width.min(depth_extent.width);
             extent.height = extent.height.min(depth_extent.height);
 
@@ -199,7 +199,7 @@ impl crate::traits::CommandEncoder for CommandEncoder {
         }
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn present(&mut self, frame: Frame, after: PipelineStages) {
         unsafe {
             self.device.ash().cmd_pipeline_barrier(
@@ -229,7 +229,7 @@ impl crate::traits::CommandEncoder for CommandEncoder {
         self.present.push(frame);
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn finish(self) -> Result<CommandBuffer, OutOfMemory> {
         let result = unsafe { self.device.ash().end_command_buffer(self.handle) };
         result.map_err(|err| match err {
@@ -255,29 +255,29 @@ pub struct RenderCommandEncoder<'a> {
 }
 
 impl RenderCommandEncoder<'_> {
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     pub(super) fn handle(&self) -> vk::CommandBuffer {
         self.handle
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     pub(super) fn device(&self) -> &Device {
         &self.device
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     pub(super) fn current_layout(&self) -> Option<&PipelineLayout> {
         self.current_layout.as_ref()
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     pub(super) fn refs_mut(&mut self) -> &mut Refs {
         &mut self.refs
     }
 }
 
 impl Drop for RenderCommandEncoder<'_> {
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn drop(&mut self) {
         unsafe { self.device.ash().cmd_end_rendering(self.handle) }
     }
@@ -285,7 +285,7 @@ impl Drop for RenderCommandEncoder<'_> {
 
 #[hidden_trait::expose]
 impl crate::traits::RenderCommandEncoder for RenderCommandEncoder<'_> {
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn with_pipeline(&mut self, pipeline: &RenderPipeline) {
         unsafe {
             self.device.ash().cmd_bind_pipeline(
@@ -298,7 +298,7 @@ impl crate::traits::RenderCommandEncoder for RenderCommandEncoder<'_> {
         self.refs.add_render_pipeline(pipeline.clone());
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn with_viewport(&mut self, offset: Offset3<f32>, extent: Extent3<f32>) {
         unsafe {
             self.device.ash().cmd_set_viewport(
@@ -315,7 +315,7 @@ impl crate::traits::RenderCommandEncoder for RenderCommandEncoder<'_> {
         }
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn with_scissor(&mut self, offset: Offset2<i32>, extent: Extent2<u32>) {
         unsafe {
             self.device.ash().cmd_set_scissor(
@@ -334,12 +334,12 @@ impl crate::traits::RenderCommandEncoder for RenderCommandEncoder<'_> {
         }
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn with_arguments(&mut self, group: u32, arguments: &impl Arguments) {
         arguments.bind_render(group, self);
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn with_constants(&mut self, constants: &impl DeviceRepr) {
         let Some(layout) = self.current_layout.as_ref() else {
             panic!("Constants binding requires a pipeline to be bound to the encoder");
@@ -358,7 +358,7 @@ impl crate::traits::RenderCommandEncoder for RenderCommandEncoder<'_> {
         }
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn bind_vertex_buffers(&mut self, start: u32, slices: &[impl AsBufferSlice]) {
         let mut handles = smallvec::SmallVec::<[_; 8]>::with_capacity(slices.len());
         let mut offsets = smallvec::SmallVec::<[_; 8]>::with_capacity(slices.len());
@@ -376,7 +376,7 @@ impl crate::traits::RenderCommandEncoder for RenderCommandEncoder<'_> {
         }
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn bind_index_buffer(&mut self, slice: impl AsBufferSlice) {
         let slice: crate::generic::BufferSlice = slice.as_buffer_slice();
         unsafe {
@@ -390,7 +390,7 @@ impl crate::traits::RenderCommandEncoder for RenderCommandEncoder<'_> {
         self.refs.add_buffer(slice.buffer.clone());
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn draw(&mut self, vertices: Range<u32>, instances: Range<u32>) {
         unsafe {
             self.device.ash().cmd_draw(
@@ -403,7 +403,7 @@ impl crate::traits::RenderCommandEncoder for RenderCommandEncoder<'_> {
         }
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn draw_indexed(&mut self, vertex_offset: i32, indices: Range<u32>, instances: Range<u32>) {
         unsafe {
             self.device.ash().cmd_draw_indexed(
@@ -426,18 +426,18 @@ pub struct CopyCommandEncoder<'a> {
 
 #[hidden_trait::expose]
 impl crate::traits::CopyCommandEncoder for CopyCommandEncoder<'_> {
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn barrier(&mut self, after: PipelineStages, before: PipelineStages) {
         barrier(&self.device, self.handle, after, before);
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn init_image(&mut self, after: PipelineStages, before: PipelineStages, image: &Image) {
         image_barrier(&self.device, self.handle, after, before, image);
         self.refs.add_image(image.clone());
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn copy_buffer_to_image(
         &mut self,
         src: &Buffer,
@@ -490,7 +490,7 @@ impl crate::traits::CopyCommandEncoder for CopyCommandEncoder<'_> {
         }
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn copy_image_region(
         &mut self,
         src: &Image,
@@ -544,7 +544,7 @@ impl crate::traits::CopyCommandEncoder for CopyCommandEncoder<'_> {
         }
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn write_buffer_raw(&mut self, slice: impl AsBufferSlice, data: &[u8]) {
         if data.is_empty() {
             return;
@@ -583,13 +583,13 @@ impl crate::traits::CopyCommandEncoder for CopyCommandEncoder<'_> {
         }
     }
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn write_buffer(&mut self, slice: impl AsBufferSlice, data: &impl bytemuck::Pod) {
         self.write_buffer_slice(slice, bytemuck::bytes_of(data))
     }
 
     /// Writes data to the buffer.
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn write_buffer_slice(&mut self, slice: impl AsBufferSlice, data: &[impl bytemuck::Pod]) {
         self.write_buffer_raw(slice, bytemuck::cast_slice(data))
     }
@@ -614,7 +614,7 @@ impl crate::traits::AccelerationStructureCommandEncoder
     }
 }
 
-#[inline(never)]
+#[cfg_attr(inline_more, inline(always))]
 fn barrier(
     device: &Device,
     handle: ash::vk::CommandBuffer,
@@ -636,7 +636,7 @@ fn barrier(
     }
 }
 
-#[inline(never)]
+#[cfg_attr(inline_more, inline(always))]
 fn image_barrier(
     device: &Device,
     handle: ash::vk::CommandBuffer,

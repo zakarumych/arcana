@@ -1,13 +1,6 @@
 //! Contains logic for the viewports.
 
-use std::{any::TypeId, marker::PhantomData, process::Command, ptr::NonNull};
-
-use edict::{
-    archetype::Archetype,
-    query::{Fetch, IntoQuery, WriteAlias},
-    Access, Component, EntityId, Query,
-};
-use mev::{Extent2, Surface};
+use edict::Component;
 use winit::window::Window;
 
 /// Viewport is where content of the game is displayed.
@@ -29,7 +22,7 @@ enum ViewportKind {
         surface: Option<mev::Surface>,
         window: Window,
     },
-    Texture {
+    Image {
         image: Option<mev::Image>,
     },
 }
@@ -50,28 +43,36 @@ impl Viewport {
         }
     }
 
-    pub fn new_texture() -> Self {
+    pub fn new_image() -> Self {
         Viewport {
-            kind: ViewportKind::Texture { image: None },
+            kind: ViewportKind::Image { image: None },
         }
     }
 
-    pub fn extent(&self) -> Extent2 {
+    pub fn is_window(&self) -> bool {
+        matches!(self.kind, ViewportKind::Window { .. })
+    }
+
+    pub fn is_image(&self) -> bool {
+        matches!(self.kind, ViewportKind::Image { .. })
+    }
+
+    pub fn extent(&self) -> mev::Extent2 {
         match &self.kind {
             ViewportKind::Window { window, .. } => {
                 let size = window.inner_size();
-                Extent2::new(size.width as u32, size.height as u32)
+                mev::Extent2::new(size.width as u32, size.height as u32)
             }
-            ViewportKind::Texture { image: Some(image) } => image.dimensions().to_2d(),
-            ViewportKind::Texture { .. } => Extent2::ZERO,
+            ViewportKind::Image { image: Some(image) } => image.dimensions().expect_2d(),
+            ViewportKind::Image { .. } => mev::Extent2::ZERO,
         }
     }
 
     pub fn set_image(&mut self, image: mev::Image) {
         match &mut self.kind {
-            ViewportKind::Texture { image: i } => match image.dimensions() {
+            ViewportKind::Image { image: i } => match image.dimensions() {
                 mev::ImageExtent::D1(_) => panic!("Cannot set 1D image to viewport"),
-                mev::ImageExtent::D2(e) => {
+                mev::ImageExtent::D2(_) => {
                     *i = Some(image);
                 }
                 mev::ImageExtent::D3(_) => panic!("Cannot set 3D image to viewport"),
@@ -82,12 +83,11 @@ impl Viewport {
 
     pub fn get_image(&self) -> Option<&mev::Image> {
         match &self.kind {
-            ViewportKind::Texture { image, .. } => image.as_ref(),
+            ViewportKind::Image { image, .. } => image.as_ref(),
             _ => panic!("Cannot get image from window viewport"),
         }
     }
 
-    #[doc(hidden)]
     pub fn next_frame(
         &mut self,
         device: &mev::Device,
@@ -124,7 +124,7 @@ impl Viewport {
                 }
                 Err(mev::SurfaceError::SurfaceLost)
             }
-            ViewportKind::Texture { image } => match image.clone() {
+            ViewportKind::Image { image } => match image.clone() {
                 Some(image) => Ok(Some((image, None))),
                 None => Ok(None),
             },

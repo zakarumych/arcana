@@ -194,12 +194,12 @@ impl ArgumentsField<Automatic> for Image {
     const KIND: ArgumentKind = ArgumentKind::SampledImage;
     const SIZE: usize = 1;
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn bind_vertex(&self, slot: u32, encoder: &metal::RenderCommandEncoderRef) {
         encoder.set_vertex_texture(slot.into(), Some(&self.texture));
     }
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn bind_fragment(&self, slot: u32, encoder: &metal::RenderCommandEncoderRef) {
         encoder.set_fragment_texture(slot.into(), Some(&self.texture));
     }
@@ -209,12 +209,12 @@ impl ArgumentsField<Sampled> for Image {
     const KIND: ArgumentKind = ArgumentKind::SampledImage;
     const SIZE: usize = 1;
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn bind_vertex(&self, slot: u32, encoder: &metal::RenderCommandEncoderRef) {
         encoder.set_vertex_texture(slot.into(), Some(&self.texture));
     }
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn bind_fragment(&self, slot: u32, encoder: &metal::RenderCommandEncoderRef) {
         encoder.set_fragment_texture(slot.into(), Some(&self.texture));
     }
@@ -224,12 +224,12 @@ impl ArgumentsField<Storage> for Image {
     const KIND: ArgumentKind = ArgumentKind::StorageImage;
     const SIZE: usize = 1;
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn bind_vertex(&self, slot: u32, encoder: &metal::RenderCommandEncoderRef) {
         encoder.set_vertex_texture(slot.into(), Some(&self.texture));
     }
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn bind_fragment(&self, slot: u32, encoder: &metal::RenderCommandEncoderRef) {
         encoder.set_fragment_texture(slot.into(), Some(&self.texture));
     }
