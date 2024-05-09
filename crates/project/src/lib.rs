@@ -455,7 +455,10 @@ impl Project {
         let status = wrapper::build_game(&self.root_path, profile)
             .status()
             .map_err(|err| {
-                miette::miette!("Cannot build game \"{}\": {err:?}", self.root_path.display())
+                miette::miette!(
+                    "Cannot build game \"{}\": {err:?}",
+                    self.root_path.display()
+                )
             })?;
 
         match status.code() {
@@ -472,7 +475,10 @@ impl Project {
         let status = wrapper::run_game(&self.root_path, profile)
             .status()
             .map_err(|err| {
-                miette::miette!("Cannot run game on \"{}\": {err:?}", self.root_path.display())
+                miette::miette!(
+                    "Cannot run game on \"{}\": {err:?}",
+                    self.root_path.display()
+                )
             })?;
 
         match status.code() {
@@ -493,7 +499,7 @@ impl Project {
 
         plugin.dependency = plugin.dependency.make_relative(&self.root_path)?;
 
-        tracing::info!("Plugin '{} added", plugin.name);
+        tracing::info!("Plugin '{}' added", plugin.name);
 
         self.manifest.plugins.push(plugin);
         Ok(true)

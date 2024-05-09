@@ -1,6 +1,6 @@
 //! Running instance of the project.
 
-use std::{alloc::System, sync::Arc};
+use std::sync::Arc;
 
 use arcana::{
     edict::world::WorldLocal,
@@ -22,7 +22,8 @@ use winit::{event::WindowEvent, window::WindowId};
 use crate::{
     container::Container,
     data::ProjectData,
-    filters::{Filters, Funnel},
+    filters::Funnel,
+    render::Rendering,
     systems::{self, Schedule, Systems},
 };
 
@@ -188,6 +189,8 @@ impl Instance {
 
 pub struct Main {
     instance: Instance,
+    rendering_modifications: u64,
+
     focused: bool,
     view_id: Option<EntityId>,
 
@@ -236,6 +239,7 @@ impl Main {
 
         Main {
             instance,
+            rendering_modifications: 0,
             focused: false,
             view_id: None,
             rect: egui::Rect::NOTHING,
@@ -435,6 +439,19 @@ impl Main {
         let mut main = world.expect_resource_mut::<Main>();
         let device = world.expect_resource::<mev::Device>();
         let queue = world.expect_resource_mut::<Arc<Mutex<mev::Queue>>>();
+        let rendering = world.expect_resource::<Rendering>();
+        let data = world.expect_resource::<ProjectData>();
+
+        if rendering.modification() > main.rendering_modifications {
+            match data.workgraph.make_workgraph() {
+                Ok(workgraph) => main.instance.workgraph = workgraph,
+                Err(err) => {
+                    tracing::error!("Failed to make workgraph: {err:?}");
+                }
+            }
+            main.instance.present = data.workgraph.get_present();
+            main.rendering_modifications = rendering.modification();
+        }
 
         main.instance.render(&device, &mut queue.lock()).unwrap();
     }

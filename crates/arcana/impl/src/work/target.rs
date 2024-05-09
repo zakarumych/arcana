@@ -203,12 +203,14 @@ impl TargetHub {
     }
 
     pub fn external<T: Target>(&mut self, id: TargetId, instance: T, info: T::Info) {
-        let data = self.data_mut(id).unwrap();
+        let data: &mut TargetData<T> = self.make_data_mut(id);
         data.external(instance, info);
     }
 
     pub fn clear_external<T: Target>(&mut self, id: TargetId) {
-        let data = self.data_mut::<T>(id).unwrap();
+        let Some(data) = self.data_mut::<T>(id) else {
+            return;
+        };
         data.clear_external();
     }
 

@@ -1,10 +1,12 @@
+use std::cell::{Cell, RefCell};
+
 use edict::World;
 use hashbrown::{hash_map::Entry, HashMap, HashSet};
 
-use crate::{arena::Arena, id::IdGen, plugin::PluginsHub};
+use crate::{arena::Arena, id::IdGen, plugin::PluginsHub, Stid};
 
 use super::{
-    job::{JobId, JobNode},
+    job::{JobDesc, JobId},
     target::{Target, TargetHub, TargetId},
 };
 
@@ -12,7 +14,6 @@ pub struct WorkGraph {
     // Constant state
     plan: Vec<(JobId, JobNode)>,
     job_order: HashMap<JobId, usize>,
-    // edges: HashSet<Edge>,
 
     // Mutable state
     hub: TargetHub,
@@ -42,7 +43,7 @@ pub struct Cycle;
 
 impl WorkGraph {
     /// Build work-graph from list of jobs descs and edges.
-    pub fn new<'a>(mut jobs: HashMap<JobId, JobNode>, edges: HashSet<Edge>) -> Result<Self, Cycle> {
+    pub fn new(mut jobs: HashMap<JobId, JobDesc>, edges: HashSet<Edge>) -> Result<Self, Cycle> {
         // Unfold graph into a queue.
         // This queue must have dependencies-first order.
         // If dependency cycle is detected, return error.
@@ -89,7 +90,7 @@ impl WorkGraph {
         let mut input_targets = HashMap::<PinId, TargetId>::new();
 
         for &job_id in queue.iter().rev() {
-            let job = jobs.get_mut(&job_id).unwrap();
+            let job = jobs.get(&job_id).unwrap();
 
             for edge in edges.iter().filter(|e| e.to.job == job_id) {
                 let to_pin = edge.to.idx;
@@ -127,7 +128,8 @@ impl WorkGraph {
 
         for job_id in queue {
             let job_idx = plan.len();
-            let mut job = jobs.remove(&job_id).unwrap();
+            let job = jobs.remove(&job_id).unwrap();
+            let mut job = JobNode::new(job_id, job);
 
             for (idx, u) in job.updates.iter_mut().enumerate() {
                 let pin = PinId { job: job_id, idx };
@@ -296,5 +298,278 @@ impl WorkGraph {
         }
 
         queue.submit(self.cbufs.drain().filter_map(|e| e.finish().ok()), true)
+    }
+}
+
+pub struct Planner<'a> {
+    /// List of targets updates of the job correspond to.
+    updates: std::slice::Iter<'a, JobUpdateTarget>,
+
+    /// List of targets creates of the job correspond to.
+    creates: std::slice::Iter<'a, JobCreateTarget>,
+
+    /// List of targets reads of the job correspond to.
+    reads: std::slice::Iter<'a, JobReadTarget>,
+
+    /// Where all targets live.
+    hub: &'a mut TargetHub,
+
+    /// Set of selected jobs.
+    selected_jobs: &'a mut HashSet<JobId>,
+
+    device: mev::Device,
+}
+
+impl Planner<'_> {
+    /// Provide resource description for next input.
+    /// Allows merging resource description other readers.
+    pub fn create<T>(&mut self) -> Option<&T::Info>
+    where
+        T: Target,
+    {
+        let create = self.creates.next().expect("No more creates");
+        assert_eq!(create.ty, Stid::of::<T>());
+        self.hub
+            .plan_create::<T>(create.id?, &create.name, &self.device)
+    }
+
+    /// Fetcehs resource description for next update.
+    pub fn update<T>(&mut self) -> Option<&T::Info>
+    where
+        T: Target,
+    {
+        let update = self.updates.next().expect("No more updates");
+        assert_eq!(update.ty, Stid::of::<T>());
+        let info = self.hub.plan_update::<T>(update.id?)?;
+
+        if let Some(dep_id) = update.dep_id {
+            self.selected_jobs.insert(dep_id);
+        }
+
+        Some(info)
+    }
+
+    /// Provide resource description for next input.
+    /// Allows merging resource description other readers.
+    pub fn read<T>(&mut self, info: T::Info)
+    where
+        T: Target,
+    {
+        let read = self.reads.next().expect("No more reads");
+        assert_eq!(read.ty, Stid::of::<T>());
+        let Some(id) = read.id else {
+            return;
+        };
+        self.hub.plan_read::<T>(id, info);
+
+        if let Some(dep_id) = read.dep_id {
+            self.selected_jobs.insert(dep_id);
+        }
+    }
+}
+
+pub struct Exec<'a> {
+    /// List of targets updates of the job correspond to.
+    updates: &'a [JobUpdateTarget],
+    next_update: Cell<usize>,
+
+    /// List of targets creates of the job correspond to.
+    creates: &'a [JobCreateTarget],
+    next_create: Cell<usize>,
+
+    /// List of targets reads of the job correspond to.
+    reads: &'a [JobReadTarget],
+    next_read: Cell<usize>,
+
+    /// Where all targets live.
+    hub: &'a mut TargetHub,
+
+    device: mev::Device,
+    queue: RefCell<&'a mut mev::Queue>,
+
+    /// Arena for command buffers.
+    /// This allows taking references to newly allocated command encoders
+    /// And after job is done, collecting them in allocated order.
+    cbufs: &'a Arena<mev::CommandEncoder>,
+}
+
+impl Exec<'_> {
+    /// Fetches next resource to update.
+    ///
+    /// Returns none if not connected to next input.
+    pub fn update<T>(&self) -> Option<&T>
+    where
+        T: Target,
+    {
+        let idx = self.next_update.get();
+        let update = self.updates.get(idx).expect("No more updates");
+        self.next_update.set(idx + 1);
+        self.hub.get::<T>(update.id?)
+    }
+
+    /// Fetches next resource to create.
+    ///
+    /// Returns none if not connected.
+    pub fn create<T>(&self) -> Option<&T>
+    where
+        T: Target,
+    {
+        let idx = self.next_create.get();
+        let create = self.creates.get(idx).expect("No more creates");
+        self.next_create.set(idx + 1);
+        self.hub.get::<T>(create.id?)
+    }
+
+    /// Fetches next resource to read.
+    ///
+    /// Returns none if not connected.
+    pub fn read<T>(&self) -> Option<&T>
+    where
+        T: Target,
+    {
+        let idx = self.next_read.get();
+        let read = self.reads.get(idx).expect("No more reads");
+        self.next_read.set(idx + 1);
+        self.hub.get::<T>(read.id?)
+    }
+
+    /// Allocates new command encoder.
+    /// It will be automatically submitted to this job's queue.
+    ///
+    /// Returned reference is bound to this `Exec`'s borrow,
+    /// so make sure to fetch target references before calling this.
+    pub fn new_encoder(&self) -> &mut mev::CommandEncoder {
+        let encoder = self.queue.borrow_mut().new_command_encoder().unwrap();
+        self.cbufs.put(encoder)
+    }
+
+    /// Returns reference to device.
+    pub fn device(&self) -> &mev::Device {
+        &self.device
+    }
+}
+
+struct JobCreateTarget {
+    /// Target name.
+    name: String,
+
+    /// Target type.
+    ty: Stid,
+
+    /// Assigned target id.
+    id: Option<TargetId>,
+}
+
+struct JobUpdateTarget {
+    /// Target type.
+    ty: Stid,
+
+    /// Assigned target id.
+    id: Option<TargetId>,
+
+    /// Job ID that outputs this target.
+    dep_id: Option<JobId>,
+}
+
+struct JobReadTarget {
+    /// Target type.
+    ty: Stid,
+
+    /// Assigned target id.
+    id: Option<TargetId>,
+
+    /// Job ID that outputs this target.
+    dep_id: Option<JobId>,
+}
+
+struct JobNode {
+    id: JobId,
+    updates: Vec<JobUpdateTarget>,
+    creates: Vec<JobCreateTarget>,
+    reads: Vec<JobReadTarget>,
+}
+
+impl JobNode {
+    /// Construct new job node from description and job instance.
+    fn new(id: JobId, desc: JobDesc) -> Self {
+        JobNode {
+            id,
+            updates: desc
+                .updates
+                .into_iter()
+                .map(|u| JobUpdateTarget {
+                    ty: u.ty,
+                    id: None,
+                    dep_id: None,
+                })
+                .collect(),
+            creates: desc
+                .creates
+                .into_iter()
+                .map(|c| JobCreateTarget {
+                    ty: c.ty,
+                    name: c.name,
+                    id: None,
+                })
+                .collect(),
+            reads: desc
+                .reads
+                .into_iter()
+                .map(|c| JobReadTarget {
+                    ty: c.ty,
+                    id: None,
+                    dep_id: None,
+                })
+                .collect(),
+        }
+    }
+
+    fn plan(
+        &mut self,
+        hub: &mut TargetHub,
+        selected_jobs: &mut HashSet<JobId>,
+        device: mev::Device,
+        world: &mut World,
+        plugins: &mut PluginsHub,
+    ) {
+        let planner = Planner {
+            updates: self.updates.iter(),
+            creates: self.creates.iter(),
+            reads: self.reads.iter(),
+            hub,
+            selected_jobs,
+            device,
+        };
+
+        if let Some(job) = plugins.jobs.get_mut(&self.id) {
+            job.plan(planner, world);
+        }
+    }
+
+    fn exec(
+        &mut self,
+        hub: &mut TargetHub,
+        device: mev::Device,
+        queue: &mut mev::Queue,
+        cbufs: &Arena<mev::CommandEncoder>,
+        world: &mut World,
+        plugins: &mut PluginsHub,
+    ) {
+        let exec = Exec {
+            updates: &self.updates,
+            next_update: Cell::new(0),
+            creates: &self.creates,
+            next_create: Cell::new(0),
+            reads: &self.reads,
+            next_read: Cell::new(0),
+            hub,
+            device,
+            queue: RefCell::new(queue),
+            cbufs,
+        };
+
+        if let Some(job) = plugins.jobs.get_mut(&self.id) {
+            job.exec(exec, world);
+        }
     }
 }

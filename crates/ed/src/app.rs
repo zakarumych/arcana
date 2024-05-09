@@ -5,7 +5,7 @@ use arcana::{
     edict::world::WorldLocal,
     events::ViewportEvent,
     gametime::TimeStamp,
-    make_id, mev,
+    mev,
     project::Project,
     render::{render, RenderGraph, RenderResources},
     viewport::Viewport,
@@ -25,14 +25,12 @@ use winit::{
 
 use crate::{
     console::Console, data::ProjectData, filters::Filters, init_mev, instance::Main,
-    plugins::Plugins, systems::Systems, workgraph::WorkGraph,
+    plugins::Plugins, render::Rendering, systems::Systems,
 };
 
 pub enum UserEvent {}
 
-pub type Event = winit::event::Event<UserEvent>;
 pub type EventLoop = winit::event_loop::EventLoop<UserEvent>;
-pub type ActiveEventLoop = winit::event_loop::ActiveEventLoop;
 
 /// Editor tab.
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -41,7 +39,7 @@ enum Tab {
     Console,
     Systems,
     Filters,
-    WorkGraph,
+    Rendering,
     Main,
 }
 
@@ -121,6 +119,7 @@ impl App {
         world.insert_resource(Console::new(event_collector));
         world.insert_resource(Systems::new());
         world.insert_resource(Filters::new());
+        world.insert_resource(Rendering::new());
         world.insert_resource(Main::new());
         world.insert_resource(device.clone());
         world.insert_resource(queue.clone());
@@ -282,8 +281,8 @@ impl App {
                                 focus_or_add_tab(tabs, Tab::Filters);
                                 ui.close_menu();
                             }
-                            if ui.button("WorkGraph").clicked() {
-                                focus_or_add_tab(tabs, Tab::WorkGraph);
+                            if ui.button("Rendering").clicked() {
+                                focus_or_add_tab(tabs, Tab::Rendering);
                                 ui.close_menu();
                             }
                             if ui.button("Main").clicked() {
@@ -390,7 +389,7 @@ impl TabViewer for AppModel<'_> {
             Tab::Console => Console::show(self.world, ui),
             Tab::Systems => Systems::show(self.world, ui),
             Tab::Filters => Filters::show(self.world, ui),
-            Tab::WorkGraph => WorkGraph::show(self.world, ui),
+            Tab::Rendering => Rendering::show(self.world, ui),
             Tab::Main => Main::show(self.world, ui, self.window.id()),
         }
     }
@@ -401,7 +400,7 @@ impl TabViewer for AppModel<'_> {
             Tab::Console => "Console".into(),
             Tab::Systems => "Systems".into(),
             Tab::Filters => "Filters".into(),
-            Tab::WorkGraph => "Work Graph".into(),
+            Tab::Rendering => "Rendering".into(),
             Tab::Main => "Main".into(),
         }
     }

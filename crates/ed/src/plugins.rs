@@ -1,6 +1,5 @@
 use arcana::{
     edict::world::WorldLocal,
-    plugin::ArcanaPlugin,
     project::{
         new_plugin_crate, process_path_name, BuildProcess, Dependency, Ident, IdentBuf, Plugin,
         Profile, Project, ProjectManifest,
@@ -10,7 +9,6 @@ use arcana::{
 use camino::{Utf8Path, Utf8PathBuf};
 use egui::{Color32, RichText, Ui};
 use egui_file::FileDialog;
-use hashbrown::HashSet;
 
 use crate::{
     container::{Container, Loader, PluginsError},
@@ -18,6 +16,7 @@ use crate::{
     filters::Filters,
     get_profile,
     instance::Main,
+    render::Rendering,
     systems::Systems,
 };
 
@@ -45,8 +44,6 @@ pub(super) struct Plugins {
     dialog: Option<PluginsDialog>,
 
     profile: Profile,
-
-    active_plugins: HashSet<IdentBuf>,
 }
 
 enum PluginsDialog {
@@ -64,7 +61,6 @@ impl Plugins {
             build: None,
             dialog: None,
             profile: get_profile(),
-            active_plugins: HashSet::new(),
         }
     }
 
@@ -93,18 +89,16 @@ impl Plugins {
         let plugin = Plugin::from_dependency(name, dep)?;
         project.add_plugin(plugin)?;
 
-        // Stop current build if there was one.
-        tracing::info!(
-            "Stopping current build process to re-build plugins library with new plugin"
-        );
-        self.build = None;
+        if self.build.is_some() {
+            // Stop current build if there was one.
+            tracing::info!(
+                "Stopping current build process to re-build plugins library with new plugin"
+            );
+            self.build = None;
+        }
 
         // Set of active plugins doesn't change yet.
         Ok(())
-    }
-
-    pub fn get_plugin(&self, name: &Ident) -> Option<&dyn ArcanaPlugin> {
-        self.linked.as_ref()?.get(name)
     }
 
     pub fn tick(world: &mut World) {
@@ -114,6 +108,7 @@ impl Plugins {
         let mut data = world.expect_resource_mut::<ProjectData>();
         let mut systems = world.expect_resource_mut::<Systems>();
         let mut filters = world.expect_resource_mut::<Filters>();
+        let mut rendering = world.expect_resource_mut::<Rendering>();
         let mut main = world.expect_resource_mut::<Main>();
 
         if let Some(mut build) = plugins.build.take() {
@@ -168,8 +163,15 @@ impl Plugins {
 
                             if rebuild {
                                 try_log_err!(project.sync());
-                                plugins.build =
-                                    ok_log_err!(project.build_plugins_library(plugins.profile));
+
+                                match project.build_plugins_library(plugins.profile) {
+                                    Ok(build) => {
+                                        plugins.build = Some(build);
+                                    }
+                                    Err(err) => {
+                                        plugins.failure = Some(err);
+                                    }
+                                }
                             }
                         }
                     }
@@ -181,20 +183,30 @@ impl Plugins {
             }
         }
 
-        if plugins.linked.is_none() {
-            match plugins.pending.take() {
-                None => {
-                    if plugins.failure.is_none() && plugins.build.is_none() {
-                        let build = try_log_err!(project.build_plugins_library(plugins.profile));
-                        plugins.build = Some(build);
+        match plugins.pending.take() {
+            None => {
+                if plugins.linked.is_none() && plugins.failure.is_none() && plugins.build.is_none()
+                {
+                    tracing::info!("Make initial plugins library build");
+
+                    match project.build_plugins_library(plugins.profile) {
+                        Ok(build) => {
+                            plugins.build = Some(build);
+                        }
+                        Err(err) => {
+                            plugins.failure = Some(err);
+                        }
                     }
                 }
-                Some(c) => {
-                    main.update_plugins(&c);
-                    systems.update_plugins(&mut data, &c);
-                    filters.update_plugins(&mut data, &c);
-                    plugins.linked = Some(c);
-                }
+            }
+            Some(c) => {
+                tracing::info!("New plugins container version linked. {c:#?}");
+
+                main.update_plugins(&c);
+                systems.update_plugins(&mut data, &c);
+                filters.update_plugins(&mut data, &c);
+                rendering.update_plugins(&mut data, &c);
+                plugins.linked = Some(c);
             }
         }
     }
@@ -442,10 +454,9 @@ impl Plugins {
                 plugins.build = ok_log_err!(project.build_plugins_library(plugins.profile));
             }
 
-            if let Some(c) = &plugins.linked {
-                plugins.linked = Some(c.with_plugins(&data.enabled_plugins));
-            }
             if let Some(c) = &plugins.pending {
+                plugins.pending = Some(c.with_plugins(&data.enabled_plugins));
+            } else if let Some(c) = &plugins.linked {
                 plugins.pending = Some(c.with_plugins(&data.enabled_plugins));
             }
         }

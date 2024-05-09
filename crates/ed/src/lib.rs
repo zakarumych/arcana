@@ -51,7 +51,7 @@ mod data;
 mod filters;
 // mod games;
 mod ide;
-mod workgraph;
+mod render;
 // mod memory;
 mod container;
 mod error;
@@ -107,48 +107,51 @@ fn _run(path: &Path) -> miette::Result<()> {
         .expect("Failed to create event loop");
     let mut app = app::App::new(&events, event_collector, project, data);
 
-    events.run(move |event, events| match event {
-        Event::WindowEvent { window_id, event } => {
-            app.on_event(window_id, event);
-        }
-        Event::AboutToWait => {
-            let step = clock.step();
-
-            app.tick(step);
-
-            if app.should_quit() {
-                events.exit();
-                return;
+    #[allow(deprecated)]
+    events
+        .run(move |event, events| match event {
+            Event::WindowEvent { window_id, event } => {
+                app.on_event(window_id, event);
             }
+            Event::AboutToWait => {
+                let step = clock.step();
 
-            limiter.ticks(step.step);
-            let until = clock.stamp_instant(limiter.next_tick().unwrap());
+                app.tick(step);
 
-            events.set_control_flow(ControlFlow::WaitUntil(until));
-            // }
-            // Event::RedrawEventsCleared => {
-            app.render(TimeStamp::start() + TimeSpan::from(start.elapsed()));
-        }
-        _ => {}
-    });
+                if app.should_quit() {
+                    events.exit();
+                    return;
+                }
+
+                limiter.ticks(step.step);
+                let until = clock.stamp_instant(limiter.next_tick().unwrap());
+
+                events.set_control_flow(ControlFlow::WaitUntil(until));
+                // }
+                // Event::RedrawEventsCleared => {
+                app.render(TimeStamp::start() + TimeSpan::from(start.elapsed()));
+            }
+            _ => {}
+        })
+        .unwrap();
 
     Ok(())
 }
 
 static SUBPROCESSES: Mutex<Vec<Child>> = Mutex::new(Vec::new());
 
-fn move_element<T>(slice: &mut [T], from_index: usize, to_index: usize) {
-    if from_index == to_index {
-        return;
-    }
-    if from_index < to_index {
-        let sub = &mut slice[from_index..=to_index];
-        sub.rotate_left(1);
-    } else {
-        let sub = &mut slice[to_index..=from_index];
-        sub.rotate_right(1);
-    }
-}
+// fn move_element<T>(slice: &mut [T], from_index: usize, to_index: usize) {
+//     if from_index == to_index {
+//         return;
+//     }
+//     if from_index < to_index {
+//         let sub = &mut slice[from_index..=to_index];
+//         sub.rotate_left(1);
+//     } else {
+//         let sub = &mut slice[to_index..=from_index];
+//         sub.rotate_right(1);
+//     }
+// }
 
 fn load_project(path: &Path) -> miette::Result<(Project, ProjectData)> {
     let project = Project::open(path)?;

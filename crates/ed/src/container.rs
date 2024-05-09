@@ -118,12 +118,13 @@ struct Loaded {
     /// It must be last member of the struct to ensure it is dropped last.
     _lib: libloading::Library,
 
+    /// Remove the temporary file after library is unloaded.
     _tmp: TmpPath,
 }
 
 #[derive(Clone)]
 pub struct Container {
-    active_plugins: Vec<(&'static Ident, &'static dyn ArcanaPlugin)>,
+    active_plugins: Arc<[(&'static Ident, &'static dyn ArcanaPlugin)]>,
 
     // Unload library last.
     loaded: Arc<Loaded>,
@@ -164,7 +165,7 @@ impl Container {
         let active_plugins = get_active_plugins(&self.loaded, enabled_plugins);
         Container {
             loaded: self.loaded.clone(),
-            active_plugins,
+            active_plugins: active_plugins.into(),
         }
     }
 
@@ -405,7 +406,7 @@ impl Loader {
 
         Ok(Container {
             loaded,
-            active_plugins,
+            active_plugins: active_plugins.into(),
         })
     }
 }

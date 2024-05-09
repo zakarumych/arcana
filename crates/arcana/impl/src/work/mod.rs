@@ -11,11 +11,8 @@ use std::ops::Deref;
 use crate::with_stid;
 
 pub use self::{
-    graph::{Edge, PinId, WorkGraph},
-    job::{
-        Exec, Job, JobCreateDesc, JobCreateTarget, JobDesc, JobId, JobReadDesc, JobReadTarget,
-        JobUpdateDesc, JobUpdateTarget, Planner,
-    },
+    graph::{Cycle, Edge, Exec, PinId, Planner, WorkGraph},
+    job::{Job, JobCreateDesc, JobDesc, JobId, JobReadDesc, JobUpdateDesc},
     target::{Target, TargetHub, TargetId},
 };
 

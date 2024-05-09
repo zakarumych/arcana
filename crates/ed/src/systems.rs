@@ -231,19 +231,12 @@ impl SnarlViewer<SystemNode> for SystemViewer<'_> {
 
                 ui.weak(egui_phosphor::regular::AT);
                 ui.label(node.plugin.as_str());
-                let r = ui.add_enabled(
-                    !node.active,
-                    egui::Button::new(egui_phosphor::regular::TRASH_SIMPLE).small(),
-                );
+                let r = ui.small_button(egui_phosphor::regular::TRASH_SIMPLE);
 
                 remove = r.clicked();
 
                 r.on_hover_ui(|ui| {
                     ui.label("Remove system from graph");
-                    ui.label("The system is not found in active plugins");
-                    ui.label(
-                        "If plugins is reactivated and system is found, it will be added back",
-                    );
                 });
             });
 
@@ -259,7 +252,9 @@ impl SnarlViewer<SystemNode> for SystemViewer<'_> {
         });
 
         if remove {
-            snarl.remove_node(id);
+            let node = snarl.remove_node(id);
+            self.available.push(node);
+            self.available.sort_by_cached_key(|node| node.name.clone());
             self.modified = true;
         } else if toggle {
             node.category = match node.category {
@@ -425,7 +420,7 @@ impl SnarlViewer<SystemNode> for SystemViewer<'_> {
         }
     }
 
-    fn has_graph_menu(&mut self, _pos: egui::Pos2, _snarl: &mut Snarl<SystemNode>) -> bool {
+    fn has_graph_menu(&mut self, _: egui::Pos2, _: &mut Snarl<SystemNode>) -> bool {
         true
     }
 
@@ -439,6 +434,10 @@ impl SnarlViewer<SystemNode> for SystemViewer<'_> {
         ui.label("Add system");
         ui.separator();
 
+        if self.available.is_empty() {
+            ui.weak("No available systems");
+        }
+
         for idx in 0..self.available.len() {
             let s = &self.available[idx];
             if ui.button(s.name.as_str()).clicked() {
@@ -447,28 +446,6 @@ impl SnarlViewer<SystemNode> for SystemViewer<'_> {
                 snarl.insert_node(pos, s);
                 return;
             }
-        }
-    }
-
-    fn has_node_menu(&mut self, _node: &SystemNode) -> bool {
-        true
-    }
-
-    fn show_node_menu(
-        &mut self,
-        id: NodeId,
-        _inputs: &[InPin],
-        _outputs: &[OutPin],
-        ui: &mut Ui,
-        _scale: f32,
-        snarl: &mut Snarl<SystemNode>,
-    ) {
-        if ui.button("Remove").clicked() {
-            let node = snarl.remove_node(id);
-            self.available.push(node);
-            self.available.sort_by_cached_key(|node| node.name.clone());
-
-            ui.close_menu();
         }
     }
 }
