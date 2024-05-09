@@ -3,7 +3,7 @@
 
 use std::io::Write;
 
-use arcana_project::{IdentBuf, Project};
+use arcana::project::{IdentBuf, Project};
 use hashbrown::HashSet;
 
 use crate::{filters::Funnel, systems::SystemGraph, workgraph::WorkGraph};

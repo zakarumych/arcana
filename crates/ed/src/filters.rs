@@ -1,5 +1,8 @@
-use arcana::{edict::world::WorldLocal, plugin::FilterId, project::Project};
-use arcana_project::IdentBuf;
+use arcana::{
+    edict::world::WorldLocal,
+    plugin::FilterId,
+    project::{IdentBuf, Project},
+};
 use egui::{Color32, Ui, WidgetText};
 use hashbrown::HashMap;
 
@@ -39,6 +42,30 @@ impl Filters {
         let project = world.expect_resource_mut::<Project>();
         let mut data = world.expect_resource_mut::<ProjectData>();
         let plugins = world.expect_resource::<Plugins>();
+
+        let mut sync = false;
+        let mut add_filter = None;
+
+        ui.menu_button(egui_phosphor::regular::PLUS, |ui| {
+            if filters.available.is_empty() {
+                ui.weak("No available systems");
+            }
+
+            for (idx, filter) in filters.available.iter().enumerate() {
+                let r = ui.button(filter.name.as_str());
+                if r.clicked() {
+                    add_filter = Some(idx);
+                    ui.close_menu();
+                }
+                r.on_hover_text(format!("From {}", filter.plugin.as_str()));
+            }
+        });
+
+        if let Some(idx) = add_filter {
+            let filter = filters.available.remove(idx);
+            data.funnel.filters.push(filter);
+            sync = true;
+        }
 
         let mut toggle_filter = None;
         let mut remove_filter = None;
@@ -99,8 +126,6 @@ impl Filters {
                 });
             },
         );
-
-        let mut sync = false;
 
         if let Some(idx) = toggle_filter {
             data.funnel.filters[idx].enabled = !data.funnel.filters[idx].enabled;

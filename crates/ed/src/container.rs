@@ -20,8 +20,10 @@ use std::{
     sync::atomic::AtomicBool,
 };
 
-use arcana::{plugin::ArcanaPlugin, stable_hash_read};
-use arcana_project::{Dependency, Ident, IdentBuf};
+use arcana::{
+    plugin::ArcanaPlugin,
+    project::{Dependency, Ident, IdentBuf},
+};
 use hashbrown::HashSet;
 use miette::{Context, Diagnostic, Severity};
 use thiserror::Error;
@@ -115,8 +117,8 @@ pub struct Container {
     /// It must be last member of the struct to ensure it is dropped last.
     _lib: libloading::Library,
 
-    /// Tmp library file.
-    tmp: TmpFile,
+    /// Library file path.
+    tmp: TmpPath,
 
     /// Set of active plugins.
     active_plugins: HashSet<IdentBuf>,
@@ -141,7 +143,7 @@ impl fmt::Debug for Container {
         }
 
         f.debug_struct("Container")
-            .field("path", &self.tmp.path())
+            .field("path", &self.tmp.path)
             .field(
                 "plugins",
                 &Plugins {
@@ -163,17 +165,17 @@ impl Container {
     ///
     /// It also checks that plugin dependencies are satisfied and no circular dependencies exist.
     pub fn load(path: &Path) -> miette::Result<Self> {
-        let tmp = copy_dylib(path).context("Failed to copy dylib to temp location")?;
+        let tmp = copy_dylib(path).wrap_err("Failed to copy dylib to temp location")?;
 
         // Safety: nope.
-        let r = unsafe { libloading::Library::new(tmp.path()) };
+        let r = unsafe { libloading::Library::new(&tmp.path) };
 
         let lib = match r {
             Ok(lib) => lib,
             Err(source) => {
                 return Err(PluginNotFound {
                     source,
-                    path: tmp.path().to_owned(),
+                    path: path.to_owned(),
                 }
                 .into())
             }
@@ -187,7 +189,7 @@ impl Container {
             unsafe { lib.get::<ArcanaVersionFn>(b"arcana_version\0") }.map_err(|source| {
                 PluginNotFound {
                     source,
-                    path: tmp.path().to_owned(),
+                    path: path.to_owned(),
                 }
             })?;
 
@@ -195,7 +197,7 @@ impl Container {
             unsafe { lib.get::<ArcanaLinkedFn>(b"arcana_linked\0") }.map_err(|source| {
                 NotPluginsLibrary {
                     source,
-                    path: tmp.path().to_owned(),
+                    path: path.to_owned(),
                 }
             })?;
 
@@ -203,7 +205,7 @@ impl Container {
             unsafe { lib.get::<ArcanaPluginsFn>(b"arcana_plugins\0") }.map_err(|source| {
                 NotPluginsLibrary {
                     source,
-                    path: tmp.path().to_owned(),
+                    path: path.to_owned(),
                 }
             })?;
 
@@ -359,17 +361,11 @@ fn sort_plugins<'a>(
     Ok(sorted_plugins)
 }
 
-struct TmpFile {
+struct TmpPath {
     path: PathBuf,
 }
 
-impl TmpFile {
-    pub fn path(&self) -> &Path {
-        &self.path
-    }
-}
-
-impl Drop for TmpFile {
+impl Drop for TmpPath {
     fn drop(&mut self) {
         if let Err(err) = std::fs::remove_file(&self.path) {
             tracing::warn!(
@@ -381,9 +377,9 @@ impl Drop for TmpFile {
     }
 }
 
-/// Find new appropiate name for the dylib at the given path.
+/// Find new appropriate name for the dylib at the given path.
 /// Copies the dylib to the new path and returns the new path.
-fn copy_dylib(path: &Path) -> miette::Result<TmpFile> {
+fn copy_dylib(path: &Path) -> miette::Result<TmpPath> {
     let Some(file_stem) = path.file_stem() else {
         return Err(miette::miette! {
             severity = Severity::Error,
@@ -402,7 +398,7 @@ fn copy_dylib(path: &Path) -> miette::Result<TmpFile> {
         })
         .wrap_err("Failed to open dylib file")?;
 
-    let hash = stable_hash_read(file)
+    let hash = arcana::stable_hash_read(file)
         .map_err(|source| FileReadError {
             path: path.to_owned(),
             source,
@@ -433,5 +429,5 @@ fn copy_dylib(path: &Path) -> miette::Result<TmpFile> {
         );
     }
 
-    Ok(TmpFile { path: new_path })
+    Ok(TmpPath { path: new_path })
 }

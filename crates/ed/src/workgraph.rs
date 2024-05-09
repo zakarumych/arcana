@@ -2,10 +2,10 @@ use arcana::{
     color_hash,
     edict::world::WorldLocal,
     plugin::JobId,
+    project::{IdentBuf, Project},
     work::{Image2D, JobDesc},
     Stid,
 };
-use arcana_project::{IdentBuf, Project};
 use egui::Ui;
 use egui_snarl::{
     ui::{PinInfo, SnarlStyle, SnarlViewer},
@@ -39,10 +39,10 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer {
     fn show_header(
         &mut self,
         id: NodeId,
-        inputs: &[egui_snarl::InPin],
-        outputs: &[egui_snarl::OutPin],
+        _: &[egui_snarl::InPin],
+        _: &[egui_snarl::OutPin],
         ui: &mut egui::Ui,
-        scale: f32,
+        _: f32,
         snarl: &mut egui_snarl::Snarl<WorkGraphNode>,
     ) {
         match snarl[id] {
@@ -187,7 +187,7 @@ impl WorkGraph {
 
         data.workgraph
             .snarl
-            .show(&mut viewer, &STYLE, "workgraph", ui);
+            .show(&mut viewer, &STYLE, "work-graph", ui);
 
         if viewer.modified {
             data.workgraph.modification += 1;

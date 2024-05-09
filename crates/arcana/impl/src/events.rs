@@ -10,6 +10,10 @@ pub use winit::{
     window::CursorIcon,
 };
 
+use crate::make_id;
+
+make_id!(pub FilterId);
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum DeviceIdKind {
     Emulated,
@@ -232,6 +236,16 @@ impl EventFilter for EventFunnel {
     #[inline(never)]
     fn filter(&mut self, blink: &Blink, world: &mut World, event: &Event) -> bool {
         self.filter(blink, world, event)
+    }
+}
+
+impl<F> EventFilter for F
+where
+    F: FnMut(&Blink, &mut World, &Event) -> bool + 'static,
+{
+    #[inline(always)]
+    fn filter(&mut self, blink: &Blink, world: &mut World, event: &Event) -> bool {
+        self(blink, world, event)
     }
 }
 

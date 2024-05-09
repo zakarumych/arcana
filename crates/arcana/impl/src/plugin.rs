@@ -4,13 +4,11 @@ use arcana_project::{Dependency, Ident};
 use edict::{IntoSystem, System, World};
 use hashbrown::HashMap;
 
-use crate::events::EventFilter;
+use crate::events::{EventFilter, FilterId};
 use crate::make_id;
-use crate::work::{Job, JobDesc};
+use crate::work::{Job, JobDesc, JobId};
 
 make_id!(pub SystemId);
-make_id!(pub FilterId);
-make_id!(pub JobId);
 
 /// System information declared by a plugin.
 #[derive(Clone, Hash)]
@@ -51,7 +49,7 @@ pub struct JobInfo {
 pub struct PluginsHub {
     pub systems: HashMap<SystemId, Box<dyn System + Send>>,
     pub filters: HashMap<FilterId, Box<dyn EventFilter>>,
-    pub jobs: HashMap<JobId, Box<dyn FnMut() -> Box<dyn Job>>>,
+    pub jobs: HashMap<JobId, Box<dyn Job>>,
 }
 
 impl PluginsHub {
@@ -77,12 +75,8 @@ impl PluginsHub {
     }
 
     /// Adds a job from a plugin to the hub.
-    pub fn add_job<F, J>(&mut self, id: JobId, make_job: F)
-    where
-        F: Fn() -> J + 'static,
-        J: Job,
-    {
-        self.jobs.insert(id, Box::new(move || Box::new(make_job())));
+    pub fn add_job(&mut self, id: JobId, job: impl Job) {
+        self.jobs.insert(id, Box::new(job));
     }
 }
 

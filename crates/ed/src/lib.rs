@@ -60,6 +60,7 @@ mod workgraph;
 // mod memory;
 mod container;
 mod error;
+mod instance;
 mod plugins;
 mod systems;
 mod tools;

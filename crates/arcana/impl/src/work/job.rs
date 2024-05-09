@@ -6,7 +6,7 @@ use std::{
 use edict::World;
 use hashbrown::HashSet;
 
-use crate::{arena::Arena, make_id, stid::WithStid, Stid};
+use crate::{arena::Arena, make_id, plugin::PluginsHub, stid::WithStid, Stid};
 
 use super::target::{Target, TargetHub, TargetId};
 
@@ -59,6 +59,9 @@ impl JobReadDesc {
 /// A set of targets a job creates, updates and reads.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct JobDesc {
+    /// Job unique ID.
+    pub id: JobId,
+
     /// List of targets job reads.
     /// They are inputs of the job.
     pub reads: Vec<JobReadDesc>,
@@ -92,12 +95,13 @@ macro_rules! add_job_desc {
 
 #[macro_export]
 macro_rules! job_desc {
-    ($($descs:tt)*) => {{
+    ($id:expr => {$($descs:tt)*}) => {{
         let mut reads = Vec::new();
         let mut updates = Vec::new();
         let mut creates = Vec::new();
         $crate::add_job_desc!((reads, updates, creates) $($descs)*);
         $crate::work::JobDesc {
+            id: $id.into(),
             reads,
             updates,
             creates,
@@ -155,7 +159,7 @@ pub trait Job: 'static {
     /// - Creating pipelines
     /// - Binding resources
     /// - Recording draw/dispatch calls
-    fn exec(&mut self, runner: Exec<'_>, world: &mut World);
+    fn exec(&mut self, exec: Exec<'_>, world: &mut World);
 }
 
 pub struct JobCreateTarget {
@@ -340,7 +344,7 @@ impl Exec<'_> {
 }
 
 pub struct JobNode {
-    pub(super) job: Box<dyn Job>,
+    pub(super) id: JobId,
     pub(super) updates: Vec<JobUpdateTarget>,
     pub(super) creates: Vec<JobCreateTarget>,
     pub(super) reads: Vec<JobReadTarget>,
@@ -348,9 +352,9 @@ pub struct JobNode {
 
 impl JobNode {
     /// Construct new job node from description and job instance.
-    pub fn new(desc: JobDesc, job: Box<dyn Job>) -> Self {
+    pub fn new(desc: JobDesc) -> Self {
         JobNode {
-            job,
+            id: desc.id,
             updates: desc
                 .updates
                 .into_iter()
@@ -387,6 +391,7 @@ impl JobNode {
         selected_jobs: &mut HashSet<JobId>,
         device: mev::Device,
         world: &mut World,
+        plugins: &mut PluginsHub,
     ) {
         let planner = Planner {
             updates: self.updates.iter(),
@@ -396,7 +401,10 @@ impl JobNode {
             selected_jobs,
             device,
         };
-        self.job.plan(planner, world);
+
+        if let Some(job) = plugins.jobs.get_mut(&self.id) {
+            job.plan(planner, world);
+        }
     }
 
     pub(super) fn exec(
@@ -406,6 +414,7 @@ impl JobNode {
         queue: &mut mev::Queue,
         cbufs: &Arena<mev::CommandEncoder>,
         world: &mut World,
+        plugins: &mut PluginsHub,
     ) {
         let exec = Exec {
             updates: &self.updates,
@@ -420,6 +429,8 @@ impl JobNode {
             cbufs,
         };
 
-        self.job.exec(exec, world);
+        if let Some(job) = plugins.jobs.get_mut(&self.id) {
+            job.exec(exec, world);
+        }
     }
 }

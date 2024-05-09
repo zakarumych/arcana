@@ -57,7 +57,7 @@ flume = "0.11"
 figa = { version = "0.3" }
 foreign-types = { version = "0.5" }
 futures = "0.3"
-gametime = "0.3.1"
+gametime = "0.4"
 # gametime = { path = "../../gametime" }
 gilrs = { version = "0.10" }
 gpu-alloc = { version = "0.6" }

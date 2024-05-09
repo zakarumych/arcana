@@ -1,13 +1,14 @@
 use std::collections::VecDeque;
 
 use arcana::{
-    edict::world::WorldLocal, plugin::SystemId, project::Project, ActionBufferSliceExt, System,
-    World,
+    edict::world::WorldLocal,
+    plugin::{PluginsHub, SystemId},
+    project::{IdentBuf, Project},
+    ActionBufferSliceExt, World,
 };
-use arcana_project::IdentBuf;
 use egui::{Color32, Ui};
 use egui_snarl::{
-    ui::{PinInfo, PinShape, SnarlStyle, SnarlViewer},
+    ui::{AnyPins, PinInfo, PinShape, SnarlStyle, SnarlViewer},
     InPin, InPinId, NodeId, OutPin, OutPinId, Snarl,
 };
 use hashbrown::{HashMap, HashSet};
@@ -29,27 +30,16 @@ impl Category {
     }
 }
 
+#[derive(Clone)]
 pub struct Schedule {
     fix_schedule: Vec<SystemId>,
     var_schedule: Vec<SystemId>,
-    reschedule: bool,
 }
 
 impl Schedule {
     /// Run systems in dependency order.
     /// Reschedules systems if graph is modified.
-    pub fn run(
-        &mut self,
-        category: Category,
-        world: &mut World,
-        system_graph: &SystemGraph,
-        systems: &mut HashMap<SystemId, Box<dyn System + Send>>,
-    ) {
-        if self.reschedule {
-            self.fix_schedule = order_systems(&system_graph.snarl, Category::Fix);
-            self.var_schedule = order_systems(&system_graph.snarl, Category::Var);
-        }
-
+    pub fn run(&self, category: Category, world: &mut World, hub: &mut PluginsHub) {
         let schedule = match category {
             Category::Fix => &*self.fix_schedule,
             Category::Var => &*self.var_schedule,
@@ -58,7 +48,7 @@ impl Schedule {
         let mut buffers = Vec::new();
 
         for id in schedule {
-            let system = systems.get_mut(id).unwrap();
+            let system = hub.systems.get_mut(id).unwrap();
             system.run(world, &mut buffers);
         }
 
@@ -114,7 +104,6 @@ impl Systems {
             schedule: Schedule {
                 fix_schedule: Vec::new(),
                 var_schedule: Vec::new(),
-                reschedule: true,
             },
             available: Vec::new(),
         }
@@ -135,7 +124,9 @@ impl Systems {
         data.systems.snarl.show(&mut viewer, &STYLE, "systems", ui);
 
         if viewer.modified {
-            me.schedule.reschedule = true;
+            me.schedule.fix_schedule = order_systems(&data.systems.snarl, Category::Fix);
+            me.schedule.var_schedule = order_systems(&data.systems.snarl, Category::Var);
+
             try_log_err!(data.sync(&project));
         }
     }
@@ -167,6 +158,10 @@ impl Systems {
 
         self.available = new_systems;
         self.available.sort_by_cached_key(|node| node.name.clone());
+    }
+
+    pub fn schedule(&self) -> &Schedule {
+        &self.schedule
     }
 }
 
@@ -368,6 +363,68 @@ impl SnarlViewer<SystemNode> for SystemViewer<'_> {
         self.modified = true;
     }
 
+    /// Checks if the snarl has something to show in context menu if wire drag is stopped at `pos`.
+    #[inline]
+    fn has_dropped_wire_menu(&mut self, _: AnyPins, _: &mut Snarl<SystemNode>) -> bool {
+        true
+    }
+
+    /// Show context menu for the snarl. This menu is opened when releasing a pin to empty
+    /// space. It can be used to implement menu for adding new node, and directly
+    /// connecting it to the released wire.
+    #[inline]
+    fn show_dropped_wire_menu(
+        &mut self,
+        pos: egui::Pos2,
+        ui: &mut Ui,
+        _scale: f32,
+        src_pins: AnyPins,
+        snarl: &mut Snarl<SystemNode>,
+    ) {
+        ui.label("Add system");
+        ui.separator();
+
+        if self.available.is_empty() {
+            ui.weak("No available systems");
+        }
+
+        for idx in 0..self.available.len() {
+            let s = &self.available[idx];
+            if ui.button(s.name.as_str()).clicked() {
+                ui.close_menu();
+                let s = self.available.remove(idx);
+                let new_node = snarl.insert_node(pos, s);
+
+                match src_pins {
+                    AnyPins::In(pins) => {
+                        for &pin in pins {
+                            snarl.connect(
+                                OutPinId {
+                                    node: new_node,
+                                    output: 0,
+                                },
+                                pin,
+                            );
+                        }
+                    }
+                    AnyPins::Out(pins) => {
+                        for &pin in pins {
+                            snarl.connect(
+                                pin,
+                                InPinId {
+                                    node: new_node,
+                                    input: 0,
+                                },
+                            );
+                        }
+                    }
+                }
+
+                return;
+            }
+        }
+    }
+
     fn has_graph_menu(&mut self, _pos: egui::Pos2, _snarl: &mut Snarl<SystemNode>) -> bool {
         true
     }
@@ -379,6 +436,9 @@ impl SnarlViewer<SystemNode> for SystemViewer<'_> {
         _scale: f32,
         snarl: &mut Snarl<SystemNode>,
     ) {
+        ui.label("Add system");
+        ui.separator();
+
         for idx in 0..self.available.len() {
             let s = &self.available[idx];
             if ui.button(s.name.as_str()).clicked() {

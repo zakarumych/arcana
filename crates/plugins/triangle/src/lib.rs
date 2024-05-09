@@ -282,7 +282,6 @@ impl Job for MainJob {
 arcana::export_arcana_plugin! {
     TrianglePlugin {
         dependencies: [dummy ...],
-        systems: [fake: || {}, fake2: || {}],
         in world => {
             let world = world.local();
 

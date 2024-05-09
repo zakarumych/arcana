@@ -9,8 +9,8 @@ use edict::{
     Component, EntityId, IntoSystem, System, World,
 };
 use gametime::{
-    Clock, ClockStep, Frequency, FrequencyNumExt, FrequencyTicker, TimeSpan, TimeSpanNumExt,
-    TimeStamp,
+    Clock, ClockRate, ClockStep, Frequency, FrequencyNumExt, FrequencyTicker, TimeSpan,
+    TimeSpanNumExt, TimeStamp,
 };
 use hashbrown::{HashMap, HashSet};
 use mev::ImageDesc;
@@ -73,94 +73,6 @@ impl FPS {
 
     pub fn iter(&self) -> impl DoubleEndedIterator<Item = TimeStamp> + '_ {
         self.frames.iter().copied()
-    }
-}
-
-/// Game clock that uses global clock steps
-/// and apply necessary adjustments to produce game clock steps.
-pub struct GameClock {
-    nom: u64,
-    denom: u64,
-    until_next: u64,
-    now: TimeStamp,
-}
-
-impl GameClock {
-    pub fn new() -> Self {
-        GameClock {
-            nom: 1,
-            denom: 1,
-            until_next: 0,
-            now: TimeStamp::start(),
-        }
-    }
-
-    pub fn pause(&mut self) {
-        self.nom = 0;
-    }
-
-    pub fn set_rate(&mut self, rate: f32) {
-        let (nom, denom) = rate2ratio(rate);
-        self.nom = nom;
-        self.denom = denom;
-    }
-
-    pub fn get_rate(&self) -> f64 {
-        self.nom as f64 / self.denom as f64
-    }
-
-    pub fn set_rate_ratio(&mut self, nom: u64, denom: u64) {
-        self.nom = nom;
-        self.denom = denom;
-    }
-
-    pub fn get_rate_ratio(&mut self) -> (u64, u64) {
-        (self.nom, self.denom)
-    }
-
-    pub fn with_rate(rate: f32) -> Self {
-        let (nom, denom) = rate2ratio(rate);
-        GameClock {
-            nom,
-            denom,
-            until_next: denom,
-            now: TimeStamp::start(),
-        }
-    }
-
-    pub fn with_rate_ratio(nom: u64, denom: u64) -> Self {
-        GameClock {
-            nom,
-            denom,
-            until_next: denom,
-            now: TimeStamp::start(),
-        }
-    }
-
-    pub fn update(&mut self, span: TimeSpan) -> ClockStep {
-        let nanos = span.as_nanos();
-        let nom_nanos = nanos * self.nom;
-
-        if self.until_next > nom_nanos {
-            // Same game nanosecond.
-            self.until_next -= nom_nanos;
-            return ClockStep {
-                now: self.now,
-                step: TimeSpan::ZERO,
-            };
-        }
-
-        let game_nanos = (nom_nanos - self.until_next) / self.denom;
-        let nom_nanos_left = (nom_nanos - self.until_next) % self.denom;
-        self.until_next = self.denom - nom_nanos_left;
-
-        let game_span = TimeSpan::new(game_nanos);
-        self.now += game_span;
-
-        ClockStep {
-            now: self.now,
-            step: game_span,
-        }
     }
 }
 
@@ -378,24 +290,4 @@ impl Game {
     pub fn fps(&self) -> Ref<'_, FPS> {
         self.world.expect_resource::<FPS>()
     }
-}
-
-fn gcd(mut a: u64, mut b: u64) -> u64 {
-    while b != 0 {
-        let temp = b;
-        b = a % b;
-        a = temp;
-    }
-    a
-}
-
-fn rate2ratio(rate: f32) -> (u64, u64) {
-    let denom = 6469693230;
-    let nom = (rate.max(0.0) * 6469693230.0).floor() as u64;
-
-    let gcd = gcd(nom, denom);
-
-    let nom = nom / gcd;
-    let denom = denom / gcd;
-    (nom, denom)
 }

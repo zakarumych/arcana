@@ -1,0 +1,18 @@
+name = "test"
+
+[engine]
+path = "/Users/romanbarykin/code/nothing/crates/arcana"
+
+[[plugins]]
+name = "triangle"
+description = ""
+
+[plugins.dependency]
+path = "/Users/romanbarykin/code/nothing/crates/plugins/triangle"
+
+[[plugins]]
+name = "dummy"
+description = ""
+
+[plugins.dependency]
+path = "/Users/romanbarykin/code/nothing/crates/plugins/dummy"

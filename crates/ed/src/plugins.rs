@@ -1,10 +1,12 @@
 use arcana::{
     edict::world::WorldLocal,
     plugin::ArcanaPlugin,
-    project::{BuildProcess, Dependency, Ident, IdentBuf, Profile, Project, ProjectManifest},
+    project::{
+        new_plugin_crate, process_path_name, BuildProcess, Dependency, Ident, IdentBuf, Plugin,
+        Profile, Project, ProjectManifest,
+    },
     World,
 };
-use arcana_project::{new_plugin_crate, process_path_name, Plugin};
 use camino::{Utf8Path, Utf8PathBuf};
 use egui::{Color32, RichText, Ui};
 use egui_file::FileDialog;
@@ -59,13 +61,13 @@ impl Plugins {
     }
 
     /// Checks of all plugins from manifest are present in linked library.
-    fn all_plugins(project: &ProjectManifest, container: &Container) -> bool {
+    fn check_plugins(project: &ProjectManifest, container: &Container) -> bool {
         project.plugins.iter().all(|p| {
-            let is_linked = container.has(&p.name);
-            if !is_linked {
+            let has = container.has(&p.name);
+            if !has {
                 tracing::debug!("Plugin '{}' is not linked", p.name);
             }
-            is_linked
+            has
         })
     }
 
@@ -116,7 +118,7 @@ impl Plugins {
                     let path = build.artifact();
                     match Container::load(path) {
                         Ok(container) => {
-                            if !Self::all_plugins(project.manifest(), &container) {
+                            if !Self::check_plugins(project.manifest(), &container) {
                                 tracing::warn!("Not all plugins are linked. Rebuilding");
                                 plugins.build =
                                     ok_log_err!(project.build_plugins_library(plugins.profile));

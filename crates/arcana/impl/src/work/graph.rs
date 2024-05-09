@@ -1,7 +1,7 @@
 use edict::{world::WorldLocal, Res};
 use hashbrown::{hash_map::Entry, HashMap, HashSet};
 
-use crate::{arena::Arena, id::IdGen};
+use crate::{arena::Arena, id::IdGen, plugin::PluginsHub};
 
 use super::{
     job::{JobId, JobNode},
@@ -24,6 +24,7 @@ pub struct WorkGraph {
 
     cbufs: Arena<mev::CommandEncoder>,
 }
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PinId {
     pub job: JobId,
@@ -257,6 +258,7 @@ impl WorkGraph {
         device: mev::Device,
         queue: &mut mev::Queue,
         world: &mut WorldLocal,
+        hub: &mut PluginsHub,
     ) -> Result<(), mev::DeviceError> {
         self.selected_jobs.clear();
 
@@ -276,6 +278,7 @@ impl WorkGraph {
                 &mut self.selected_jobs,
                 device.clone(),
                 world,
+                hub,
             );
         }
 
@@ -283,7 +286,14 @@ impl WorkGraph {
             if !self.selected_jobs.contains(job_id) {
                 continue;
             }
-            job.exec(&mut self.hub, device.clone(), queue, &self.cbufs, world);
+            job.exec(
+                &mut self.hub,
+                device.clone(),
+                queue,
+                &self.cbufs,
+                world,
+                hub,
+            );
         }
 
         queue.submit(self.cbufs.drain().filter_map(|e| e.finish().ok()), true)

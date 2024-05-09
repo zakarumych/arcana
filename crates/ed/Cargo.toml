@@ -9,7 +9,6 @@ description = "Arcana Engine Editor"
 
 [dependencies]
 arcana = { path = "../arcana", features = ["dynamic"] }
-arcana-project = { path = "../project" }
 arcana-egui = { path = "../plugins/egui" }
 bincode = { workspace = true }
 camino = { workspace = true }
