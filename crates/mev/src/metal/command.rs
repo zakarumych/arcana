@@ -1,7 +1,7 @@
 use std::{marker::PhantomData, ops::Range, sync::Arc};
 
 use metal::NSUInteger;
-use objc::Message;
+use objc::{msg_send, Message};
 use smallvec::SmallVec;
 
 use crate::generic::{
@@ -137,7 +137,7 @@ impl crate::traits::CommandEncoder for CommandEncoder {
         }
     }
 
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn acceleration_structure(&mut self) -> AccelerationStructureCommandEncoder<'_> {
         let encoder = self.buffer.new_acceleration_structure_command_encoder();
         AccelerationStructureCommandEncoder {
@@ -147,12 +147,12 @@ impl crate::traits::CommandEncoder for CommandEncoder {
         }
     }
 
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn present(&mut self, frame: Frame, _after: PipelineStages) {
         self.buffer.present_drawable(frame.drawable());
     }
 
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn finish(self) -> Result<CommandBuffer, OutOfMemory> {
         Ok(CommandBuffer {
             buffer: self.buffer,
@@ -167,7 +167,7 @@ pub struct CopyCommandEncoder<'a> {
 }
 
 impl Drop for CopyCommandEncoder<'_> {
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn drop(&mut self) {
         self.encoder.end_encoding();
     }
@@ -175,10 +175,10 @@ impl Drop for CopyCommandEncoder<'_> {
 
 #[hidden_trait::expose]
 impl crate::traits::CopyCommandEncoder for CopyCommandEncoder<'_> {
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn barrier(&mut self, _after: PipelineStages, _before: PipelineStages) {}
 
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn init_image(&mut self, _after: PipelineStages, _before: PipelineStages, _image: &Image) {}
 
     #[cfg_attr(inline_more, inline(always))]
@@ -223,19 +223,46 @@ impl crate::traits::CopyCommandEncoder for CopyCommandEncoder<'_> {
     fn copy_image_region(
         &mut self,
         src: &Image,
-        src_offset: Offset3<u32>,
+        src_level: u32,
         src_base_layer: u32,
+        src_offset: Offset3<u32>,
         dst: &Image,
-        dst_offset: Offset3<u32>,
+        dst_level: u32,
         dst_base_layer: u32,
+        dst_offset: Offset3<u32>,
         extent: Extent3<u32>,
         layers: u32,
     ) {
+        use objc::{sel, sel_impl};
+
+        // If copying entire slices, use optimized method
+        if src_offset == Offset3::ZERO
+            && dst_offset == Offset3::ZERO
+            && src.dimensions().into_3d() == extent
+            && dst.dimensions().into_3d() == extent
+        {
+            unsafe {
+                let () = msg_send![self.encoder,
+                    copyFromTexture: src.metal()
+                    sourceSlice: src_base_layer as NSUInteger
+                    sourceLevel: src_level as NSUInteger
+                    toTexture: dst.metal()
+                    destinationSlice: dst_base_layer as NSUInteger
+                    destinationLevel: dst_level as NSUInteger
+                    sliceCount: layers as NSUInteger
+                    levelCount: 1
+                ];
+            }
+
+            return;
+        }
+
+        // Otherwise, copy slice by slice, level by level
         for layer in 0..layers {
             self.encoder.copy_from_texture(
                 src.metal(),
                 (src_base_layer + layer) as NSUInteger,
-                src.metal().parent_relative_level(),
+                src_level as NSUInteger,
                 metal::MTLOrigin {
                     x: src_offset.x() as NSUInteger,
                     y: src_offset.y() as NSUInteger,
@@ -248,7 +275,7 @@ impl crate::traits::CopyCommandEncoder for CopyCommandEncoder<'_> {
                 },
                 dst.metal(),
                 (dst_base_layer + layer) as NSUInteger,
-                dst.metal().parent_relative_level(),
+                dst_level as NSUInteger,
                 metal::MTLOrigin {
                     x: dst_offset.x() as NSUInteger,
                     y: dst_offset.y() as NSUInteger,

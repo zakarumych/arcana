@@ -107,7 +107,7 @@ fn derive_impl(input: syn::DeriveInput) -> syn::Result<proc_macro2::TokenStream>
                     type Repr = #name_repr;
                     type ArrayRepr = #name_repr;
 
-                    #[cfg_attr(inline_more, inline(always))]
+                    #[inline(always)]
                     fn as_repr(&self) -> #name_repr {
                         #name_repr {
                             #(
@@ -118,7 +118,7 @@ fn derive_impl(input: syn::DeriveInput) -> syn::Result<proc_macro2::TokenStream>
                         }
                     }
 
-                    #[cfg_attr(inline_more, inline(always))]
+                    #[inline(always)]
                     fn as_array_repr(&self) -> #name_repr {
                         self.as_repr()
                     }

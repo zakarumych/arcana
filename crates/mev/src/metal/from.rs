@@ -17,7 +17,7 @@ impl<T, U> MetalInto<U> for T
 where
     U: FromMetal<T>,
 {
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn metal_into(self) -> U {
         U::from_metal(self)
     }
@@ -511,12 +511,33 @@ impl MetalFrom<ImageUsage> for metal::MTLTextureUsage {
         if t.contains(ImageUsage::TARGET) {
             mask |= metal::MTLTextureUsage::RenderTarget;
         }
-        if t.contains(ImageUsage::TRANSFER_SRC) {
-            mask |= metal::MTLTextureUsage::Unknown;
+        // if t.contains(ImageUsage::TRANSFER_SRC) {
+        //     mask |= metal::MTLTextureUsage::Unknown;
+        // }
+        // if t.contains(ImageUsage::TRANSFER_DST) {
+        //     mask |= metal::MTLTextureUsage::Unknown;
+        // }
+        mask
+    }
+}
+
+impl FromMetal<metal::MTLTextureUsage> for ImageUsage {
+    #[cfg_attr(inline_more, inline(always))]
+    fn from_metal(t: metal::MTLTextureUsage) -> Self {
+        let mut mask = ImageUsage::empty();
+        if t.contains(metal::MTLTextureUsage::ShaderRead) {
+            mask |= ImageUsage::SAMPLED;
         }
-        if t.contains(ImageUsage::TRANSFER_DST) {
-            mask |= metal::MTLTextureUsage::Unknown;
+        if t.contains(metal::MTLTextureUsage::ShaderWrite) {
+            mask |= ImageUsage::STORAGE;
         }
+        if t.contains(metal::MTLTextureUsage::RenderTarget) {
+            mask |= ImageUsage::TARGET;
+        }
+
+        mask |= ImageUsage::TRANSFER_SRC;
+        mask |= ImageUsage::TRANSFER_DST;
+
         mask
     }
 }

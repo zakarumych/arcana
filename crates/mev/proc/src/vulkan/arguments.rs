@@ -161,20 +161,20 @@ fn derive_impl(input: syn::DeriveInput) -> syn::Result<proc_macro2::TokenStream>
 
                     type Update = #update_name;
 
-                    #[cfg_attr(inline_more, inline(always))]
+                    #[inline(always)]
                     fn template_entries() -> &'static [mev::for_macro::DescriptorUpdateTemplateEntry] {
                         static ENTRIES: [mev::for_macro::DescriptorUpdateTemplateEntry; #fields_count] = #name::mev_generated_template_entries();
                         &ENTRIES
                     }
 
-                    #[cfg_attr(inline_more, inline(always))]
+                    #[inline(always)]
                     fn update(&self) -> #update_name {
                         #update_name {
                             #(#field_names: #field_argument_impls::update(&self.#field_names),)*
                         }
                     }
 
-                    #[cfg_attr(inline_more, inline(always))]
+                    #[inline(always)]
                     fn add_refs(&self, refs: &mut mev::for_macro::Refs) {
                         #(#field_argument_impls::add_refs(&self.#field_names, refs);)*
                     }

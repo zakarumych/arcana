@@ -94,13 +94,13 @@ pub fn version() -> &'static str {
 
 /// Triggers panic.
 /// Use when too large capacity is requested.
-#[cfg_attr(inline_more, inline(always))]
+#[inline(always)]
 #[cold]
 fn capacity_overflow() -> ! {
     panic!("capacity overflow");
 }
 
-#[cfg_attr(inline_more, inline)]
+#[inline(always)]
 fn alloc_guard(alloc_size: usize) {
     if usize::BITS < 64 && alloc_size > isize::MAX as usize {
         capacity_overflow()

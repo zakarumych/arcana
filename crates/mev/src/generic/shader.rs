@@ -103,14 +103,14 @@ pub enum CreateLibraryError {
 }
 
 impl From<OutOfMemory> for CreateLibraryError {
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn from(_: OutOfMemory) -> Self {
         CreateLibraryError::OutOfMemory
     }
 }
 
 impl From<ShaderCompileError> for CreateLibraryError {
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn from(err: ShaderCompileError) -> Self {
         CreateLibraryError::CompileError(err)
     }

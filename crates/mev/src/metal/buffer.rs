@@ -51,10 +51,12 @@ impl Eq for Buffer {}
 
 #[hidden_trait::expose]
 impl crate::traits::Buffer for Buffer {
+    #[inline(always)]
     fn size(&self) -> usize {
         self.buffer.length() as usize
     }
 
+    #[inline(always)]
     fn detached(&self) -> bool {
         use foreign_types::ForeignType;
         use metal::NSUInteger;
@@ -93,12 +95,12 @@ impl ArgumentsField<Automatic> for Buffer {
     const KIND: ArgumentKind = ArgumentKind::UniformBuffer;
     const SIZE: usize = 1;
 
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn bind_vertex(&self, slot: u32, encoder: &metal::RenderCommandEncoderRef) {
         encoder.set_vertex_buffer(slot.into(), Some(&self.buffer), 0)
     }
 
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn bind_fragment(&self, slot: u32, encoder: &metal::RenderCommandEncoderRef) {
         encoder.set_fragment_buffer(slot.into(), Some(&self.buffer), 0)
     }
@@ -108,12 +110,12 @@ impl ArgumentsField<Uniform> for Buffer {
     const KIND: ArgumentKind = ArgumentKind::UniformBuffer;
     const SIZE: usize = 1;
 
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn bind_vertex(&self, slot: u32, encoder: &metal::RenderCommandEncoderRef) {
         encoder.set_vertex_buffer(slot.into(), Some(&self.buffer), 0)
     }
 
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn bind_fragment(&self, slot: u32, encoder: &metal::RenderCommandEncoderRef) {
         encoder.set_fragment_buffer(slot.into(), Some(&self.buffer), 0)
     }
@@ -123,12 +125,12 @@ impl ArgumentsField<Storage> for Buffer {
     const KIND: ArgumentKind = ArgumentKind::StorageBuffer;
     const SIZE: usize = 1;
 
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn bind_vertex(&self, slot: u32, encoder: &metal::RenderCommandEncoderRef) {
         encoder.set_vertex_buffer(slot.into(), Some(&self.buffer), 0)
     }
 
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn bind_fragment(&self, slot: u32, encoder: &metal::RenderCommandEncoderRef) {
         encoder.set_fragment_buffer(slot.into(), Some(&self.buffer), 0)
     }

@@ -143,11 +143,9 @@ pub trait CopyCommandEncoder {
     fn write_buffer_raw(&mut self, slice: impl AsBufferSlice, data: &[u8]);
 
     /// Writes data to the buffer.
-    #[cfg_attr(inline_more, inline(always))]
     fn write_buffer(&mut self, slice: impl AsBufferSlice, data: &impl bytemuck::Pod);
 
     /// Writes data to the buffer.
-    #[cfg_attr(inline_more, inline(always))]
     fn write_buffer_slice(&mut self, slice: impl AsBufferSlice, data: &[impl bytemuck::Pod]);
 
     /// Copies pixels from src image to dst image.
@@ -168,11 +166,13 @@ pub trait CopyCommandEncoder {
     fn copy_image_region(
         &mut self,
         src: &crate::backend::Image,
-        src_offset: Offset3<u32>,
+        src_level: u32,
         src_base_layer: u32,
+        src_offset: Offset3<u32>,
         dst: &crate::backend::Image,
-        dst_offset: Offset3<u32>,
+        dst_level: u32,
         dst_base_layer: u32,
+        dst_offset: Offset3<u32>,
         extent: Extent3<u32>,
         layers: u32,
     );

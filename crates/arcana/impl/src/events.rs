@@ -187,6 +187,7 @@ pub enum DeviceEvent {}
 impl TryFrom<&winit::event::DeviceEvent> for DeviceEvent {
     type Error = UnsupportedEvent;
 
+    #[inline(always)]
     fn try_from(_value: &winit::event::DeviceEvent) -> Result<Self, UnsupportedEvent> {
         Err(UnsupportedEvent)
     }
@@ -211,7 +212,7 @@ where
 {
     type EventFilter = F;
 
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn into_event_filter(self) -> F {
         self
     }
@@ -223,7 +224,7 @@ impl<F> EventFilter for EventFilterFn<F>
 where
     F: FnMut(&Event) -> bool + 'static,
 {
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn filter(&mut self, _blink: &Blink, _world: &mut World, event: &Event) -> bool {
         self.0(event)
     }
@@ -235,6 +236,7 @@ where
 {
     type EventFilter = EventFilterFn<F>;
 
+    #[inline(always)]
     fn into_event_filter(self) -> EventFilterFn<F> {
         EventFilterFn(self)
     }
@@ -246,7 +248,7 @@ impl<F> EventFilter for EventFilterWorldFn<F>
 where
     F: FnMut(&mut World, &Event) -> bool + 'static,
 {
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn filter(&mut self, _blink: &Blink, world: &mut World, event: &Event) -> bool {
         self.0(world, event)
     }
@@ -258,7 +260,7 @@ where
 {
     type EventFilter = EventFilterWorldFn<F>;
 
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn into_event_filter(self) -> EventFilterWorldFn<F> {
         EventFilterWorldFn(self)
     }
@@ -270,7 +272,7 @@ impl<F> EventFilter for EventFilterBlinkFn<F>
 where
     F: FnMut(&Blink, &Event) -> bool + 'static,
 {
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn filter(&mut self, blink: &Blink, _world: &mut World, event: &Event) -> bool {
         self.0(blink, event)
     }
@@ -282,7 +284,7 @@ where
 {
     type EventFilter = EventFilterBlinkFn<F>;
 
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn into_event_filter(self) -> EventFilterBlinkFn<F> {
         EventFilterBlinkFn(self)
     }
@@ -294,7 +296,7 @@ impl<F> EventFilter for EventFilterBlinkWorldFn<F>
 where
     F: FnMut(&Blink, &mut World, &Event) -> bool + 'static,
 {
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn filter(&mut self, blink: &Blink, world: &mut World, event: &Event) -> bool {
         self.0(blink, world, event)
     }
@@ -306,7 +308,7 @@ where
 {
     type EventFilter = EventFilterBlinkWorldFn<F>;
 
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn into_event_filter(self) -> EventFilterBlinkWorldFn<F> {
         EventFilterBlinkWorldFn(self)
     }
@@ -349,7 +351,7 @@ impl EventFunnel {
 
 /// Allow composing `EventFunnel` into super-funnels.
 impl EventFilter for EventFunnel {
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn filter(&mut self, blink: &Blink, world: &mut World, event: &Event) -> bool {
         self.filter(blink, world, event)
     }

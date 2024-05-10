@@ -344,7 +344,7 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer<'_> {
     }
 
     /// Checks if the snarl has something to show in context menu if wire drag is stopped at `pos`.
-    #[cfg_attr(inline_more, inline)]
+    #[inline(always)]
     fn has_dropped_wire_menu(&mut self, _: AnyPins, _: &mut Snarl<WorkGraphNode>) -> bool {
         true
     }
@@ -407,6 +407,7 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer<'_> {
         }
     }
 
+    #[inline(always)]
     fn has_graph_menu(&mut self, _: egui::Pos2, _: &mut Snarl<WorkGraphNode>) -> bool {
         true
     }
@@ -437,10 +438,12 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer<'_> {
     }
 }
 
+#[inline(always)]
 fn present_kind() -> Stid {
     Stid::of::<Image2D>()
 }
 
+#[inline(always)]
 fn present_pin_color() -> egui::Color32 {
     hue_hash(&present_kind())
 }

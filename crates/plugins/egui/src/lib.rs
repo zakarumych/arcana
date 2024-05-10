@@ -357,11 +357,13 @@ impl Render for EguiRender {
 
                                 copy_encoder.copy_image_region(
                                     &image,
-                                    mev::Offset3::ZERO,
                                     0,
+                                    0,
+                                    mev::Offset3::ZERO,
                                     &new_image,
-                                    mev::Offset3::ZERO,
                                     0,
+                                    0,
+                                    mev::Offset3::ZERO,
                                     image.dimensions().into_3d(),
                                     1,
                                 );

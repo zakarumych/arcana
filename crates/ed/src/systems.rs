@@ -359,7 +359,7 @@ impl SnarlViewer<SystemNode> for SystemViewer<'_> {
     }
 
     /// Checks if the snarl has something to show in context menu if wire drag is stopped at `pos`.
-    #[cfg_attr(inline_more, inline)]
+    #[inline(always)]
     fn has_dropped_wire_menu(&mut self, _: AnyPins, _: &mut Snarl<SystemNode>) -> bool {
         true
     }
@@ -367,7 +367,6 @@ impl SnarlViewer<SystemNode> for SystemViewer<'_> {
     /// Show context menu for the snarl. This menu is opened when releasing a pin to empty
     /// space. It can be used to implement menu for adding new node, and directly
     /// connecting it to the released wire.
-    #[cfg_attr(inline_more, inline)]
     fn show_dropped_wire_menu(
         &mut self,
         pos: egui::Pos2,
@@ -420,6 +419,7 @@ impl SnarlViewer<SystemNode> for SystemViewer<'_> {
         }
     }
 
+    #[inline(always)]
     fn has_graph_menu(&mut self, _: egui::Pos2, _: &mut Snarl<SystemNode>) -> bool {
         true
     }

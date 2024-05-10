@@ -83,50 +83,52 @@ macro_rules! make_id {
         }
 
         impl ::core::fmt::Debug for $name {
+            #[inline(always)]
             fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
                 $crate::id::fmt_id(self.value.get(), stringify!($name), f)
             }
         }
 
         impl $name {
-            #[cfg_attr(inline_more, inline(always))]
+            #[inline(always)]
             pub const fn new(value: ::core::num::NonZeroU64) -> Self {
                 $name {
                     value,
                 }
             }
 
-            #[cfg_attr(inline_more, inline(always))]
+            #[inline(always)]
             pub const fn get(self) -> u64 {
                 self.value.get()
             }
 
-            #[cfg_attr(inline_more, inline(always))]
+            #[inline(always)]
             pub const fn get_nonzero(self) -> ::core::num::NonZeroU64 {
                 self.value
             }
         }
 
         impl $crate::Id for $name {
-            #[cfg_attr(inline_more, inline(always))]
+            #[inline(always)]
             fn new(value: ::core::num::NonZeroU64) -> Self {
                 $name {
                     value,
                 }
             }
 
-            #[cfg_attr(inline_more, inline(always))]
+            #[inline(always)]
             fn get(self) -> u64 {
                 self.value.get()
             }
 
-            #[cfg_attr(inline_more, inline(always))]
+            #[inline(always)]
             fn get_nonzero(self) -> ::core::num::NonZeroU64 {
                 self.value
             }
         }
 
         impl ::serde::Serialize for $name {
+            #[inline(always)]
             fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
             where
                 S: ::serde::Serializer,
@@ -136,6 +138,7 @@ macro_rules! make_id {
         }
 
         impl<'de> ::serde::Deserialize<'de> for $name {
+            #[inline(always)]
             fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
             where
                 D: ::serde::Deserializer<'de>,
@@ -154,17 +157,17 @@ pub struct BaseId {
 }
 
 impl BaseId {
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     pub const fn new(value: NonZeroU64) -> Self {
         BaseId { value }
     }
 
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     pub const fn get(self) -> u64 {
         self.value.get()
     }
 
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     pub const fn get_nonzero(self) -> NonZeroU64 {
         self.value
     }

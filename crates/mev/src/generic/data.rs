@@ -18,7 +18,7 @@ union TransmuteUnchecked<A: Copy, B: Copy> {
 ///
 /// Sizes must have equal size.
 /// Current bits of argument must be valid for type `B`.
-#[cfg_attr(inline_more, inline(always))]
+#[inline(always)]
 unsafe fn transmute_unchecked<A: Copy, B: Copy>(a: A) -> B {
     debug_assert_eq!(size_of::<A>(), size_of::<B>());
     unsafe { TransmuteUnchecked { a }.b }
@@ -35,15 +35,14 @@ pub trait DeviceRepr: Sized + 'static {
     type ArrayRepr: bytemuck::Pod + Debug;
 
     /// Construct a `Self::Repr` from `&self`.
-    #[cfg_attr(inline_more, inline(always))]
     fn as_repr(&self) -> Self::Repr;
 
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn make_array_repr(&self) -> Self::ArrayRepr {
         unimplemented!("<{} as DeviceRepr>::make_array_repr must be implemented if size of `ArrayRepr` is not equal to size of `Repr`", type_name::<Self>());
     }
 
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn as_array_repr(&self) -> Self::ArrayRepr {
         if size_of::<Self::Repr>() == size_of::<Self::ArrayRepr>() {
             // Safety: transmutting between POD types with same size is safe.
@@ -52,12 +51,12 @@ pub trait DeviceRepr: Sized + 'static {
         self.make_array_repr()
     }
 
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn as_bytes(repr: &Self::Repr) -> &[u8] {
         bytemuck::bytes_of(repr)
     }
 
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn as_array_bytes(repr: &[Self::ArrayRepr]) -> &[u8] {
         bytemuck::cast_slice(repr)
     }
@@ -67,6 +66,19 @@ pub trait DeviceRepr: Sized + 'static {
     const ARRAY_SIZE: usize = size_of::<Self::ArrayRepr>();
 }
 
+#[cfg_attr(inline_more, inline)]
+fn array_as_repr_slow<T: DeviceRepr, const N: usize>(array: &[T; N]) -> [T::ArrayRepr; N] {
+    // Construct `ArrayRepr` from elements.
+    let mut repr: MaybeUninit<[T::ArrayRepr; N]> = MaybeUninit::uninit();
+    let ptr = repr.as_mut_ptr().cast::<T::ArrayRepr>();
+    for idx in 0..N {
+        unsafe {
+            ptr.add(idx).write(array[idx].as_array_repr());
+        }
+    }
+    unsafe { repr.assume_init() }
+}
+
 impl<T, const N: usize> DeviceRepr for [T; N]
 where
     T: DeviceRepr,
@@ -74,7 +86,7 @@ where
     type Repr = [T::ArrayRepr; N];
     type ArrayRepr = [T::ArrayRepr; N];
 
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn as_repr(&self) -> [T::ArrayRepr; N] {
         if TypeId::of::<Self>() == TypeId::of::<T::ArrayRepr>() {
             // Self is `ArrayRepr` so it is POD and can be copied.
@@ -88,18 +100,10 @@ where
             return unsafe { transmute_copy(self) };
         }
 
-        // Construct `ArrayRepr` from elements.
-        let mut repr: MaybeUninit<[T::ArrayRepr; N]> = MaybeUninit::uninit();
-        let ptr = repr.as_mut_ptr().cast::<T::ArrayRepr>();
-        for idx in 0..N {
-            unsafe {
-                ptr.add(idx).write(self[idx].as_array_repr());
-            }
-        }
-        unsafe { repr.assume_init() }
+        array_as_repr_slow(self)
     }
 
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn as_array_repr(&self) -> [T::ArrayRepr; N] {
         self.as_repr()
     }
@@ -126,6 +130,7 @@ pub enum ScalarType {
 }
 
 impl ScalarType {
+    #[inline(always)]
     pub const fn size(&self) -> usize {
         match self {
             ScalarType::Bool => 1,
@@ -149,7 +154,7 @@ pub trait Scalar: crate::private::Sealed + Sized + Debug + 'static {
 
     type ScalarRepr: bytemuck::Pod + Debug;
 
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn as_scalar_repr(&self) -> Self::ScalarRepr {
         assert_eq!(align_of::<Self>(), align_of::<Self::ScalarRepr>());
         assert_eq!(size_of::<Self>(), size_of::<Self::ScalarRepr>());
@@ -164,12 +169,12 @@ where
     type Repr = T::ScalarRepr;
     type ArrayRepr = T::ScalarRepr;
 
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn as_repr(&self) -> Self::Repr {
         self.as_scalar_repr()
     }
 
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn as_array_repr(&self) -> Self::ArrayRepr {
         self.as_scalar_repr()
     }
@@ -297,14 +302,14 @@ unsafe impl<T, const N: usize> Zeroable for vec<T, N> where T: Zeroable {}
 unsafe impl<T, const N: usize> Pod for vec<T, N> where T: Pod {}
 
 impl<T, const N: usize> From<vec<T, N>> for [T; N] {
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn from(v: vec<T, N>) -> Self {
         v.0
     }
 }
 
 impl<T, const N: usize> From<[T; N]> for vec<T, N> {
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn from(v: [T; N]) -> Self {
         vec(v)
     }
@@ -314,7 +319,7 @@ impl<T, const N: usize> From<&[T; N]> for vec<T, N>
 where
     T: Copy,
 {
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn from(v: &[T; N]) -> Self {
         vec(*v)
     }
@@ -328,14 +333,14 @@ unsafe impl<T, const N: usize, const M: usize> Zeroable for mat<T, N, M> where T
 unsafe impl<T, const N: usize, const M: usize> Pod for mat<T, N, M> where T: Pod {}
 
 impl<T, const N: usize, const M: usize> From<mat<T, N, M>> for [[T; M]; N] {
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn from(m: mat<T, N, M>) -> Self {
         m.0.map(From::from)
     }
 }
 
 impl<T, const N: usize, const M: usize> From<[[T; M]; N]> for mat<T, N, M> {
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn from(m: [[T; M]; N]) -> Self {
         mat(m.map(From::from))
     }
@@ -345,7 +350,7 @@ impl<T, const N: usize, const M: usize> From<&[[T; M]; N]> for mat<T, N, M>
 where
     T: Copy,
 {
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn from(m: &[[T; M]; N]) -> Self {
         mat(m.map(From::from))
     }
@@ -354,6 +359,7 @@ where
 #[allow(non_camel_case_types)]
 pub type vec2<T = f32> = vec<T, 2>;
 
+#[inline(always)]
 pub fn vec2<T>(x: T, y: T) -> vec2<T> {
     vec([x, y])
 }
@@ -361,6 +367,7 @@ pub fn vec2<T>(x: T, y: T) -> vec2<T> {
 #[allow(non_camel_case_types)]
 pub type vec3<T = f32> = vec<T, 3>;
 
+#[inline(always)]
 pub fn vec3<T>(x: T, y: T, z: T) -> vec3<T> {
     vec([x, y, z])
 }
@@ -368,6 +375,7 @@ pub fn vec3<T>(x: T, y: T, z: T) -> vec3<T> {
 #[allow(non_camel_case_types)]
 pub type vec4<T = f32> = vec<T, 4>;
 
+#[inline(always)]
 pub fn vec4<T>(x: T, y: T, z: T, w: T) -> vec4<T> {
     vec([x, y, z, w])
 }
@@ -375,6 +383,7 @@ pub fn vec4<T>(x: T, y: T, z: T, w: T) -> vec4<T> {
 #[allow(non_camel_case_types)]
 pub type mat2<T = f32> = mat<T, 2, 2>;
 
+#[inline(always)]
 pub fn mat2<T>(x: vec2<T>, y: vec2<T>) -> mat2<T> {
     mat([x, y])
 }
@@ -382,6 +391,7 @@ pub fn mat2<T>(x: vec2<T>, y: vec2<T>) -> mat2<T> {
 #[allow(non_camel_case_types)]
 pub type mat3<T = f32> = mat<T, 3, 3>;
 
+#[inline(always)]
 pub fn mat3<T>(x: vec3<T>, y: vec3<T>, z: vec3<T>) -> mat3<T> {
     mat([x, y, z])
 }
@@ -389,6 +399,7 @@ pub fn mat3<T>(x: vec3<T>, y: vec3<T>, z: vec3<T>) -> mat3<T> {
 #[allow(non_camel_case_types)]
 pub type mat4<T = f32> = mat<T, 4, 4>;
 
+#[inline(always)]
 pub fn mat4<T>(x: vec4<T>, y: vec4<T>, z: vec4<T>, w: vec4<T>) -> mat4<T> {
     mat([x, y, z, w])
 }
@@ -396,6 +407,7 @@ pub fn mat4<T>(x: vec4<T>, y: vec4<T>, z: vec4<T>, w: vec4<T>) -> mat4<T> {
 #[allow(non_camel_case_types)]
 pub type mat2x2<T = f32> = mat<T, 2, 2>;
 
+#[inline(always)]
 pub fn mat2x2<T>(x: vec2<T>, y: vec2<T>) -> mat2x2<T> {
     mat([x, y])
 }
@@ -403,6 +415,7 @@ pub fn mat2x2<T>(x: vec2<T>, y: vec2<T>) -> mat2x2<T> {
 #[allow(non_camel_case_types)]
 pub type mat2x3<T = f32> = mat<T, 2, 3>;
 
+#[inline(always)]
 pub fn mat2x3<T>(x: vec3<T>, y: vec3<T>) -> mat2x3<T> {
     mat([x, y])
 }
@@ -410,6 +423,7 @@ pub fn mat2x3<T>(x: vec3<T>, y: vec3<T>) -> mat2x3<T> {
 #[allow(non_camel_case_types)]
 pub type mat2x4<T = f32> = mat<T, 2, 4>;
 
+#[inline(always)]
 pub fn mat2x4<T>(x: vec4<T>, y: vec4<T>) -> mat2x4<T> {
     mat([x, y])
 }
@@ -417,6 +431,7 @@ pub fn mat2x4<T>(x: vec4<T>, y: vec4<T>) -> mat2x4<T> {
 #[allow(non_camel_case_types)]
 pub type mat3x2<T = f32> = mat<T, 3, 2>;
 
+#[inline(always)]
 pub fn mat3x2<T>(x: vec2<T>, y: vec2<T>, z: vec2<T>) -> mat3x2<T> {
     mat([x, y, z])
 }
@@ -424,6 +439,7 @@ pub fn mat3x2<T>(x: vec2<T>, y: vec2<T>, z: vec2<T>) -> mat3x2<T> {
 #[allow(non_camel_case_types)]
 pub type mat3x3<T = f32> = mat<T, 3, 3>;
 
+#[inline(always)]
 pub fn mat3x3<T>(x: vec3<T>, y: vec3<T>, z: vec3<T>) -> mat3x3<T> {
     mat([x, y, z])
 }
@@ -431,6 +447,7 @@ pub fn mat3x3<T>(x: vec3<T>, y: vec3<T>, z: vec3<T>) -> mat3x3<T> {
 #[allow(non_camel_case_types)]
 pub type mat3x4<T = f32> = mat<T, 3, 4>;
 
+#[inline(always)]
 pub fn mat3x4<T>(x: vec4<T>, y: vec4<T>, z: vec4<T>) -> mat3x4<T> {
     mat([x, y, z])
 }
@@ -438,6 +455,7 @@ pub fn mat3x4<T>(x: vec4<T>, y: vec4<T>, z: vec4<T>) -> mat3x4<T> {
 #[allow(non_camel_case_types)]
 pub type mat4x2<T = f32> = mat<T, 4, 2>;
 
+#[inline(always)]
 pub fn mat4x2<T>(x: vec2<T>, y: vec2<T>, z: vec2<T>, w: vec2<T>) -> mat4x2<T> {
     mat([x, y, z, w])
 }
@@ -445,6 +463,7 @@ pub fn mat4x2<T>(x: vec2<T>, y: vec2<T>, z: vec2<T>, w: vec2<T>) -> mat4x2<T> {
 #[allow(non_camel_case_types)]
 pub type mat4x3<T = f32> = mat<T, 4, 3>;
 
+#[inline(always)]
 pub fn mat4x3<T>(x: vec3<T>, y: vec3<T>, z: vec3<T>, w: vec3<T>) -> mat4x3<T> {
     mat([x, y, z, w])
 }
@@ -452,6 +471,7 @@ pub fn mat4x3<T>(x: vec3<T>, y: vec3<T>, z: vec3<T>, w: vec3<T>) -> mat4x3<T> {
 #[allow(non_camel_case_types)]
 pub type mat4x4<T = f32> = mat<T, 4, 4>;
 
+#[inline(always)]
 pub fn mat4x4<T>(x: vec4<T>, y: vec4<T>, z: vec4<T>, w: vec4<T>) -> mat4x4<T> {
     mat([x, y, z, w])
 }
@@ -539,7 +559,7 @@ where
     type Repr = [T::ScalarRepr; 2];
     type ArrayRepr = [T::ScalarRepr; 2];
 
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn as_repr(&self) -> Self::Repr {
         self.0.as_repr()
     }
@@ -554,12 +574,12 @@ where
     type Repr = [T::ScalarRepr; 3];
     type ArrayRepr = [T::ScalarRepr; 4];
 
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn as_repr(&self) -> Self::Repr {
         self.0.as_repr()
     }
 
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn make_array_repr(&self) -> [T::ScalarRepr; 4] {
         let [a, b, c] = self.0.as_repr();
         [a, b, c, Zeroable::zeroed()]
@@ -575,7 +595,7 @@ where
     type Repr = [T::ScalarRepr; 4];
     type ArrayRepr = [T::ScalarRepr; 4];
 
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn as_repr(&self) -> Self::Repr {
         self.0.as_repr()
     }
@@ -590,7 +610,7 @@ where
     type Repr = [<vec<T, M> as DeviceRepr>::ArrayRepr; 2];
     type ArrayRepr = [<vec<T, M> as DeviceRepr>::ArrayRepr; 2];
 
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn as_repr(&self) -> Self::Repr {
         self.0.as_repr()
     }
@@ -605,7 +625,7 @@ where
     type Repr = [<vec<T, M> as DeviceRepr>::ArrayRepr; 3];
     type ArrayRepr = [<vec<T, M> as DeviceRepr>::ArrayRepr; 3];
 
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn as_repr(&self) -> Self::Repr {
         self.0.as_repr()
     }
@@ -620,7 +640,7 @@ where
     type Repr = [<vec<T, M> as DeviceRepr>::ArrayRepr; 4];
     type ArrayRepr = [<vec<T, M> as DeviceRepr>::ArrayRepr; 4];
 
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn as_repr(&self) -> Self::Repr {
         self.0.as_repr()
     }

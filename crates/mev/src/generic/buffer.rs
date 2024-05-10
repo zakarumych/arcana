@@ -63,7 +63,7 @@ pub trait BufferIndex {
 }
 
 impl BufferIndex for Range<usize> {
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn range(self, size: usize) -> Range<usize> {
         debug_assert!(self.end <= size, "buffer range out of bounds");
         let end = self.end.min(size);
@@ -73,7 +73,7 @@ impl BufferIndex for Range<usize> {
 }
 
 impl BufferIndex for RangeFrom<usize> {
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn range(self, size: usize) -> Range<usize> {
         debug_assert!(self.start <= size, "buffer range out of bounds");
         let start = self.start.min(size);
@@ -82,7 +82,7 @@ impl BufferIndex for RangeFrom<usize> {
 }
 
 impl BufferIndex for RangeTo<usize> {
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn range(self, size: usize) -> Range<usize> {
         debug_assert!(self.end <= size, "buffer range out of bounds");
         let end = self.end.min(size);
@@ -91,7 +91,7 @@ impl BufferIndex for RangeTo<usize> {
 }
 
 impl BufferIndex for RangeFull {
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn range(self, size: usize) -> Range<usize> {
         0..size
     }
@@ -105,26 +105,31 @@ pub struct BufferSlice<'a> {
 }
 
 impl PartialEq<Buffer> for BufferSlice<'_> {
+    #[inline(always)]
     fn eq(&self, other: &Buffer) -> bool {
         *self.buffer == *other && self.offset == 0 && self.size == other.size()
     }
 }
 
 impl PartialEq<BufferSlice<'_>> for Buffer {
+    #[inline(always)]
     fn eq(&self, other: &BufferSlice) -> bool {
         *self == *other.buffer && other.offset == 0 && other.size == self.size()
     }
 }
 
 impl BufferSlice<'_> {
+    #[inline(always)]
     pub fn buffer(&self) -> &Buffer {
         self.buffer
     }
 
+    #[inline(always)]
     pub fn offset(&self) -> usize {
         self.offset
     }
 
+    #[inline(always)]
     pub fn size(&self) -> usize {
         self.size
     }
@@ -132,7 +137,7 @@ impl BufferSlice<'_> {
 
 impl Buffer {
     /// Returns range of the buffer.
-    #[cfg_attr(inline_more, inline)]
+    #[inline(always)]
     pub fn slice<R>(&self, range: R) -> BufferSlice
     where
         R: BufferIndex,
@@ -146,7 +151,7 @@ impl Buffer {
     }
 
     /// Returns range of the buffer.
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     pub fn split_at(&self, at: usize) -> (BufferSlice, BufferSlice) {
         let size = self.size();
         debug_assert!(at <= size);
@@ -169,7 +174,7 @@ impl Buffer {
 
 impl<'a> BufferSlice<'a> {
     /// Returns sub-range of the buffer range.
-    #[cfg_attr(inline_more, inline)]
+    #[inline(always)]
     pub fn slice<R>(self, range: R) -> BufferSlice<'a>
     where
         R: BufferIndex,
@@ -183,7 +188,7 @@ impl<'a> BufferSlice<'a> {
     }
 
     /// Returns range of the buffer.
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     pub fn split_at(&self, at: usize) -> (BufferSlice<'a>, BufferSlice<'a>) {
         let size = self.size();
         debug_assert!(at <= size);
@@ -206,7 +211,7 @@ impl<'a> BufferSlice<'a> {
 }
 
 impl<'a> From<&'a Buffer> for BufferSlice<'a> {
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn from(buffer: &'a Buffer) -> Self {
         BufferSlice {
             offset: 0,
@@ -222,14 +227,14 @@ pub trait AsBufferSlice {
 }
 
 impl AsBufferSlice for BufferSlice<'_> {
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn as_buffer_slice(&self) -> BufferSlice {
         *self
     }
 }
 
 impl AsBufferSlice for Buffer {
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn as_buffer_slice(&self) -> BufferSlice {
         BufferSlice {
             offset: 0,
@@ -243,7 +248,7 @@ impl<B> AsBufferSlice for &B
 where
     B: AsBufferSlice,
 {
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn as_buffer_slice(&self) -> BufferSlice {
         (*self).as_buffer_slice()
     }

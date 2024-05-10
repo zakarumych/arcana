@@ -85,14 +85,14 @@ impl DeviceError {
 }
 
 impl From<OutOfMemory> for DeviceError {
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn from(_: OutOfMemory) -> Self {
         DeviceError::OutOfMemory
     }
 }
 
 impl fmt::Debug for DeviceError {
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             DeviceError::OutOfMemory => write!(f, "DeviceError::OutOfMemory"),
@@ -102,7 +102,7 @@ impl fmt::Debug for DeviceError {
 }
 
 impl fmt::Display for DeviceError {
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             DeviceError::OutOfMemory => write!(f, "out of memory"),

@@ -6,14 +6,17 @@ use std::{
 use foreign_types::ForeignType;
 use metal::MTLTextureType;
 
-use crate::generic::{
-    ArgumentKind, Automatic, ComponentSwizzle, Extent1, Extent2, Extent3, ImageExtent, OutOfMemory,
-    PixelFormat, Sampled, Storage, Swizzle, ViewDesc,
+use crate::{
+    generic::{
+        ArgumentKind, Automatic, ComponentSwizzle, Extent1, Extent2, Extent3, ImageExtent,
+        OutOfMemory, PixelFormat, Sampled, Storage, Swizzle, ViewDesc,
+    },
+    ImageUsage,
 };
 
 use super::{
     arguments::ArgumentsField,
-    from::{TryIntoMetal, TryMetalInto},
+    from::{MetalInto, TryIntoMetal, TryMetalInto},
     Device,
 };
 
@@ -85,6 +88,10 @@ impl crate::traits::Image for Image {
 
     fn levels(&self) -> u32 {
         self.texture.mipmap_level_count() as u32
+    }
+
+    fn usage(&self) -> ImageUsage {
+        self.texture.usage().metal_into()
     }
 
     fn view(&self, _device: &Device, desc: ViewDesc) -> Result<Image, OutOfMemory> {

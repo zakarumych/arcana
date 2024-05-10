@@ -38,7 +38,7 @@ impl Stid {
 macro_rules! with_stid {
     ($ty:ty = $stid:literal) => {
         impl $crate::stid::WithStid for $ty {
-            #[cfg_attr(inline_more, inline(always))]
+            #[inline(always)]
             fn stid() -> $crate::stid::Stid {
                 const VALUE: u64 = {
                     let v = $stid;
@@ -48,7 +48,7 @@ macro_rules! with_stid {
                 $crate::stid::Stid::new(unsafe { ::core::num::NonZeroU64::new_unchecked(VALUE) })
             }
 
-            #[cfg_attr(inline_more, inline(always))]
+            #[inline(always)]
             fn stid_dyn(&self) -> $crate::stid::Stid {
                 Self::stid()
             }

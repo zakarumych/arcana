@@ -16,3 +16,10 @@ description = ""
 
 [plugins.dependency]
 path = "/Users/romanbarykin/code/nothing/crates/plugins/dummy"
+
+[[plugins]]
+name = "square"
+description = ""
+
+[plugins.dependency]
+path = "/Users/romanbarykin/code/nothing/crates/plugins/square"

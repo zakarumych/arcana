@@ -39,7 +39,7 @@ pub struct Image2DInfo {
 }
 
 impl Image2DInfo {
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     pub fn from_image(image: &mev::Image) -> Self {
         Image2DInfo {
             extent: image.dimensions().expect_2d(),
