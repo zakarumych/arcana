@@ -494,11 +494,13 @@ impl crate::traits::CopyCommandEncoder for CopyCommandEncoder<'_> {
     fn copy_image_region(
         &mut self,
         src: &Image,
-        src_offset: Offset3<u32>,
+        src_level: u32,
         src_base_layer: u32,
+        src_offset: Offset3<u32>,
         dst: &Image,
-        dst_offset: Offset3<u32>,
+        dst_level: u32,
         dst_base_layer: u32,
+        dst_offset: Offset3<u32>,
         extent: Extent3<u32>,
         layers: u32,
     ) {

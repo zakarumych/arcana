@@ -57,7 +57,7 @@ flume = "0.11"
 figa = { version = "0.3" }
 foreign-types = { version = "0.5" }
 futures = "0.3"
-gametime = "0.4"
+gametime = "0.4.1"
 # gametime = { path = "../../gametime" }
 gilrs = { version = "0.10" }
 gpu-alloc = { version = "0.6" }
@@ -76,9 +76,11 @@ percent-encoding = "2.3"
 proc-macro2 = "1"
 rand = "0.8"
 rapid-qoi = "0.6"
-rapier2d = "0.18"
+rapier2d = "0.19"
+rapier3d = "0.19"
 proc-easy = "0.3"
-parry2d = "0.13"
+parry2d = "0.15"
+parry3d = "0.15"
 quote = "1"
 raw-window-handle = "0.6"
 relevant = "0.4"

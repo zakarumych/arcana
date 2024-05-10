@@ -17,6 +17,47 @@ use egui::vec2;
 use egui_file::FileDialog;
 use winit::{event::WindowEvent, event_loop::ControlFlow, window::Window};
 
+fn main() {
+    use tracing_subscriber::layer::SubscriberExt as _;
+
+    if let Err(err) = tracing::subscriber::set_global_default(
+        tracing_subscriber::fmt()
+            // .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .finish()
+            .with(tracing_error::ErrorLayer::default()),
+    ) {
+        panic!("Failed to install tracing subscriber: {}", err);
+    }
+
+    let events = EventLoop::with_user_event().build().unwrap();
+    let mut app = App::new(&events);
+    let mut clock = Clock::new();
+    let mut limiter = clock.ticker(60.hz());
+
+    events
+        .run(move |event, el| {
+            let step = clock.step();
+            limiter.ticks(step.step);
+
+            app.on_event(event);
+            app.tick(step);
+
+            if app.should_quit() {
+                el.exit();
+                return;
+            }
+
+            let next = limiter.next_tick().unwrap();
+            let until = clock.stamp_instant(next);
+            let now = clock.stamp_instant(clock.now());
+
+            assert!(until - now < Duration::from_millis(100));
+
+            el.set_control_flow(ControlFlow::WaitUntil(until));
+        })
+        .unwrap();
+}
+
 pub enum UserEvent {}
 
 pub type Event = winit::event::Event<UserEvent>;
@@ -360,7 +401,9 @@ impl App {
                                                 ));
 
                                                 ui.vertical(|ui| {
-                                                    ui.label(format!("cannot open project. {err:?}"));
+                                                    ui.label(format!(
+                                                        "cannot open project. {err:?}"
+                                                    ));
                                                     ui.label(path.display().to_string());
                                                 });
                                                 let r = ui.button(egui_phosphor::regular::X);
@@ -552,47 +595,6 @@ impl App {
     fn should_quit(&self) -> bool {
         self.should_quit
     }
-}
-
-fn main() {
-    use tracing_subscriber::layer::SubscriberExt as _;
-
-    if let Err(err) = tracing::subscriber::set_global_default(
-        tracing_subscriber::fmt()
-            // .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-            .finish()
-            .with(tracing_error::ErrorLayer::default()),
-    ) {
-        panic!("Failed to install tracing subscriber: {}", err);
-    }
-
-    let events = EventLoop::with_user_event().build().unwrap();
-    let mut app = App::new(&events);
-    let mut clock = Clock::new();
-    let mut limiter = clock.ticker(60.hz());
-
-    events
-        .run(move |event, el| {
-            let step = clock.step();
-            limiter.ticks(step.step);
-
-            app.on_event(event);
-            app.tick(step);
-
-            if app.should_quit() {
-                el.exit();
-                return;
-            }
-
-            let next = limiter.next_tick().unwrap();
-            let until = clock.stamp_instant(next);
-            let now = clock.stamp_instant(clock.now());
-
-            assert!(until - now < Duration::from_millis(100));
-
-            el.set_control_flow(ControlFlow::WaitUntil(until));
-        })
-        .unwrap();
 }
 
 enum NewProjectDialog {
