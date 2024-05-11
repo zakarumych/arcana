@@ -397,6 +397,7 @@ impl Plugins {
                                             &name,
                                             &path,
                                             project.engine().clone(),
+                                            Some(project.root_path()),
                                         ) {
                                             Ok(plugin) => match project.add_plugin(plugin) {
                                                 Ok(true) => {

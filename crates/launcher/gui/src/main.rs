@@ -1,4 +1,4 @@
-use std::{process::Child, time::Duration};
+use std::{path::PathBuf, process::Child, time::Duration};
 
 use arcana::{
     blink_alloc::BlinkAlloc,
@@ -15,6 +15,7 @@ use arcana_egui::{Egui, EguiRender};
 use arcana_launcher::Start;
 use egui::vec2;
 use egui_file::FileDialog;
+use hashbrown::HashMap;
 use winit::{event::WindowEvent, event_loop::ControlFlow, window::Window};
 
 fn main() {
@@ -96,7 +97,7 @@ enum AppDialog {
 }
 
 enum AppChild {
-    EditorBuilding(Child, Project),
+    EditorBuilding(Child, PathBuf),
     EditorRunning(Child),
 }
 
@@ -113,6 +114,7 @@ pub struct App {
     blink: BlinkAlloc,
     start: Start,
     profile: Profile,
+    recent: HashMap<PathBuf, Result<Project, miette::Report>>,
 
     /// Open dialog.
     dialog: Option<AppDialog>,
@@ -169,6 +171,7 @@ impl App {
             blink: BlinkAlloc::new(),
             start: Start::new(),
             profile: Profile::Debug,
+            recent: HashMap::new(),
 
             dialog: None,
             child: None,
@@ -222,7 +225,9 @@ impl App {
                 Ok(Some(status)) => {
                     if status.success() {
                         match self.child.take() {
-                            Some(AppChild::EditorBuilding(_, project)) => {
+                            Some(AppChild::EditorBuilding(_, path)) => {
+                                let project = self.recent.get(&path).unwrap().as_ref().unwrap();
+
                                 match project.run_editor_non_blocking(self.profile) {
                                     Err(err) => {
                                         self.dialog = Some(AppDialog::Error(ErrorDialog {
@@ -280,7 +285,7 @@ impl App {
 
         enum Action {
             Quit,
-            RunEditor(Project),
+            RunEditor(PathBuf),
         }
 
         let mut action = None;
@@ -362,7 +367,9 @@ impl App {
                 });
             });
 
+            let mut add_recent = None;
             let mut remove_recent = None;
+
             egui::CentralPanel::default().show(cx, |ui| {
                 ui.set_enabled(self.dialog.is_none());
 
@@ -387,7 +394,14 @@ impl App {
                 } else {
                     ui.vertical(|ui| {
                         for path in recent {
-                            match Project::open(&path) {
+                            let result = match self.recent.entry(path.to_owned()) {
+                                hashbrown::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+                                hashbrown::hash_map::Entry::Vacant(entry) => {
+                                    entry.insert(Project::open(&path))
+                                }
+                            };
+
+                            match result {
                                 Err(err) => {
                                     egui::Frame::group(ui.style())
                                         .stroke(egui::Stroke::new(1.0, egui::Color32::DARK_RED))
@@ -419,6 +433,8 @@ impl App {
                                         });
                                 }
                                 Ok(project) => {
+                                    add_recent = Some(path.to_owned());
+
                                     egui::Frame::group(ui.style()).show(ui, |ui| {
                                         ui.horizontal(|ui| {
                                             let r = ui.add(egui::Button::new(
@@ -434,7 +450,7 @@ impl App {
                                             });
 
                                             if r.clicked() {
-                                                action = Some(Action::RunEditor(project));
+                                                action = Some(Action::RunEditor(path.to_owned()));
                                             } else {
                                                 r.on_hover_ui(|ui| {
                                                     ui.label("Open this project");
@@ -457,6 +473,10 @@ impl App {
                     });
                 }
             });
+
+            if let Some(path) = add_recent {
+                self.start.add_recent(path);
+            }
 
             if let Some(path) = remove_recent {
                 self.start.remove_recent(&path);
@@ -481,18 +501,27 @@ impl App {
                                 None => {
                                     self.dialog = None;
                                 }
-                                Some(path) => match Project::open(path) {
-                                    Err(err) => {
-                                        self.dialog = Some(AppDialog::Error(ErrorDialog {
-                                            title: "Failed to open project".to_owned(),
-                                            message: err.to_string(),
-                                        }));
+                                Some(path) => {
+                                    let result = Project::open(path);
+                                    let result = self
+                                        .recent
+                                        .entry(path.to_owned())
+                                        .insert(result)
+                                        .into_mut();
+
+                                    match result {
+                                        Err(err) => {
+                                            self.dialog = Some(AppDialog::Error(ErrorDialog {
+                                                title: "Failed to open project".to_owned(),
+                                                message: err.to_string(),
+                                            }));
+                                        }
+                                        Ok(project) => {
+                                            action = Some(Action::RunEditor(path.to_owned()));
+                                            self.dialog = None;
+                                        }
                                     }
-                                    Ok(project) => {
-                                        action = Some(Action::RunEditor(project));
-                                        self.dialog = None;
-                                    }
-                                },
+                                }
                             },
                         }
                     }
@@ -529,9 +558,13 @@ impl App {
                                 window.request_redraw();
                             }
                             Some(Some(project)) => {
+                                let path = project.root_path().to_owned();
+                                self.recent.insert(path.clone(), Ok(project));
+                                self.start.add_recent(path.clone());
+
                                 self.dialog = None;
                                 window.request_redraw();
-                                action = Some(Action::RunEditor(project));
+                                action = Some(Action::RunEditor(path));
                             }
                         }
                     }
@@ -562,8 +595,8 @@ impl App {
                 drop(egui);
                 self.should_quit = true;
             }
-            Some(Action::RunEditor(project)) => {
-                self.start.add_recent(project.root_path().to_owned());
+            Some(Action::RunEditor(path)) => {
+                let project = self.recent.get(&path).unwrap().as_ref().unwrap();
 
                 match project.build_editor_non_blocking(self.profile) {
                     Err(err) => {
@@ -573,7 +606,7 @@ impl App {
                         }));
                     }
                     Ok(child) => {
-                        self.child = Some(AppChild::EditorBuilding(child, project));
+                        self.child = Some(AppChild::EditorBuilding(child, path));
                     }
                 };
             }

@@ -182,7 +182,8 @@ impl Start {
                 miette::bail!("Plugin path is not UTF-8: {}", path.display());
             }
         };
-        new_plugin_crate(&name, &path, engine)
+
+        new_plugin_crate(&name, &path, engine, None)
     }
 
     pub fn build_game(&self, path: &Path, profile: Profile) -> miette::Result<PathBuf> {
@@ -198,7 +199,7 @@ impl Start {
     }
 
     pub fn recent<'a>(&'a self) -> impl ExactSizeIterator<Item = &'a Path> + 'a {
-        self.config.recent.iter().rev().map(|p| &**p)
+        self.config.recent.iter().rev().map(AsRef::as_ref)
     }
 
     pub fn add_engine(&mut self, engine: Dependency) {

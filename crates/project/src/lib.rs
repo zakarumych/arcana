@@ -25,7 +25,7 @@ mod wrapper;
 use generator::init_workspace;
 use manifest::serialize_manifest;
 use miette::{Context, IntoDiagnostic};
-use path::normalizing_join;
+use path::{normalized_path, normalizing_join};
 
 pub use self::{
     dependency::Dependency,
@@ -437,7 +437,7 @@ impl Project {
         }
     }
 
-    pub fn run_editor_non_blocking(self, profile: Profile) -> miette::Result<Child> {
+    pub fn run_editor_non_blocking(&self, profile: Profile) -> miette::Result<Child> {
         self.init_workspace()?;
         match wrapper::run_editor(&self.root_path, profile).spawn() {
             Ok(child) => Ok(child),
