@@ -13,4 +13,4 @@ input = { path = "../input" }
 camera = { path = "../camera" }
 motion = { path = "../motion", features = ["dim2"] }
 cursor = { path = "../cursor" }
-rand = { workspace = true }
+rand.workspace = true

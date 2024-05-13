@@ -10,29 +10,31 @@ description = "Arcana Engine Editor"
 [dependencies]
 arcana = { path = "../arcana", features = ["dynamic"] }
 arcana-egui = { path = "../plugins/egui" }
-bincode = { workspace = true }
-camino = { workspace = true }
-dirs = { workspace = true }
-egui = { workspace = true }
-egui_dnd = { workspace = true }
+bincode.workspace = true
+camino.workspace = true
+cint.workspace = true
+dirs.workspace = true
+egui.workspace = true
+egui_dnd.workspace = true
 egui_dock = { workspace = true, features = ["serde"] }
-egui_file = { workspace = true }
-egui-phosphor = { workspace = true }
+egui_file.workspace = true
+egui-phosphor.workspace = true
+egui-probe.workspace = true
 egui-snarl = { workspace = true, features = ["serde"] }
-egui_tracing = { workspace = true }
-hashbrown = { workspace = true }
-libloading = { workspace = true }
+egui_tracing.workspace = true
+hashbrown.workspace = true
+libloading.workspace = true
 miette = { workspace = true, features = ["fancy"] }
-nucleo = { workspace = true }
-palette = { workspace = true }
-parking_lot = { workspace = true }
-rand = { workspace = true }
-relevant = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-serde-nothing = { workspace = true }
-thiserror = { workspace = true }
-tracing = { workspace = true }
-tracing-error = { workspace = true }
-tracing-subscriber = { workspace = true }
+nucleo.workspace = true
+palette.workspace = true
+parking_lot.workspace = true
+rand.workspace = true
+relevant.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde-nothing.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-error.workspace = true
+tracing-subscriber.workspace = true
 winit = { workspace = true, features = ["serde"] }

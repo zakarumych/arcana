@@ -11,7 +11,7 @@ use crate::work::{Job, JobDesc, JobId};
 make_id!(pub SystemId);
 
 /// System information declared by a plugin.
-#[derive(Clone, Hash)]
+#[derive(Clone)]
 pub struct SystemInfo {
     /// Unique identified of the system.
     pub id: SystemId,
@@ -21,7 +21,7 @@ pub struct SystemInfo {
 }
 
 /// Filter information declared by a plugin.
-#[derive(Clone, Hash)]
+#[derive(Clone)]
 pub struct FilterInfo {
     /// Unique identified of the filter.
     pub id: FilterId,
@@ -31,7 +31,7 @@ pub struct FilterInfo {
 }
 
 /// Job information declared by a plugin.
-#[derive(Clone, Hash)]
+#[derive(Clone)]
 pub struct JobInfo {
     /// Unique identified of the job.
     pub id: JobId,

@@ -9,6 +9,6 @@ publish = false
 
 [dependencies]
 arcana = { path = "../../arcana" }
-egui = { workspace = true }
-hashbrown = { workspace = true }
-egui-phosphor = { workspace = true }
+egui.workspace = true
+hashbrown.workspace = true
+egui-phosphor.workspace = true

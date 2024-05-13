@@ -14,8 +14,8 @@ dim3 = ["scene/dim3", "dep:rapier3d"]
 arcana = { path = "../../arcana" }
 scene = { path = "../scene" }
 
-bitflags = { workspace = true }
+bitflags.workspace = true
 rapier2d = { workspace = true, optional = true }
 rapier3d = { workspace = true, optional = true }
-na = { workspace = true }
-amity = { workspace = true }
+na.workspace = true
+amity.workspace = true

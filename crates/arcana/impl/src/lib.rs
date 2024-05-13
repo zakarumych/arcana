@@ -54,7 +54,7 @@ pub use {
     bytemuck,
     edict::{self, prelude::*},
     gametime::{self, Clock, ClockStep, Frequency, FrequencyTicker, FrequencyTickerIter},
-    na, parking_lot, tokio,
+    hashbrown, na, parking_lot, tokio,
 };
 
 pub use mev;
@@ -66,6 +66,7 @@ pub mod events;
 pub mod flow;
 // pub mod game;
 pub mod id;
+pub mod model;
 mod num2name;
 pub mod plugin;
 pub mod render;

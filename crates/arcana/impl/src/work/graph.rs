@@ -3,7 +3,9 @@ use std::cell::{Cell, RefCell};
 use edict::World;
 use hashbrown::{hash_map::Entry, HashMap, HashSet};
 
-use crate::{arena::Arena, id::IdGen, plugin::PluginsHub, Stid};
+use crate::{
+    arena::Arena, id::IdGen, model::Value, plugin::PluginsHub, work::job::invalid_output_pin, Stid,
+};
 
 use super::{
     job::{JobDesc, JobId},
@@ -12,8 +14,7 @@ use super::{
 
 pub struct WorkGraph {
     // Constant state
-    plan: Vec<(JobId, JobNode)>,
-    job_order: HashMap<JobId, usize>,
+    plan: Vec<JobNode>,
 
     // Mutable state
     hub: TargetHub,
@@ -21,15 +22,15 @@ pub struct WorkGraph {
     sinks: HashMap<PinId, TargetId>,
 
     // Temporary state
-    selected_jobs: HashSet<JobId>,
-
+    // Cleared after each run.
+    selected_jobs: HashSet<usize>,
     cbufs: Arena<mev::CommandEncoder>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PinId {
-    pub job: JobId,
-    pub idx: usize,
+    pub job: usize,
+    pub pin: usize,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -42,43 +43,44 @@ pub struct Edge {
 pub struct Cycle;
 
 impl WorkGraph {
-    /// Build work-graph from list of jobs descs and edges.
-    pub fn new(mut jobs: HashMap<JobId, JobDesc>, edges: HashSet<Edge>) -> Result<Self, Cycle> {
+    /// Build work-graph from list of jobs and edges.
+    pub fn new(
+        mut jobs: Vec<(JobId, JobDesc, HashMap<String, Value>)>,
+        edges: HashSet<Edge>,
+    ) -> Result<Self, Cycle> {
         // Unfold graph into a queue.
         // This queue must have dependencies-first order.
         // If dependency cycle is detected, return error.
 
-        let mut enqueued = HashSet::<JobId>::new();
-        let mut pending = HashSet::<JobId>::new();
-        let mut stack = jobs.keys().copied().collect::<Vec<_>>();
+        let mut enqueued = HashSet::<usize>::new();
+        let mut pending = HashSet::<usize>::new();
+        let mut stack = (0..jobs.len()).collect::<Vec<_>>();
         let mut queue = Vec::new();
 
-        while let Some(job_id) = stack.pop() {
-            if enqueued.contains(&job_id) {
-                continue;
-            }
+        while let Some(job_idx) = stack.pop() {
+            assert!(!enqueued.contains(&job_idx));
 
             let mut deferred = false;
 
-            for edge in edges.iter().filter(|e| e.to.job == job_id) {
+            for edge in edges.iter().filter(|e| e.to.job == job_idx) {
                 let dep_idx = edge.from.job;
                 if enqueued.contains(&dep_idx) {
                     continue;
                 }
                 if pending.contains(&dep_idx) {
-                    panic!("Cyclic dependency detected");
+                    return Err(Cycle);
                 }
                 if !deferred {
-                    pending.insert(job_id);
-                    stack.push(job_id);
+                    pending.insert(job_idx);
+                    stack.push(job_idx);
                     deferred = true;
                 }
                 stack.push(dep_idx);
             }
 
             if !deferred {
-                enqueued.insert(job_id);
-                queue.push(job_id);
+                enqueued.insert(job_idx);
+                queue.push(job_idx);
             }
         }
 
@@ -89,11 +91,14 @@ impl WorkGraph {
         let mut output_targets = HashMap::<PinId, TargetId>::new();
         let mut input_targets = HashMap::<PinId, TargetId>::new();
 
-        for &job_id in queue.iter().rev() {
-            let job = jobs.get(&job_id).unwrap();
+        // Iterate over jobs in reverse order.
+        // Process inputs instead of outputs
+        // so unused outputs are not assigned to targets.
+        for &job_idx in queue.iter().rev() {
+            let job = &jobs[job_idx];
 
-            for edge in edges.iter().filter(|e| e.to.job == job_id) {
-                let to_pin = edge.to.idx;
+            for edge in edges.iter().filter(|e| e.to.job == job_idx) {
+                let to_pin = edge.to.pin;
 
                 // Check if output is already assigned to a target.
                 // This is possible if multiple inputs reads from the same output.
@@ -103,9 +108,10 @@ impl WorkGraph {
                     continue;
                 }
 
-                match (to_pin < job.updates.len())
-                    .then(|| output_targets.get(&edge.to))
-                    .flatten()
+                match job
+                    .1
+                    .output_update(to_pin)
+                    .and_then(|_| output_targets.get(&edge.to))
                 {
                     Some(&target) => {
                         // Target already assigned to matching output of this update pin.
@@ -122,17 +128,19 @@ impl WorkGraph {
             }
         }
 
+        // Construct execution plan.
         let mut plan = Vec::new();
 
-        let mut job_order = HashMap::<JobId, usize>::new();
-
-        for job_id in queue {
-            let job_idx = plan.len();
-            let job = jobs.remove(&job_id).unwrap();
-            let mut job = JobNode::new(job_id, job);
+        for job_idx in queue {
+            let job_id = jobs[job_idx].0;
+            let job_desc = std::mem::take(&mut jobs[job_idx].1);
+            let mut job = JobNode::new(job_id, job_desc);
 
             for (idx, u) in job.updates.iter_mut().enumerate() {
-                let pin = PinId { job: job_id, idx };
+                let pin = PinId {
+                    job: job_idx,
+                    pin: idx,
+                };
 
                 let out_id = output_targets.get(&pin).copied();
                 let in_id = input_targets.get(&pin).copied();
@@ -157,17 +165,27 @@ impl WorkGraph {
 
             for (idx, c) in job.creates.iter_mut().enumerate() {
                 let idx = idx + job.updates.len();
-                c.id = output_targets.get(&PinId { job: job_id, idx }).copied();
+                c.id = output_targets
+                    .get(&PinId {
+                        job: job_idx,
+                        pin: idx,
+                    })
+                    .copied();
             }
 
             for (idx, r) in job.reads.iter_mut().enumerate() {
                 let idx = idx + job.updates.len() + job.creates.len();
-                r.id = input_targets.get(&PinId { job: job_id, idx }).copied();
+                r.id = input_targets
+                    .get(&PinId {
+                        job: job_idx,
+                        pin: idx,
+                    })
+                    .copied();
             }
 
             // Collect dependencies for each job.
-            for edge in edges.iter().filter(|e| e.to.job == job_id) {
-                let to_pin = edge.to.idx;
+            for edge in edges.iter().filter(|e| e.to.job == job_idx) {
+                let to_pin = edge.to.pin;
 
                 if to_pin < job.updates.len() {
                     let update = &mut job.updates[to_pin];
@@ -178,13 +196,11 @@ impl WorkGraph {
                 }
             }
 
-            job_order.insert(job_id, job_idx);
-            plan.push((job_id, job));
+            plan.push(job);
         }
 
         Ok(WorkGraph {
             plan,
-            job_order,
             // edges,
             hub: TargetHub::new(),
             idgen,
@@ -198,36 +214,41 @@ impl WorkGraph {
     where
         T: Target,
     {
-        let job_idx = self.job_order[&pin.job];
-        let job = &mut self.plan[job_idx].1;
-
-        assert!(pin.idx < job.creates.len() + job.updates.len());
+        let job = &mut self.plan[pin.job];
 
         match self.sinks.entry(pin) {
             Entry::Occupied(entry) => {
-                let id = *entry.get();
+                let target_id = *entry.get();
 
-                if pin.idx < job.creates.len() {
-                    assert_eq!(job.creates[pin.idx].id, Some(id));
-                } else {
-                    assert_eq!(job.updates[pin.idx - job.creates.len()].id, Some(id));
+                match (job.output_update(pin.pin), job.output_create(pin.pin)) {
+                    (Some(idx), None) => {
+                        assert_eq!(job.creates[idx].id, Some(target_id));
+                    }
+                    (None, Some(idx)) => {
+                        assert_eq!(job.updates[idx].id, Some(target_id));
+                    }
+                    _ => invalid_output_pin(pin.pin),
                 }
 
-                self.hub.external(id, target, info);
+                self.hub.external(target_id, target, info);
             }
             Entry::Vacant(entry) => {
-                let id = self.idgen.next();
+                let target_id = self.idgen.next();
 
-                if pin.idx < job.creates.len() {
-                    assert_eq!(job.creates[pin.idx].id, None);
-                    job.creates[pin.idx].id = Some(id);
-                } else {
-                    assert_eq!(job.updates[pin.idx - job.creates.len()].id, None);
-                    job.updates[pin.idx - job.creates.len()].id = Some(id);
+                match (job.output_update(pin.pin), job.output_create(pin.pin)) {
+                    (Some(idx), None) => {
+                        assert_eq!(job.creates[idx].id, None);
+                        job.creates[idx].id = Some(target_id);
+                    }
+                    (None, Some(idx)) => {
+                        assert_eq!(job.updates[idx].id, None);
+                        job.updates[idx].id = Some(target_id);
+                    }
+                    _ => invalid_output_pin(pin.pin),
                 }
 
-                entry.insert(id);
-                self.hub.external(id, target, info);
+                entry.insert(target_id);
+                self.hub.external(target_id, target, info);
             }
         }
     }
@@ -236,20 +257,23 @@ impl WorkGraph {
     where
         T: Target,
     {
-        let job_idx = self.job_order[&pin.job];
-        let job = &mut self.plan[job_idx].1;
+        let job = &mut self.plan[pin.job];
 
-        assert!(pin.idx < job.creates.len() + job.updates.len());
+        assert!(pin.pin < job.creates.len() + job.updates.len());
 
         if let Some(id) = self.sinks.remove(&pin) {
             self.hub.clear_external::<T>(id);
 
-            if pin.idx < job.creates.len() {
-                assert_eq!(job.creates[pin.idx].id, Some(id));
-                job.creates[pin.idx].id = None;
-            } else {
-                assert_eq!(job.updates[pin.idx - job.creates.len()].id, Some(id));
-                job.updates[pin.idx - job.creates.len()].id = None;
+            match (job.output_update(pin.pin), job.output_create(pin.pin)) {
+                (Some(idx), None) => {
+                    assert_eq!(job.creates[idx].id, Some(id));
+                    job.creates[idx].id = None;
+                }
+                (None, Some(idx)) => {
+                    assert_eq!(job.updates[idx].id, Some(id));
+                    job.updates[idx].id = None;
+                }
+                _ => invalid_output_pin(pin.pin),
             }
         }
     }
@@ -270,8 +294,8 @@ impl WorkGraph {
         // Plan in reverse order.
         // This allows to collect all target descriptors before creating them.
         // And select dependencies for execution before planning loop considers them.
-        for (job_id, job) in self.plan.iter_mut().rev() {
-            if !self.selected_jobs.contains(job_id) {
+        for (job_idx, job) in self.plan.iter_mut().enumerate().rev() {
+            if !self.selected_jobs.contains(&job_idx) {
                 continue;
             }
             job.plan(
@@ -283,8 +307,8 @@ impl WorkGraph {
             );
         }
 
-        for (job_id, job) in self.plan.iter_mut() {
-            if !self.selected_jobs.contains(job_id) {
+        for (job_idx, job) in self.plan.iter_mut().enumerate() {
+            if !self.selected_jobs.contains(&job_idx) {
                 continue;
             }
             job.exec(
@@ -315,7 +339,7 @@ pub struct Planner<'a> {
     hub: &'a mut TargetHub,
 
     /// Set of selected jobs.
-    selected_jobs: &'a mut HashSet<JobId>,
+    selected_jobs: &'a mut HashSet<usize>,
 
     device: mev::Device,
 }
@@ -467,8 +491,8 @@ struct JobUpdateTarget {
     /// Assigned target id.
     id: Option<TargetId>,
 
-    /// Job ID that outputs this target.
-    dep_id: Option<JobId>,
+    /// Job index that outputs this target.
+    dep_id: Option<usize>,
 }
 
 struct JobReadTarget {
@@ -478,8 +502,8 @@ struct JobReadTarget {
     /// Assigned target id.
     id: Option<TargetId>,
 
-    /// Job ID that outputs this target.
-    dep_id: Option<JobId>,
+    /// Job index that outputs this target.
+    dep_id: Option<usize>,
 }
 
 struct JobNode {
@@ -527,7 +551,7 @@ impl JobNode {
     fn plan(
         &mut self,
         hub: &mut TargetHub,
-        selected_jobs: &mut HashSet<JobId>,
+        selected_jobs: &mut HashSet<usize>,
         device: mev::Device,
         world: &mut World,
         plugins: &mut PluginsHub,
@@ -570,6 +594,38 @@ impl JobNode {
 
         if let Some(job) = plugins.jobs.get_mut(&self.id) {
             job.exec(exec, world);
+        }
+    }
+
+    // fn input_update(&self, pin: usize) -> Option<usize> {
+    //     if pin < self.updates.len() {
+    //         Some(pin)
+    //     } else {
+    //         None
+    //     }
+    // }
+
+    // fn input_read(&self, pin: usize) -> Option<usize> {
+    //     if pin >= self.updates.len() && pin < self.updates.len() + self.reads.len() {
+    //         Some(pin - self.updates.len())
+    //     } else {
+    //         None
+    //     }
+    // }
+
+    fn output_update(&self, pin: usize) -> Option<usize> {
+        if pin < self.updates.len() {
+            Some(pin)
+        } else {
+            None
+        }
+    }
+
+    fn output_create(&self, pin: usize) -> Option<usize> {
+        if pin >= self.updates.len() && pin < self.creates.len() + self.updates.len() {
+            Some(pin - self.updates.len())
+        } else {
+            None
         }
     }
 }

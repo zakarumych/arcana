@@ -1,6 +1,7 @@
 use edict::World;
+use hashbrown::HashMap;
 
-use crate::{make_id, stid::WithStid, Stid};
+use crate::{make_id, model::Model, stid::WithStid, Stid};
 
 use super::graph::{Exec, Planner};
 
@@ -51,8 +52,11 @@ impl JobReadDesc {
 
 /// Job description.
 /// A set of targets a job creates, updates and reads.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct JobDesc {
+    /// Job configuration model.
+    pub cfg: HashMap<String, Model>,
+
     /// List of targets job reads.
     /// They are inputs of the job.
     pub reads: Vec<JobReadDesc>,
@@ -64,6 +68,70 @@ pub struct JobDesc {
     /// List of targets job creates.
     /// They are outputs of the job.
     pub creates: Vec<JobCreateDesc>,
+}
+
+impl JobDesc {
+    pub(super) fn input_update(&self, pin: usize) -> Option<usize> {
+        if pin < self.updates.len() {
+            Some(pin)
+        } else {
+            None
+        }
+    }
+
+    pub(super) fn input_read(&self, pin: usize) -> Option<usize> {
+        if pin >= self.updates.len() && pin < self.updates.len() + self.reads.len() {
+            Some(pin - self.updates.len())
+        } else {
+            None
+        }
+    }
+
+    pub(super) fn output_update(&self, pin: usize) -> Option<usize> {
+        if pin < self.updates.len() {
+            Some(pin)
+        } else {
+            None
+        }
+    }
+
+    pub(super) fn output_create(&self, pin: usize) -> Option<usize> {
+        if pin >= self.updates.len() && pin < self.creates.len() + self.updates.len() {
+            Some(pin - self.updates.len())
+        } else {
+            None
+        }
+    }
+
+    /// Returns input stable type ID by index.
+    #[track_caller]
+    pub fn input_type(&self, pin: usize) -> Stid {
+        match (self.input_update(pin), self.input_read(pin)) {
+            (Some(update), _) => self.updates[update].ty,
+            (_, Some(read)) => self.reads[read].ty,
+            _ => invalid_input_pin(pin),
+        }
+    }
+
+    /// Returns output stable type ID by index.
+    #[track_caller]
+    pub fn output_type(&self, pin: usize) -> Stid {
+        match (self.output_create(pin), self.output_update(pin)) {
+            (Some(create), _) => self.creates[create].ty,
+            (_, Some(update)) => self.updates[update].ty,
+            _ => invalid_output_pin(pin),
+        }
+    }
+
+    /// Returns output name by index.
+    #[track_caller]
+    pub fn output_name(&self, pin: usize) -> Option<&str> {
+        match (self.output_create(pin), self.output_update(pin)) {
+            (Some(create), _) => Some(&self.creates[create].name),
+            (_, Some(_)) => None,
+            _ => invalid_output_pin(pin),
+        }
+    }
 }
 
 #[doc(hidden)]
@@ -86,46 +154,22 @@ macro_rules! add_job_desc {
 
 #[macro_export]
 macro_rules! job_desc {
-    ($($descs:tt)*) => {{
+    ($(@$model:expr;)? $($descs:tt)*) => {{
         let mut reads = Vec::new();
         let mut updates = Vec::new();
         let mut creates = Vec::new();
         $crate::add_job_desc!((reads, updates, creates) $($descs)*);
         $crate::work::JobDesc {
+            cfg: {
+                let mut cfg = $crate::hashbrown::HashMap::new();
+                $(cfg.extend($model);)?
+                cfg
+            },
             reads,
             updates,
             creates,
         }
     }};
-}
-
-impl JobDesc {
-    /// Returns input stable type ID by index.
-    pub fn input_type(&self, input: usize) -> Stid {
-        if input < self.updates.len() {
-            self.updates[input].ty
-        } else {
-            self.reads[input - self.updates.len()].ty
-        }
-    }
-
-    /// Returns output stable type ID by index.
-    pub fn output_type(&self, output: usize) -> Stid {
-        if output < self.creates.len() {
-            self.creates[output].ty
-        } else {
-            self.updates[output - self.creates.len()].ty
-        }
-    }
-
-    /// Returns output name by index.
-    pub fn output_name(&self, output: usize) -> Option<&str> {
-        if output < self.creates.len() {
-            Some(&self.creates[output].name)
-        } else {
-            None
-        }
-    }
 }
 
 pub trait Job: 'static {
@@ -150,4 +194,14 @@ pub trait Job: 'static {
     /// - Binding resources
     /// - Recording draw/dispatch calls
     fn exec(&mut self, exec: Exec<'_>, world: &mut World);
+}
+
+#[track_caller]
+pub(super) fn invalid_input_pin(pin: usize) -> ! {
+    panic!("Invalid input pin index: {}", pin)
+}
+
+#[track_caller]
+pub(super) fn invalid_output_pin(pin: usize) -> ! {
+    panic!("Invalid output pin index: {}", pin)
 }

@@ -56,6 +56,7 @@ mod render;
 mod container;
 mod error;
 mod instance;
+mod model;
 mod monitor;
 mod plugins;
 mod systems;

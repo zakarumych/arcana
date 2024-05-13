@@ -1,8 +1,9 @@
 use arcana::{
     edict::world::WorldLocal,
+    model::Value,
     project::{ident, Ident, IdentBuf, Project},
     work::{Edge, Image2D, JobDesc, JobId, PinId},
-    Stid, World,
+    Stid,
 };
 use egui::Ui;
 use egui_snarl::{
@@ -25,7 +26,9 @@ impl WorkGraph {
             .snarl
             .nodes()
             .filter_map(|node| match node {
-                WorkGraphNode::Job { job, desc, .. } => Some((*job, desc.clone())),
+                WorkGraphNode::Job { job, desc, cfg, .. } => {
+                    Some((*job, desc.clone(), cfg.clone()))
+                }
                 _ => None,
             })
             .collect();
@@ -35,14 +38,17 @@ impl WorkGraph {
             .wires()
             .filter_map(|(from, to)| {
                 let from = match self.snarl.get_node(from.node) {
-                    Some(&WorkGraphNode::Job { job, .. }) => PinId {
-                        job,
-                        idx: from.output,
+                    Some(&WorkGraphNode::Job { .. }) => PinId {
+                        job: from.node.0,
+                        pin: from.output,
                     },
                     _ => return None,
                 };
                 let to = match self.snarl.get_node(to.node) {
-                    Some(&WorkGraphNode::Job { job, .. }) => PinId { job, idx: to.input },
+                    Some(&WorkGraphNode::Job { .. }) => PinId {
+                        job: to.node.0,
+                        pin: to.input,
+                    },
                     _ => return None,
                 };
                 Some(Edge { from, to })
@@ -55,10 +61,10 @@ impl WorkGraph {
     pub fn get_present(&self) -> Option<PinId> {
         for (from, to) in self.snarl.wires() {
             if let Some(WorkGraphNode::MainPresent) = self.snarl.get_node(to.node) {
-                if let Some(&WorkGraphNode::Job { job, .. }) = self.snarl.get_node(from.node) {
+                if let Some(&WorkGraphNode::Job { .. }) = self.snarl.get_node(from.node) {
                     return Some(PinId {
-                        job,
-                        idx: from.output,
+                        job: from.node.0,
+                        pin: from.output,
                     });
                 }
             }
@@ -112,6 +118,11 @@ impl Rendering {
                 job: id,
                 name: job.into_owned(),
                 plugin: plugin.to_owned(),
+                cfg: desc
+                    .cfg
+                    .iter()
+                    .map(|(k, m)| (k.clone(), m.default_value()))
+                    .collect(),
                 desc,
                 active: true,
             })
@@ -158,6 +169,7 @@ pub enum WorkGraphNode {
         name: IdentBuf,
         plugin: IdentBuf,
         desc: JobDesc,
+        cfg: HashMap<String, Value>,
         active: bool,
     },
     MainPresent,

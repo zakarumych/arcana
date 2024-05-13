@@ -14,5 +14,5 @@ dim3 = ["scene/dim3", "physics/dim3"]
 arcana = { path = "../../arcana" }
 scene = { path = "../scene" }
 physics = { path = "../physics" }
-na = { workspace = true }
-tracing = { workspace = true }
+na.workspace = true
+tracing.workspace = true
