@@ -1,9 +1,12 @@
+use std::collections::BTreeMap;
+
 use arcana::{
     edict::world::WorldLocal,
     model::Value,
-    project::{ident, Ident, IdentBuf, Project},
-    work::{Edge, Image2D, JobDesc, JobId, PinId},
-    Stid,
+    plugin::JobInfo,
+    project::Project,
+    work::{Edge, Image2D, JobDesc, JobId, JobIdx, PinId},
+    Ident, Name, Stid,
 };
 use egui::Ui;
 use egui_snarl::{
@@ -12,7 +15,7 @@ use egui_snarl::{
 };
 use hashbrown::HashMap;
 
-use crate::{container::Container, data::ProjectData, hue_hash};
+use crate::{container::Container, data::ProjectData, hue_hash, model::ValueProbe};
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 #[serde(transparent)]
@@ -24,11 +27,11 @@ impl WorkGraph {
     pub fn make_workgraph(&self) -> Result<arcana::work::WorkGraph, arcana::work::Cycle> {
         let jobs = self
             .snarl
-            .nodes()
-            .filter_map(|node| match node {
-                WorkGraphNode::Job { job, desc, cfg, .. } => {
-                    Some((*job, desc.clone(), cfg.clone()))
-                }
+            .node_ids()
+            .filter_map(|(id, node)| match node {
+                WorkGraphNode::Job {
+                    job, desc, params, ..
+                } => Some((JobIdx(id.0), (*job, desc.clone(), params.clone()))),
                 _ => None,
             })
             .collect();
@@ -39,14 +42,14 @@ impl WorkGraph {
             .filter_map(|(from, to)| {
                 let from = match self.snarl.get_node(from.node) {
                     Some(&WorkGraphNode::Job { .. }) => PinId {
-                        job: from.node.0,
+                        job: JobIdx(from.node.0),
                         pin: from.output,
                     },
                     _ => return None,
                 };
                 let to = match self.snarl.get_node(to.node) {
                     Some(&WorkGraphNode::Job { .. }) => PinId {
-                        job: to.node.0,
+                        job: JobIdx(to.node.0),
                         pin: to.input,
                     },
                     _ => return None,
@@ -63,7 +66,7 @@ impl WorkGraph {
             if let Some(WorkGraphNode::MainPresent) = self.snarl.get_node(to.node) {
                 if let Some(&WorkGraphNode::Job { .. }) = self.snarl.get_node(from.node) {
                     return Some(PinId {
-                        job: from.node.0,
+                        job: JobIdx(from.node.0),
                         pin: from.output,
                     });
                 }
@@ -74,14 +77,14 @@ impl WorkGraph {
 }
 
 pub struct Rendering {
-    available: Vec<WorkGraphNode>,
+    available: BTreeMap<Ident, Vec<JobInfo>>,
     modification: u64,
 }
 
 impl Rendering {
     pub fn new() -> Self {
         Rendering {
-            available: vec![WorkGraphNode::MainPresent],
+            available: BTreeMap::new(),
             modification: 1,
         }
     }
@@ -92,50 +95,44 @@ impl Rendering {
 
     pub fn update_plugins(&mut self, data: &mut ProjectData, container: &Container) {
         let mut all_jobs = HashMap::new();
+        self.available.clear();
 
         for (name, plugin) in container.plugins() {
+            let jobs = self.available.entry(name).or_default();
+
             for job in plugin.jobs() {
-                all_jobs.insert(job.id, (name, job.name, job.desc));
+                all_jobs.insert(job.id, job.desc.clone());
+                jobs.push(job);
             }
+
+            jobs.sort_by_key(|node| node.name);
         }
 
-        let mut main_present_available = true;
-
+        let mut add_present_node = true;
         for node in data.workgraph.snarl.nodes_mut() {
             match node {
-                WorkGraphNode::Job { job, active, .. } => {
-                    *active = all_jobs.remove(&*job).is_some()
+                WorkGraphNode::Job {
+                    job, desc, active, ..
+                } => {
+                    if let Some(job_desc) = all_jobs.remove(&*job) {
+                        *active = true;
+
+                        if *desc != job_desc {
+                            *desc = job_desc;
+                        }
+                    }
                 }
                 WorkGraphNode::MainPresent => {
-                    main_present_available = false;
+                    add_present_node = false;
                 }
             }
         }
 
-        let new_jobs = all_jobs
-            .into_iter()
-            .map(|(id, (plugin, job, desc))| WorkGraphNode::Job {
-                job: id,
-                name: job.into_owned(),
-                plugin: plugin.to_owned(),
-                cfg: desc
-                    .cfg
-                    .iter()
-                    .map(|(k, m)| (k.clone(), m.default_value()))
-                    .collect(),
-                desc,
-                active: true,
-            })
-            .collect::<Vec<_>>();
-
-        self.available = new_jobs;
-
-        if main_present_available {
-            self.available.push(WorkGraphNode::MainPresent);
+        if add_present_node {
+            data.workgraph
+                .snarl
+                .insert_node(egui::Pos2::new(0.0, 0.0), WorkGraphNode::MainPresent);
         }
-
-        self.available
-            .sort_by_cached_key(|node| node.name().to_owned());
     }
 
     pub fn show(world: &WorldLocal, ui: &mut Ui) {
@@ -166,27 +163,18 @@ impl Rendering {
 pub enum WorkGraphNode {
     Job {
         job: JobId,
-        name: IdentBuf,
-        plugin: IdentBuf,
+        name: Name,
+        plugin: Ident,
         desc: JobDesc,
-        cfg: HashMap<String, Value>,
+        params: HashMap<Name, Value>,
         active: bool,
     },
     MainPresent,
 }
 
-impl WorkGraphNode {
-    pub fn name(&self) -> &Ident {
-        match self {
-            WorkGraphNode::Job { name, .. } => name,
-            WorkGraphNode::MainPresent => ident!(Present),
-        }
-    }
-}
-
 pub struct WorkGraphViewer<'a> {
     modified: bool,
-    available: &'a mut Vec<WorkGraphNode>,
+    available: &'a mut BTreeMap<Ident, Vec<JobInfo>>,
 }
 
 impl SnarlViewer<WorkGraphNode> for WorkGraphViewer<'_> {
@@ -206,7 +194,7 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer<'_> {
         _: f32,
         snarl: &mut egui_snarl::Snarl<WorkGraphNode>,
     ) {
-        let remove;
+        let mut remove = false;
 
         match snarl[id] {
             WorkGraphNode::Job {
@@ -214,43 +202,38 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer<'_> {
                 ref plugin,
                 ..
             } => {
-                ui.label(name.as_str());
-                ui.weak(egui_phosphor::regular::AT);
-                ui.label(plugin.as_str());
+                ui.vertical(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(name.as_str());
+                        ui.weak(egui_phosphor::regular::AT);
+                        ui.label(plugin.as_str());
 
-                let r = ui.small_button(egui_phosphor::regular::TRASH_SIMPLE);
+                        let r = ui.small_button(egui_phosphor::regular::TRASH_SIMPLE);
 
-                remove = r.clicked();
+                        remove = r.clicked();
 
-                r.on_hover_ui(|ui| {
-                    ui.label("Remove job from graph");
+                        r.on_hover_ui(|ui| {
+                            ui.label("Remove job from graph");
+                        });
+                    });
                 });
             }
             WorkGraphNode::MainPresent => {
                 ui.label("Present");
-
-                let r = ui.small_button(egui_phosphor::regular::TRASH_SIMPLE);
-
-                remove = r.clicked();
-
-                r.on_hover_ui(|ui| {
-                    ui.label("Remove present from graph");
-                });
             }
         }
 
         if remove {
-            let node = snarl.remove_node(id);
-            self.available.push(node);
-            self.available
-                .sort_by_cached_key(|node| node.name().to_owned());
+            snarl.remove_node(id);
             self.modified = true;
         }
     }
 
     fn inputs(&mut self, node: &WorkGraphNode) -> usize {
         match *node {
-            WorkGraphNode::Job { ref desc, .. } => desc.updates.len() + desc.reads.len(),
+            WorkGraphNode::Job { ref desc, .. } => {
+                desc.updates.len() + desc.reads.len() + desc.params.len()
+            }
             WorkGraphNode::MainPresent => 1,
         }
     }
@@ -270,18 +253,40 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer<'_> {
         snarl: &mut Snarl<WorkGraphNode>,
     ) -> PinInfo {
         match snarl[pin.id.node] {
-            WorkGraphNode::Job { ref desc, .. } => {
-                if pin.id.input >= desc.updates.len() + desc.reads.len() {
-                    unreachable!()
-                }
-                if pin.id.input < desc.updates.len() {
-                    let update = &desc.updates[pin.id.input];
-                    ui.label("updates");
-                    PinInfo::square().with_fill(hue_hash(&update.ty))
-                } else {
-                    let read = &desc.reads[pin.id.input - desc.updates.len()];
-                    ui.label("reads");
-                    PinInfo::circle().with_fill(hue_hash(&read.ty))
+            WorkGraphNode::Job {
+                ref desc,
+                ref mut params,
+                ..
+            } => {
+                match (
+                    desc.update_idx(pin.id.input),
+                    desc.read_idx(pin.id.input),
+                    desc.param_idx(pin.id.input),
+                ) {
+                    (Some(update), _, _) => {
+                        let update = &desc.updates[update];
+                        ui.label("updates");
+                        PinInfo::square().with_fill(hue_hash(&update.ty))
+                    }
+                    (_, Some(read), _) => {
+                        let read = &desc.reads[read];
+                        ui.label("reads");
+                        PinInfo::circle().with_fill(hue_hash(&read.ty))
+                    }
+                    (_, _, Some(param)) => {
+                        let (name, ref model) = desc.params[param];
+
+                        ui.horizontal(|ui| {
+                            let value = params.entry(name).or_insert_with(|| model.default_value());
+
+                            let mut probe = ValueProbe::new(Some(model), value, name);
+                            self.modified |= egui_probe::Probe::new(name.as_str(), &mut probe)
+                                .show(ui)
+                                .changed();
+                        });
+                        PinInfo::square().with_size(0.0)
+                    }
+                    a => unreachable!("{a:?}"),
                 }
             }
             WorkGraphNode::MainPresent => {
@@ -374,47 +379,65 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer<'_> {
         snarl: &mut Snarl<WorkGraphNode>,
     ) {
         ui.label("Add job");
-        ui.separator();
 
         if self.available.is_empty() {
+            ui.separator();
             ui.weak("No available jobs");
+            return;
         }
 
-        for idx in 0..self.available.len() {
-            let s = &self.available[idx];
-            if ui.button(s.name().as_str()).clicked() {
-                ui.close_menu();
-                let s = self.available.remove(idx);
-                let new_node = snarl.insert_node(pos, s);
+        for (&plugin, jobs) in self.available.iter() {
+            if jobs.is_empty() {
+                continue;
+            }
 
-                match src_pins {
-                    AnyPins::In(pins) => {
-                        for &pin in pins {
-                            self.connect(
-                                &snarl.out_pin(OutPinId {
-                                    node: new_node,
-                                    output: 0,
-                                }),
-                                &snarl.in_pin(pin),
-                                snarl,
-                            );
+            ui.separator();
+            ui.weak(plugin.as_str());
+
+            for job in jobs {
+                if ui.button(job.name.as_str()).clicked() {
+                    let new_node = snarl.insert_node(
+                        pos,
+                        WorkGraphNode::Job {
+                            job: job.id,
+                            name: job.name,
+                            plugin,
+                            desc: job.desc.clone(),
+                            params: job.desc.default_params(),
+                            active: true,
+                        },
+                    );
+
+                    match src_pins {
+                        AnyPins::In(pins) => {
+                            for &pin in pins {
+                                self.connect(
+                                    &snarl.out_pin(OutPinId {
+                                        node: new_node,
+                                        output: 0,
+                                    }),
+                                    &snarl.in_pin(pin),
+                                    snarl,
+                                );
+                            }
+                        }
+                        AnyPins::Out(pins) => {
+                            for &pin in pins {
+                                self.connect(
+                                    &snarl.out_pin(pin),
+                                    &snarl.in_pin(InPinId {
+                                        node: new_node,
+                                        input: 0,
+                                    }),
+                                    snarl,
+                                );
+                            }
                         }
                     }
-                    AnyPins::Out(pins) => {
-                        for &pin in pins {
-                            self.connect(
-                                &snarl.out_pin(pin),
-                                &snarl.in_pin(InPinId {
-                                    node: new_node,
-                                    input: 0,
-                                }),
-                                snarl,
-                            );
-                        }
-                    }
+
+                    ui.close_menu();
+                    return;
                 }
-
-                return;
             }
         }
     }
@@ -432,19 +455,37 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer<'_> {
         snarl: &mut Snarl<WorkGraphNode>,
     ) {
         ui.label("Add job");
-        ui.separator();
 
         if self.available.is_empty() {
+            ui.separator();
             ui.weak("No available jobs");
         }
 
-        for idx in 0..self.available.len() {
-            let s = &self.available[idx];
-            if ui.button(s.name().as_str()).clicked() {
-                ui.close_menu();
-                let s = self.available.remove(idx);
-                snarl.insert_node(pos, s);
-                return;
+        for (&plugin, jobs) in self.available.iter() {
+            if jobs.is_empty() {
+                continue;
+            }
+
+            ui.separator();
+            ui.weak(plugin.as_str());
+
+            for job in jobs {
+                if ui.button(job.name.as_str()).clicked() {
+                    snarl.insert_node(
+                        pos,
+                        WorkGraphNode::Job {
+                            job: job.id,
+                            name: job.name,
+                            plugin,
+                            desc: job.desc.clone(),
+                            params: job.desc.default_params(),
+                            active: true,
+                        },
+                    );
+
+                    ui.close_menu();
+                    return;
+                }
             }
         }
     }

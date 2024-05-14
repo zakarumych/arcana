@@ -3,8 +3,8 @@ use std::collections::VecDeque;
 use arcana::{
     edict::world::WorldLocal,
     plugin::{PluginsHub, SystemId},
-    project::{IdentBuf, Project},
-    ActionBufferSliceExt, World,
+    project::Project,
+    ActionBufferSliceExt, Ident, Name, World,
 };
 use egui::{Color32, Ui};
 use egui_snarl::{
@@ -148,8 +148,8 @@ impl Systems {
             .into_iter()
             .map(|(id, (plugin, system))| SystemNode {
                 system: id,
-                name: system.into_owned(),
-                plugin: plugin.to_owned(),
+                name: system,
+                plugin,
                 active: true,
                 enabled: false,
                 category: Category::Fix,
@@ -187,8 +187,8 @@ impl Default for SystemGraph {
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 struct SystemNode {
-    name: IdentBuf,
-    plugin: IdentBuf,
+    plugin: Ident,
+    name: Name,
     system: SystemId,
     enabled: bool,
     category: Category,

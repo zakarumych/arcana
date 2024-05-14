@@ -5,9 +5,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use arcana_project::{
-    new_plugin_crate, process_path_name, Dependency, Ident, Plugin, Profile, Project,
-};
+use arcana_names::Ident;
+use arcana_project::{new_plugin_crate, process_path_ident, Dependency, Plugin, Profile, Project};
 use camino::Utf8PathBuf;
 use figa::Figa;
 
@@ -148,11 +147,11 @@ impl Start {
     pub fn init(
         &self,
         path: &Path,
-        name: Option<&Ident>,
+        name: Option<Ident>,
         engine: Dependency,
         new: bool,
     ) -> miette::Result<Project> {
-        let (path, name) = process_path_name(path, name)?;
+        let (path, name) = process_path_ident(path, name)?;
         Project::new(name, &path, engine, new)
     }
 
@@ -172,10 +171,10 @@ impl Start {
     pub fn new_plugin(
         &self,
         path: &Path,
-        name: Option<&Ident>,
+        name: Option<Ident>,
         engine: Dependency,
     ) -> miette::Result<Plugin> {
-        let (path, name) = process_path_name(path, name)?;
+        let (path, name) = process_path_ident(path, name)?;
         let path = match Utf8PathBuf::from_path_buf(path) {
             Ok(path) => path,
             Err(path) => {

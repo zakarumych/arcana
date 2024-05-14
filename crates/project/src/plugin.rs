@@ -2,7 +2,7 @@ use std::path::Path;
 
 use camino::Utf8PathBuf;
 
-use crate::{dependency::Dependency, real_path, IdentBuf, CARGO_TOML_NAME};
+use crate::{dependency::Dependency, real_path, Ident, CARGO_TOML_NAME};
 
 /// Contains information about plugin.
 ///
@@ -25,14 +25,14 @@ use crate::{dependency::Dependency, real_path, IdentBuf, CARGO_TOML_NAME};
 /// If manifest has enabled system not registed by plugin, game instance cannot be started.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct Plugin {
-    pub name: IdentBuf,
+    pub name: Ident,
     pub description: String,
     pub dependency: Dependency,
 }
 
 impl Plugin {
     /// Create plugin from dependency.
-    pub fn from_dependency(name: IdentBuf, dependency: Dependency) -> miette::Result<Self> {
+    pub fn from_dependency(name: Ident, dependency: Dependency) -> miette::Result<Self> {
         match dependency {
             Dependency::Crates(version) => Ok(Plugin::released(name, version)),
             Dependency::Git { git, branch } => Ok(Plugin::from_git(name, git, branch)),
@@ -50,7 +50,7 @@ impl Plugin {
     }
 
     /// Create plugin from crates.io.
-    pub fn released(name: IdentBuf, version: String) -> Self {
+    pub fn released(name: Ident, version: String) -> Self {
         Plugin {
             name,
             description: String::new(),
@@ -59,7 +59,7 @@ impl Plugin {
     }
 
     /// Create plugin from git repository.
-    pub fn from_git(name: IdentBuf, git: String, branch: Option<String>) -> Self {
+    pub fn from_git(name: Ident, git: String, branch: Option<String>) -> Self {
         Plugin {
             name,
             description: String::new(),
@@ -91,7 +91,7 @@ impl Plugin {
             }
         };
 
-        let Ok(name) = IdentBuf::from_string(package.name) else {
+        let Ok(name) = Ident::from_str(&package.name) else {
             miette::bail!(
                 "Plugin manifest '{path}/{CARGO_TOML_NAME}' package name is not valid identifier",
             );

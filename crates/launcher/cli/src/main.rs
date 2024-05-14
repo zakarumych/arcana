@@ -1,7 +1,8 @@
 use std::{path::PathBuf, str::FromStr};
 
 use arcana_launcher::Start;
-use arcana_project::{Dependency, Ident, IdentBuf, Profile};
+use arcana_names::Ident;
+use arcana_project::{Dependency, Profile};
 use clap::{builder::TypedValueParser, Parser, Subcommand};
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -22,7 +23,7 @@ impl FromStr for ArcanaArg {
 struct IdentValueParser;
 
 impl TypedValueParser for IdentValueParser {
-    type Value = IdentBuf;
+    type Value = Ident;
 
     fn parse_ref(
         &self,
@@ -64,7 +65,7 @@ enum Command {
             value_name = "name",
             value_parser = IdentValueParser
         )]
-        name: Option<IdentBuf>,
+        name: Option<Ident>,
 
         /// Arcana dependency.
         /// If not specified, the version of this CLI crate will be used.
@@ -84,7 +85,7 @@ enum Command {
         /// Name of the project.
         /// If not specified, the name of the project will be inferred from the directory name.
         #[arg(long = "name", value_name = "name", value_parser = IdentValueParser)]
-        name: Option<IdentBuf>,
+        name: Option<Ident>,
 
         /// Arcana dependency.
         /// If not specified, the version of this CLI crate will be used.
@@ -116,7 +117,7 @@ enum Command {
         /// Name of the plugin.
         /// If not specified, the name of the plugin will be inferred from the directory name.
         #[arg(long = "name", value_name = "name", value_parser = IdentValueParser)]
-        name: Option<IdentBuf>,
+        name: Option<Ident>,
 
         /// Arcana dependency.
         /// If not specified, the version of this CLI crate will be used.
@@ -161,20 +162,10 @@ fn main() -> miette::Result<()> {
         release: false,
     }) {
         Command::Init { path, name, arcana } => {
-            start.init(
-                &path,
-                name.as_deref(),
-                pick_engine_version(&start, arcana),
-                false,
-            )?;
+            start.init(&path, name, pick_engine_version(&start, arcana), false)?;
         }
         Command::New { path, name, arcana } => {
-            start.init(
-                &path,
-                name.as_deref(),
-                pick_engine_version(&start, arcana),
-                true,
-            )?;
+            start.init(&path, name, pick_engine_version(&start, arcana), true)?;
         }
         Command::InitWorkspace { path } => {
             start.init_workspace(&path)?;
@@ -190,7 +181,7 @@ fn main() -> miette::Result<()> {
             )?;
         }
         Command::NewPlugin { path, name, arcana } => {
-            start.new_plugin(&path, name.as_deref(), pick_engine_version(&start, arcana))?;
+            start.new_plugin(&path, name, pick_engine_version(&start, arcana))?;
         }
         Command::Game { path, release } => {
             start.run_game(

@@ -9,35 +9,45 @@ use hashbrown::HashMap;
 pub struct ModelProbe<'a> {
     model: &'a mut Model,
     id_source: Id,
+    local_id: Id,
 }
 
 impl EguiProbe for ModelProbe<'_> {
     fn probe(&mut self, ui: &mut Ui, _style: &Style) -> Response {
-        egui::ComboBox::from_id_source(self.id_source)
+        self.local_id = ui.make_persistent_id(self.id_source);
+        let mut changed = false;
+
+        let mut r = egui::ComboBox::from_id_source(self.local_id)
             .show_ui(ui, |ui| {
                 let r = ui.selectable_label(matches!(self.model, Model::Bool), "Bool");
-                if r.clicked() {
+                if r.clicked() && !matches!(self.model, Model::Bool) {
                     *self.model = Model::Bool;
+                    changed = true;
                 }
                 let r = ui.selectable_label(matches!(self.model, Model::Int), "Int");
-                if r.clicked() {
+                if r.clicked() && !matches!(self.model, Model::Int) {
                     *self.model = Model::Int;
+                    changed = true;
                 }
                 let r = ui.selectable_label(matches!(self.model, Model::Float), "Float");
-                if r.clicked() {
+                if r.clicked() && !matches!(self.model, Model::Float) {
                     *self.model = Model::Float;
+                    changed = true;
                 }
                 let r = ui.selectable_label(matches!(self.model, Model::String), "String");
-                if r.clicked() {
+                if r.clicked() && !matches!(self.model, Model::String) {
                     *self.model = Model::String;
+                    changed = true;
                 }
                 let r = ui.selectable_label(matches!(self.model, Model::Color(_)), "Color");
                 if r.clicked() && !matches!(self.model, Model::Color(_)) {
                     *self.model = Model::Color(ColorModel::Srgb);
+                    changed = true;
                 }
                 let r = ui.selectable_label(matches!(self.model, Model::Option(_)), "Option");
                 if r.clicked() && !matches!(self.model, Model::Option(_)) {
                     *self.model = Model::Option(None);
+                    changed = true;
                 }
                 let r = ui.selectable_label(matches!(self.model, Model::Array { .. }), "Array");
                 if r.clicked() && !matches!(self.model, Model::Array { .. }) {
@@ -45,21 +55,31 @@ impl EguiProbe for ModelProbe<'_> {
                         elem: None,
                         len: None,
                     };
+                    changed = true;
                 }
                 let r = ui.selectable_label(matches!(self.model, Model::Map(_)), "Map");
                 if r.clicked() && !matches!(self.model, Model::Map(_)) {
                     *self.model = Model::Map(None);
+                    changed = true;
                 }
                 let r = ui.selectable_label(matches!(self.model, Model::Tuple { .. }), "Tuple");
                 if r.clicked() && !matches!(self.model, Model::Tuple { .. }) {
                     *self.model = Model::Tuple(Vec::new());
+                    changed = true;
                 }
                 let r = ui.selectable_label(matches!(self.model, Model::Record { .. }), "Record");
                 if r.clicked() && !matches!(self.model, Model::Record { .. }) {
                     *self.model = Model::Record(Vec::new());
+                    changed = true;
                 }
             })
-            .response
+            .response;
+
+        if changed {
+            r.mark_changed();
+        }
+
+        r
     }
 
     fn has_inner(&mut self) -> bool {
@@ -80,21 +100,24 @@ impl EguiProbe for ModelProbe<'_> {
             Model::Option(ref mut model) => {
                 let mut probe = MaybeModelProbe {
                     model,
-                    id_source: self.id_source.with("Model"),
+                    id_source: self.local_id.with("Model"),
+                    local_id: Id::NULL,
                 };
                 f("model", ui, &mut probe);
             }
             Model::Array { ref mut elem, .. } => {
                 let mut probe = MaybeModelProbe {
                     model: elem,
-                    id_source: self.id_source.with("Model"),
+                    id_source: self.local_id.with("Model"),
+                    local_id: Id::NULL,
                 };
                 f("elem", ui, &mut probe);
             }
             Model::Map(ref mut model) => {
                 let mut probe = MaybeModelProbe {
                     model: model,
-                    id_source: self.id_source.with("Model"),
+                    id_source: self.local_id.with("Model"),
+                    local_id: Id::NULL,
                 };
                 f("value", ui, &mut probe);
             }
@@ -106,11 +129,14 @@ impl EguiProbe for ModelProbe<'_> {
 pub struct MaybeModelProbe<'a> {
     model: &'a mut Option<Box<Model>>,
     id_source: Id,
+    local_id: Id,
 }
 
 impl EguiProbe for MaybeModelProbe<'_> {
     fn probe(&mut self, ui: &mut Ui, _style: &Style) -> Response {
-        egui::ComboBox::from_id_source(self.id_source)
+        self.local_id = ui.make_persistent_id(self.id_source);
+
+        egui::ComboBox::from_id_source(self.local_id)
             .show_ui(ui, |ui| {
                 let r = ui.selectable_label(matches!(self.model, None), "None");
                 if r.clicked() {
@@ -203,21 +229,24 @@ impl EguiProbe for MaybeModelProbe<'_> {
             Some(Model::Option(model)) => {
                 let mut probe = MaybeModelProbe {
                     model,
-                    id_source: self.id_source.with("Model"),
+                    id_source: self.local_id.with("Model"),
+                    local_id: Id::NULL,
                 };
                 f("model", ui, &mut probe);
             }
             Some(Model::Array { elem, .. }) => {
                 let mut probe = MaybeModelProbe {
                     model: elem,
-                    id_source: self.id_source.with("Model"),
+                    id_source: self.local_id.with("Model"),
+                    local_id: Id::NULL,
                 };
                 f("elem", ui, &mut probe);
             }
             Some(Model::Map(elem)) => {
                 let mut probe = MaybeModelProbe {
                     model: elem,
-                    id_source: self.id_source.with("Model"),
+                    id_source: self.local_id.with("Model"),
+                    local_id: Id::NULL,
                 };
                 f("value", ui, &mut probe);
             }
@@ -256,7 +285,8 @@ impl EguiProbe for ValueProbe<'_> {
 
                 let r = ModelProbe {
                     model: &mut local_elem,
-                    id_source: self.id_source.with("none"),
+                    id_source: self.local_id.with("none"),
+                    local_id: Id::NULL,
                 }
                 .probe(ui, style);
 
@@ -267,120 +297,179 @@ impl EguiProbe for ValueProbe<'_> {
             Some(&Model::Bool) => match self.value {
                 Value::Bool(value) => value.probe(ui, style),
                 _ => {
-                    ui.horizontal(|ui| {
-                        ui.strong(format!(
-                            "Expected boolean, but is {} instead",
-                            self.value.kind()
-                        ));
-                        if ui.small_button("Reset to false").clicked() {
-                            *self.value = Value::Bool(false);
-                        }
-                        ui.strong("?");
-                    })
-                    .response
+                    let mut changed = false;
+                    let mut r = ui
+                        .horizontal(|ui| {
+                            ui.strong(format!(
+                                "Expected boolean, but is {} instead",
+                                self.value.kind()
+                            ));
+                            if ui.small_button("Reset to false").clicked() {
+                                *self.value = Value::Bool(false);
+                                changed = true;
+                            }
+                            ui.strong("?");
+                        })
+                        .response;
+
+                    if changed {
+                        r.mark_changed();
+                    }
+
+                    r
                 }
             },
             Some(&Model::Int) => match self.value {
                 Value::Int(value) => value.probe(ui, style),
                 Value::Float(value) => {
+                    let mut changed = false;
                     let f = *value as i64;
 
-                    ui.horizontal(|ui| {
-                        ui.strong(format!(
-                            "Expected integer, but is {} instead",
-                            self.value.kind()
-                        ));
+                    let mut r = ui
+                        .horizontal(|ui| {
+                            ui.strong(format!(
+                                "Expected integer, but is {} instead",
+                                self.value.kind()
+                            ));
 
-                        if ui.small_button(format!("Convert to {f}")).clicked() {
-                            *self.value = Value::Int(f);
-                        }
+                            if ui.small_button(format!("Convert to {f}")).clicked() {
+                                *self.value = Value::Int(f);
+                                changed = true;
+                            }
 
-                        ui.strong("?");
-                    })
-                    .response
+                            ui.strong("?");
+                        })
+                        .response;
+
+                    if changed {
+                        r.mark_changed();
+                    }
+
+                    r
                 }
                 _ => {
-                    ui.horizontal(|ui| {
-                        ui.strong(format!(
-                            "Expected integer, but is {} instead",
-                            self.value.kind()
-                        ));
-                        if ui.small_button(format!("Reset to 0")).clicked() {
-                            *self.value = Value::Int(0);
-                        }
-                        ui.strong("?");
-                    })
-                    .response
+                    let mut changed = false;
+
+                    let mut r = ui
+                        .horizontal(|ui| {
+                            ui.strong(format!(
+                                "Expected integer, but is {} instead",
+                                self.value.kind()
+                            ));
+                            if ui.small_button(format!("Reset to 0")).clicked() {
+                                *self.value = Value::Int(0);
+                                changed = true;
+                            }
+                            ui.strong("?");
+                        })
+                        .response;
+
+                    if changed {
+                        r.mark_changed();
+                    }
+
+                    r
                 }
             },
             Some(&Model::Float) => match self.value {
                 Value::Float(value) => value.probe(ui, style),
                 Value::Int(value) => {
+                    let mut changed = false;
                     let f = *value as f64;
 
-                    ui.horizontal(|ui| {
-                        ui.strong(format!(
-                            "Expected integer, but is {} instead",
-                            self.value.kind()
-                        ));
+                    let mut r = ui
+                        .horizontal(|ui| {
+                            ui.strong(format!(
+                                "Expected integer, but is {} instead",
+                                self.value.kind()
+                            ));
 
-                        if ui.small_button(format!("Convert to {f:0.1}")).clicked() {
-                            *self.value = Value::Float(f);
-                        }
+                            if ui.small_button(format!("Convert to {f:0.1}")).clicked() {
+                                *self.value = Value::Float(f);
+                                changed = true;
+                            }
 
-                        ui.strong("?");
-                    })
-                    .response
+                            ui.strong("?");
+                        })
+                        .response;
+
+                    if changed {
+                        r.mark_changed();
+                    }
+
+                    r
                 }
                 _ => {
-                    ui.horizontal(|ui| {
-                        ui.strong(format!(
-                            "Expected integer, but is {} instead",
-                            self.value.kind()
-                        ));
-                        if ui.small_button(format!("Reset to 0.0")).clicked() {
-                            *self.value = Value::Float(0.0);
-                        }
-                        ui.strong("?");
-                    })
-                    .response
+                    let mut changed = false;
+
+                    let mut r = ui
+                        .horizontal(|ui| {
+                            ui.strong(format!(
+                                "Expected integer, but is {} instead",
+                                self.value.kind()
+                            ));
+                            if ui.small_button(format!("Reset to 0.0")).clicked() {
+                                *self.value = Value::Float(0.0);
+                                changed = true;
+                            }
+                            ui.strong("?");
+                        })
+                        .response;
+
+                    if changed {
+                        r.mark_changed();
+                    }
+
+                    r
                 }
             },
             Some(&Model::String) => match self.value {
                 Value::String(value) => value.probe(ui, style),
                 Value::Bool(value) => {
-                    let (r, s) = convert_to_string(ui, value, "bool");
+                    let (mut r, s) = convert_to_string(ui, value, "bool");
                     if let Some(s) = s {
                         *self.value = Value::String(s);
+                        r.mark_changed();
                     }
                     r
                 }
                 Value::Int(value) => {
-                    let (r, s) = convert_to_string(ui, value, "int");
+                    let (mut r, s) = convert_to_string(ui, value, "int");
                     if let Some(s) = s {
                         *self.value = Value::String(s);
+                        r.mark_changed();
                     }
                     r
                 }
                 Value::Float(value) => {
-                    let (r, s) = convert_to_string(ui, value, "float");
+                    let (mut r, s) = convert_to_string(ui, value, "float");
                     if let Some(s) = s {
                         *self.value = Value::String(s);
+                        r.mark_changed();
                     }
                     r
                 }
                 _ => {
-                    ui.horizontal(|ui| {
-                        ui.strong(format!(
-                            "Expected string, but is {} instead",
-                            self.value.kind()
-                        ));
-                        if ui.small_button("Reset to empty string").clicked() {
-                            *self.value = Value::String(String::new());
-                        }
-                        ui.strong("?");
-                    })
-                    .response
+                    let mut changed = false;
+                    let mut r = ui
+                        .horizontal(|ui| {
+                            ui.strong(format!(
+                                "Expected string, but is {} instead",
+                                self.value.kind()
+                            ));
+                            if ui.small_button("Reset to empty string").clicked() {
+                                *self.value = Value::String(String::new());
+                                changed = true;
+                            }
+                            ui.strong("?");
+                        })
+                        .response;
+
+                    if changed {
+                        r.mark_changed();
+                    }
+
+                    r
                 }
             },
             Some(&Model::Color(model)) => match model {
@@ -392,74 +481,121 @@ impl EguiProbe for ValueProbe<'_> {
                             .ui(ui)
                     }
                     Value::Color(color) => {
-                        ui.horizontal(|ui| {
-                            ui.strong(format!(
-                                "Expected luma color, but is {} instead",
-                                color.kind()
-                            ));
-                            if ui.small_button("Reset to luma").clicked() {
-                                *self.value = Value::Color(ColorValue::Luma(color.into_luma()));
-                            }
-                            ui.strong("?");
-                        })
-                        .response
+                        let mut changed = false;
+                        let mut r = ui
+                            .horizontal(|ui| {
+                                ui.strong(format!(
+                                    "Expected luma color, but is {} instead",
+                                    color.kind()
+                                ));
+                                if ui.small_button("Reset to luma").clicked() {
+                                    *self.value = Value::Color(ColorValue::Luma(color.into_luma()));
+                                    changed = true;
+                                }
+                                ui.strong("?");
+                            })
+                            .response;
+
+                        if changed {
+                            r.mark_changed();
+                        }
+
+                        r
                     }
                     _ => {
-                        ui.horizontal(|ui| {
-                            ui.strong(format!(
-                                "Expected luma color, but is {} instead",
-                                self.value.kind()
-                            ));
-                            if ui.small_button("Reset to black").clicked() {
-                                *self.value =
-                                    Value::Color(ColorValue::Luma(palette::LinLuma::new(0.0)));
-                            }
-                            ui.strong("?");
-                        })
-                        .response
+                        let mut changed = false;
+                        let mut r = ui
+                            .horizontal(|ui| {
+                                ui.strong(format!(
+                                    "Expected luma color, but is {} instead",
+                                    self.value.kind()
+                                ));
+                                if ui.small_button("Reset to black").clicked() {
+                                    *self.value =
+                                        Value::Color(ColorValue::Luma(palette::LinLuma::new(0.0)));
+                                    changed = true;
+                                }
+                                ui.strong("?");
+                            })
+                            .response;
+
+                        if changed {
+                            r.mark_changed();
+                        }
+
+                        r
                     }
                 },
                 ColorModel::Lumaa => match *self.value {
                     Value::Color(ColorValue::Lumaa(ref mut lumaa)) => {
-                        ui.vertical(|ui| {
-                            egui::DragValue::new(&mut lumaa.luma)
-                                .clamp_range(0.0..=1.0)
-                                .max_decimals(3)
-                                .ui(ui);
-                            egui::DragValue::new(&mut lumaa.alpha)
-                                .clamp_range(0.0..=1.0)
-                                .max_decimals(3)
-                                .ui(ui);
-                        })
-                        .response
+                        let mut changed = false;
+                        let mut r = ui
+                            .vertical(|ui| {
+                                changed |= egui::DragValue::new(&mut lumaa.luma)
+                                    .clamp_range(0.0..=1.0)
+                                    .max_decimals(3)
+                                    .ui(ui)
+                                    .changed();
+                                changed |= egui::DragValue::new(&mut lumaa.alpha)
+                                    .clamp_range(0.0..=1.0)
+                                    .max_decimals(3)
+                                    .ui(ui)
+                                    .changed();
+                            })
+                            .response;
+
+                        if changed {
+                            r.mark_changed();
+                        }
+
+                        r
                     }
                     Value::Color(color) => {
-                        ui.horizontal(|ui| {
-                            ui.strong(format!(
-                                "Expected luma color, but is {} instead",
-                                color.kind()
-                            ));
-                            if ui.small_button("Reset to luma").clicked() {
-                                *self.value = Value::Color(ColorValue::Lumaa(color.into_lumaa()));
-                            }
-                            ui.strong("?");
-                        })
-                        .response
+                        let mut changed = false;
+                        let mut r = ui
+                            .horizontal(|ui| {
+                                ui.strong(format!(
+                                    "Expected luma color, but is {} instead",
+                                    color.kind()
+                                ));
+                                if ui.small_button("Reset to luma").clicked() {
+                                    *self.value =
+                                        Value::Color(ColorValue::Lumaa(color.into_lumaa()));
+                                    changed = true;
+                                }
+                                ui.strong("?");
+                            })
+                            .response;
+
+                        if changed {
+                            r.mark_changed();
+                        }
+
+                        r
                     }
                     _ => {
-                        ui.horizontal(|ui| {
-                            ui.strong(format!(
-                                "Expected lumaa color, but is {} instead",
-                                self.value.kind()
-                            ));
-                            if ui.small_button("Reset to black").clicked() {
-                                *self.value = Value::Color(ColorValue::Lumaa(
-                                    palette::LinLumaa::new(0.0, 1.0),
+                        let mut changed = false;
+                        let mut r = ui
+                            .horizontal(|ui| {
+                                ui.strong(format!(
+                                    "Expected lumaa color, but is {} instead",
+                                    self.value.kind()
                                 ));
-                            }
-                            ui.strong("?");
-                        })
-                        .response
+                                if ui.small_button("Reset to black").clicked() {
+                                    *self.value = Value::Color(ColorValue::Lumaa(
+                                        palette::LinLumaa::new(0.0, 1.0),
+                                    ));
+                                    changed = true;
+                                }
+                                ui.strong("?");
+                            })
+                            .response;
+
+                        if changed {
+                            r.mark_changed();
+                        }
+
+                        r
                     }
                 },
                 ColorModel::Srgb => match *self.value {
@@ -476,32 +612,50 @@ impl EguiProbe for ValueProbe<'_> {
                         r
                     }
                     Value::Color(color) => {
-                        ui.horizontal(|ui| {
-                            ui.strong(format!(
-                                "Expected srgb color, but is {} instead",
-                                color.kind()
-                            ));
-                            if ui.small_button("Reset to srgb").clicked() {
-                                *self.value = Value::Color(ColorValue::Srgb(color.into_srgb()));
-                            }
-                            ui.strong("?");
-                        })
-                        .response
+                        let mut changed = false;
+                        let mut r = ui
+                            .horizontal(|ui| {
+                                ui.strong(format!(
+                                    "Expected srgb color, but is {} instead",
+                                    color.kind()
+                                ));
+                                if ui.small_button("Reset to srgb").clicked() {
+                                    *self.value = Value::Color(ColorValue::Srgb(color.into_srgb()));
+                                    changed = true;
+                                }
+                                ui.strong("?");
+                            })
+                            .response;
+
+                        if changed {
+                            r.mark_changed();
+                        }
+
+                        r
                     }
                     _ => {
-                        ui.horizontal(|ui| {
-                            ui.strong(format!(
-                                "Expected srgb color, but is {} instead",
-                                self.value.kind()
-                            ));
-                            if ui.small_button("Reset to black").clicked() {
-                                *self.value = Value::Color(ColorValue::Srgb(palette::Srgb::new(
-                                    0.0, 0.0, 0.0,
-                                )));
-                            }
-                            ui.strong("?");
-                        })
-                        .response
+                        let mut changed = false;
+                        let mut r = ui
+                            .horizontal(|ui| {
+                                ui.strong(format!(
+                                    "Expected srgb color, but is {} instead",
+                                    self.value.kind()
+                                ));
+                                if ui.small_button("Reset to black").clicked() {
+                                    *self.value = Value::Color(ColorValue::Srgb(
+                                        palette::Srgb::new(0.0, 0.0, 0.0),
+                                    ));
+                                    changed = true;
+                                }
+                                ui.strong("?");
+                            })
+                            .response;
+
+                        if changed {
+                            r.mark_changed();
+                        }
+
+                        r
                     }
                 },
                 ColorModel::Srgba => match *self.value {
@@ -520,32 +674,51 @@ impl EguiProbe for ValueProbe<'_> {
                         r
                     }
                     Value::Color(color) => {
-                        ui.horizontal(|ui| {
-                            ui.strong(format!(
-                                "Expected srgb color, but is {} instead",
-                                color.kind()
-                            ));
-                            if ui.small_button("Reset to srgb").clicked() {
-                                *self.value = Value::Color(ColorValue::Srgba(color.into_srgba()));
-                            }
-                            ui.strong("?");
-                        })
-                        .response
+                        let mut changed = false;
+                        let mut r = ui
+                            .horizontal(|ui| {
+                                ui.strong(format!(
+                                    "Expected srgb color, but is {} instead",
+                                    color.kind()
+                                ));
+                                if ui.small_button("Reset to srgb").clicked() {
+                                    *self.value =
+                                        Value::Color(ColorValue::Srgba(color.into_srgba()));
+                                    changed = true;
+                                }
+                                ui.strong("?");
+                            })
+                            .response;
+
+                        if changed {
+                            r.mark_changed();
+                        }
+
+                        r
                     }
                     _ => {
-                        ui.horizontal(|ui| {
-                            ui.strong(format!(
-                                "Expected srgb color, but is {} instead",
-                                self.value.kind()
-                            ));
-                            if ui.small_button("Reset to black").clicked() {
-                                *self.value = Value::Color(ColorValue::Srgba(palette::Srgba::new(
-                                    0.0, 0.0, 0.0, 1.0,
-                                )));
-                            }
-                            ui.strong("?");
-                        })
-                        .response
+                        let mut changed = false;
+                        let mut r = ui
+                            .horizontal(|ui| {
+                                ui.strong(format!(
+                                    "Expected srgb color, but is {} instead",
+                                    self.value.kind()
+                                ));
+                                if ui.small_button("Reset to black").clicked() {
+                                    *self.value = Value::Color(ColorValue::Srgba(
+                                        palette::Srgba::new(0.0, 0.0, 0.0, 1.0),
+                                    ));
+                                    changed = true;
+                                }
+                                ui.strong("?");
+                            })
+                            .response;
+
+                        if changed {
+                            r.mark_changed();
+                        }
+
+                        r
                     }
                 },
                 ColorModel::Hsv => match *self.value {
@@ -563,31 +736,50 @@ impl EguiProbe for ValueProbe<'_> {
                         r
                     }
                     Value::Color(color) => {
-                        ui.horizontal(|ui| {
-                            ui.strong(format!(
-                                "Expected hsv color, but is {} instead",
-                                color.kind()
-                            ));
-                            if ui.small_button("Reset to hsv").clicked() {
-                                *self.value = Value::Color(ColorValue::Hsv(color.into_hsv()));
-                            }
-                            ui.strong("?");
-                        })
-                        .response
+                        let mut changed = false;
+                        let mut r = ui
+                            .horizontal(|ui| {
+                                ui.strong(format!(
+                                    "Expected hsv color, but is {} instead",
+                                    color.kind()
+                                ));
+                                if ui.small_button("Reset to hsv").clicked() {
+                                    *self.value = Value::Color(ColorValue::Hsv(color.into_hsv()));
+                                    changed = true;
+                                }
+                                ui.strong("?");
+                            })
+                            .response;
+
+                        if changed {
+                            r.mark_changed();
+                        }
+
+                        r
                     }
                     _ => {
-                        ui.horizontal(|ui| {
-                            ui.strong(format!(
-                                "Expected hsv color, but is {} instead",
-                                self.value.kind()
-                            ));
-                            if ui.small_button("Reset to black").clicked() {
-                                *self.value =
-                                    Value::Color(ColorValue::Hsv(palette::Hsv::new(0.0, 0.0, 0.0)));
-                            }
-                            ui.strong("?");
-                        })
-                        .response
+                        let mut changed = false;
+                        let mut r = ui
+                            .horizontal(|ui| {
+                                ui.strong(format!(
+                                    "Expected hsv color, but is {} instead",
+                                    self.value.kind()
+                                ));
+                                if ui.small_button("Reset to black").clicked() {
+                                    *self.value = Value::Color(ColorValue::Hsv(palette::Hsv::new(
+                                        0.0, 0.0, 0.0,
+                                    )));
+                                    changed = true;
+                                }
+                                ui.strong("?");
+                            })
+                            .response;
+
+                        if changed {
+                            r.mark_changed();
+                        }
+
+                        r
                     }
                 },
                 ColorModel::Hsva => match *self.value {
@@ -605,32 +797,50 @@ impl EguiProbe for ValueProbe<'_> {
                         r
                     }
                     Value::Color(color) => {
-                        ui.horizontal(|ui| {
-                            ui.strong(format!(
-                                "Expected hsva color, but is {} instead",
-                                color.kind()
-                            ));
-                            if ui.small_button("Reset to hsva").clicked() {
-                                *self.value = Value::Color(ColorValue::Hsva(color.into_hsva()));
-                            }
-                            ui.strong("?");
-                        })
-                        .response
+                        let mut changed = false;
+                        let mut r = ui
+                            .horizontal(|ui| {
+                                ui.strong(format!(
+                                    "Expected hsva color, but is {} instead",
+                                    color.kind()
+                                ));
+                                if ui.small_button("Reset to hsva").clicked() {
+                                    *self.value = Value::Color(ColorValue::Hsva(color.into_hsva()));
+                                    changed = true;
+                                }
+                                ui.strong("?");
+                            })
+                            .response;
+
+                        if changed {
+                            r.mark_changed();
+                        }
+
+                        r
                     }
                     _ => {
-                        ui.horizontal(|ui| {
-                            ui.strong(format!(
-                                "Expected hsva color, but is {} instead",
-                                self.value.kind()
-                            ));
-                            if ui.small_button("Reset to black").clicked() {
-                                *self.value = Value::Color(ColorValue::Hsva(palette::Hsva::new(
-                                    0.0, 0.0, 0.0, 1.0,
-                                )));
-                            }
-                            ui.strong("?");
-                        })
-                        .response
+                        let mut changed = false;
+                        let mut r = ui
+                            .horizontal(|ui| {
+                                ui.strong(format!(
+                                    "Expected hsva color, but is {} instead",
+                                    self.value.kind()
+                                ));
+                                if ui.small_button("Reset to black").clicked() {
+                                    *self.value = Value::Color(ColorValue::Hsva(
+                                        palette::Hsva::new(0.0, 0.0, 0.0, 1.0),
+                                    ));
+                                    changed = true;
+                                }
+                                ui.strong("?");
+                            })
+                            .response;
+
+                        if changed {
+                            r.mark_changed();
+                        }
+
+                        r
                     }
                 },
             },
@@ -641,50 +851,153 @@ impl EguiProbe for ValueProbe<'_> {
                     style,
                     || Box::new(default_value(model.as_deref())),
                     |value, ui, style| {
-                        ValueProbe::new(model.as_deref(), value, self.id_source.with("some"))
-                            .probe(ui, style);
+                        ValueProbe::new(model.as_deref(), value, self.local_id.with("some"))
+                            .probe(ui, style)
                     },
                 ),
                 _ => {
-                    ui.horizontal(|ui| {
-                        ui.strong(format!(
-                            "Expected option, but is {} instead",
-                            self.value.kind()
-                        ));
-                        if ui.small_button("Reset to some").clicked() {
-                            *self.value = Value::Option(Some(Box::new(self.value.take())));
-                        }
-                        ui.strong("?");
-                    })
-                    .response
+                    let mut changed = false;
+                    let mut r = ui
+                        .horizontal(|ui| {
+                            ui.strong(format!(
+                                "Expected option, but is {} instead",
+                                self.value.kind()
+                            ));
+                            if ui.small_button("Reset to some").clicked() {
+                                *self.value = Value::Option(Some(Box::new(self.value.take())));
+                                changed = true;
+                            }
+                            ui.strong("?");
+                        })
+                        .response;
+
+                    if changed {
+                        r.mark_changed();
+                    }
+
+                    r
                 }
             },
             Some(&Model::Array { ref elem, len }) => match self.value {
                 Value::Array(values) => {
+                    let mut changed = false;
+
                     if let Some(len) = len {
                         if values.len() != len {
                             values.resize_with(len, || default_value(elem.as_deref()));
+                            changed = true;
                         }
                     }
 
-                    ui.horizontal(|ui| {
-                        self.local_id = ui.make_persistent_id(self.id_source.with("List"));
+                    let mut r = ui
+                        .horizontal(|ui| {
+                            self.local_id = ui.make_persistent_id(self.id_source.with("Array"));
 
-                        let mut local_elem = elem.is_none().then(|| {
-                            ui.ctx()
-                                .data(|d| d.get_temp::<Model>(self.local_id))
-                                .unwrap_or_default()
-                        });
+                            let mut local_elem = elem.is_none().then(|| {
+                                ui.ctx()
+                                    .data(|d| d.get_temp::<Model>(self.local_id))
+                                    .unwrap_or_default()
+                            });
 
-                        if let Some(local_elem) = &mut local_elem {
-                            ModelProbe {
-                                model: local_elem,
-                                id_source: self.local_id,
+                            if let Some(local_elem) = &mut local_elem {
+                                changed |= ModelProbe {
+                                    model: local_elem,
+                                    id_source: self.local_id,
+                                    local_id: Id::NULL,
+                                }
+                                .probe(ui, style)
+                                .changed();
                             }
-                            .probe(ui, style);
-                        }
 
-                        if len.is_none() {
+                            if len.is_none() {
+                                let r = ui.small_button(style.add_button_text());
+                                if r.clicked() {
+                                    let value = elem
+                                        .as_deref()
+                                        .or(local_elem.as_ref())
+                                        .unwrap()
+                                        .default_value();
+
+                                    values.push(value);
+                                    changed = true;
+                                }
+                            }
+
+                            if let Some(local_elem) = local_elem {
+                                ui.ctx()
+                                    .data_mut(|d| d.insert_temp(self.local_id, local_elem));
+                            }
+                        })
+                        .response;
+
+                    if changed {
+                        r.mark_changed();
+                    }
+
+                    r
+                }
+                _ => {
+                    let mut changed = false;
+
+                    let mut r = ui
+                        .horizontal(|ui| {
+                            ui.strong(format!(
+                                "Expected array, but is {} instead",
+                                self.value.kind()
+                            ));
+                            if ui.small_button("Reset to default array").clicked() {
+                                *self.value = Value::Array(
+                                    (0..len.unwrap_or(0))
+                                        .map(|_| default_value(elem.as_deref()))
+                                        .collect(),
+                                );
+                                changed = true;
+                            }
+                            ui.strong("?");
+                        })
+                        .response;
+
+                    if changed {
+                        r.mark_changed();
+                    }
+
+                    r
+                }
+            },
+            Some(&Model::Map(ref elem)) => match self.value {
+                Value::Map(values) => {
+                    #[derive(Clone)]
+                    struct NewKey(String);
+
+                    let mut changed: bool = false;
+
+                    let mut r = ui
+                        .horizontal(|ui| {
+                            self.local_id = ui.make_persistent_id(self.id_source.with("Map"));
+
+                            let mut new_key = ui
+                                .ctx()
+                                .data(|d| d.get_temp::<NewKey>(self.local_id))
+                                .unwrap_or(NewKey(String::new()));
+
+                            let mut local_elem = elem.is_none().then(|| {
+                                ui.ctx()
+                                    .data(|d| d.get_temp::<Model>(self.local_id))
+                                    .unwrap_or_default()
+                            });
+
+                            if let Some(local_elem) = &mut local_elem {
+                                changed |= ModelProbe {
+                                    model: local_elem,
+                                    id_source: self.local_id,
+                                    local_id: Id::NULL,
+                                }
+                                .probe(ui, style)
+                                .changed();
+                            }
+
+                            ui.text_edit_singleline(&mut new_key.0);
+
                             let r = ui.small_button(style.add_button_text());
                             if r.clicked() {
                                 let value = elem
@@ -693,96 +1006,46 @@ impl EguiProbe for ValueProbe<'_> {
                                     .unwrap()
                                     .default_value();
 
-                                values.push(value);
+                                values.insert(std::mem::take(&mut new_key.0), value);
+                                changed = true;
                             }
-                        }
 
-                        if let Some(local_elem) = local_elem {
-                            ui.ctx()
-                                .data_mut(|d| d.insert_temp(self.local_id, local_elem));
-                        }
-                    })
-                    .response
+                            if let Some(local_elem) = local_elem {
+                                ui.ctx()
+                                    .data_mut(|d| d.insert_temp(self.local_id, local_elem));
+                            }
+
+                            ui.ctx().data_mut(|d| d.insert_temp(self.local_id, new_key));
+                        })
+                        .response;
+
+                    if changed {
+                        r.mark_changed();
+                    }
+
+                    r
                 }
                 _ => {
-                    ui.horizontal(|ui| {
-                        ui.strong(format!(
-                            "Expected array, but is {} instead",
-                            self.value.kind()
-                        ));
-                        if ui.small_button("Reset to default array").clicked() {
-                            *self.value = Value::Array(
-                                (0..len.unwrap_or(0))
-                                    .map(|_| default_value(elem.as_deref()))
-                                    .collect(),
-                            );
-                        }
-                        ui.strong("?");
-                    })
-                    .response
-                }
-            },
-            Some(&Model::Map(ref elem)) => match self.value {
-                Value::Map(values) => {
-                    #[derive(Clone)]
-                    struct NewKey(String);
-
-                    ui.horizontal(|ui| {
-                        self.local_id = ui.make_persistent_id(self.id_source.with("Map"));
-
-                        let mut new_key = ui
-                            .ctx()
-                            .data(|d| d.get_temp::<NewKey>(self.local_id))
-                            .unwrap_or(NewKey(String::new()));
-
-                        let mut local_elem = elem.is_none().then(|| {
-                            ui.ctx()
-                                .data(|d| d.get_temp::<Model>(self.local_id))
-                                .unwrap_or_default()
-                        });
-
-                        if let Some(local_elem) = &mut local_elem {
-                            ModelProbe {
-                                model: local_elem,
-                                id_source: self.local_id,
+                    let mut changed = false;
+                    let mut r = ui
+                        .horizontal(|ui| {
+                            ui.strong(format!(
+                                "Expected list, but is {} instead",
+                                self.value.kind()
+                            ));
+                            if ui.small_button("Reset to empty map").clicked() {
+                                *self.value = Value::Map(HashMap::new());
+                                changed = true;
                             }
-                            .probe(ui, style);
-                        }
+                            ui.strong("?");
+                        })
+                        .response;
 
-                        ui.text_edit_singleline(&mut new_key.0);
+                    if changed {
+                        r.mark_changed();
+                    }
 
-                        let r = ui.small_button(style.add_button_text());
-                        if r.clicked() {
-                            let value = elem
-                                .as_deref()
-                                .or(local_elem.as_ref())
-                                .unwrap()
-                                .default_value();
-
-                            values.insert(std::mem::take(&mut new_key.0), value);
-                        }
-
-                        if let Some(local_elem) = local_elem {
-                            ui.ctx()
-                                .data_mut(|d| d.insert_temp(self.local_id, local_elem));
-                        }
-
-                        ui.ctx().data_mut(|d| d.insert_temp(self.local_id, new_key));
-                    })
-                    .response
-                }
-                _ => {
-                    ui.horizontal(|ui| {
-                        ui.strong(format!(
-                            "Expected list, but is {} instead",
-                            self.value.kind()
-                        ));
-                        if ui.small_button("Reset to empty map").clicked() {
-                            *self.value = Value::Map(HashMap::new());
-                        }
-                        ui.strong("?");
-                    })
-                    .response
+                    r
                 }
             },
             _ => todo!(),
@@ -796,6 +1059,7 @@ impl EguiProbe for ValueProbe<'_> {
             Some(Model::Int { .. }) => false,
             Some(Model::Float { .. }) => false,
             Some(Model::String { .. }) => false,
+            Some(Model::Color(_)) => false,
             Some(Model::Array { elem, .. }) => elem.is_none() || value_has_inner(self.value),
             Some(Model::Map(model)) => model.is_none() || value_has_inner(self.value),
             _ => todo!(),
@@ -809,13 +1073,14 @@ impl EguiProbe for ValueProbe<'_> {
                     .ctx()
                     .data(|d| d.get_temp::<Model>(self.local_id))
                     .unwrap_or_default();
-                let mut probe = ValueProbe::new(Some(&local_elem), self.value, self.id_source);
+                let mut probe = ValueProbe::new(Some(&local_elem), self.value, self.local_id);
                 f("value", ui, &mut probe);
             }
             Some(Model::Bool) => {}
             Some(Model::Int { .. }) => {}
             Some(Model::Float { .. }) => {}
             Some(Model::String { .. }) => {}
+            Some(Model::Color(_)) => {}
             Some(Model::Array { elem, len }) => {
                 let mut local_elem;
                 let elem = match elem {
@@ -827,6 +1092,7 @@ impl EguiProbe for ValueProbe<'_> {
                         let mut probe = ModelProbe {
                             model: &mut local_elem,
                             id_source: self.local_id,
+                            local_id: Id::NULL,
                         };
                         if probe.has_inner() {
                             probe.iterate_inner(ui, f);
@@ -876,6 +1142,7 @@ impl EguiProbe for ValueProbe<'_> {
                         let mut probe = ModelProbe {
                             model: &mut local_elem,
                             id_source: self.local_id,
+                            local_id: Id::NULL,
                         };
                         if probe.has_inner() {
                             probe.iterate_inner(ui, f);
@@ -890,11 +1157,10 @@ impl EguiProbe for ValueProbe<'_> {
 
                 match self.value {
                     Value::Map(values) => {
-                        let id: Id = self.id_source.with("List");
-
                         let mut idx = 0;
                         values.retain(|key, value| {
-                            let mut probe = ValueProbe::new(Some(elem), value, id.with(idx));
+                            let mut probe =
+                                ValueProbe::new(Some(elem), value, self.local_id.with(idx));
                             let mut item = DeleteMe {
                                 value: &mut probe,
                                 delete: false,

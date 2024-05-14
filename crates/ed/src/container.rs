@@ -21,10 +21,7 @@ use std::{
     sync::{atomic::AtomicBool, Arc},
 };
 
-use arcana::{
-    plugin::ArcanaPlugin,
-    project::{Dependency, Ident, IdentBuf},
-};
+use arcana::{plugin::ArcanaPlugin, project::Dependency, Ident};
 use hashbrown::{hash_map::RawEntryMut, HashMap, HashSet};
 use miette::{Context, Diagnostic, Severity};
 use thiserror::Error;
@@ -77,7 +74,7 @@ pub struct PluginsLibraryEngineUnlinked;
     help("Break circular dependency"),
     url(docsrs)
 )]
-pub struct CircularDependency(pub IdentBuf, pub IdentBuf);
+pub struct CircularDependency(pub Ident, pub Ident);
 
 #[derive(Diagnostic, Error, Debug)]
 #[error("Missing dependency: {dependency} for plugin {plugin}")]
@@ -87,7 +84,7 @@ pub struct CircularDependency(pub IdentBuf, pub IdentBuf);
     url(docsrs)
 )]
 pub struct MissingDependency {
-    pub plugin: IdentBuf,
+    pub plugin: Ident,
     pub dependency: Dependency,
 }
 
@@ -111,7 +108,7 @@ pub struct PluginsError {
 struct Loaded {
     /// List of plugins loaded from the library.
     /// In dependency-first order.
-    plugins: Vec<(&'static Ident, &'static dyn ArcanaPlugin)>,
+    plugins: Vec<(Ident, &'static dyn ArcanaPlugin)>,
 
     /// Linked library.
     /// It is only used to keep the library loaded.
@@ -124,7 +121,7 @@ struct Loaded {
 
 #[derive(Clone)]
 pub struct Container {
-    active_plugins: Arc<[(&'static Ident, &'static dyn ArcanaPlugin)]>,
+    active_plugins: Arc<[(Ident, &'static dyn ArcanaPlugin)]>,
 
     // Unload library last.
     loaded: Arc<Loaded>,
@@ -133,7 +130,7 @@ pub struct Container {
 impl fmt::Debug for Container {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         struct Plugins<'a> {
-            plugins: &'a [(&'a Ident, &'a dyn ArcanaPlugin)],
+            plugins: &'a [(Ident, &'a dyn ArcanaPlugin)],
         }
 
         impl fmt::Debug for Plugins<'_> {
@@ -161,7 +158,7 @@ impl fmt::Debug for Container {
 
 impl Container {
     /// Create a new container with the given plugins enabled.
-    pub fn with_plugins(&self, enabled_plugins: &HashSet<IdentBuf>) -> Self {
+    pub fn with_plugins(&self, enabled_plugins: &HashSet<Ident>) -> Self {
         let active_plugins = get_active_plugins(&self.loaded, enabled_plugins);
         Container {
             loaded: self.loaded.clone(),
@@ -169,20 +166,20 @@ impl Container {
         }
     }
 
-    pub fn has(&self, name: &Ident) -> bool {
+    pub fn has(&self, name: Ident) -> bool {
         self.loaded.plugins.iter().any(|(n, _)| *n == name)
     }
 
-    pub fn is_active(&self, name: &Ident) -> bool {
+    pub fn is_active(&self, name: Ident) -> bool {
         self.active_plugins.iter().any(|(n, _)| *n == name)
     }
 
-    pub fn get(&self, name: &Ident) -> Option<&dyn ArcanaPlugin> {
+    pub fn get(&self, name: Ident) -> Option<&dyn ArcanaPlugin> {
         let (_, p) = self.loaded.plugins.iter().find(|(n, _)| *n == name)?;
         Some(*p)
     }
 
-    pub fn plugins<'a>(&'a self) -> impl Iterator<Item = (&'a Ident, &'a dyn ArcanaPlugin)> + 'a {
+    pub fn plugins<'a>(&'a self) -> impl Iterator<Item = (Ident, &'a dyn ArcanaPlugin)> + 'a {
         self.active_plugins.iter().copied()
     }
 }
@@ -190,21 +187,21 @@ impl Container {
 /// Sort plugins placing dependencies first.
 /// Errors if there are circular dependencies or missing dependencies.
 fn sort_plugins<'a>(
-    plugins: &[(&'a Ident, &'a dyn ArcanaPlugin)],
-) -> Result<Vec<(&'a Ident, &'a dyn ArcanaPlugin)>, PluginsError> {
+    plugins: &[(Ident, &'a dyn ArcanaPlugin)],
+) -> Result<Vec<(Ident, &'a dyn ArcanaPlugin)>, PluginsError> {
     let mut queue = VecDeque::new();
 
     for (name, _) in plugins {
         queue.push_back(*name);
     }
 
-    let has = |name: &Ident| -> bool { plugins.iter().any(|(n, _)| *n == name) };
+    let has = |name: Ident| -> bool { plugins.iter().any(|(n, _)| *n == name) };
 
-    let get = |name: &Ident| -> &'a dyn ArcanaPlugin {
+    let get = |name: Ident| -> &'a dyn ArcanaPlugin {
         plugins.iter().find(|(n, _)| *n == name).unwrap().1
     };
 
-    let get_pair = |name: &Ident| -> (&'a Ident, &'a dyn ArcanaPlugin) {
+    let get_pair = |name: Ident| -> (Ident, &'a dyn ArcanaPlugin) {
         *plugins.iter().find(|(n, _)| *n == name).unwrap()
     };
 
@@ -216,7 +213,7 @@ fn sort_plugins<'a>(
     let mut result = Vec::new();
 
     while let Some(name) = queue.pop_front() {
-        if sorted.contains(name) {
+        if sorted.contains(&name) {
             continue;
         }
         pending.insert(name);
@@ -225,18 +222,18 @@ fn sort_plugins<'a>(
 
         let mut defer = false;
         for (dep_name, dependency) in plugin.dependencies() {
-            if sorted.contains(dep_name) {
+            if sorted.contains(&dep_name) {
                 continue;
             }
 
-            if pending.contains(dep_name) {
-                circular_dependencies.push(CircularDependency(name.to_buf(), dep_name.to_buf()));
+            if pending.contains(&dep_name) {
+                circular_dependencies.push(CircularDependency(name, dep_name));
                 continue;
             }
 
             if !has(dep_name) {
                 missing_dependencies.push(MissingDependency {
-                    plugin: dep_name.to_buf(),
+                    plugin: dep_name,
                     dependency: dependency.clone(),
                 });
                 continue;
@@ -388,7 +385,7 @@ impl Loader {
     pub fn load(
         &mut self,
         path: &Path,
-        enabled_plugins: &HashSet<IdentBuf>,
+        enabled_plugins: &HashSet<Ident>,
     ) -> miette::Result<Container> {
         let new_path = find_tmp_path(path).wrap_err("Failed to find temp path for dylib")?;
 
@@ -416,23 +413,23 @@ impl Loader {
 /// Plugin is activated if it is enabled and all its dependencies are active.
 fn get_active_plugins(
     loaded: &Loaded,
-    enabled_plugins: &HashSet<IdentBuf>,
-) -> Vec<(&'static Ident, &'static dyn ArcanaPlugin)> {
+    enabled_plugins: &HashSet<Ident>,
+) -> Vec<(Ident, &'static dyn ArcanaPlugin)> {
     let mut active_plugins = Vec::new();
     let mut active_set = HashSet::new();
 
     'a: for &(name, plugin) in &loaded.plugins {
-        if !enabled_plugins.contains(name) {
+        if !enabled_plugins.contains(&name) {
             continue;
         }
 
         for (dep_name, _) in plugin.dependencies() {
-            if !active_set.contains(dep_name) {
+            if !active_set.contains(&dep_name) {
                 continue 'a;
             }
         }
 
-        active_set.insert(name.to_buf());
+        active_set.insert(name);
         active_plugins.push((name, plugin));
     }
 
@@ -458,7 +455,7 @@ fn load_lib(path: &Path, new_path: PathBuf) -> miette::Result<Loaded> {
 
     type ArcanaVersionFn = fn() -> &'static str;
     type ArcanaLinkedFn = fn(&AtomicBool) -> bool;
-    type ArcanaPluginsFn = fn() -> &'static [(&'static Ident, &'static dyn ArcanaPlugin)];
+    type ArcanaPluginsFn = fn() -> &'static [(Ident, &'static dyn ArcanaPlugin)];
 
     let arcana_version =
         unsafe { lib.get::<ArcanaVersionFn>(b"arcana_version\0") }.map_err(|source| {

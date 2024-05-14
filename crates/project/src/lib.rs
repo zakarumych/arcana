@@ -12,11 +12,11 @@ use std::{
     process::Child,
 };
 
+use arcana_names::{Ident, Name};
 use camino::{Utf8Path, Utf8PathBuf};
 
 mod dependency;
 mod generator;
-mod ident;
 mod manifest;
 mod path;
 mod plugin;
@@ -30,7 +30,6 @@ use path::{normalized_path, normalizing_join};
 pub use self::{
     dependency::Dependency,
     generator::new_plugin_crate,
-    ident::{Ident, IdentBuf},
     manifest::ProjectManifest,
     path::{make_relative, real_path},
     plugin::Plugin,
@@ -90,7 +89,7 @@ impl Project {
     /// * If `new` is true and `path` is already exists.
     /// * If `path` already contains Arcana project.
     pub fn new(
-        name: IdentBuf,
+        name: Ident,
         path: &Path,
         mut engine: Dependency,
         new: bool,
@@ -183,7 +182,7 @@ impl Project {
         };
         /// Construct project manifest.
         let manifest = ProjectManifest {
-            name: name.to_owned(),
+            name,
             engine,
             plugins: Vec::new(),
         };
@@ -382,12 +381,8 @@ impl Project {
     }
 
     /// Returns name of the project.
-    pub fn name(&self) -> &Ident {
-        &self.manifest.name
-    }
-
-    pub fn name_mut(&mut self) -> &mut IdentBuf {
-        &mut self.manifest.name
+    pub fn name(&self) -> Ident {
+        self.manifest.name
     }
 
     pub fn engine(&self) -> &Dependency {
@@ -488,12 +483,12 @@ impl Project {
         }
     }
 
-    pub fn has_plugin(&self, name: &Ident) -> bool {
+    pub fn has_plugin(&self, name: Ident) -> bool {
         self.manifest.has_plugin(name)
     }
 
     pub fn add_plugin(&mut self, mut plugin: Plugin) -> miette::Result<bool> {
-        if self.manifest.has_plugin(&plugin.name) {
+        if self.manifest.has_plugin(plugin.name) {
             return Ok(false);
         }
 
@@ -527,7 +522,7 @@ fn is_in_cargo_workspace(path: &Path) -> bool {
     false
 }
 
-pub fn process_path_name(path: &Path, name: Option<&Ident>) -> miette::Result<(PathBuf, IdentBuf)> {
+pub fn process_path_ident(path: &Path, name: Option<Ident>) -> miette::Result<(PathBuf, Ident)> {
     let path = match real_path(&path) {
         Some(path) => path,
         None => miette::bail!(
@@ -558,7 +553,7 @@ pub fn process_path_name(path: &Path, name: Option<&Ident>) -> miette::Result<(P
 
             file_name.to_owned()
         }
-        Some(name) => name.to_owned(),
+        Some(name) => name,
     };
 
     Ok((path, name))

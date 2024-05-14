@@ -15,7 +15,7 @@ use arcana::{
     Blink, ClockStep, EntityId, FrequencyTicker, World,
 };
 use egui::Ui;
-use hashbrown::HashSet;
+use hashbrown::{HashMap, HashSet};
 use parking_lot::Mutex;
 use winit::{event::WindowEvent, window::WindowId};
 
@@ -218,7 +218,7 @@ impl Main {
         let lim = FrequencyTicker::new(60.hz(), rate.now());
 
         let flows = Flows::default();
-        let workgraph = WorkGraph::new(Vec::new(), HashSet::new()).unwrap();
+        let workgraph = WorkGraph::new(HashMap::new(), HashSet::new()).unwrap();
 
         let present = None;
         let viewport = Viewport::new_image();

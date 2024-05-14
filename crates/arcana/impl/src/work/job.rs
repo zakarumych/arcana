@@ -1,7 +1,13 @@
+use arcana_names::Name;
 use edict::World;
 use hashbrown::HashMap;
 
-use crate::{make_id, model::Model, stid::WithStid, Stid};
+use crate::{
+    make_id,
+    model::{Model, Value},
+    stid::WithStid,
+    Stid,
+};
 
 use super::graph::{Exec, Planner};
 
@@ -9,69 +15,81 @@ make_id!(pub JobId);
 
 /// Descroption of job creating a target.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub struct JobCreateDesc {
-    /// Target name.
-    pub name: String,
+pub struct TargetCreateDesc {
+    /// Create name.
+    pub name: Name,
 
     /// Target type.
     pub ty: Stid,
 }
 
-impl JobCreateDesc {
-    pub fn new<T: WithStid>(name: impl Into<String>) -> Self {
-        JobCreateDesc {
-            name: name.into(),
+impl TargetCreateDesc {
+    pub fn new<T: WithStid>(name: Name) -> Self {
+        TargetCreateDesc {
+            name,
             ty: T::stid(),
         }
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub struct JobUpdateDesc {
+pub struct TargetUpdateDesc {
+    /// Update name.
+    pub name: Name,
+
     /// Target type.
     pub ty: Stid,
 }
 
-impl JobUpdateDesc {
-    pub fn new<T: WithStid>() -> Self {
-        JobUpdateDesc { ty: T::stid() }
+impl TargetUpdateDesc {
+    pub fn new<T: WithStid>(name: Name) -> Self {
+        TargetUpdateDesc {
+            name,
+            ty: T::stid(),
+        }
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub struct JobReadDesc {
+pub struct TargetReadDesc {
+    /// Read name.
+    pub name: Name,
+
     /// Target type.
     pub ty: Stid,
 }
 
-impl JobReadDesc {
-    pub fn new<T: WithStid>() -> Self {
-        JobReadDesc { ty: T::stid() }
+impl TargetReadDesc {
+    pub fn new<T: WithStid>(name: Name) -> Self {
+        TargetReadDesc {
+            name,
+            ty: T::stid(),
+        }
     }
 }
 
 /// Job description.
 /// A set of targets a job creates, updates and reads.
-#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct JobDesc {
-    /// Job configuration model.
-    pub cfg: HashMap<String, Model>,
+    /// Job parameters.
+    pub params: Vec<(Name, Model)>,
 
     /// List of targets job reads.
     /// They are inputs of the job.
-    pub reads: Vec<JobReadDesc>,
+    pub reads: Vec<TargetReadDesc>,
 
     /// List of targets job updates.
     /// They are inputs and outputs of the job.
-    pub updates: Vec<JobUpdateDesc>,
+    pub updates: Vec<TargetUpdateDesc>,
 
     /// List of targets job creates.
     /// They are outputs of the job.
-    pub creates: Vec<JobCreateDesc>,
+    pub creates: Vec<TargetCreateDesc>,
 }
 
 impl JobDesc {
-    pub(super) fn input_update(&self, pin: usize) -> Option<usize> {
+    pub fn update_idx(&self, pin: usize) -> Option<usize> {
         if pin < self.updates.len() {
             Some(pin)
         } else {
@@ -79,7 +97,7 @@ impl JobDesc {
         }
     }
 
-    pub(super) fn input_read(&self, pin: usize) -> Option<usize> {
+    pub fn read_idx(&self, pin: usize) -> Option<usize> {
         if pin >= self.updates.len() && pin < self.updates.len() + self.reads.len() {
             Some(pin - self.updates.len())
         } else {
@@ -87,15 +105,17 @@ impl JobDesc {
         }
     }
 
-    pub(super) fn output_update(&self, pin: usize) -> Option<usize> {
-        if pin < self.updates.len() {
-            Some(pin)
+    pub fn param_idx(&self, pin: usize) -> Option<usize> {
+        if pin >= self.updates.len() + self.reads.len()
+            && pin < self.updates.len() + self.reads.len() + self.params.len()
+        {
+            Some(pin - self.updates.len() - self.reads.len())
         } else {
             None
         }
     }
 
-    pub(super) fn output_create(&self, pin: usize) -> Option<usize> {
+    pub fn create_idx(&self, pin: usize) -> Option<usize> {
         if pin >= self.updates.len() && pin < self.creates.len() + self.updates.len() {
             Some(pin - self.updates.len())
         } else {
@@ -106,7 +126,7 @@ impl JobDesc {
     /// Returns input stable type ID by index.
     #[track_caller]
     pub fn input_type(&self, pin: usize) -> Stid {
-        match (self.input_update(pin), self.input_read(pin)) {
+        match (self.update_idx(pin), self.read_idx(pin)) {
             (Some(update), _) => self.updates[update].ty,
             (_, Some(read)) => self.reads[read].ty,
             _ => invalid_input_pin(pin),
@@ -116,7 +136,7 @@ impl JobDesc {
     /// Returns output stable type ID by index.
     #[track_caller]
     pub fn output_type(&self, pin: usize) -> Stid {
-        match (self.output_create(pin), self.output_update(pin)) {
+        match (self.create_idx(pin), self.update_idx(pin)) {
             (Some(create), _) => self.creates[create].ty,
             (_, Some(update)) => self.updates[update].ty,
             _ => invalid_output_pin(pin),
@@ -126,45 +146,53 @@ impl JobDesc {
     /// Returns output name by index.
     #[track_caller]
     pub fn output_name(&self, pin: usize) -> Option<&str> {
-        match (self.output_create(pin), self.output_update(pin)) {
+        match (self.create_idx(pin), self.update_idx(pin)) {
             (Some(create), _) => Some(&self.creates[create].name),
             (_, Some(_)) => None,
             _ => invalid_output_pin(pin),
         }
+    }
+
+    pub fn default_params(&self) -> HashMap<Name, Value> {
+        self.params
+            .iter()
+            .map(|(k, m)| (*k, m.default_value()))
+            .collect()
     }
 }
 
 #[doc(hidden)]
 #[macro_export]
 macro_rules! add_job_desc {
-    (($reads:ident, $updates:ident, $creates:ident)) => {};
-    (($reads:ident, $updates:ident, $creates:ident) $ty:ty , $($rest:tt)*) => {
-        $reads.push($crate::work::JobReadDesc::new::< $ty >());
-        $crate::add_job_desc!(($reads, $updates, $creates) $($rest)*);
+    (($params:ident, $reads:ident, $updates:ident, $creates:ident)) => {};
+    (($params:ident, $reads:ident, $updates:ident, $creates:ident) $name:ident: $ty:ty , $($rest:tt)*) => {
+        $reads.push($crate::work::TargetReadDesc::new::< $ty >($crate::ident!($name).into()));
+        $crate::add_job_desc!(($params, $reads, $updates, $creates) $($rest)*);
     };
-    (($reads:ident, $updates:ident, $creates:ident) mut $ty:ty , $($rest:tt)*) => {
-        $updates.push($crate::work::JobUpdateDesc::new::< $ty >());
-        $crate::add_job_desc!(($reads, $updates, $creates) $($rest)*);
+    (($params:ident, $reads:ident, $updates:ident, $creates:ident) $name:ident: mut $ty:ty, $($rest:tt)*) => {
+        $updates.push($crate::work::TargetUpdateDesc::new::< $ty >($crate::ident!($name).into()));
+        $crate::add_job_desc!(($params, $reads, $updates, $creates) $($rest)*);
     };
-    (($reads:ident, $updates:ident, $creates:ident) +$ty:ty => $name:expr , $($rest:tt)*) => {
-        $creates.push($crate::work::JobCreateDesc::new::< $ty >($name));
-        $crate::add_job_desc!(($reads, $updates, $creates) $($rest)*);
+    (($params:ident, $reads:ident, $updates:ident, $creates:ident) $name:ident: +$ty:ty , $($rest:tt)*) => {
+        $creates.push($crate::work::TargetCreateDesc::new::< $ty >($crate::ident!($name).into()));
+        $crate::add_job_desc!(($params, $reads, $updates, $creates) $($rest)*);
+    };
+    (($params:ident, $reads:ident, $updates:ident, $creates:ident) $name:ident: in $model:expr , $($rest:tt)*) => {
+        $params.push(($crate::ident!($name).into(), $model));
+        $crate::add_job_desc!(($params, $reads, $updates, $creates) $($rest)*);
     };
 }
 
 #[macro_export]
 macro_rules! job_desc {
-    ($(@$model:expr;)? $($descs:tt)*) => {{
-        let mut reads = Vec::new();
-        let mut updates = Vec::new();
-        let mut creates = Vec::new();
-        $crate::add_job_desc!((reads, updates, creates) $($descs)*);
+    ($(@$model:expr,)? $($descs:tt)*) => {{
+        let mut params = std::vec::Vec::new();
+        let mut reads = std::vec::Vec::new();
+        let mut updates = std::vec::Vec::new();
+        let mut creates = std::vec::Vec::new();
+        $crate::add_job_desc!((params, reads, updates, creates) $($descs)*);
         $crate::work::JobDesc {
-            cfg: {
-                let mut cfg = $crate::hashbrown::HashMap::new();
-                $(cfg.extend($model);)?
-                cfg
-            },
+            params,
             reads,
             updates,
             creates,
@@ -183,7 +211,7 @@ pub trait Job: 'static {
     /// This phase is executed for each frame, so considered hot path.
     /// It is important to keep it simple and fast,
     /// keep allocations to minimum and reuse as much as possible.
-    fn plan(&mut self, planner: Planner<'_>, world: &mut World);
+    fn plan(&mut self, planner: Planner<'_>, world: &mut World, params: &HashMap<Name, Value>);
 
     /// Second phase of a job is execution.
     ///
@@ -193,7 +221,7 @@ pub trait Job: 'static {
     /// - Creating pipelines
     /// - Binding resources
     /// - Recording draw/dispatch calls
-    fn exec(&mut self, exec: Exec<'_>, world: &mut World);
+    fn exec(&mut self, exec: Exec<'_>, world: &mut World, params: &HashMap<Name, Value>);
 }
 
 #[track_caller]

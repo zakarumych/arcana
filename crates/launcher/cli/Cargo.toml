@@ -12,6 +12,7 @@ name = "arcn"
 path = "src/main.rs"
 
 [dependencies]
+arcana-names = { path = "../../names" }
 arcana-project = { path = "../../project" }
 arcana-launcher = { path = ".." }
 clap.workspace = true

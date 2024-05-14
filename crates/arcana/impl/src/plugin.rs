@@ -1,6 +1,7 @@
-use std::{any::Any, borrow::Cow, sync::atomic::AtomicBool};
+use std::{any::Any, sync::atomic::AtomicBool};
 
-use arcana_project::{Dependency, Ident};
+use arcana_names::{Ident, Name};
+use arcana_project::Dependency;
 use edict::{IntoSystem, System, World};
 use hashbrown::HashMap;
 
@@ -17,7 +18,7 @@ pub struct SystemInfo {
     pub id: SystemId,
 
     /// Name of the system.
-    pub name: Cow<'static, Ident>,
+    pub name: Name,
 }
 
 /// Filter information declared by a plugin.
@@ -27,7 +28,7 @@ pub struct FilterInfo {
     pub id: FilterId,
 
     /// Name of the filter.
-    pub name: Cow<'static, Ident>,
+    pub name: Name,
 }
 
 /// Job information declared by a plugin.
@@ -37,7 +38,7 @@ pub struct JobInfo {
     pub id: JobId,
 
     /// Name of the job.
-    pub name: Cow<'static, Ident>,
+    pub name: Name,
 
     /// Description of the job.
     pub desc: JobDesc,
@@ -113,7 +114,7 @@ macro_rules! plugin_init {
 pub trait ArcanaPlugin: Any + Sync {
     /// Returns list of plugin names this plugin depends on.
     /// Dependencies must be initialized first and deinitialized last.
-    fn dependencies(&self) -> Vec<(&'static Ident, Dependency)> {
+    fn dependencies(&self) -> Vec<(Ident, Dependency)> {
         Vec::new()
     }
 
@@ -329,9 +330,9 @@ macro_rules! export_arcana_plugin {
 
             impl $crate::plugin::ArcanaPlugin for $plugin {
                 $(
-                    fn dependencies(&self) -> Vec<(&'static $crate::project::Ident, $crate::project::Dependency)> {
+                    fn dependencies(&self) -> Vec<($crate::Ident, $crate::project::Dependency)> {
                         vec![$(
-                            ($crate::project::ident!($dependency), $crate::get_dependency!($dependency $dep_kind)),
+                            ($crate::ident!($dependency), $crate::get_dependency!($dependency $dep_kind)),
                         )+]
                     }
                 )*
@@ -341,7 +342,7 @@ macro_rules! export_arcana_plugin {
                         vec![$(
                             $crate::plugin::SystemInfo {
                                 id: $crate::local_hash_id!($system_name),
-                                name: ::std::borrow::Cow::Borrowed($crate::project::ident!($system_name)),
+                                name: $crate::ident!($system_name).into(),
                             },
                         )+]
                     }
@@ -352,7 +353,7 @@ macro_rules! export_arcana_plugin {
                         vec![$(
                             $crate::plugin::FilterInfo {
                                 id: $crate::local_hash_id!($filter_name),
-                                name: ::std::borrow::Cow::Borrowed($crate::project::ident!($filter_name)),
+                                name: $crate::ident!($filter_name).into(),
                             },
                         )+]
                     }
@@ -363,7 +364,7 @@ macro_rules! export_arcana_plugin {
                         vec![$(
                             $crate::plugin::JobInfo {
                                 id: $crate::local_hash_id!($job_name),
-                                name: ::std::borrow::Cow::Borrowed($crate::project::ident!($job_name)),
+                                name: $crate::ident!($job_name).into(),
                                 desc: $crate::job_desc_or_expr!($job_name $(: $job_desc)?),
                             },
                         )+]

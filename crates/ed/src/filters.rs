@@ -2,20 +2,18 @@ use arcana::{
     edict::world::WorldLocal,
     events::{Event, FilterId},
     plugin::PluginsHub,
-    project::{IdentBuf, Project},
-    Blink, World,
+    project::Project,
+    Blink, Ident, Name, World,
 };
 use egui::{Color32, Ui, WidgetText};
 use hashbrown::HashMap;
 
 use crate::{container::Container, data::ProjectData};
 
-use super::plugins::Plugins;
-
 #[derive(Clone, Debug, Hash, serde::Serialize, serde::Deserialize)]
 struct FilterInfo {
-    plugin: IdentBuf,
-    name: IdentBuf,
+    plugin: Ident,
+    name: Name,
     id: FilterId,
     enabled: bool,
 
@@ -98,7 +96,7 @@ impl Filters {
                 let mut heading = WidgetText::from(filter.name.as_str());
                 let mut tooltip = "";
 
-                match project.manifest().has_plugin(&filter.plugin) {
+                match project.manifest().has_plugin(filter.plugin) {
                     false => {
                         tooltip = "Plugin not found";
                         heading = heading.color(Color32::DARK_RED);
@@ -171,7 +169,7 @@ impl Filters {
         let new_filters = all_filters
             .into_iter()
             .map(|(id, (plugin, name))| FilterInfo {
-                name: name.into_owned(),
+                name,
                 plugin: plugin.to_owned(),
                 id,
                 enabled: false,

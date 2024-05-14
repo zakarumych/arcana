@@ -203,8 +203,10 @@ fn vs_main(@builtin(vertex_index) index: u32) -> VertOutput {
     let x = (-0.5 + (f32(index) * 0.5));
     let y = (-(sqrt(3.0) / 6.0) + f32(index == 1u) * sqrt(3.0) / 2.0);
 
-    let ca = cos(pc.angle);
-    let sa = sin(pc.angle);
+    let a = pc.angle * 6.28318530717958647692528676655900577;
+
+    let ca = cos(a);
+    let sa = sin(a);
 
     let output = VertOutput(
         vec4<f32>((ca * x + sa * y) / f32(pc.width) * f32(pc.height), (ca * y - sa * x), 0.0, 1.0),

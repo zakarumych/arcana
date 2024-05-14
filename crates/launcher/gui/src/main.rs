@@ -6,10 +6,10 @@ use arcana::{
     events::ViewportEvent,
     gametime::FrequencyNumExt,
     mev,
-    project::{Dependency, Ident, IdentBuf, Profile, Project},
+    project::{Dependency, Profile, Project},
     render::{render, RenderGraph, RenderResources},
     viewport::Viewport,
-    Clock, ClockStep,
+    Clock, ClockStep, Ident,
 };
 use arcana_egui::{Egui, EguiRender};
 use arcana_launcher::Start;
@@ -788,7 +788,7 @@ impl NewProject {
 
         if create_project {
             let result = Project::new(
-                IdentBuf::from_string(self.name.clone()).unwrap(),
+                Ident::from_str(&self.name).unwrap(),
                 self.path.as_ref(),
                 self.engine.clone().unwrap(),
                 true,

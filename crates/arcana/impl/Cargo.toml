@@ -8,9 +8,10 @@ version.workspace = true
 description = "Arcana Engine"
 
 [dependencies]
+arcana-importers = { path = "../../importers" }
+arcana-names = { path = "../../names" }
 arcana-proc = { path = "../proc" }
 arcana-project = { path = "../../project" }
-arcana-importers = { path = "../../importers" }
 mev = { path = "../../mev" }
 
 ahash.workspace = true

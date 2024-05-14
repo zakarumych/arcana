@@ -1,10 +1,10 @@
 use arcana::{
     edict::world::WorldLocal,
     project::{
-        new_plugin_crate, process_path_name, BuildProcess, Dependency, Ident, IdentBuf, Plugin,
-        Profile, Project, ProjectManifest,
+        new_plugin_crate, process_path_ident, BuildProcess, Dependency, Plugin, Profile, Project,
+        ProjectManifest,
     },
-    World,
+    Ident, World,
 };
 use camino::{Utf8Path, Utf8PathBuf};
 use egui::{Color32, RichText, Ui};
@@ -67,7 +67,7 @@ impl Plugins {
     /// Checks of all plugins from manifest are present in linked library.
     fn check_plugins(project: &ProjectManifest, container: &Container) -> bool {
         project.plugins.iter().all(|p| {
-            let has = container.has(&p.name);
+            let has = container.has(p.name);
             if !has {
                 tracing::debug!("Plugin '{}' is not linked", p.name);
             }
@@ -78,11 +78,11 @@ impl Plugins {
     /// Adds new plugin.
     pub fn add_plugin(
         &mut self,
-        name: IdentBuf,
+        name: Ident,
         dep: Dependency,
         project: &mut Project,
     ) -> miette::Result<()> {
-        if project.has_plugin(&name) {
+        if project.has_plugin(name) {
             miette::bail!("Plugin '{}' already exists", name);
         }
 
@@ -291,7 +291,7 @@ impl Plugins {
                         let mut heading = RichText::from(plugin.name.as_str());
 
                         let mut tooltip = "";
-                        if !plugins.is_linked(&plugin.name) {
+                        if !plugins.is_linked(plugin.name) {
                             // Not linked plugin may not be active.
                             if plugins.pending.is_some() || plugins.build.is_some() {
                                 tooltip = "Pending";
@@ -302,7 +302,7 @@ impl Plugins {
                             }
                         } else if !data.enabled_plugins.contains(&plugin.name) {
                             heading = heading.color(ui.visuals().warn_fg_color);
-                        } else if !plugins.is_active(&plugin.name) {
+                        } else if !plugins.is_active(plugin.name) {
                             tooltip = "Dependencies are not enabled";
                             heading = heading.color(ui.visuals().warn_fg_color);
                         } else {
@@ -390,7 +390,7 @@ impl Plugins {
                     }
                     Some(path) => {
                         match Utf8Path::from_path(path) {
-                            Some(path) => match process_path_name(path.as_std_path(), None) {
+                            Some(path) => match process_path_ident(path.as_std_path(), None) {
                                 Ok((path, name)) => match Utf8PathBuf::from_path_buf(path) {
                                     Ok(path) => {
                                         match new_plugin_crate(
@@ -464,12 +464,12 @@ impl Plugins {
     }
 
     /// Checks if plugins with given name is active.
-    pub fn is_linked(&self, name: &Ident) -> bool {
+    pub fn is_linked(&self, name: Ident) -> bool {
         self.linked.as_ref().map_or(false, |c| c.has(name))
     }
 
     /// Checks if plugins with given name is active.
-    pub fn is_active(&self, name: &Ident) -> bool {
+    pub fn is_active(&self, name: Ident) -> bool {
         self.linked.as_ref().map_or(false, |c| c.is_active(name))
     }
 }

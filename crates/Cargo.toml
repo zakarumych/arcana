@@ -6,7 +6,7 @@ members = [
     "ed",
     "launcher/cli",
     "launcher/gui",
-    "plugins/*",
+    "plugins/*", "names",
 ]
 resolver = "2"
 

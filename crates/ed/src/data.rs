@@ -3,7 +3,7 @@
 
 use std::io::Write;
 
-use arcana::project::{IdentBuf, Project};
+use arcana::{project::Project, Ident};
 use hashbrown::HashSet;
 
 use crate::{filters::Funnel, render::WorkGraph, systems::SystemGraph};
@@ -15,7 +15,7 @@ use crate::{filters::Funnel, render::WorkGraph, systems::SystemGraph};
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct ProjectData {
     /// Set of enabled plugins.
-    pub enabled_plugins: HashSet<IdentBuf>,
+    pub enabled_plugins: HashSet<Ident>,
 
     /// Systems graph.
     pub systems: SystemGraph,

@@ -1,8 +1,11 @@
 use arcana::{
     edict::World,
     gametime::ClockStep,
+    hashbrown::HashMap,
     mev::{self, Arguments, DeviceRepr},
+    model::Value,
     work::{Exec, Image2D, Job, JobDesc, Planner},
+    Name,
 };
 
 #[derive(mev::Arguments)]
@@ -27,7 +30,7 @@ pub struct MainJob {
 impl MainJob {
     pub fn desc() -> JobDesc {
         arcana::job_desc! [
-            +Image2D => "main",
+            main: +Image2D,
         ]
     }
 
@@ -45,7 +48,12 @@ impl MainJob {
 }
 
 impl Job for MainJob {
-    fn plan(&mut self, mut planner: Planner<'_>, world: &mut World) {
+    fn plan(
+        &mut self,
+        mut planner: Planner<'_>,
+        world: &mut World,
+        _params: &HashMap<Name, Value>,
+    ) {
         let Some(target) = planner.create::<Image2D>() else {
             return;
         };
@@ -61,7 +69,7 @@ impl Job for MainJob {
         };
     }
 
-    fn exec(&mut self, runner: Exec<'_>, _world: &mut World) {
+    fn exec(&mut self, runner: Exec<'_>, _world: &mut World, _params: &HashMap<Name, Value>) {
         let Some(target) = runner.create::<Image2D>() else {
             return;
         };
