@@ -31,7 +31,7 @@ impl Deref for Image2D {
 
 with_stid!(Image2D = 0x9010634f06624678);
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Image2DInfo {
     pub extent: mev::Extent2,
     pub format: mev::PixelFormat,
@@ -88,7 +88,7 @@ impl Deref for SampledImage2D {
 
 with_stid!(SampledImage2D = 0x9010634f06624679);
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct SampledImage2DInfo {
     pub extent: mev::Extent2,
     pub format: mev::PixelFormat,

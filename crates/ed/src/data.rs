@@ -46,8 +46,8 @@ impl ProjectData {
             }
         };
 
-        match bincode::serialize(self) {
-            Ok(bytes) => match file.write_all(&bytes) {
+        match serde_json::to_string(self) {
+            Ok(bytes) => match file.write_all(bytes.as_bytes()) {
                 Ok(()) => Ok(()),
                 Err(err) => {
                     miette::bail!("Failed to write project data: {}", err);

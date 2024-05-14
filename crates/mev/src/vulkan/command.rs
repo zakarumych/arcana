@@ -11,8 +11,8 @@ use crate::generic::{
 
 use super::{
     access::access_for_stages, format_aspect, from::IntoAsh, handle_host_oom,
-    layout::PipelineLayout, refs::Refs, unexpected_error, Blas, Buffer, Device, Frame, Image,
-    RenderPipeline, Tlas,
+    layout::PipelineLayout, refs::Refs, unexpected_error, Blas, Buffer, ComputePipeline, Device,
+    Frame, Image, RenderPipeline, Tlas,
 };
 
 pub struct CommandBuffer {
@@ -61,11 +61,77 @@ impl crate::traits::CommandEncoder for CommandEncoder {
     }
 
     #[cfg_attr(inline_more, inline(always))]
+    fn present(&mut self, frame: Frame, after: PipelineStages) {
+        unsafe {
+            self.device.ash().cmd_pipeline_barrier(
+                self.handle,
+                ash::vk::PipelineStageFlags::BOTTOM_OF_PIPE | after.into_ash(),
+                ash::vk::PipelineStageFlags::TOP_OF_PIPE,
+                vk::DependencyFlags::empty(),
+                &[],
+                &[],
+                &[ash::vk::ImageMemoryBarrier::default()
+                    .src_access_mask(access_for_stages(after))
+                    .dst_access_mask(ash::vk::AccessFlags::empty())
+                    .old_layout(ash::vk::ImageLayout::GENERAL)
+                    .new_layout(ash::vk::ImageLayout::PRESENT_SRC_KHR)
+                    .image(frame.image().handle())
+                    .subresource_range(vk::ImageSubresourceRange {
+                        aspect_mask: vk::ImageAspectFlags::COLOR,
+                        base_mip_level: 0,
+                        level_count: 1,
+                        base_array_layer: 0,
+                        layer_count: 1,
+                    })],
+            )
+        }
+
+        self.refs.add_image(frame.image().clone());
+        self.present.push(frame);
+    }
+
+    #[cfg_attr(inline_more, inline(always))]
+    fn finish(self) -> Result<CommandBuffer, OutOfMemory> {
+        let result = unsafe { self.device.ash().end_command_buffer(self.handle) };
+        result.map_err(|err| match err {
+            vk::Result::ERROR_OUT_OF_HOST_MEMORY => handle_host_oom(),
+            vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => OutOfMemory,
+            _ => unexpected_error(err),
+        })?;
+
+        Ok(CommandBuffer {
+            handle: self.handle,
+            pool: self.pool,
+            present: self.present,
+            refs: self.refs,
+        })
+    }
+
+    #[cfg_attr(inline_more, inline(always))]
     fn copy(&mut self) -> CopyCommandEncoder<'_> {
         CopyCommandEncoder {
             device: self.device.clone(),
             handle: self.handle,
             refs: &mut self.refs,
+        }
+    }
+
+    #[cfg_attr(inline_more, inline(always))]
+    fn acceleration_structure(&mut self) -> AccelerationStructureCommandEncoder<'_> {
+        AccelerationStructureCommandEncoder {
+            device: self.device.clone(),
+            handle: self.handle,
+            refs: &mut self.refs,
+        }
+    }
+
+    #[cfg_attr(inline_more, inline(always))]
+    fn compute(&mut self) -> ComputeCommandEncoder<'_> {
+        ComputeCommandEncoder {
+            device: self.device.clone(),
+            handle: self.handle,
+            refs: &mut self.refs,
+            current_layout: None,
         }
     }
 
@@ -190,60 +256,97 @@ impl crate::traits::CommandEncoder for CommandEncoder {
             refs: &mut self.refs,
         }
     }
+}
 
-    fn acceleration_structure(&mut self) -> AccelerationStructureCommandEncoder<'_> {
-        AccelerationStructureCommandEncoder {
-            device: self.device.clone(),
-            handle: self.handle,
-            refs: &mut self.refs,
-        }
+pub struct ComputeCommandEncoder<'a> {
+    device: Device,
+    handle: vk::CommandBuffer,
+    refs: &'a mut Refs,
+    current_layout: Option<PipelineLayout>,
+}
+
+impl ComputeCommandEncoder<'_> {
+    #[cfg_attr(inline_more, inline(always))]
+    pub(super) fn handle(&self) -> vk::CommandBuffer {
+        self.handle
     }
 
     #[cfg_attr(inline_more, inline(always))]
-    fn present(&mut self, frame: Frame, after: PipelineStages) {
+    pub(super) fn device(&self) -> &Device {
+        &self.device
+    }
+
+    #[cfg_attr(inline_more, inline(always))]
+    pub(super) fn current_layout(&self) -> Option<&PipelineLayout> {
+        self.current_layout.as_ref()
+    }
+
+    #[cfg_attr(inline_more, inline(always))]
+    pub(super) fn refs_mut(&mut self) -> &mut Refs {
+        &mut self.refs
+    }
+}
+
+#[hidden_trait::expose]
+impl crate::traits::ComputeCommandEncoder for ComputeCommandEncoder<'_> {
+    #[cfg_attr(inline_more, inline(always))]
+    fn barrier(&mut self, after: PipelineStages, before: PipelineStages) {
+        barrier(&self.device, self.handle, after, before);
+    }
+
+    #[cfg_attr(inline_more, inline(always))]
+    fn init_image(&mut self, after: PipelineStages, before: PipelineStages, image: &Image) {
+        image_barrier(&self.device, self.handle, after, before, image);
+        self.refs.add_image(image.clone());
+    }
+
+    #[cfg_attr(inline_more, inline(always))]
+    fn with_pipeline(&mut self, pipeline: &ComputePipeline) {
         unsafe {
-            self.device.ash().cmd_pipeline_barrier(
+            self.device.ash().cmd_bind_pipeline(
                 self.handle,
-                ash::vk::PipelineStageFlags::BOTTOM_OF_PIPE | after.into_ash(),
-                ash::vk::PipelineStageFlags::TOP_OF_PIPE,
-                vk::DependencyFlags::empty(),
-                &[],
-                &[],
-                &[ash::vk::ImageMemoryBarrier::default()
-                    .src_access_mask(access_for_stages(after))
-                    .dst_access_mask(ash::vk::AccessFlags::empty())
-                    .old_layout(ash::vk::ImageLayout::GENERAL)
-                    .new_layout(ash::vk::ImageLayout::PRESENT_SRC_KHR)
-                    .image(frame.image().handle())
-                    .subresource_range(vk::ImageSubresourceRange {
-                        aspect_mask: vk::ImageAspectFlags::COLOR,
-                        base_mip_level: 0,
-                        level_count: 1,
-                        base_array_layer: 0,
-                        layer_count: 1,
-                    })],
+                ash::vk::PipelineBindPoint::COMPUTE,
+                pipeline.handle(),
+            );
+        }
+        self.current_layout = Some(pipeline.layout().clone());
+        self.refs.add_compute_pipeline(pipeline.clone());
+    }
+
+    #[cfg_attr(inline_more, inline(always))]
+    fn with_arguments(&mut self, group: u32, arguments: &impl Arguments) {
+        arguments.bind_compute(group, self);
+    }
+
+    #[cfg_attr(inline_more, inline(always))]
+    fn with_constants(&mut self, constants: &impl DeviceRepr) {
+        let Some(layout) = self.current_layout.as_ref() else {
+            panic!("Constants binding requires a pipeline to be bound to the encoder");
+        };
+
+        let data = constants.as_repr();
+
+        unsafe {
+            self.device.ash().cmd_push_constants(
+                self.handle,
+                layout.handle(),
+                ash::vk::ShaderStageFlags::ALL,
+                0,
+                bytemuck::bytes_of(&data),
             )
         }
-
-        self.refs.add_image(frame.image().clone());
-        self.present.push(frame);
     }
 
     #[cfg_attr(inline_more, inline(always))]
-    fn finish(self) -> Result<CommandBuffer, OutOfMemory> {
-        let result = unsafe { self.device.ash().end_command_buffer(self.handle) };
-        result.map_err(|err| match err {
-            vk::Result::ERROR_OUT_OF_HOST_MEMORY => handle_host_oom(),
-            vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => OutOfMemory,
-            _ => unexpected_error(err),
-        })?;
-
-        Ok(CommandBuffer {
-            handle: self.handle,
-            pool: self.pool,
-            present: self.present,
-            refs: self.refs,
-        })
+    fn dispatch(&mut self, extent: Extent3) {
+        unsafe {
+            self.device.ash().cmd_dispatch(
+                self.handle,
+                extent.width(),
+                extent.height(),
+                extent.depth(),
+            )
+        }
     }
 }
 

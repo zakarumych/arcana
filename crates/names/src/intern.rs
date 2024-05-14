@@ -14,7 +14,7 @@ impl BuildHasher for DefaultAHasherBuilder {
 }
 
 pub struct Interner {
-    strings: RwLock<HashMap<String, (), DefaultAHasherBuilder>>,
+    strings: RwLock<HashMap<&'static str, (), DefaultAHasherBuilder>>,
 }
 
 impl Interner {
@@ -24,11 +24,10 @@ impl Interner {
         }
     }
 
-    pub fn intern(&self, s: &str) -> &str {
+    pub fn intern(&self, s: &str) -> &'static str {
         let strings = self.strings.read();
         if let Some((s, ())) = strings.get_key_value(s) {
-            let s = unsafe { Self::interned_string_never_evicted(s) };
-            return s;
+            return *s;
         }
         drop(strings);
         self.intern_insert(s)
@@ -36,27 +35,17 @@ impl Interner {
 
     #[cold]
     #[inline(never)]
-    fn intern_insert(&self, s: &str) -> &str {
+    fn intern_insert(&self, s: &str) -> &'static str {
         let mut strings = self.strings.write();
 
         match strings.raw_entry_mut().from_key(s) {
-            RawEntryMut::Occupied(entry) => {
-                let s = unsafe { Self::interned_string_never_evicted(entry.key()) };
-                s
-            }
+            RawEntryMut::Occupied(entry) => *entry.key(),
             RawEntryMut::Vacant(entry) => {
-                let s = s.to_owned();
-                let (s, ()) = entry.insert(s.to_owned(), ());
-                let s = unsafe { Self::interned_string_never_evicted(s) };
+                let s = s.to_owned().leak();
+                entry.insert(&*s, ());
                 s
             }
         }
-    }
-
-    unsafe fn interned_string_never_evicted<'a, 'b>(s: &'a str) -> &'b str {
-        // Safety:
-        // This is safe as long as `Interner` promises to never evict strings.
-        unsafe { &*(s as *const str) }
     }
 }
 

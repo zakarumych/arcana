@@ -26,8 +26,8 @@ pub use self::{
     acst::{Blas, Tlas},
     buffer::Buffer,
     command::{
-        AccelerationStructureCommandEncoder, CommandBuffer, CommandEncoder, CopyCommandEncoder,
-        RenderCommandEncoder,
+        AccelerationStructureCommandEncoder, CommandBuffer, CommandEncoder, ComputeCommandEncoder,
+        CopyCommandEncoder, RenderCommandEncoder,
     },
     compute_pipeline::ComputePipeline,
     device::Device,

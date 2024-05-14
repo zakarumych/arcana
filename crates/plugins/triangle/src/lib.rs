@@ -4,20 +4,22 @@ use arcana::{
     edict::World,
     gametime::ClockStep,
     hashbrown::HashMap,
+    ident,
     mev::{self, Arguments, DeviceRepr},
     model::{ColorModel, ColorValue, Model, Value},
+    name,
     work::{Exec, Image2D, Job, JobDesc, Planner},
     Name,
 };
 
 #[derive(mev::Arguments)]
-pub struct MainArguments {
+pub struct DTArguments {
     #[mev(vertex)]
     pub colors: mev::Buffer,
 }
 
 #[derive(mev::DeviceRepr)]
-pub struct MainConstants {
+pub struct DTConstants {
     pub angle: f32,
     pub width: u32,
     pub height: u32,
@@ -25,8 +27,8 @@ pub struct MainConstants {
 
 pub struct DrawTriangle {
     pipeline: Option<mev::RenderPipeline>,
-    arguments: Option<MainArguments>,
-    constants: MainConstants,
+    arguments: Option<DTArguments>,
+    constants: DTConstants,
 }
 
 impl DrawTriangle {
@@ -44,7 +46,7 @@ impl DrawTriangle {
         DrawTriangle {
             pipeline: None,
             arguments: None,
-            constants: MainConstants {
+            constants: DTConstants {
                 angle: 0.0,
                 width: 0,
                 height: 0,
@@ -113,8 +115,8 @@ impl Job for DrawTriangle {
                         front_face: mev::FrontFace::default(),
                         culling: mev::Culling::Back,
                     }),
-                    arguments: &[MainArguments::LAYOUT],
-                    constants: MainConstants::SIZE,
+                    arguments: &[DTArguments::LAYOUT],
+                    constants: DTConstants::SIZE,
                 })
                 .unwrap()
         });
@@ -146,7 +148,7 @@ impl Job for DrawTriangle {
                     memory: mev::Memory::Shared,
                 })
                 .unwrap();
-            MainArguments { colors }
+            DTArguments { colors }
         });
 
         encoder.copy().write_buffer_slice(
@@ -190,13 +192,132 @@ impl Job for DrawTriangle {
     }
 }
 
+#[derive(mev::Arguments)]
+pub struct OpArguments {
+    #[mev(storage, shader(compute))]
+    pub src: mev::Image,
+    #[mev(storage, shader(compute))]
+    pub dst: mev::Image,
+}
+
+#[derive(mev::DeviceRepr)]
+pub struct OpConstants {
+    pub op: u32,
+}
+
+pub struct OpJob {
+    pipeline: Option<mev::ComputePipeline>,
+}
+
+impl OpJob {
+    pub fn desc() -> JobDesc {
+        arcana::job_desc! [
+            op: in Model::Enum(vec![
+                (name!(add), Some(Model::Unit)),
+                (name!(sub), Some(Model::Unit)),
+                (name!(mul), Some(Model::Unit)),
+                (name!(div), Some(Model::Unit)),
+            ]),
+            src: Image2D,
+            dst: mut Image2D,
+        ]
+    }
+
+    pub fn new() -> Self {
+        OpJob { pipeline: None }
+    }
+}
+
+impl Job for OpJob {
+    fn plan(
+        &mut self,
+        mut planner: Planner<'_>,
+        _world: &mut World,
+        _params: &HashMap<Name, Value>,
+    ) {
+        let Some(dst) = planner.update::<Image2D>() else {
+            return;
+        };
+        let src = *dst;
+        planner.read::<Image2D>(src);
+    }
+
+    fn exec(&mut self, runner: Exec<'_>, _world: &mut World, params: &HashMap<Name, Value>) {
+        let Some(dst) = runner.update::<Image2D>() else {
+            return;
+        };
+
+        let Some(src) = runner.read::<Image2D>() else {
+            return;
+        };
+
+        let op = match params["op"] {
+            Value::Enum(op, _) => match op.as_str() {
+                "add" => 0,
+                "sub" => 1,
+                "mul" => 2,
+                "div" => 3,
+                _ => 0,
+            },
+            _ => 0,
+        };
+
+        let pipeline = self.pipeline.get_or_insert_with(|| {
+            let library = runner
+                .device()
+                .new_shader_library(mev::LibraryDesc {
+                    name: "main",
+                    input: mev::include_library!("shaders/op.wgsl" as mev::ShaderLanguage::Wgsl),
+                })
+                .unwrap();
+
+            runner
+                .device()
+                .new_compute_pipeline(mev::ComputePipelineDesc {
+                    name: "main",
+                    shader: mev::Shader {
+                        library,
+                        entry: "main".into(),
+                    },
+                    work_group_size: [1, 1, 1],
+                    arguments: &[OpArguments::LAYOUT],
+                    constants: size_of::<OpConstants>(),
+                })
+                .unwrap()
+        });
+
+        let encoder = runner.new_encoder();
+
+        encoder.barrier(mev::PipelineStages::all(), mev::PipelineStages::all());
+
+        let mut compute = encoder.compute();
+
+        let dims = src.dimensions().expect_2d();
+
+        compute.with_pipeline(pipeline);
+        compute.with_arguments(
+            0,
+            &OpArguments {
+                src: src.0.clone(),
+                dst: dst.0.clone(),
+            },
+        );
+        compute.with_constants(&OpConstants { op });
+
+        compute.dispatch(dims.to_3d());
+        drop(compute);
+
+        encoder.barrier(mev::PipelineStages::all(), mev::PipelineStages::all());
+    }
+}
+
 arcana::export_arcana_plugin! {
     TrianglePlugin {
         // List dependencies
         dependencies: [dummy ...],
 
         // List jobs
-        jobs: [DrawTriangle],
+        jobs: [DrawTriangle, op: OpJob::desc() => OpJob::new()],
 
         // // Init block
         // in world => {

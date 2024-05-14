@@ -166,7 +166,9 @@ impl Instance {
             let image = device.new_image(mev::ImageDesc {
                 dimensions: extent.into(),
                 format: mev::PixelFormat::Rgba8Srgb,
-                usage: mev::ImageUsage::TARGET | mev::ImageUsage::SAMPLED,
+                usage: mev::ImageUsage::TARGET
+                    | mev::ImageUsage::SAMPLED
+                    | mev::ImageUsage::STORAGE,
                 layers: 1,
                 levels: 1,
                 name: "Game Viewport",

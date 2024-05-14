@@ -161,7 +161,7 @@ fn load_project(path: &Path) -> miette::Result<(Project, ProjectData)> {
 
     let data = match std::fs::File::open(path) {
         Err(err) if err.kind() == ErrorKind::NotFound => ProjectData::default(),
-        Ok(file) => match bincode::deserialize_from(file) {
+        Ok(file) => match serde_json::from_reader(file) {
             Ok(data) => data,
             Err(err) => {
                 miette::bail!("Failed to deserialize project data: {}", err);
@@ -171,6 +171,8 @@ fn load_project(path: &Path) -> miette::Result<(Project, ProjectData)> {
             miette::bail!("Failed to open Arcana.bin to load project data: {}", err);
         }
     };
+
+    println!("{:#?}", data.workgraph);
 
     Ok((project, data))
 }

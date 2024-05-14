@@ -4,6 +4,7 @@
 //!
 //!
 
+use arcana_names::Name;
 use edict::EntityId;
 use hashbrown::HashMap;
 use palette::IntoColor;
@@ -91,7 +92,10 @@ pub enum Model {
     Tuple(Vec<Option<Model>>),
 
     /// Record with named fields.
-    Record(Vec<(String, Option<Model>)>),
+    Record(Vec<(Name, Option<Model>)>),
+
+    // Enum with named variants.
+    Enum(Vec<(Name, Option<Model>)>),
 }
 
 pub fn default_value(model: Option<&Model>) -> Value {
@@ -146,9 +150,14 @@ impl Model {
             Model::Record(ref fields) => Value::Map(
                 fields
                     .iter()
-                    .map(|(k, v)| (k.clone(), default_value(v.as_ref())))
+                    .map(|(k, v)| (k.to_string(), default_value(v.as_ref())))
                     .collect(),
             ),
+            Model::Enum(ref variants) if variants.is_empty() => Value::Unit,
+            Model::Enum(ref variants) => {
+                let v = &variants[0];
+                Value::Enum(v.0, Box::new(default_value(v.1.as_ref())))
+            }
         }
     }
 }
@@ -260,6 +269,7 @@ pub enum Value {
     Entity(EntityId),
     Array(Vec<Value>),
     Map(HashMap<String, Value>),
+    Enum(Name, Box<Value>),
 }
 
 impl Default for Value {
@@ -292,6 +302,7 @@ impl Value {
             Value::Entity(_) => "Entity",
             Value::Array(_) => "Array",
             Value::Map(_) => "Map",
+            Value::Enum(_, _) => "Enum",
         }
     }
 }

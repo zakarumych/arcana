@@ -9,25 +9,25 @@ use arcana::{
 };
 
 #[derive(mev::Arguments)]
-pub struct MainArguments {
+pub struct DSArguments {
     #[mev(vertex)]
     pub colors: mev::Buffer,
 }
 
 #[derive(mev::DeviceRepr)]
-pub struct MainConstants {
+pub struct DSConstants {
     pub angle: f32,
     pub width: u32,
     pub height: u32,
 }
 
-pub struct MainJob {
+pub struct DrawSquare {
     pipeline: Option<mev::RenderPipeline>,
-    arguments: Option<MainArguments>,
-    constants: MainConstants,
+    arguments: Option<DSArguments>,
+    constants: DSConstants,
 }
 
-impl MainJob {
+impl DrawSquare {
     pub fn desc() -> JobDesc {
         arcana::job_desc! [
             main: +Image2D,
@@ -35,10 +35,10 @@ impl MainJob {
     }
 
     pub fn new() -> Self {
-        MainJob {
+        DrawSquare {
             pipeline: None,
             arguments: None,
-            constants: MainConstants {
+            constants: DSConstants {
                 angle: 0.0,
                 width: 0,
                 height: 0,
@@ -47,7 +47,7 @@ impl MainJob {
     }
 }
 
-impl Job for MainJob {
+impl Job for DrawSquare {
     fn plan(
         &mut self,
         mut planner: Planner<'_>,
@@ -58,7 +58,7 @@ impl Job for MainJob {
             return;
         };
 
-        self.constants = MainConstants {
+        self.constants = DSConstants {
             angle: world
                 .expect_resource::<ClockStep>()
                 .now
@@ -107,8 +107,8 @@ impl Job for MainJob {
                         front_face: mev::FrontFace::default(),
                         culling: mev::Culling::Back,
                     }),
-                    arguments: &[MainArguments::LAYOUT],
-                    constants: MainConstants::SIZE,
+                    arguments: &[DSArguments::LAYOUT],
+                    constants: DSConstants::SIZE,
                 })
                 .unwrap()
         });
@@ -158,7 +158,7 @@ impl Job for MainJob {
                     memory: mev::Memory::Shared,
                 })
                 .unwrap();
-            MainArguments { colors }
+            DSArguments { colors }
         });
 
         render.with_pipeline(pipeline);
@@ -181,7 +181,7 @@ arcana::export_arcana_plugin! {
         dependencies: [dummy ...],
 
         // List jobs
-        jobs: [MainJob],
+        jobs: [DrawSquare],
 
         // // Init block
         // in world => {

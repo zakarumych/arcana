@@ -119,6 +119,10 @@ where
     }
 
     pub fn plan_update(&mut self) -> Option<&T::Info> {
+        if let Some((_, info)) = &self.external {
+            return Some(info);
+        }
+
         self.new_info.as_ref()
     }
 

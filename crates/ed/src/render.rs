@@ -167,6 +167,8 @@ pub enum WorkGraphNode {
         plugin: Ident,
         desc: JobDesc,
         params: HashMap<Name, Value>,
+
+        #[serde(skip)]
         active: bool,
     },
     MainPresent,

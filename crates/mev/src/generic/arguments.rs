@@ -1,4 +1,4 @@
-use crate::backend::RenderCommandEncoder;
+use crate::backend::{ComputeCommandEncoder, RenderCommandEncoder};
 
 use super::ShaderStages;
 
@@ -35,8 +35,8 @@ pub trait Arguments: ArgumentsSealed + 'static {
     /// Bind arguments to the command encoder.
     fn bind_render(&self, group: u32, encoder: &mut RenderCommandEncoder);
 
-    // /// Bind arguments to the command encoder.
-    // fn bind_compute(&self, group: u32, encoder: &mut ComputeCommandEncoder);
+    /// Bind arguments to the command encoder.
+    fn bind_compute(&self, group: u32, encoder: &mut ComputeCommandEncoder);
 }
 
 /// Marker type for `Argument` trait.

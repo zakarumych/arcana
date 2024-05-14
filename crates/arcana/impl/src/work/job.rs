@@ -70,7 +70,7 @@ impl TargetReadDesc {
 
 /// Job description.
 /// A set of targets a job creates, updates and reads.
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct JobDesc {
     /// Job parameters.
     pub params: Vec<(Name, Model)>,

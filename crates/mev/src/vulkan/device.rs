@@ -969,7 +969,60 @@ impl crate::traits::Device for Device {
         &self,
         desc: ComputePipelineDesc,
     ) -> Result<ComputePipeline, CreatePipelineError> {
-        todo!()
+        let layout_desc = PipelineLayoutDesc {
+            groups: desc
+                .arguments
+                .iter()
+                .map(|group| group.arguments.to_vec())
+                .collect(),
+            constants: desc.constants,
+        };
+
+        let layout = self
+            .new_pipeline_layout(layout_desc)
+            .map_err(|err| CreatePipelineError(err.into()))?;
+
+        let shader_name;
+
+        let create_info = vk::ComputePipelineCreateInfo::default()
+            .stage(
+                vk::PipelineShaderStageCreateInfo::default()
+                    .stage(vk::ShaderStageFlags::COMPUTE)
+                    .module(desc.shader.library.module())
+                    .name({
+                        shader_name = ffi::CString::new(&*desc.shader.entry).unwrap();
+                        &*shader_name
+                    }),
+            )
+            .layout(layout.handle());
+
+        let result = unsafe {
+            self.ash().create_compute_pipelines(
+                vk::PipelineCache::null(),
+                std::slice::from_ref(&create_info),
+                None,
+            )
+        };
+
+        let pipelines = result.map_err(|(_, err)| match err {
+            vk::Result::ERROR_OUT_OF_HOST_MEMORY => handle_host_oom(),
+            vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => CreatePipelineError(OutOfMemory.into()),
+            _ => unexpected_error(err),
+        })?;
+        let pipeline = pipelines[0];
+
+        #[cfg(any(debug_assertions, feature = "debug"))]
+        self.set_object_name(pipeline, desc.name);
+
+        let idx = self.inner.pipelines.lock().insert(pipeline);
+
+        Ok(ComputePipeline::new(
+            self.weak(),
+            pipeline,
+            idx,
+            layout,
+            desc.shader.library,
+        ))
     }
 
     fn new_render_pipeline(

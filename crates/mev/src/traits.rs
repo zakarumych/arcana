@@ -109,20 +109,49 @@ pub trait CommandEncoder {
         image: &crate::backend::Image,
     );
 
-    /// Returns encoder for copy commands.
-    fn copy(&mut self) -> crate::backend::CopyCommandEncoder<'_>;
-
-    /// Starts rendering and returns encoder for render commands.
-    fn render(&mut self, desc: RenderPassDesc) -> crate::backend::RenderCommandEncoder<'_>;
-
-    fn acceleration_structure(&mut self)
-        -> crate::backend::AccelerationStructureCommandEncoder<'_>;
-
     /// Presents the frame to the surface.
     fn present(&mut self, frame: crate::backend::Frame, after: PipelineStages);
 
     /// Finishes encoding and returns the command buffer.
     fn finish(self) -> Result<crate::backend::CommandBuffer, OutOfMemory>;
+
+    /// Returns encoder for copy commands.
+    fn copy(&mut self) -> crate::backend::CopyCommandEncoder<'_>;
+
+    fn acceleration_structure(&mut self)
+        -> crate::backend::AccelerationStructureCommandEncoder<'_>;
+
+    fn compute(&mut self) -> crate::backend::ComputeCommandEncoder<'_>;
+
+    /// Starts rendering and returns encoder for render commands.
+    fn render(&mut self, desc: RenderPassDesc) -> crate::backend::RenderCommandEncoder<'_>;
+}
+
+pub trait ComputeCommandEncoder {
+    /// Synchronizes the access to the resources.
+    /// Commands in `before` stages of subsequent commands will be
+    /// executed only after commands in `after` stages of previous commands
+    /// are finished.
+    fn barrier(&mut self, after: PipelineStages, before: PipelineStages);
+
+    fn init_image(
+        &mut self,
+        after: PipelineStages,
+        before: PipelineStages,
+        image: &crate::backend::Image,
+    );
+
+    /// Sets the current compute pipeline.
+    fn with_pipeline(&mut self, pipeline: &crate::backend::ComputePipeline);
+
+    /// Sets arguments group for the current pipeline.
+    fn with_arguments(&mut self, group: u32, arguments: &impl Arguments);
+
+    /// Sets constants for the current pipeline.
+    fn with_constants(&mut self, constants: &impl DeviceRepr);
+
+    /// Dispatches compute work.
+    fn dispatch(&mut self, extent: Extent3);
 }
 
 pub trait CopyCommandEncoder {

@@ -178,7 +178,7 @@ impl BaseId {
 pub fn fmt_id(mut value: u64, kind: &str, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     const BASE32: &[u8; 32] = b"0123456789abcdefghjkmnpqrstuvyxz";
 
-    let mut buf = [0u8; 8];
+    let mut buf = [0u8; 13];
     let mut i = 0;
     while value != 0 {
         buf[i] = BASE32[(value & 31) as usize];

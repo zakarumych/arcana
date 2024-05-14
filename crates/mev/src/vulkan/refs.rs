@@ -1,4 +1,4 @@
-use super::{Buffer, CommandBuffer, Image, RenderPipeline, Sampler};
+use super::{Buffer, CommandBuffer, ComputePipeline, Image, RenderPipeline, Sampler};
 
 /// Stores references to vulkan objects
 /// to keep them alive.
@@ -7,6 +7,7 @@ pub struct Refs {
     images: Vec<Image>,
     samplers: Vec<Sampler>,
     render_pipelines: Vec<RenderPipeline>,
+    compute_pipelines: Vec<ComputePipeline>,
     // cbufs: Vec<CommandBuffer>,
     // refs: Vec<Refs>,
 }
@@ -18,6 +19,7 @@ impl Refs {
             images: Vec::new(),
             samplers: Vec::new(),
             render_pipelines: Vec::new(),
+            compute_pipelines: Vec::new(),
             // cbufs: Vec::new(),
             // refs: Vec::new(),
         }
@@ -58,6 +60,10 @@ impl Refs {
 
     pub fn add_render_pipeline(&mut self, pipeline: RenderPipeline) {
         self.render_pipelines.push(pipeline);
+    }
+
+    pub fn add_compute_pipeline(&mut self, pipeline: ComputePipeline) {
+        self.compute_pipelines.push(pipeline);
     }
 
     // pub fn add_cbuf(&mut self, cbuf: CommandBuffer) {

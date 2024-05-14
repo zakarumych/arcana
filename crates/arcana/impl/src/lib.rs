@@ -49,7 +49,7 @@ extern crate self as arcana;
 
 // Re-exports
 pub use {
-    arcana_names::{ident, Ident, Name},
+    arcana_names::{ident, name, Ident, Name},
     arcana_project as project,
     blink_alloc::{self, Blink, BlinkAlloc},
     bytemuck,

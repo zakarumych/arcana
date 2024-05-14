@@ -236,6 +236,7 @@ impl<'de> serde::Deserialize<'de> for Ident {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum IdentError {
     Empty,
     BadFirst(char),

@@ -17,7 +17,23 @@ impl EguiProbe for ModelProbe<'_> {
         self.local_id = ui.make_persistent_id(self.id_source);
         let mut changed = false;
 
+        let var_name = |m: &Model| match *m {
+            Model::Unit => "Unit",
+            Model::Bool => "Bool",
+            Model::Int => "Int",
+            Model::Float => "Float",
+            Model::String => "String",
+            Model::Color(ColorModel::Srgb) => "Color",
+            Model::Option(_) => "Option",
+            Model::Array { .. } => "Array",
+            Model::Map(_) => "Map",
+            Model::Tuple { .. } => "Tuple",
+            Model::Record { .. } => "Record",
+            _ => todo!(),
+        };
+
         let mut r = egui::ComboBox::from_id_source(self.local_id)
+            .selected_text(var_name(self.model))
             .show_ui(ui, |ui| {
                 let r = ui.selectable_label(matches!(self.model, Model::Bool), "Bool");
                 if r.clicked() && !matches!(self.model, Model::Bool) {
@@ -82,15 +98,6 @@ impl EguiProbe for ModelProbe<'_> {
         r
     }
 
-    fn has_inner(&mut self) -> bool {
-        match self.model {
-            Model::Option(_) => true,
-            Model::Array { .. } => true,
-            Model::Map(_) => true,
-            _ => false,
-        }
-    }
-
     fn iterate_inner(
         &mut self,
         ui: &mut egui::Ui,
@@ -136,7 +143,24 @@ impl EguiProbe for MaybeModelProbe<'_> {
     fn probe(&mut self, ui: &mut Ui, _style: &Style) -> Response {
         self.local_id = ui.make_persistent_id(self.id_source);
 
+        let var_name = |m: Option<&Model>| match m {
+            None => "None",
+            Some(Model::Unit) => "Unit",
+            Some(Model::Bool) => "Bool",
+            Some(Model::Int) => "Int",
+            Some(Model::Float) => "Float",
+            Some(Model::String) => "String",
+            Some(Model::Color(ColorModel::Srgb)) => "Color",
+            Some(Model::Option(_)) => "Option",
+            Some(Model::Array { .. }) => "Array",
+            Some(Model::Map(_)) => "Map",
+            Some(Model::Tuple { .. }) => "Tuple",
+            Some(Model::Record { .. }) => "Record",
+            _ => todo!(),
+        };
+
         egui::ComboBox::from_id_source(self.local_id)
+            .selected_text(var_name(self.model.as_deref()))
             .show_ui(ui, |ui| {
                 let r = ui.selectable_label(matches!(self.model, None), "None");
                 if r.clicked() {
@@ -211,15 +235,6 @@ impl EguiProbe for MaybeModelProbe<'_> {
             .response
     }
 
-    fn has_inner(&mut self) -> bool {
-        match self.model.as_deref() {
-            Some(Model::Option(_)) => true,
-            Some(Model::Array { .. }) => true,
-            Some(Model::Map(_)) => true,
-            _ => false,
-        }
-    }
-
     fn iterate_inner(
         &mut self,
         ui: &mut egui::Ui,
@@ -278,22 +293,9 @@ impl EguiProbe for ValueProbe<'_> {
         match self.model {
             None => {
                 self.local_id = ui.make_persistent_id(self.id_source);
-                let mut local_elem = ui
-                    .ctx()
-                    .data(|d| d.get_temp::<Model>(self.local_id))
-                    .unwrap_or_default();
-
-                let r = ModelProbe {
-                    model: &mut local_elem,
-                    id_source: self.local_id.with("none"),
-                    local_id: Id::NULL,
-                }
-                .probe(ui, style);
-
-                ui.ctx()
-                    .data_mut(|d| d.insert_temp(self.local_id, local_elem.clone()));
-                r
+                local_model(ui, self.local_id, style).0
             }
+            Some(&Model::Unit) => ui.weak("Unit"),
             Some(&Model::Bool) => match self.value {
                 Value::Bool(value) => value.probe(ui, style),
                 _ => {
@@ -891,41 +893,27 @@ impl EguiProbe for ValueProbe<'_> {
 
                     let mut r = ui
                         .horizontal(|ui| {
-                            self.local_id = ui.make_persistent_id(self.id_source.with("Array"));
+                            self.local_id = ui.make_persistent_id(self.id_source);
 
-                            let mut local_elem = elem.is_none().then(|| {
-                                ui.ctx()
-                                    .data(|d| d.get_temp::<Model>(self.local_id))
-                                    .unwrap_or_default()
-                            });
-
-                            if let Some(local_elem) = &mut local_elem {
-                                changed |= ModelProbe {
-                                    model: local_elem,
-                                    id_source: self.local_id,
-                                    local_id: Id::NULL,
+                            let local_elem;
+                            let elem = match elem {
+                                Some(elem) => &*elem,
+                                None => {
+                                    let (r, m) = local_model(ui, self.local_id, style);
+                                    changed |= r.changed();
+                                    local_elem = m;
+                                    &local_elem
                                 }
-                                .probe(ui, style)
-                                .changed();
-                            }
+                            };
 
                             if len.is_none() {
                                 let r = ui.small_button(style.add_button_text());
                                 if r.clicked() {
-                                    let value = elem
-                                        .as_deref()
-                                        .or(local_elem.as_ref())
-                                        .unwrap()
-                                        .default_value();
+                                    let value = elem.default_value();
 
                                     values.push(value);
                                     changed = true;
                                 }
-                            }
-
-                            if let Some(local_elem) = local_elem {
-                                ui.ctx()
-                                    .data_mut(|d| d.insert_temp(self.local_id, local_elem));
                             }
                         })
                         .response;
@@ -973,46 +961,32 @@ impl EguiProbe for ValueProbe<'_> {
 
                     let mut r = ui
                         .horizontal(|ui| {
-                            self.local_id = ui.make_persistent_id(self.id_source.with("Map"));
+                            self.local_id = ui.make_persistent_id(self.id_source);
+
+                            let local_elem;
+                            let elem = match elem {
+                                Some(elem) => &*elem,
+                                None => {
+                                    let (r, m) = local_model(ui, self.local_id, style);
+                                    changed |= r.changed();
+                                    local_elem = m;
+                                    &local_elem
+                                }
+                            };
 
                             let mut new_key = ui
                                 .ctx()
                                 .data(|d| d.get_temp::<NewKey>(self.local_id))
                                 .unwrap_or(NewKey(String::new()));
 
-                            let mut local_elem = elem.is_none().then(|| {
-                                ui.ctx()
-                                    .data(|d| d.get_temp::<Model>(self.local_id))
-                                    .unwrap_or_default()
-                            });
-
-                            if let Some(local_elem) = &mut local_elem {
-                                changed |= ModelProbe {
-                                    model: local_elem,
-                                    id_source: self.local_id,
-                                    local_id: Id::NULL,
-                                }
-                                .probe(ui, style)
-                                .changed();
-                            }
-
                             ui.text_edit_singleline(&mut new_key.0);
 
                             let r = ui.small_button(style.add_button_text());
                             if r.clicked() {
-                                let value = elem
-                                    .as_deref()
-                                    .or(local_elem.as_ref())
-                                    .unwrap()
-                                    .default_value();
+                                let value = elem.default_value();
 
                                 values.insert(std::mem::take(&mut new_key.0), value);
                                 changed = true;
-                            }
-
-                            if let Some(local_elem) = local_elem {
-                                ui.ctx()
-                                    .data_mut(|d| d.insert_temp(self.local_id, local_elem));
                             }
 
                             ui.ctx().data_mut(|d| d.insert_temp(self.local_id, new_key));
@@ -1048,20 +1022,114 @@ impl EguiProbe for ValueProbe<'_> {
                     r
                 }
             },
-            _ => todo!(),
-        }
-    }
+            Some(&Model::Enum(ref variants)) => match self.value {
+                Value::Unit if variants.is_empty() => ui.weak("No variants"),
+                Value::Enum(name, value) if !variants.is_empty() => {
+                    self.local_id = ui.make_persistent_id(self.id_source);
+                    let mut changed = false;
 
-    fn has_inner(&mut self) -> bool {
-        match self.model {
-            None => true,
-            Some(Model::Bool) => false,
-            Some(Model::Int { .. }) => false,
-            Some(Model::Float { .. }) => false,
-            Some(Model::String { .. }) => false,
-            Some(Model::Color(_)) => false,
-            Some(Model::Array { elem, .. }) => elem.is_none() || value_has_inner(self.value),
-            Some(Model::Map(model)) => model.is_none() || value_has_inner(self.value),
+                    let mut r = ui
+                        .horizontal(|ui| {
+                            egui::ComboBox::from_id_source(self.local_id)
+                                .selected_text(name.as_str())
+                                .show_ui(ui, |ui| {
+                                    for &(vname, ref vmodel) in variants {
+                                        let r = ui.selectable_label(vname == *name, vname.as_str());
+                                        if r.clicked() && vname != *name {
+                                            *name = vname;
+                                            **value = default_value(vmodel.as_ref());
+                                            changed = true;
+                                        }
+                                    }
+                                });
+
+                            match variants.iter().find(|v| v.0 == *name) {
+                                None => {
+                                    ui.strong(format!("Unknown variant: {}", name));
+                                    if ui.small_button("Reset to first variant").clicked() {
+                                        let v = &variants[0];
+                                        *name = v.0;
+                                        **value = default_value(v.1.as_ref());
+                                        changed = true;
+                                    }
+                                    ui.strong("?");
+                                }
+                                Some((_, model)) => {
+                                    let local;
+                                    let model = match model {
+                                        Some(model) => &*model,
+                                        None => {
+                                            let (r, m) = local_model(ui, self.local_id, style);
+                                            changed |= r.changed();
+                                            local = m;
+                                            &local
+                                        }
+                                    };
+
+                                    if !matches!(model, Model::Unit) {
+                                        let mut probe =
+                                            ValueProbe::new(Some(model), value, self.local_id);
+                                        changed |= probe.probe(ui, style).changed();
+                                    }
+                                }
+                            }
+                        })
+                        .response;
+
+                    if changed {
+                        r.mark_changed();
+                    }
+
+                    r
+                }
+                _ if variants.is_empty() => {
+                    let mut changed = false;
+                    let mut r = ui
+                        .horizontal(|ui| {
+                            ui.strong(format!(
+                                "Expected void enum, but is {} instead",
+                                self.value.kind()
+                            ));
+                            if ui.small_button("Reset to unit").clicked() {
+                                *self.value = Value::Unit;
+                                changed = true;
+                            }
+                            ui.strong("?");
+                        })
+                        .response;
+
+                    if changed {
+                        r.mark_changed();
+                    }
+
+                    r
+                }
+                _ => {
+                    let mut changed = false;
+                    let mut r = ui
+                        .horizontal(|ui| {
+                            ui.strong(format!(
+                                "Expected enum, but is {} instead",
+                                self.value.kind()
+                            ));
+                            if ui.small_button("Reset to first variant").clicked() {
+                                let v = &variants[0];
+                                *self.value =
+                                    Value::Enum(v.0, Box::new(default_value(v.1.as_ref())));
+                                changed = true;
+                            }
+                            ui.strong("?");
+                        })
+                        .response;
+
+                    if changed {
+                        r.mark_changed();
+                    }
+
+                    r
+                }
+            },
+
             _ => todo!(),
         }
     }
@@ -1069,37 +1137,21 @@ impl EguiProbe for ValueProbe<'_> {
     fn iterate_inner(&mut self, ui: &mut Ui, f: &mut dyn FnMut(&str, &mut Ui, &mut dyn EguiProbe)) {
         match self.model {
             None => {
-                let local_elem = ui
-                    .ctx()
-                    .data(|d| d.get_temp::<Model>(self.local_id))
-                    .unwrap_or_default();
+                let local_elem = local_model_inner(ui, self.local_id, f);
                 let mut probe = ValueProbe::new(Some(&local_elem), self.value, self.local_id);
                 f("value", ui, &mut probe);
             }
+            Some(Model::Unit) => {}
             Some(Model::Bool) => {}
             Some(Model::Int { .. }) => {}
             Some(Model::Float { .. }) => {}
             Some(Model::String { .. }) => {}
             Some(Model::Color(_)) => {}
             Some(Model::Array { elem, len }) => {
-                let mut local_elem;
+                let local_elem;
                 let elem = match elem {
                     None => {
-                        local_elem = ui
-                            .ctx()
-                            .data(|d| d.get_temp::<Model>(self.local_id))
-                            .unwrap_or_default();
-                        let mut probe = ModelProbe {
-                            model: &mut local_elem,
-                            id_source: self.local_id,
-                            local_id: Id::NULL,
-                        };
-                        if probe.has_inner() {
-                            probe.iterate_inner(ui, f);
-                        }
-                        ui.ctx()
-                            .data_mut(|d| d.insert_temp(self.local_id, local_elem.clone()));
-
+                        local_elem = local_model_inner(ui, self.local_id, f);
                         &local_elem
                     }
                     Some(elem) => &**elem,
@@ -1131,25 +1183,11 @@ impl EguiProbe for ValueProbe<'_> {
                     _ => {}
                 }
             }
-            Some(Model::Map(ref elem)) => {
-                let mut local_elem;
+            Some(Model::Map(elem)) => {
+                let local_elem;
                 let elem = match elem {
                     None => {
-                        local_elem = ui
-                            .ctx()
-                            .data(|d| d.get_temp::<Model>(self.local_id))
-                            .unwrap_or_default();
-                        let mut probe = ModelProbe {
-                            model: &mut local_elem,
-                            id_source: self.local_id,
-                            local_id: Id::NULL,
-                        };
-                        if probe.has_inner() {
-                            probe.iterate_inner(ui, f);
-                        }
-                        ui.ctx()
-                            .data_mut(|d| d.insert_temp(self.local_id, local_elem.clone()));
-
+                        local_elem = local_model_inner(ui, self.local_id, f);
                         &local_elem
                     }
                     Some(value) => &**value,
@@ -1173,6 +1211,24 @@ impl EguiProbe for ValueProbe<'_> {
                     _ => {}
                 }
             }
+            Some(Model::Enum(ref variants)) => match *self.value {
+                Value::Enum(name, ref mut value) => {
+                    let local;
+                    let model = match variants.iter().find(|v| v.0 == name) {
+                        None => return,
+                        Some((_, None)) => {
+                            local = local_model_inner(ui, self.local_id, f);
+                            &local
+                        }
+                        Some((_, Some(Model::Unit))) => return,
+                        Some((_, Some(model))) => model,
+                    };
+
+                    let mut probe = ValueProbe::new(Some(model), value, self.local_id);
+                    f("value", ui, &mut probe);
+                }
+                _ => {}
+            },
             _ => todo!(),
         }
     }
@@ -1199,10 +1255,44 @@ fn convert_to_string<T: ToString>(
     (r, if convert { Some(s) } else { None })
 }
 
-fn value_has_inner(value: &Value) -> bool {
-    match value {
-        Value::Array(values) => !values.is_empty(),
-        Value::Map(values) => !values.is_empty(),
-        _ => false,
+fn local_model(ui: &mut Ui, local_id: Id, style: &Style) -> (Response, Model) {
+    let mut local_model = ui
+        .ctx()
+        .data(|d| d.get_temp::<Model>(local_id))
+        .unwrap_or_default();
+
+    let r = ModelProbe {
+        model: &mut local_model,
+        id_source: local_id,
+        local_id: Id::NULL,
     }
+    .probe(ui, style);
+
+    ui.ctx()
+        .data_mut(|d| d.insert_temp(local_id, local_model.clone()));
+    (r, local_model)
+}
+
+fn local_model_inner(
+    ui: &mut Ui,
+    local_id: Id,
+    f: &mut dyn FnMut(&str, &mut Ui, &mut dyn EguiProbe),
+) -> Model {
+    let mut local_model = ui
+        .ctx()
+        .data(|d| d.get_temp::<Model>(local_id))
+        .unwrap_or_default();
+
+    let mut probe = ModelProbe {
+        model: &mut local_model,
+        id_source: local_id,
+        local_id: Id::NULL,
+    };
+
+    probe.iterate_inner(ui, f);
+
+    ui.ctx()
+        .data_mut(|d| d.insert_temp(local_id, local_model.clone()));
+
+    local_model
 }

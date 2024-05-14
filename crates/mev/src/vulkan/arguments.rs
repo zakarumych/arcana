@@ -1,6 +1,9 @@
 use crate::generic::{ArgumentGroupLayout, ArgumentKind, ArgumentsSealed};
 
-use super::{command::RenderCommandEncoder, refs::Refs};
+use super::{
+    command::{ComputeCommandEncoder, RenderCommandEncoder},
+    refs::Refs,
+};
 
 #[doc(hidden)]
 pub trait Arguments: 'static {
@@ -38,6 +41,40 @@ where
         let Ok(template) = device.get_descriptor_update_template::<Self>(
             Self::template_entries(),
             ash::vk::PipelineBindPoint::GRAPHICS,
+            layout,
+            group,
+        ) else {
+            panic!("Failed to create descriptor update template");
+        };
+
+        let update = self.update();
+
+        unsafe {
+            device
+                .push_descriptor()
+                .cmd_push_descriptor_set_with_template(
+                    encoder.handle(),
+                    template,
+                    layout.handle(),
+                    group,
+                    &update as *const _ as *const _,
+                )
+        }
+
+        self.add_refs(encoder.refs_mut());
+    }
+
+    #[cfg_attr(inline_more, inline(always))]
+    fn bind_compute(&self, group: u32, encoder: &mut ComputeCommandEncoder) {
+        let Some(layout) = encoder.current_layout() else {
+            panic!("Argument binding requires a pipeline to be bound to the encoder");
+        };
+
+        let device = encoder.device();
+
+        let Ok(template) = device.get_descriptor_update_template::<Self>(
+            Self::template_entries(),
+            ash::vk::PipelineBindPoint::COMPUTE,
             layout,
             group,
         ) else {

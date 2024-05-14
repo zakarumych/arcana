@@ -367,7 +367,6 @@ impl App {
                 });
             });
 
-            let mut add_recent = None;
             let mut remove_recent = None;
 
             egui::CentralPanel::default().show(cx, |ui| {
@@ -433,8 +432,6 @@ impl App {
                                         });
                                 }
                                 Ok(project) => {
-                                    add_recent = Some(path.to_owned());
-
                                     egui::Frame::group(ui.style()).show(ui, |ui| {
                                         ui.horizontal(|ui| {
                                             let r = ui.add(egui::Button::new(
@@ -473,10 +470,6 @@ impl App {
                     });
                 }
             });
-
-            if let Some(path) = add_recent {
-                self.start.add_recent(path);
-            }
 
             if let Some(path) = remove_recent {
                 self.start.remove_recent(&path);
@@ -517,6 +510,9 @@ impl App {
                                             }));
                                         }
                                         Ok(project) => {
+                                            let path = project.root_path().to_owned();
+                                            self.start.add_recent(path.clone());
+
                                             action = Some(Action::RunEditor(path.to_owned()));
                                             self.dialog = None;
                                         }

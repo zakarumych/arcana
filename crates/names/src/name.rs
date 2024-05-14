@@ -7,6 +7,13 @@ use std::{
 
 use crate::{intern::INTERNER, Ident};
 
+#[macro_export]
+macro_rules! name {
+    ($i:ident) => {
+        $crate::Name::from_name_str(stringify!($i))
+    };
+}
+
 /// String wrapper that ensures it is a valid unicode identifier.
 #[derive(Clone, Copy)]
 #[repr(transparent)]
@@ -236,6 +243,7 @@ impl<'de> serde::Deserialize<'de> for Name {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum NameError {
     Empty,
     Bad(char),

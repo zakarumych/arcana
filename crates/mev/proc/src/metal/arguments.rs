@@ -91,6 +91,14 @@ fn derive_impl(input: syn::DeriveInput) -> syn::Result<proc_macro2::TokenStream>
                                 quote_spanned!(fragment.span() => mev::ShaderStages::FRAGMENT.bits()),
                             )
                         }
+                        Shader::Compute(compute) => {
+                            if !tokens.is_empty() {
+                                tokens.extend(quote_spanned!(compute.span() => | ));
+                            }
+                            tokens.extend(
+                                quote_spanned!(compute.span() => mev::ShaderStages::COMPUTE.bits()),
+                            )
+                        }
                     }
                 }
 

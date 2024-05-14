@@ -65,7 +65,9 @@ impl WorkGraph {
         let mut queue = Vec::new();
 
         while let Some(job_idx) = stack.pop() {
-            assert!(!enqueued.contains(&job_idx));
+            if enqueued.contains(&job_idx) {
+                continue;
+            }
 
             let mut deferred = false;
 
@@ -242,18 +244,24 @@ impl WorkGraph {
                 self.hub.external(target_id, target, info);
             }
             Entry::Vacant(entry) => {
-                let target_id = self.idgen.next();
+                let mut target_id = self.idgen.next();
 
                 match (job.update_idx(pin.pin), job.create_idx(pin.pin)) {
-                    (Some(idx), None) => {
-                        assert_eq!(job.updates[idx].id, None);
-                        job.updates[idx].id = Some(target_id);
+                    (Some(idx), None) => match job.updates[idx].id {
+                        None => {
+                            job.updates[idx].id = Some(target_id);
+                        }
+                        Some(id) => target_id = id,
+                    },
+                    (None, Some(idx)) => match job.creates[idx].id {
+                        None => {
+                            job.creates[idx].id = Some(target_id);
+                        }
+                        Some(id) => target_id = id,
+                    },
+                    _ => {
+                        invalid_output_pin(pin.pin);
                     }
-                    (None, Some(idx)) => {
-                        assert_eq!(job.creates[idx].id, None);
-                        job.creates[idx].id = Some(target_id);
-                    }
-                    _ => invalid_output_pin(pin.pin),
                 }
 
                 entry.insert(target_id);
@@ -483,6 +491,7 @@ impl Exec<'_> {
     }
 }
 
+#[derive(Debug)]
 struct TargetCreate {
     /// Target name.
     name: Name,
@@ -494,6 +503,7 @@ struct TargetCreate {
     id: Option<TargetId>,
 }
 
+#[derive(Debug)]
 struct TargetUpdate {
     /// Target type.
     ty: Stid,
@@ -505,6 +515,7 @@ struct TargetUpdate {
     dep_idx: Option<JobIdx>,
 }
 
+#[derive(Debug)]
 struct TargetRead {
     /// Target type.
     ty: Stid,
@@ -516,6 +527,7 @@ struct TargetRead {
     dep_idx: Option<JobIdx>,
 }
 
+#[derive(Debug)]
 struct JobNode {
     idx: JobIdx,
     id: JobId,
