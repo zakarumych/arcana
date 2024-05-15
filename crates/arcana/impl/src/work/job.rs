@@ -89,6 +89,14 @@ pub struct JobDesc {
 }
 
 impl JobDesc {
+    pub fn output_count(&self) -> usize {
+        self.updates.len() + self.creates.len()
+    }
+
+    pub fn input_count(&self) -> usize {
+        self.updates.len() + self.reads.len() + self.params.len()
+    }
+
     pub fn update_idx(&self, pin: usize) -> Option<usize> {
         if pin < self.updates.len() {
             Some(pin)
@@ -211,7 +219,7 @@ pub trait Job: 'static {
     /// This phase is executed for each frame, so considered hot path.
     /// It is important to keep it simple and fast,
     /// keep allocations to minimum and reuse as much as possible.
-    fn plan(&mut self, planner: Planner<'_>, world: &mut World, params: &HashMap<Name, Value>);
+    fn plan(&mut self, planner: Planner<'_>, world: &mut World);
 
     /// Second phase of a job is execution.
     ///
@@ -221,7 +229,7 @@ pub trait Job: 'static {
     /// - Creating pipelines
     /// - Binding resources
     /// - Recording draw/dispatch calls
-    fn exec(&mut self, exec: Exec<'_>, world: &mut World, params: &HashMap<Name, Value>);
+    fn exec(&mut self, exec: Exec<'_>, world: &mut World);
 }
 
 #[track_caller]

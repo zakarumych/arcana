@@ -1,3 +1,6 @@
+use core::fmt;
+use std::error::Error;
+
 use crate::backend::CreatePipelineErrorKind;
 
 use super::{arguments::ArgumentGroupLayout, PixelFormat, Shader, VertexFormat};
@@ -183,3 +186,11 @@ pub struct RasterDesc<'a> {
 
 #[derive(Debug)]
 pub struct CreatePipelineError(pub(crate) CreatePipelineErrorKind);
+
+impl fmt::Display for CreatePipelineError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&self.0, f)
+    }
+}
+
+impl Error for CreatePipelineError {}

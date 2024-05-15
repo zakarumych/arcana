@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{error::Error, fmt, sync::Arc};
 
 use ash::vk;
 
@@ -68,5 +68,14 @@ impl From<OutOfMemory> for CreatePipelineErrorKind {
     #[cfg_attr(inline_more, inline(always))]
     fn from(_: OutOfMemory) -> Self {
         CreatePipelineErrorKind::OutOfMemory
+    }
+}
+
+impl fmt::Display for CreatePipelineErrorKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            CreatePipelineErrorKind::OutOfMemory => fmt::Display::fmt(&OutOfMemory, f),
+            CreatePipelineErrorKind::InvalidShaderEntry => write!(f, "invalid shader entry"),
+        }
     }
 }

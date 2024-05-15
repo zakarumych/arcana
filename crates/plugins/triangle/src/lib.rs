@@ -4,12 +4,10 @@ use arcana::{
     edict::World,
     gametime::ClockStep,
     hashbrown::HashMap,
-    ident,
     mev::{self, Arguments, DeviceRepr},
     model::{ColorModel, ColorValue, Model, Value},
     name,
-    work::{Exec, Image2D, Job, JobDesc, Planner},
-    Name,
+    work::{Exec, Image2D, Job, JobDesc, JobIdx, Planner},
 };
 
 #[derive(mev::Arguments)]
@@ -28,7 +26,7 @@ pub struct DTConstants {
 pub struct DrawTriangle {
     pipeline: Option<mev::RenderPipeline>,
     arguments: Option<DTArguments>,
-    constants: DTConstants,
+    constants: HashMap<JobIdx, DTConstants>,
 }
 
 impl DrawTriangle {
@@ -46,38 +44,42 @@ impl DrawTriangle {
         DrawTriangle {
             pipeline: None,
             arguments: None,
-            constants: DTConstants {
-                angle: 0.0,
-                width: 0,
-                height: 0,
-            },
+            constants: HashMap::new(),
         }
     }
 }
 
 impl Job for DrawTriangle {
-    fn plan(&mut self, mut planner: Planner<'_>, world: &mut World, params: &HashMap<Name, Value>) {
-        let Some(target) = planner.create::<Image2D>() else {
+    fn plan(&mut self, mut planner: Planner<'_>, world: &mut World) {
+        let idx = planner.idx();
+
+        let Some(target) = planner.create::<Image2D>().copied() else {
             return;
         };
 
-        let speed = match params.get("speed") {
-            Some(Value::Int(speed)) => (*speed) as f32,
-            Some(Value::Float(speed)) => (*speed) as f32,
+        let speed = match planner.param("speed") {
+            Value::Int(speed) => (*speed) as f32,
+            Value::Float(speed) => (*speed) as f32,
             _ => 1.0,
         };
 
-        self.constants.angle += world.expect_resource::<ClockStep>().step.as_secs_f32() * speed;
+        let constants = self.constants.entry(idx).or_insert(DTConstants {
+            angle: 0.0,
+            width: 0,
+            height: 0,
+        });
 
-        while self.constants.angle > 1.0 {
-            self.constants.angle = self.constants.angle.fract();
+        constants.angle += world.expect_resource::<ClockStep>().step.as_secs_f32() * speed;
+
+        while constants.angle > 1.0 {
+            constants.angle = constants.angle.fract();
         }
 
-        self.constants.width = target.extent.width();
-        self.constants.height = target.extent.height();
+        constants.width = target.extent.width();
+        constants.height = target.extent.height();
     }
 
-    fn exec(&mut self, runner: Exec<'_>, _world: &mut World, params: &HashMap<Name, Value>) {
+    fn exec(&mut self, runner: Exec<'_>, _world: &mut World) {
         let Some(target) = runner.create::<Image2D>() else {
             return;
         };
@@ -123,18 +125,18 @@ impl Job for DrawTriangle {
 
         let encoder = runner.new_encoder();
 
-        let c1 = match params.get("c1") {
-            Some(Value::Color(ColorValue::Srgb(rgb))) => [rgb.red, rgb.green, rgb.blue],
+        let c1 = match runner.param("c1") {
+            Value::Color(ColorValue::Srgb(rgb)) => [rgb.red, rgb.green, rgb.blue],
             _ => [1.0, 1.0, 0.0],
         };
 
-        let c2 = match params.get("c2") {
-            Some(Value::Color(ColorValue::Srgb(rgb))) => [rgb.red, rgb.green, rgb.blue],
+        let c2 = match runner.param("c2") {
+            Value::Color(ColorValue::Srgb(rgb)) => [rgb.red, rgb.green, rgb.blue],
             _ => [0.0, 1.0, 1.0],
         };
 
-        let c3 = match params.get("c3") {
-            Some(Value::Color(ColorValue::Srgb(rgb))) => [rgb.red, rgb.green, rgb.blue],
+        let c3 = match runner.param("c3") {
+            Value::Color(ColorValue::Srgb(rgb)) => [rgb.red, rgb.green, rgb.blue],
             _ => [1.0, 0.0, 1.0],
         };
 
@@ -150,6 +152,11 @@ impl Job for DrawTriangle {
                 .unwrap();
             DTArguments { colors }
         });
+
+        encoder.barrier(
+            mev::PipelineStages::FRAGMENT_SHADER,
+            mev::PipelineStages::TRANSFER,
+        );
 
         encoder.copy().write_buffer_slice(
             arguments.colors.slice(..),
@@ -169,6 +176,11 @@ impl Job for DrawTriangle {
             ],
         );
 
+        encoder.barrier(
+            mev::PipelineStages::TRANSFER,
+            mev::PipelineStages::FRAGMENT_SHADER,
+        );
+
         let mut render = encoder.render(mev::RenderPassDesc {
             color_attachments: &[
                 mev::AttachmentDesc::new(&target).clear(mev::ClearColor(1.0, 0.5, 0.3, 0.0))
@@ -180,7 +192,7 @@ impl Job for DrawTriangle {
 
         render.with_pipeline(pipeline);
         render.with_arguments(0, arguments);
-        render.with_constants(&self.constants);
+        render.with_constants(&self.constants[&runner.idx()]);
 
         render.with_viewport(
             mev::Offset3::ZERO,
@@ -229,12 +241,7 @@ impl OpJob {
 }
 
 impl Job for OpJob {
-    fn plan(
-        &mut self,
-        mut planner: Planner<'_>,
-        _world: &mut World,
-        _params: &HashMap<Name, Value>,
-    ) {
+    fn plan(&mut self, mut planner: Planner<'_>, _world: &mut World) {
         let Some(dst) = planner.update::<Image2D>() else {
             return;
         };
@@ -242,7 +249,7 @@ impl Job for OpJob {
         planner.read::<Image2D>(src);
     }
 
-    fn exec(&mut self, runner: Exec<'_>, _world: &mut World, params: &HashMap<Name, Value>) {
+    fn exec(&mut self, runner: Exec<'_>, _world: &mut World) {
         let Some(dst) = runner.update::<Image2D>() else {
             return;
         };
@@ -251,7 +258,7 @@ impl Job for OpJob {
             return;
         };
 
-        let op = match params["op"] {
+        let op = match runner.param("op") {
             Value::Enum(op, _) => match op.as_str() {
                 "add" => 0,
                 "sub" => 1,

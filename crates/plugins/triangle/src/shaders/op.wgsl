@@ -11,9 +11,9 @@ var<push_constant> pc: Constants;
 
 @compute @workgroup_size(1)
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
-    let psrc = textureLoad(src, id.xy);
-    let pdst = textureLoad(dst, id.xy);
-    var pres = vec4(0.0);
+    let psrc = textureLoad(src, id.xy).rgb;
+    let pdst = textureLoad(dst, id.xy).rgb;
+    var pres = vec3(0.0);
 
     switch (pc.op) {
         case 0u: {
@@ -31,6 +31,6 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         default: {}
     }
 
-    pres = clamp(pres, vec4(0.0), vec4(1.0));
-    textureStore(dst, id.xy, pres);
+    pres = clamp(pres, vec3(0.0), vec3(1.0));
+    textureStore(dst, id.xy, vec4(pres, 1.0));
 }   

@@ -1,8 +1,13 @@
-use std::cell::{Cell, RefCell};
+use std::{
+    borrow::Borrow,
+    cell::{Cell, RefCell},
+    hash::Hash,
+};
 
 use arcana_names::Name;
 use edict::World;
-use hashbrown::{hash_map::Entry, HashMap, HashSet};
+use hashbrown::{hash_map::Entry, Equivalent, HashMap, HashSet};
+use slab::Slab;
 
 use crate::{
     arena::Arena, id::IdGen, model::Value, plugin::PluginsHub, work::job::invalid_output_pin, Stid,
@@ -17,6 +22,12 @@ use super::{
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(transparent)]
 pub struct JobIdx(pub usize);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct HookId {
+    pub hook: usize,
+    pub pin: PinId,
+}
 
 pub struct WorkGraph {
     // Constant state
@@ -296,6 +307,45 @@ impl WorkGraph {
         }
     }
 
+    pub fn add_hook<T>(
+        &mut self,
+        pin: PinId,
+        mut hook: impl FnMut(&T, &mev::Device, &CommandStream) + 'static,
+    ) -> HookId
+    where
+        T: Target,
+    {
+        let order = self.idx_to_order[&pin.job];
+        let job = &mut self.plan[order];
+
+        let target_id = match (job.update_idx(pin.pin), job.create_idx(pin.pin)) {
+            (Some(idx), None) => job.updates[idx].id,
+            (None, Some(idx)) => job.creates[idx].id,
+            _ => invalid_output_pin(pin.pin),
+        };
+
+        let idx = job.hooks.insert(Box::new(move |hub, device, commands| {
+            if let Some(target_id) = target_id {
+                if let Some(target) = hub.get(target_id) {
+                    hook(target, device, commands);
+                }
+            }
+        }));
+        HookId { hook: idx, pin }
+    }
+
+    pub fn has_hook(&mut self, id: HookId) -> bool {
+        let order = self.idx_to_order[&id.pin.job];
+        let job = &mut self.plan[order];
+        job.hooks.contains(id.hook)
+    }
+
+    pub fn remove_hook(&mut self, id: HookId) {
+        let order = self.idx_to_order[&id.pin.job];
+        let job = &mut self.plan[order];
+        let _ = job.hooks.try_remove(id.hook);
+    }
+
     pub fn run(
         &mut self,
         device: &mev::Device,
@@ -360,6 +410,10 @@ pub struct Planner<'a> {
     selected_jobs: &'a mut HashSet<JobIdx>,
 
     device: mev::Device,
+
+    idx: JobIdx,
+
+    params: &'a HashMap<Name, Value>,
 }
 
 impl Planner<'_> {
@@ -408,6 +462,35 @@ impl Planner<'_> {
             self.selected_jobs.insert(dep_idx);
         }
     }
+
+    pub fn idx(&self) -> JobIdx {
+        self.idx
+    }
+
+    pub fn param<Q>(&self, name: &Q) -> &Value
+    where
+        Name: Borrow<Q>,
+        Q: Eq + Hash + ?Sized,
+    {
+        &self.params[name]
+    }
+}
+
+pub struct CommandStream<'a> {
+    queue: RefCell<&'a mut mev::Queue>,
+    cbufs: &'a Arena<mev::CommandEncoder>,
+}
+
+impl CommandStream<'_> {
+    /// Allocates new command encoder.
+    /// It will be automatically submitted to this job's queue.
+    ///
+    /// Returned reference is bound to this `Exec`'s borrow,
+    /// so make sure to fetch target references before calling this.
+    pub fn new_encoder(&self) -> &mut mev::CommandEncoder {
+        let encoder = self.queue.borrow_mut().new_command_encoder().unwrap();
+        self.cbufs.put(encoder)
+    }
 }
 
 pub struct Exec<'a> {
@@ -427,12 +510,15 @@ pub struct Exec<'a> {
     hub: &'a mut TargetHub,
 
     device: mev::Device,
-    queue: RefCell<&'a mut mev::Queue>,
 
     /// Arena for command buffers.
     /// This allows taking references to newly allocated command encoders
     /// And after job is done, collecting them in allocated order.
-    cbufs: &'a Arena<mev::CommandEncoder>,
+    commands: CommandStream<'a>,
+
+    idx: JobIdx,
+
+    params: &'a HashMap<Name, Value>,
 }
 
 impl Exec<'_> {
@@ -481,13 +567,24 @@ impl Exec<'_> {
     /// Returned reference is bound to this `Exec`'s borrow,
     /// so make sure to fetch target references before calling this.
     pub fn new_encoder(&self) -> &mut mev::CommandEncoder {
-        let encoder = self.queue.borrow_mut().new_command_encoder().unwrap();
-        self.cbufs.put(encoder)
+        self.commands.new_encoder()
     }
 
     /// Returns reference to device.
     pub fn device(&self) -> &mev::Device {
         &self.device
+    }
+
+    pub fn idx(&self) -> JobIdx {
+        self.idx
+    }
+
+    pub fn param<Q>(&self, name: &Q) -> &Value
+    where
+        Name: Borrow<Q>,
+        Q: Eq + Hash + ?Sized,
+    {
+        &self.params[name]
     }
 }
 
@@ -527,7 +624,7 @@ struct TargetRead {
     dep_idx: Option<JobIdx>,
 }
 
-#[derive(Debug)]
+// #[derive(Debug)]
 struct JobNode {
     idx: JobIdx,
     id: JobId,
@@ -535,6 +632,7 @@ struct JobNode {
     updates: Vec<TargetUpdate>,
     creates: Vec<TargetCreate>,
     reads: Vec<TargetRead>,
+    hooks: Slab<Box<dyn FnMut(&TargetHub, &mev::Device, &CommandStream)>>,
 }
 
 impl JobNode {
@@ -571,6 +669,7 @@ impl JobNode {
                     dep_idx: None,
                 })
                 .collect(),
+            hooks: Slab::new(),
         }
     }
 
@@ -589,10 +688,12 @@ impl JobNode {
             hub,
             selected_jobs,
             device,
+            idx: self.idx,
+            params: &self.params,
         };
 
         if let Some(job) = plugins.jobs.get_mut(&self.id) {
-            job.plan(planner, world, &self.params);
+            job.plan(planner, world);
         }
     }
 
@@ -605,6 +706,11 @@ impl JobNode {
         world: &mut World,
         plugins: &mut PluginsHub,
     ) {
+        let commands = CommandStream {
+            queue: RefCell::new(queue),
+            cbufs,
+        };
+
         let exec = Exec {
             updates: &self.updates,
             next_update: Cell::new(0),
@@ -613,13 +719,23 @@ impl JobNode {
             reads: &self.reads,
             next_read: Cell::new(0),
             hub,
-            device,
+            device: device.clone(),
+            commands,
+            idx: self.idx,
+            params: &self.params,
+        };
+
+        if let Some(job) = plugins.jobs.get_mut(&self.id) {
+            job.exec(exec, world);
+        }
+
+        let commands = CommandStream {
             queue: RefCell::new(queue),
             cbufs,
         };
 
-        if let Some(job) = plugins.jobs.get_mut(&self.id) {
-            job.exec(exec, world, &self.params);
+        for (_, hook) in self.hooks.iter_mut() {
+            hook(hub, &device, &commands);
         }
     }
 

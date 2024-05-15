@@ -10,7 +10,7 @@ use crate::{
         Offset2, Offset3, OutOfMemory, PipelineStages, PixelFormat, RenderPassDesc,
         RenderPipelineDesc, SamplerDesc, SurfaceError, TlasBuildDesc, TlasDesc, ViewDesc,
     },
-    ImageUsage,
+    ImageUsage, Shader,
 };
 
 pub trait Instance: Debug + Send + Sync + 'static {
@@ -319,4 +319,9 @@ pub trait Buffer: Clone + Debug + Eq + Hash + Send + Sync + 'static {
     /// Use [`CommandEncoder::write_buffer`] to update
     /// buffer in a bit safer way.
     unsafe fn write_unchecked(&mut self, offset: usize, data: &[u8]);
+}
+
+pub trait Library {
+    /// Returns shader entry point.
+    fn entry<'a>(&self, entry: &'a str) -> Shader<'a>;
 }

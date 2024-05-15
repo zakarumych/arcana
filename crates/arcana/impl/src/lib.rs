@@ -59,17 +59,16 @@ pub use {
 };
 
 pub use mev;
-// pub mod alloc;
 pub mod arena;
 pub mod assets;
 pub mod bundle;
 pub mod events;
 pub mod flow;
-// pub mod game;
 pub mod id;
 pub mod model;
 mod num2name;
 pub mod plugin;
+pub mod refl;
 pub mod render;
 mod stable_hasher;
 pub mod stid;

@@ -69,3 +69,13 @@ impl Library {
         self.per_entry_point_bindings.get(entry).cloned()
     }
 }
+
+#[hidden_trait::expose]
+impl crate::traits::Library for Library {
+    fn entry<'a>(&self, entry: &'a str) -> Shader<'a> {
+        Shader {
+            library: self.clone(),
+            entry: Cow::Borrowed(entry),
+        }
+    }
+}

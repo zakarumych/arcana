@@ -1,4 +1,4 @@
-use std::{borrow::Cow, fmt};
+use std::{borrow::Cow, error::Error, fmt};
 
 use codespan_reporting::{
     diagnostic::{Diagnostic, Label},
@@ -124,6 +124,8 @@ impl fmt::Display for CreateLibraryError {
         }
     }
 }
+
+impl Error for CreateLibraryError {}
 
 #[derive(Debug)]
 pub(crate) enum ShaderCompileError {

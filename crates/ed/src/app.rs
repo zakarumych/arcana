@@ -25,7 +25,7 @@ use winit::{
 
 use crate::{
     console::Console, data::ProjectData, filters::Filters, init_mev, instance::Main,
-    plugins::Plugins, render::Rendering, systems::Systems,
+    plugins::Plugins, render::Rendering, sample::ImageSample, systems::Systems,
 };
 
 pub enum UserEvent {}
@@ -124,6 +124,7 @@ impl App {
         world.insert_resource(device.clone());
         world.insert_resource(queue.clone());
         world.insert_resource(data);
+        world.insert_resource(ImageSample::new(&device).unwrap());
 
         let mut graph = RenderGraph::new();
 

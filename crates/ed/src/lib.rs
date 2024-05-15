@@ -14,6 +14,7 @@ use parking_lot::Mutex;
 use winit::{
     event::Event,
     event_loop::{ControlFlow, EventLoop},
+    platform::windows::EventLoopBuilderExtWindows,
 };
 
 use crate::app::UserEvent;
@@ -59,6 +60,7 @@ mod instance;
 mod model;
 mod monitor;
 mod plugins;
+mod sample;
 mod systems;
 mod tools;
 
@@ -104,6 +106,7 @@ fn _run(path: &Path) -> miette::Result<()> {
     let mut limiter = clock.ticker(240.hz());
 
     let events = EventLoop::<UserEvent>::with_user_event()
+        .with_any_thread(true)
         .build()
         .expect("Failed to create event loop");
     let mut app = app::App::new(&events, event_collector, project, data);

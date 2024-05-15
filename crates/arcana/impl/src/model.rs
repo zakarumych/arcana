@@ -306,3 +306,55 @@ impl Value {
         }
     }
 }
+
+// #[derive(Clone, Copy, Debug)]
+// pub enum EntityFilter {}
+
+// impl edict::query::AsQuery for EntityFilter {
+//     type Query = Self;
+// }
+
+// impl edict::query::IntoQuery for EntityFilter {
+//     #[inline(always)]
+//     fn into_query(self) -> Self::Query {
+//         self
+//     }
+// }
+
+// #[derive(Clone, Copy, Debug)]
+// pub enum EntityFilterFetch<'a> {}
+
+// impl<'a> edict::query::Fetch<'a> for EntityFilterFetch<'a> {
+//     type Item = ();
+
+//     fn dangling() -> Self {
+//         unimplemented!()
+//     }
+
+//     unsafe fn visit_chunk(&mut self, chunk_idx: u32) -> bool {
+//         unimplemented!()
+//     }
+
+//     unsafe fn visit_item(&mut self, idx: u32) -> bool {
+//         unimplemented!()
+//     }
+
+//     unsafe fn get_item(&mut self, _idx: u32) -> Self::Item {
+//         ()
+//     }
+// }
+
+// unsafe impl edict::query::Query for EntityFilter {
+//     type Fetch<'a> = EntityFilterFetch<'a>;
+//     type Item<'a> = ();
+
+//     const MUTABLE: bool = false;
+//     const FILTERS_ENTITIES: bool = true;
+
+//     fn component_type_access(
+//         &self,
+//         _ty: std::any::TypeId,
+//     ) -> Result<Option<edict::Access>, edict::query::WriteAlias> {
+//         Ok(Some(edict::Access::Read))
+//     }
+// }

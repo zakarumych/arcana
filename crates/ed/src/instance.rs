@@ -11,7 +11,7 @@ use arcana::{
     plugin::PluginsHub,
     texture::Texture,
     viewport::Viewport,
-    work::{Image2D, Image2DInfo, PinId, WorkGraph},
+    work::{CommandStream, HookId, Image2D, Image2DInfo, JobIdx, PinId, Target, WorkGraph},
     Blink, ClockStep, EntityId, FrequencyTicker, World,
 };
 use egui::Ui;
@@ -460,5 +460,24 @@ impl Main {
 
     pub fn update_plugins(&mut self, c: &Container) {
         self.instance.update_plugins(c);
+    }
+
+    pub fn add_workgraph_hook<T>(
+        &mut self,
+        pin: PinId,
+        hook: impl FnMut(&T, &mev::Device, &CommandStream) + 'static,
+    ) -> HookId
+    where
+        T: Target,
+    {
+        self.instance.workgraph.add_hook::<T>(pin, hook)
+    }
+
+    pub fn has_workgraph_hook(&mut self, hook: HookId) -> bool {
+        self.instance.workgraph.has_hook(hook)
+    }
+
+    pub fn remove_workgraph_hook(&mut self, hook: HookId) {
+        self.instance.workgraph.remove_hook(hook)
     }
 }

@@ -1,21 +1,31 @@
-use std::collections::BTreeMap;
+use std::{
+    cell::{Cell, RefCell},
+    collections::BTreeMap,
+    rc::Rc,
+};
 
 use arcana::{
     edict::world::WorldLocal,
+    mev,
     model::Value,
     plugin::JobInfo,
     project::Project,
-    work::{Edge, Image2D, JobDesc, JobId, JobIdx, PinId},
-    Ident, Name, Stid,
+    stid::WithStid,
+    texture::Texture,
+    work::{Edge, HookId, Image2D, JobDesc, JobId, JobIdx, PinId},
+    EntityId, Ident, Name, Stid,
 };
-use egui::Ui;
+use egui::{epaint::image, Ui};
 use egui_snarl::{
     ui::{AnyPins, PinInfo, SnarlStyle, SnarlViewer},
     InPin, InPinId, NodeId, OutPin, OutPinId, Snarl,
 };
 use hashbrown::HashMap;
 
-use crate::{container::Container, data::ProjectData, hue_hash, model::ValueProbe};
+use crate::{
+    container::Container, data::ProjectData, hue_hash, instance::Main, model::ValueProbe,
+    sample::ImageSample,
+};
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 #[serde(transparent)]
@@ -76,9 +86,17 @@ impl WorkGraph {
     }
 }
 
+struct Preview {
+    image: Option<mev::Image>,
+    id: EntityId,
+    hook: Option<HookId>,
+    size: Option<mev::Extent2>,
+}
+
 pub struct Rendering {
     available: BTreeMap<Ident, Vec<JobInfo>>,
     modification: u64,
+    preview: Option<Rc<RefCell<Preview>>>,
 }
 
 impl Rendering {
@@ -86,6 +104,7 @@ impl Rendering {
         Rendering {
             available: BTreeMap::new(),
             modification: 1,
+            preview: None,
         }
     }
 
@@ -139,12 +158,65 @@ impl Rendering {
         let mut data = world.expect_resource_mut::<ProjectData>();
         let project = world.expect_resource::<Project>();
         let mut rendering = world.expect_resource_mut::<Rendering>();
+        let mut main = world.expect_resource_mut::<Main>();
+        let sample = world.expect_resource::<ImageSample>();
+        let device = world.expect_resource::<mev::Device>();
+        let rendering = &mut *rendering;
+
+        let preview = rendering.preview.get_or_insert_with(|| {
+            let id = world.allocate().id();
+
+            Rc::new(RefCell::new(Preview {
+                image: None,
+                id,
+                hook: None,
+                size: None,
+            }))
+        });
+
+        {
+            let mut preview = preview.borrow_mut();
+
+            if let Some(size) = preview.size {
+                if let Some(image) = &preview.image {
+                    if size != image.dimensions().expect_2d() {
+                        preview.image = None;
+                    }
+                }
+
+                let id = preview.id;
+                preview.image.get_or_insert_with(|| {
+                    let image = device
+                        .new_image(mev::ImageDesc {
+                            dimensions: size.into(),
+                            format: mev::PixelFormat::Rgba8Srgb,
+                            usage: mev::ImageUsage::TARGET | mev::ImageUsage::SAMPLED,
+                            layers: 1,
+                            levels: 1,
+                            name: "preview",
+                        })
+                        .unwrap();
+
+                    world.insert_defer(
+                        id,
+                        Texture {
+                            image: image.clone(),
+                        },
+                    );
+
+                    image
+                });
+            }
+        }
 
         const STYLE: SnarlStyle = SnarlStyle::new();
 
         let mut viewer = WorkGraphViewer {
             modified: false,
             available: &mut rendering.available,
+            main: &mut main,
+            sample: &sample,
+            preview,
         };
 
         data.workgraph
@@ -177,6 +249,9 @@ pub enum WorkGraphNode {
 pub struct WorkGraphViewer<'a> {
     modified: bool,
     available: &'a mut BTreeMap<Ident, Vec<JobInfo>>,
+    main: &'a mut Main,
+    sample: &'a ImageSample,
+    preview: &'a Rc<RefCell<Preview>>,
 }
 
 impl SnarlViewer<WorkGraphNode> for WorkGraphViewer<'_> {
@@ -233,16 +308,14 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer<'_> {
 
     fn inputs(&mut self, node: &WorkGraphNode) -> usize {
         match *node {
-            WorkGraphNode::Job { ref desc, .. } => {
-                desc.updates.len() + desc.reads.len() + desc.params.len()
-            }
+            WorkGraphNode::Job { ref desc, .. } => desc.input_count(),
             WorkGraphNode::MainPresent => 1,
         }
     }
 
     fn outputs(&mut self, node: &WorkGraphNode) -> usize {
         match *node {
-            WorkGraphNode::Job { ref desc, .. } => desc.updates.len() + desc.creates.len(),
+            WorkGraphNode::Job { ref desc, .. } => desc.output_count(),
             WorkGraphNode::MainPresent => 0,
         }
     }
@@ -307,17 +380,50 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer<'_> {
     ) -> PinInfo {
         match snarl[pin.id.node] {
             WorkGraphNode::Job { ref desc, .. } => {
-                if pin.id.output >= desc.updates.len() + desc.creates.len() {
+                if pin.id.output >= desc.output_count() {
                     unreachable!()
                 }
-                if pin.id.output < desc.updates.len() {
-                    let update = &desc.updates[pin.id.output];
-                    ui.label("updates");
-                    PinInfo::square().with_fill(hue_hash(&update.ty))
-                } else {
-                    let create = &desc.creates[pin.id.output - desc.updates.len()];
-                    ui.label("creates");
-                    PinInfo::triangle().with_fill(hue_hash(&create.ty))
+
+                match (
+                    desc.update_idx(pin.id.output),
+                    desc.create_idx(pin.id.output),
+                ) {
+                    (Some(update), _) => {
+                        let update = &desc.updates[update];
+                        let r = ui.label("updates");
+
+                        show_preview(
+                            self.main,
+                            &self.sample,
+                            r,
+                            PinId {
+                                job: JobIdx(pin.id.node.0),
+                                pin: pin.id.output,
+                            },
+                            update.ty,
+                            &mut self.preview,
+                        );
+
+                        PinInfo::square().with_fill(hue_hash(&update.ty))
+                    }
+                    (_, Some(create)) => {
+                        let create = &desc.creates[create];
+                        let r = ui.label("creates");
+
+                        show_preview(
+                            self.main,
+                            &self.sample,
+                            r,
+                            PinId {
+                                job: JobIdx(pin.id.node.0),
+                                pin: pin.id.output,
+                            },
+                            create.ty,
+                            &mut self.preview,
+                        );
+                        PinInfo::triangle().with_fill(hue_hash(&create.ty))
+                    }
+                    _ => unreachable!(),
                 }
             }
             WorkGraphNode::MainPresent => {
@@ -501,4 +607,73 @@ fn present_kind() -> Stid {
 #[inline(always)]
 fn present_pin_color() -> egui::Color32 {
     hue_hash(&present_kind())
+}
+
+fn show_preview(
+    main: &mut Main,
+    sample: &ImageSample,
+    r: egui::Response,
+    pin: PinId,
+    ty: Stid,
+    preview: &Rc<RefCell<Preview>>,
+) {
+    if ty == Image2D::stid() {
+        r.on_hover_ui(|ui| {
+            let mut hook = match preview.borrow().hook {
+                None => None,
+                Some(hook) if hook.pin == pin && main.has_workgraph_hook(hook) => Some(hook),
+                Some(hook) => {
+                    main.remove_workgraph_hook(hook);
+                    None
+                }
+            };
+
+            if hook.is_none() {
+                let sample = sample.clone();
+                let preview = preview.clone();
+
+                let new_hook =
+                    main.add_workgraph_hook::<Image2D>(pin, move |target, _device, commands| {
+                        let mut target_size = target.dimensions().expect_2d();
+                        if target_size.width() == 0 || target_size.height() == 0 {
+                            return;
+                        }
+
+                        if target_size.width() > 128 || target_size.height() > 128 {
+                            if target_size.width() > target_size.height() {
+                                target_size = mev::Extent2::new(
+                                    128,
+                                    (128 * target_size.height()) / target_size.width(),
+                                );
+                            } else {
+                                target_size = mev::Extent2::new(
+                                    (128 * target_size.width()) / target_size.height(),
+                                    128,
+                                );
+                            }
+                        }
+
+                        preview.borrow_mut().size = Some(target_size);
+
+                        let encoder = commands.new_encoder();
+
+                        if let Some(image) = &preview.borrow().image {
+                            sample
+                                .sample(target.0.clone(), image.clone(), encoder)
+                                .unwrap();
+                        }
+                    });
+
+                hook = Some(new_hook);
+            }
+
+            preview.borrow_mut().hook = hook;
+            if let Some(size) = preview.borrow().size {
+                ui.image(egui::load::SizedTexture {
+                    id: egui::TextureId::User(preview.borrow().id.bits()),
+                    size: egui::vec2(size.width() as f32, size.height() as f32),
+                });
+            }
+        });
+    }
 }

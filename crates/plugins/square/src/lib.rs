@@ -48,12 +48,7 @@ impl DrawSquare {
 }
 
 impl Job for DrawSquare {
-    fn plan(
-        &mut self,
-        mut planner: Planner<'_>,
-        world: &mut World,
-        _params: &HashMap<Name, Value>,
-    ) {
+    fn plan(&mut self, mut planner: Planner<'_>, world: &mut World) {
         let Some(target) = planner.create::<Image2D>() else {
             return;
         };
@@ -69,7 +64,7 @@ impl Job for DrawSquare {
         };
     }
 
-    fn exec(&mut self, runner: Exec<'_>, _world: &mut World, _params: &HashMap<Name, Value>) {
+    fn exec(&mut self, runner: Exec<'_>, _world: &mut World) {
         let Some(target) = runner.create::<Image2D>() else {
             return;
         };
@@ -87,25 +82,19 @@ impl Job for DrawSquare {
                 .device()
                 .new_render_pipeline(mev::RenderPipelineDesc {
                     name: "main",
-                    vertex_shader: mev::Shader {
-                        library: main_library.clone(),
-                        entry: "vs_main".into(),
-                    },
+                    vertex_shader: main_library.entry("vs_main"),
                     vertex_attributes: vec![],
                     vertex_layouts: vec![],
                     primitive_topology: mev::PrimitiveTopology::Triangle,
                     raster: Some(mev::RasterDesc {
-                        fragment_shader: Some(mev::Shader {
-                            library: main_library,
-                            entry: "fs_main".into(),
-                        }),
+                        fragment_shader: Some(main_library.entry("fs_main")),
                         color_targets: vec![mev::ColorTargetDesc {
                             format: target.format(),
                             blend: Some(mev::BlendDesc::default()),
                         }],
                         depth_stencil: None,
                         front_face: mev::FrontFace::default(),
-                        culling: mev::Culling::Back,
+                        culling: mev::Culling::None,
                     }),
                     arguments: &[DSArguments::LAYOUT],
                     constants: DSConstants::SIZE,
@@ -114,12 +103,9 @@ impl Job for DrawSquare {
         });
 
         let encoder = runner.new_encoder();
-        let mut render = encoder.render(mev::RenderPassDesc {
-            color_attachments: &[
-                mev::AttachmentDesc::new(&target).clear(mev::ClearColor(1.0, 0.5, 0.3, 0.0))
-            ],
-            ..Default::default()
-        });
+        let mut render = encoder.render(mev::RenderPassDesc::new().color_attachments(&[
+            mev::AttachmentDesc::new(&target).clear(mev::ClearColor(1.0, 0.5, 0.3, 0.0)),
+        ]));
 
         let dims = target.dimensions().expect_2d();
 
