@@ -69,6 +69,7 @@ impl Instance {
                 for (_, p) in c.plugins() {
                     p.init(&mut self.world, &mut self.hub);
                 }
+                self.container = Some(c.clone());
             }
             Some(_old) => {
                 self.world = World::new();

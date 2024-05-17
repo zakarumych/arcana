@@ -119,6 +119,12 @@ struct Loaded {
     _tmp: TmpPath,
 }
 
+impl Drop for Loaded {
+    fn drop(&mut self) {
+        tracing::info!("Dropping loaded library");
+    }
+}
+
 #[derive(Clone)]
 pub struct Container {
     active_plugins: Arc<[(Ident, &'static dyn ArcanaPlugin)]>,

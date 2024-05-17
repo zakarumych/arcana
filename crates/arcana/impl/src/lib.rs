@@ -70,6 +70,7 @@ mod num2name;
 pub mod plugin;
 pub mod refl;
 pub mod render;
+pub mod serde_with;
 mod stable_hasher;
 pub mod stid;
 pub mod texture;
