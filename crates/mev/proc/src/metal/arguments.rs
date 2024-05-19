@@ -151,6 +151,21 @@ fn derive_impl(input: syn::DeriveInput) -> syn::Result<proc_macro2::TokenStream>
                             idx += 1;
                         )*
                     }
+
+                    #[inline(always)]
+                    fn bind_compute(&self, group: u32, encoder: &mut mev::ComputeCommandEncoder) {
+                        let metal = encoder.metal();
+                        let bindings = encoder.bindings();
+
+                        let mut idx = 0;
+                        #(
+                            if #field_stages.contains(mev::ShaderStages::COMPUTE) {
+                                #field_argument_impls::bind_compute_argument(&self.#field_names, group, idx, bindings, metal);
+                            }
+
+                            idx += 1;
+                        )*
+                    }
                 }
             })
         }

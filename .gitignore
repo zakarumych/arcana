@@ -1,2 +1,3 @@
 crates/target
 crates/Cargo.lock
+example/crates

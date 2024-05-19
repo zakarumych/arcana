@@ -1,7 +1,8 @@
-use std::sync::Arc;
+use std::{fmt, sync::Arc};
 
 use super::shader::Bindings;
 
+#[derive(Clone)]
 pub struct RenderPipeline {
     state: metal::RenderPipelineState,
     primitive: metal::MTLPrimitiveType,
@@ -55,4 +56,17 @@ impl RenderPipeline {
 pub enum CreatePipelineErrorKind {
     InvalidShaderEntry,
     FailedToBuildPipeline(String),
+}
+
+impl fmt::Display for CreatePipelineErrorKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            CreatePipelineErrorKind::InvalidShaderEntry => {
+                write!(f, "Invalid shader entry point")
+            }
+            CreatePipelineErrorKind::FailedToBuildPipeline(err) => {
+                write!(f, "Failed to build pipeline: {}", err)
+            }
+        }
+    }
 }

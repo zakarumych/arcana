@@ -338,13 +338,13 @@ impl crate::traits::ComputeCommandEncoder for ComputeCommandEncoder<'_> {
     }
 
     #[cfg_attr(inline_more, inline(always))]
-    fn dispatch(&mut self, extent: Extent3) {
+    fn dispatch(&mut self, groups: Extent3) {
         unsafe {
             self.device.ash().cmd_dispatch(
                 self.handle,
-                extent.width(),
-                extent.height(),
-                extent.depth(),
+                groups.width(),
+                groups.height(),
+                groups.depth(),
             )
         }
     }

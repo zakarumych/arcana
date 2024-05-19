@@ -15,16 +15,19 @@ use raw_window_handle::{
     RawWindowHandle,
 };
 
-use crate::generic::{
-    parse_shader, ArgumentKind, BlasDesc, BufferDesc, BufferInitDesc, ComputePipelineDesc,
-    CreateLibraryError, CreatePipelineError, ImageDesc, ImageExtent, LibraryDesc, LibraryInput,
-    Memory, OutOfMemory, RenderPipelineDesc, SamplerDesc, ShaderCompileError, ShaderLanguage,
-    SurfaceError, TlasDesc, VertexStepMode,
+use crate::{
+    generic::{
+        parse_shader, ArgumentKind, BlasDesc, BufferDesc, BufferInitDesc, ComputePipelineDesc,
+        CreateLibraryError, CreatePipelineError, ImageDesc, ImageExtent, LibraryDesc, LibraryInput,
+        Memory, OutOfMemory, RenderPipelineDesc, SamplerDesc, ShaderCompileError, ShaderLanguage,
+        SurfaceError, TlasDesc, VertexStepMode,
+    },
+    Extent3,
 };
 
 use super::{
     from::{IntoMetal, TryIntoMetal},
-    shader::Bindings,
+    shader::{Bindings, EntryPointData},
     Blas, Buffer, ComputePipeline, CreatePipelineErrorKind, Image, Library, RenderPipeline,
     Sampler, Surface, Tlas, MAX_VERTEX_BUFFERS,
 };
@@ -90,9 +93,9 @@ impl crate::traits::Device for Device {
                             .new_library_with_source(&compiled.code, &options)
                             .unwrap();
 
-                        Ok(Library::with_per_entry_point_bindings(
+                        Ok(Library::with_entry_point_data(
                             library,
-                            compiled.per_entry_point_bindings,
+                            compiled.entry_point_data,
                         ))
                     }
                 }
@@ -122,7 +125,11 @@ impl crate::traits::Device for Device {
                 CreatePipelineError(CreatePipelineErrorKind::FailedToBuildPipeline(err))
             })?;
 
-        Ok(ComputePipeline::new(pipeline))
+        Ok(ComputePipeline::new(
+            pipeline,
+            desc.shader.library.get_bindings(&desc.shader.entry),
+            desc.shader.library.get_workgroup_size(&desc.shader.entry),
+        ))
     }
 
     fn new_render_pipeline(
@@ -446,7 +453,7 @@ extern "C" {
 
 struct CompiledMetalShader {
     code: String,
-    per_entry_point_bindings: HashMap<String, Arc<Bindings>>,
+    entry_point_data: HashMap<String, EntryPointData>,
 }
 
 fn compile_shader(
@@ -466,7 +473,8 @@ fn compile_shader(
         zero_initialize_workgroup_memory: false,
     };
 
-    let mut per_entry_point_bindings = HashMap::new();
+    let mut entry_point_data = HashMap::new();
+
     for (i, entry) in module.entry_points.iter().enumerate() {
         let mut bindings = Bindings::new();
         let mut map = naga::back::msl::EntryPointResources::default();
@@ -563,8 +571,16 @@ fn compile_shader(
             }
         }
 
-        per_entry_point_bindings.insert(entry.name.clone(), Arc::new(bindings));
         options.per_entry_point_map.insert(entry.name.clone(), map);
+
+        entry_point_data.insert(
+            entry.name.clone(),
+            EntryPointData {
+                bindings: Arc::new(bindings),
+                workgroup_size: entry.workgroup_size,
+                name: Ok(String::new()),
+            },
+        );
     }
 
     let (code, translation) = naga::back::msl::write_string(
@@ -577,11 +593,16 @@ fn compile_shader(
     )
     .map_err(ShaderCompileError::GenMsl)?;
 
-    eprintln!("{}", code);
-    eprintln!("{:?}", translation.entry_point_names);
+    // eprintln!("{}", code);
+    // eprintln!("{:?}", translation.entry_point_names);
+
+    for (i, entry) in module.entry_points.iter().enumerate() {
+        entry_point_data.get_mut(&entry.name).unwrap().name =
+            translation.entry_point_names[i].clone();
+    }
 
     Ok(CompiledMetalShader {
         code,
-        per_entry_point_bindings,
+        entry_point_data,
     })
 }

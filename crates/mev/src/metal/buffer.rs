@@ -104,6 +104,11 @@ impl ArgumentsField<Automatic> for Buffer {
     fn bind_fragment(&self, slot: u32, encoder: &metal::RenderCommandEncoderRef) {
         encoder.set_fragment_buffer(slot.into(), Some(&self.buffer), 0)
     }
+
+    #[inline(always)]
+    fn bind_compute(&self, slot: u32, encoder: &metal::ComputeCommandEncoderRef) {
+        encoder.set_buffer(slot.into(), Some(&self.buffer), 0)
+    }
 }
 
 impl ArgumentsField<Uniform> for Buffer {
@@ -119,6 +124,11 @@ impl ArgumentsField<Uniform> for Buffer {
     fn bind_fragment(&self, slot: u32, encoder: &metal::RenderCommandEncoderRef) {
         encoder.set_fragment_buffer(slot.into(), Some(&self.buffer), 0)
     }
+
+    #[inline(always)]
+    fn bind_compute(&self, slot: u32, encoder: &metal::ComputeCommandEncoderRef) {
+        encoder.set_buffer(slot.into(), Some(&self.buffer), 0)
+    }
 }
 
 impl ArgumentsField<Storage> for Buffer {
@@ -133,5 +143,10 @@ impl ArgumentsField<Storage> for Buffer {
     #[inline(always)]
     fn bind_fragment(&self, slot: u32, encoder: &metal::RenderCommandEncoderRef) {
         encoder.set_fragment_buffer(slot.into(), Some(&self.buffer), 0)
+    }
+
+    #[inline(always)]
+    fn bind_compute(&self, slot: u32, encoder: &metal::ComputeCommandEncoderRef) {
+        encoder.set_buffer(slot.into(), Some(&self.buffer), 0)
     }
 }

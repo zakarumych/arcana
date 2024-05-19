@@ -201,14 +201,19 @@ impl ArgumentsField<Automatic> for Image {
     const KIND: ArgumentKind = ArgumentKind::SampledImage;
     const SIZE: usize = 1;
 
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn bind_vertex(&self, slot: u32, encoder: &metal::RenderCommandEncoderRef) {
         encoder.set_vertex_texture(slot.into(), Some(&self.texture));
     }
 
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn bind_fragment(&self, slot: u32, encoder: &metal::RenderCommandEncoderRef) {
         encoder.set_fragment_texture(slot.into(), Some(&self.texture));
+    }
+
+    #[inline(always)]
+    fn bind_compute(&self, slot: u32, encoder: &metal::ComputeCommandEncoderRef) {
+        encoder.set_texture(slot.into(), Some(&self.texture));
     }
 }
 
@@ -216,14 +221,19 @@ impl ArgumentsField<Sampled> for Image {
     const KIND: ArgumentKind = ArgumentKind::SampledImage;
     const SIZE: usize = 1;
 
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn bind_vertex(&self, slot: u32, encoder: &metal::RenderCommandEncoderRef) {
         encoder.set_vertex_texture(slot.into(), Some(&self.texture));
     }
 
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn bind_fragment(&self, slot: u32, encoder: &metal::RenderCommandEncoderRef) {
         encoder.set_fragment_texture(slot.into(), Some(&self.texture));
+    }
+
+    #[inline(always)]
+    fn bind_compute(&self, slot: u32, encoder: &metal::ComputeCommandEncoderRef) {
+        encoder.set_texture(slot.into(), Some(&self.texture));
     }
 }
 
@@ -231,13 +241,18 @@ impl ArgumentsField<Storage> for Image {
     const KIND: ArgumentKind = ArgumentKind::StorageImage;
     const SIZE: usize = 1;
 
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn bind_vertex(&self, slot: u32, encoder: &metal::RenderCommandEncoderRef) {
         encoder.set_vertex_texture(slot.into(), Some(&self.texture));
     }
 
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn bind_fragment(&self, slot: u32, encoder: &metal::RenderCommandEncoderRef) {
         encoder.set_fragment_texture(slot.into(), Some(&self.texture));
+    }
+
+    #[inline(always)]
+    fn bind_compute(&self, slot: u32, encoder: &metal::ComputeCommandEncoderRef) {
+        encoder.set_texture(slot.into(), Some(&self.texture));
     }
 }

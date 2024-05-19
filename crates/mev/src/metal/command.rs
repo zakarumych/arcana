@@ -4,10 +4,14 @@ use metal::NSUInteger;
 use objc::{msg_send, Message};
 use smallvec::SmallVec;
 
-use crate::generic::{
-    AccelerationStructureBuildFlags, AccelerationStructurePerformance, Arguments, AsBufferSlice,
-    BlasBuildDesc, BlasGeometryDesc, ClearColor, ClearDepthStencil, DeviceRepr, Extent2, Extent3,
-    LoadOp, Offset2, Offset3, OutOfMemory, PipelineStages, RenderPassDesc, StoreOp, TlasBuildDesc,
+use crate::{
+    generic::{
+        AccelerationStructureBuildFlags, AccelerationStructurePerformance, Arguments,
+        AsBufferSlice, BlasBuildDesc, BlasGeometryDesc, ClearColor, ClearDepthStencil, DeviceRepr,
+        Extent2, Extent3, LoadOp, Offset2, Offset3, OutOfMemory, PipelineStages, RenderPassDesc,
+        StoreOp, TlasBuildDesc,
+    },
+    traits,
 };
 
 use super::{
@@ -38,15 +42,30 @@ impl CommandEncoder {
 
 #[hidden_trait::expose]
 impl crate::traits::CommandEncoder for CommandEncoder {
+    #[inline(always)]
     fn barrier(&mut self, _after: PipelineStages, _before: PipelineStages) {}
 
+    #[inline(always)]
     fn init_image(&mut self, _after: PipelineStages, _before: PipelineStages, _image: &Image) {}
 
+    #[inline(always)]
     fn copy(&mut self) -> CopyCommandEncoder {
         let encoder = self.buffer.new_blit_command_encoder();
         CopyCommandEncoder {
             device: &mut self.device,
             encoder: encoder.to_owned(),
+            _marker: PhantomData,
+        }
+    }
+
+    #[inline(always)]
+    fn compute(&mut self) -> ComputeCommandEncoder<'_> {
+        let encoder = self.buffer.new_compute_command_encoder();
+        ComputeCommandEncoder {
+            device: &mut self.device,
+            encoder: encoder.to_owned(),
+            bindings: None,
+            workgroup_size: None,
             _marker: PhantomData,
         }
     }
@@ -322,6 +341,83 @@ impl crate::traits::CopyCommandEncoder for CopyCommandEncoder<'_> {
     }
 }
 
+pub struct ComputeCommandEncoder<'a> {
+    device: &'a mut metal::DeviceRef,
+    encoder: metal::ComputeCommandEncoder,
+    bindings: Option<Arc<Bindings>>,
+    workgroup_size: Option<[u32; 3]>,
+    _marker: PhantomData<&'a mut CommandBuffer>,
+}
+
+impl ComputeCommandEncoder<'_> {
+    #[doc(hidden)]
+    #[inline(always)]
+    pub fn bindings(&self) -> Option<&Bindings> {
+        self.bindings.as_deref()
+    }
+
+    #[doc(hidden)]
+    #[inline(always)]
+    pub fn metal(&self) -> &metal::ComputeCommandEncoderRef {
+        &self.encoder
+    }
+}
+
+impl Drop for ComputeCommandEncoder<'_> {
+    #[inline(always)]
+    fn drop(&mut self) {
+        self.encoder.end_encoding();
+    }
+}
+
+#[hidden_trait::expose]
+impl traits::ComputeCommandEncoder for ComputeCommandEncoder<'_> {
+    #[inline(always)]
+    fn barrier(&mut self, _after: PipelineStages, _before: PipelineStages) {}
+
+    #[inline(always)]
+    fn init_image(&mut self, _after: PipelineStages, _before: PipelineStages, _image: &Image) {}
+
+    #[inline(always)]
+    fn with_pipeline(&mut self, pipeline: &crate::backend::ComputePipeline) {
+        self.encoder.set_compute_pipeline_state(pipeline.metal());
+        self.bindings = pipeline.bindings();
+        self.workgroup_size = pipeline.workgroup_size();
+    }
+
+    #[inline(always)]
+    fn with_arguments(&mut self, group: u32, arguments: &impl Arguments) {
+        arguments.bind_compute(group, self);
+    }
+
+    #[inline(always)]
+    fn with_constants(&mut self, constants: &impl DeviceRepr) {
+        let data = constants.as_repr();
+        let data_bytes = bytemuck::bytes_of(&data);
+
+        self.encoder
+            .set_bytes(0, data_bytes.len() as NSUInteger, data_bytes.as_ptr() as _);
+    }
+
+    #[inline(always)]
+    fn dispatch(&mut self, groups: Extent3) {
+        let group_size = self.workgroup_size.unwrap_or([1, 1, 1]);
+
+        self.encoder.dispatch_thread_groups(
+            metal::MTLSize {
+                width: groups.width().into(),
+                height: groups.height().into(),
+                depth: groups.depth().into(),
+            },
+            metal::MTLSize {
+                width: group_size[0].into(),
+                height: group_size[1].into(),
+                depth: group_size[2].into(),
+            },
+        );
+    }
+}
+
 pub struct RenderCommandEncoder<'a> {
     encoder: metal::RenderCommandEncoder,
     primitive: metal::MTLPrimitiveType,
@@ -335,23 +431,26 @@ pub struct RenderCommandEncoder<'a> {
 
 impl RenderCommandEncoder<'_> {
     #[doc(hidden)]
+    #[inline(always)]
     pub fn vertex_bindings(&self) -> Option<&Bindings> {
         self.vertex_bindings.as_deref()
     }
 
     #[doc(hidden)]
+    #[inline(always)]
     pub fn fragment_bindings(&self) -> Option<&Bindings> {
         self.fragment_bindings.as_deref()
     }
 
     #[doc(hidden)]
+    #[inline(always)]
     pub fn metal(&self) -> &metal::RenderCommandEncoderRef {
         &self.encoder
     }
 }
 
 impl Drop for RenderCommandEncoder<'_> {
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn drop(&mut self) {
         self.encoder.end_encoding();
     }
@@ -359,6 +458,7 @@ impl Drop for RenderCommandEncoder<'_> {
 
 #[hidden_trait::expose]
 impl crate::traits::RenderCommandEncoder for RenderCommandEncoder<'_> {
+    #[inline(always)]
     fn with_pipeline(&mut self, pipeline: &RenderPipeline) {
         self.encoder.set_render_pipeline_state(pipeline.metal());
         self.primitive = pipeline.primitive();
@@ -367,6 +467,7 @@ impl crate::traits::RenderCommandEncoder for RenderCommandEncoder<'_> {
         self.vertex_buffers_count = pipeline.vertex_buffers_count();
     }
 
+    #[inline(always)]
     fn with_viewport(&mut self, offset: Offset3<f32>, extent: Extent3<f32>) {
         let viewport = metal::MTLViewport {
             originX: offset.x().into(),
@@ -379,6 +480,7 @@ impl crate::traits::RenderCommandEncoder for RenderCommandEncoder<'_> {
         self.encoder.set_viewport(viewport);
     }
 
+    #[inline(always)]
     fn with_scissor(&mut self, offset: Offset2<i32>, extent: Extent2<u32>) {
         debug_assert!(offset.x() >= 0);
         debug_assert!(offset.y() >= 0);
@@ -393,11 +495,13 @@ impl crate::traits::RenderCommandEncoder for RenderCommandEncoder<'_> {
     }
 
     /// Sets arguments group for the current pipeline.
+    #[inline(always)]
     fn with_arguments(&mut self, group: u32, arguments: &impl Arguments) {
         arguments.bind_render(group, self);
     }
 
     /// Sets constants for the current pipeline.
+    #[cfg_attr(inline_more, inline)]
     fn with_constants(&mut self, constants: &impl DeviceRepr) {
         let data = constants.as_repr();
         let data_bytes = bytemuck::bytes_of(&data);
@@ -424,6 +528,7 @@ impl crate::traits::RenderCommandEncoder for RenderCommandEncoder<'_> {
     }
 
     /// Bind vertex buffer to the current pipeline.
+    #[cfg_attr(inline_more, inline)]
     fn bind_vertex_buffers(&mut self, start: u32, buffers: &[(impl AsBufferSlice)]) {
         let (buffers, offsets) = buffers
             .iter()
@@ -442,6 +547,7 @@ impl crate::traits::RenderCommandEncoder for RenderCommandEncoder<'_> {
     }
 
     /// Bind index buffer to the current pipeline.
+    #[inline(always)]
     fn bind_index_buffer(&mut self, buffer: impl AsBufferSlice) {
         let buffer_slice = buffer.as_buffer_slice();
 
@@ -449,6 +555,7 @@ impl crate::traits::RenderCommandEncoder for RenderCommandEncoder<'_> {
         self.index_buffer_offset = buffer_slice.offset as NSUInteger;
     }
 
+    #[cfg_attr(inline_more, inline)]
     fn draw(&mut self, vertices: Range<u32>, instances: Range<u32>) {
         if vertices.end <= vertices.start {
             // Rendering no vertices is a no-op
@@ -486,6 +593,7 @@ impl crate::traits::RenderCommandEncoder for RenderCommandEncoder<'_> {
         }
     }
 
+    #[cfg_attr(inline_more, inline)]
     fn draw_indexed(&mut self, vertex_offset: i32, indices: Range<u32>, instances: Range<u32>) {
         debug_assert!(vertex_offset >= 0);
 

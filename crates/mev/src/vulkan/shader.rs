@@ -2,7 +2,7 @@ use std::{borrow::Cow, fmt, sync::Arc};
 
 use ash::vk;
 
-use crate::Shader;
+use crate::generic::Shader;
 
 use super::device::WeakDevice;
 

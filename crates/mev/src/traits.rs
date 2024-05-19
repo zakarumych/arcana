@@ -151,7 +151,7 @@ pub trait ComputeCommandEncoder {
     fn with_constants(&mut self, constants: &impl DeviceRepr);
 
     /// Dispatches compute work.
-    fn dispatch(&mut self, extent: Extent3);
+    fn dispatch(&mut self, groups: Extent3);
 }
 
 pub trait CopyCommandEncoder {
