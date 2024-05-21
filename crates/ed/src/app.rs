@@ -4,7 +4,6 @@ use arcana::{
     blink_alloc::BlinkAlloc,
     edict::world::WorldLocal,
     events::ViewportEvent,
-    gametime::TimeStamp,
     mev,
     project::Project,
     render::{render, RenderGraph, RenderResources},
@@ -20,12 +19,20 @@ use parking_lot::Mutex;
 use winit::{
     dpi,
     event::WindowEvent,
-    window::{Window, WindowAttributes, WindowId},
+    window::{Window, WindowId},
 };
 
 use crate::{
-    console::Console, data::ProjectData, filters::Filters, init_mev, instance::Main,
-    plugins::Plugins, render::Rendering, sample::ImageSample, systems::Systems,
+    console::Console,
+    data::ProjectData,
+    filters::Filters,
+    init_mev,
+    instance::Main,
+    plugins::Plugins,
+    render::Rendering,
+    sample::ImageSample,
+    subprocess::{filter_subprocesses, kill_subprocesses},
+    systems::Systems,
 };
 
 pub enum UserEvent {}
@@ -94,10 +101,7 @@ impl Drop for App {
         };
         let _ = save_app_state(&state);
 
-        let subprocesses = std::mem::take(&mut *super::SUBPROCESSES.lock());
-        for mut child in subprocesses {
-            let _ = child.kill();
-        }
+        kill_subprocesses();
     }
 }
 
@@ -134,6 +138,8 @@ impl App {
 
         if state.windows.is_empty() {
             let builder = Window::default_attributes().with_title("Ed");
+
+            #[allow(deprecated)]
             let window = events
                 .create_window(builder)
                 .map_err(|err| miette::miette!("Failed to create Ed window: {err:?}"))
@@ -155,11 +161,12 @@ impl App {
         }
 
         for w in state.windows {
-            let builder = WindowAttributes::new()
+            let builder = Window::default_attributes()
                 .with_title("Ed")
                 .with_position(w.pos)
                 .with_inner_size(w.size);
 
+            #[allow(deprecated)]
             let window: Window = events
                 .create_window(builder)
                 .map_err(|err| miette::miette!("Failed to create Ed window: {err:?}"))
@@ -210,6 +217,8 @@ impl App {
                 }
             }
         }
+
+        Main::handle_event(world, window_id, &event);
 
         match event {
             WindowEvent::CloseRequested => {
@@ -300,15 +309,10 @@ impl App {
         // Run actions encoded by UI.
         self.world.run_deferred();
 
-        let mut subprocesses = super::SUBPROCESSES.lock();
-        subprocesses.retain_mut(|child| match child.try_wait() {
-            Ok(Some(_)) => false,
-            Err(_) => false,
-            _ => true,
-        });
+        filter_subprocesses();
     }
 
-    pub fn render(&mut self, now: TimeStamp) {
+    pub fn render(&mut self) {
         Main::render(&mut self.world);
 
         if self.world.view_mut::<With<Viewport>>().into_iter().count() == 0 {
@@ -327,16 +331,7 @@ impl App {
     }
 
     pub fn should_quit(&self) -> bool {
-        if !self.should_quit {
-            return false;
-        }
-        let subprocesses = std::mem::take(&mut *super::SUBPROCESSES.lock());
-        for mut subprocess in subprocesses {
-            if subprocess.kill().is_ok() {
-                let _ = subprocess.wait();
-            }
-        }
-        true
+        self.should_quit
     }
 }
 

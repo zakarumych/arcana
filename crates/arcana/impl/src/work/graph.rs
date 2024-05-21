@@ -6,7 +6,7 @@ use std::{
 
 use arcana_names::Name;
 use edict::World;
-use hashbrown::{hash_map::Entry, Equivalent, HashMap, HashSet};
+use hashbrown::{hash_map::Entry, HashMap, HashSet};
 use slab::Slab;
 
 use crate::{

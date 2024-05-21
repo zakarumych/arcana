@@ -1,16 +1,15 @@
 #![forbid(unsafe_op_in_unsafe_fn)]
 #![feature(float_next_up_down)]
 
-use std::{hash::Hash, io::ErrorKind, path::Path, process::Child, time::Instant};
+use std::{hash::Hash, io::ErrorKind, path::Path};
 
 use arcana::{
-    gametime::{FrequencyNumExt, TimeSpan, TimeStamp},
+    gametime::FrequencyNumExt,
     mev,
     project::{Profile, Project},
     Clock,
 };
 use data::ProjectData;
-use parking_lot::Mutex;
 use winit::{
     event::Event,
     event_loop::{ControlFlow, EventLoop},
@@ -53,16 +52,18 @@ mod console;
 mod data;
 mod filters;
 // mod games;
-mod ide;
+// mod ide;
 mod render;
 // mod memory;
 mod container;
 mod error;
+mod flow;
 mod instance;
 mod model;
-mod monitor;
+// mod monitor;
 mod plugins;
 mod sample;
+mod subprocess;
 mod systems;
 mod tools;
 
@@ -102,7 +103,6 @@ fn _run(path: &Path) -> miette::Result<()> {
         panic!("Failed to install tracing subscriber: {}", err);
     }
 
-    let start = Instant::now();
     let mut clock = Clock::new();
 
     let mut limiter = clock.ticker(240.hz());
@@ -135,9 +135,8 @@ fn _run(path: &Path) -> miette::Result<()> {
                 let until = clock.stamp_instant(limiter.next_tick().unwrap());
 
                 events.set_control_flow(ControlFlow::WaitUntil(until));
-                // }
-                // Event::RedrawEventsCleared => {
-                app.render(TimeStamp::start() + TimeSpan::from(start.elapsed()));
+
+                app.render();
             }
             _ => {}
         })
@@ -145,8 +144,6 @@ fn _run(path: &Path) -> miette::Result<()> {
 
     Ok(())
 }
-
-static SUBPROCESSES: Mutex<Vec<Child>> = Mutex::new(Vec::new());
 
 // fn move_element<T>(slice: &mut [T], from_index: usize, to_index: usize) {
 //     if from_index == to_index {
@@ -178,8 +175,6 @@ fn load_project(path: &Path) -> miette::Result<(Project, ProjectData)> {
             miette::bail!("Failed to open Arcana.bin to load project data: {}", err);
         }
     };
-
-    println!("{:#?}", data.workgraph);
 
     Ok((project, data))
 }

@@ -35,6 +35,7 @@ fn main() {
     let mut clock = Clock::new();
     let mut limiter = clock.ticker(60.hz());
 
+    #[allow(deprecated)]
     events
         .run(move |event, el| {
             let step = clock.step();
@@ -143,6 +144,8 @@ impl App {
         let mut graph = RenderGraph::new();
 
         let builder = Window::default_attributes().with_title("Arcana Launcher");
+
+        #[allow(deprecated)]
         let window = events
             .create_window(builder)
             .map_err(|err| miette::miette!("Failed to create Ed window: {err:?}"))
@@ -644,10 +647,6 @@ struct NewProject {
     /// If empty, project may not be created.
     path: String,
 
-    /// List of plugins to add to new project.
-    /// Plugins list may be modified later.
-    plugins: Vec<Dependency>,
-
     /// If true, advanced options are shown.
     advanced: bool,
 
@@ -666,7 +665,6 @@ impl NewProject {
         NewProject {
             name: String::new(),
             path: String::new(),
-            plugins: Vec::new(),
             advanced: false,
             engine,
             dialog: None,
@@ -709,9 +707,6 @@ impl NewProject {
                             }
                         });
                         ui.end_row();
-
-                        ui.label("Plugins");
-                        ui.vertical(|ui| {});
 
                         ui.checkbox(&mut self.advanced, "Advanced");
                         ui.end_row();

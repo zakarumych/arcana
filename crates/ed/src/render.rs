@@ -1,8 +1,4 @@
-use std::{
-    cell::{Cell, RefCell},
-    collections::BTreeMap,
-    rc::Rc,
-};
+use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 
 use arcana::{
     edict::world::WorldLocal,
@@ -15,7 +11,7 @@ use arcana::{
     work::{Edge, HookId, Image2D, JobDesc, JobId, JobIdx, PinId},
     EntityId, Ident, Name, Stid,
 };
-use egui::{epaint::image, Ui};
+use egui::Ui;
 use egui_snarl::{
     ui::{AnyPins, PinInfo, SnarlStyle, SnarlViewer},
     InPin, InPinId, NodeId, OutPin, OutPinId, Snarl,

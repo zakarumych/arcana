@@ -4,7 +4,7 @@ use arcana::{
     blink_alloc::Blink,
     edict::{EntityId, NoSuchEntity, World},
     events::{
-        DeviceId, ElementState, Event, EventFilter, KeyCode, KeyEvent, MouseButton, PhysicalKey,
+        DeviceId, ElementState, Event, EventFilter, KeyEvent, MouseButton, PhysicalKey,
         ViewportEvent,
     },
 };

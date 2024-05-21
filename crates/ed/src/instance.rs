@@ -11,7 +11,7 @@ use arcana::{
     plugin::PluginsHub,
     texture::Texture,
     viewport::Viewport,
-    work::{CommandStream, HookId, Image2D, Image2DInfo, JobIdx, PinId, Target, WorkGraph},
+    work::{CommandStream, HookId, Image2D, Image2DInfo, PinId, Target, WorkGraph},
     Blink, ClockStep, EntityId, FrequencyTicker, World,
 };
 use egui::Ui;

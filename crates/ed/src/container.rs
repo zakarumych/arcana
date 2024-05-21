@@ -180,10 +180,10 @@ impl Container {
         self.active_plugins.iter().any(|(n, _)| *n == name)
     }
 
-    pub fn get(&self, name: Ident) -> Option<&dyn ArcanaPlugin> {
-        let (_, p) = self.loaded.plugins.iter().find(|(n, _)| *n == name)?;
-        Some(*p)
-    }
+    // pub fn get(&self, name: Ident) -> Option<&dyn ArcanaPlugin> {
+    //     let (_, p) = self.loaded.plugins.iter().find(|(n, _)| *n == name)?;
+    //     Some(*p)
+    // }
 
     pub fn plugins<'a>(&'a self) -> impl Iterator<Item = (Ident, &'a dyn ArcanaPlugin)> + 'a {
         self.active_plugins.iter().copied()

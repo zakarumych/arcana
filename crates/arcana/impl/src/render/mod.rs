@@ -1,5 +1,7 @@
 //! Defines rendering for the Airy engine.
 
+#![allow(unused)]
+
 mod render;
 mod target;
 
@@ -7,20 +9,15 @@ use std::{
     collections::VecDeque, fmt, marker::PhantomData, num::NonZeroU64, ops::Range, sync::Arc,
 };
 
-use base64::engine::general_purpose::NO_PAD;
 use blink_alloc::BlinkAlloc;
 use edict::{EntityId, State, World};
-use hashbrown::{
-    hash_map::{DefaultHashBuilder, Entry},
-    HashMap, HashSet,
-};
-use mev::PipelineStages;
+use hashbrown::{hash_map::DefaultHashBuilder, HashMap, HashSet};
+
 use parking_lot::Mutex;
-use winit::window::{Window, WindowId};
 
 // use crate::window::Windows;
 
-use crate::viewport::{self, Viewport};
+use crate::viewport::Viewport;
 
 use self::{render::RenderId, target::RenderTarget};
 
@@ -406,6 +403,7 @@ impl RenderNodeEdges {
 }
 
 struct RenderNode {
+    #[allow(unused)]
     name: Box<str>,
     render: Box<dyn Render>,
     edges: RenderNodeEdges,
