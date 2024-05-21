@@ -8,7 +8,7 @@ mod target;
 
 use std::ops::Deref;
 
-use crate::with_stid;
+use arcana_proc::WithStid;
 
 pub use self::{
     graph::{CommandStream, Cycle, Edge, Exec, HookId, JobIdx, PinId, Planner, WorkGraph},
@@ -18,7 +18,7 @@ pub use self::{
 
 /// Generic 2d image target.
 /// It does not hold particular meaning behind pixel values.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, WithStid)]
 pub struct Image2D(pub mev::Image);
 
 impl Deref for Image2D {
@@ -28,8 +28,6 @@ impl Deref for Image2D {
         &self.0
     }
 }
-
-with_stid!(Image2D = 0x9010634f06624678);
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Image2DInfo {
@@ -75,7 +73,7 @@ impl target::Target for Image2D {
 /// but consumers may still provide desired extent and usage.
 ///
 /// Largest required extent is used and usage is merged.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, WithStid)]
 pub struct SampledImage2D(pub mev::Image);
 
 impl Deref for SampledImage2D {
@@ -85,8 +83,6 @@ impl Deref for SampledImage2D {
         &self.0
     }
 }
-
-with_stid!(SampledImage2D = 0x9010634f06624679);
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct SampledImage2DInfo {

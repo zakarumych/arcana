@@ -33,6 +33,7 @@ relevant.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 serde-nothing.workspace = true
+smallvec.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 tracing-error.workspace = true

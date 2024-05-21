@@ -1,4 +1,5 @@
 use ahash::RandomState;
+use proc_easy::EasyMaybe;
 use proc_macro2::{Span, TokenStream};
 
 use std::hash::{BuildHasher, Hash, Hasher};
@@ -10,7 +11,21 @@ proc_easy::easy_parse! {
     }
 }
 
-fn hash_id(input: &syn::DeriveInput) -> u64 {
+proc_easy::easy_parse! {
+    struct AssignStid {
+        assign: syn::Token![=],
+        stid: StidValue,
+    }
+}
+
+proc_easy::easy_parse! {
+    pub struct WithStid {
+        ty: syn::Type,
+        assign: proc_easy::EasyMaybe<AssignStid>,
+    }
+}
+
+fn hash_derive_input(input: &syn::DeriveInput) -> u64 {
     let mut hasher = RandomState::with_seeds(1, 2, 3, 4).build_hasher();
 
     for lt in input.generics.lifetimes() {
@@ -48,11 +63,17 @@ fn hash_id(input: &syn::DeriveInput) -> u64 {
     hasher.finish()
 }
 
-pub fn with_stid(stid: Option<StidValue>, input: syn::DeriveInput) -> syn::Result<TokenStream> {
+fn hash_value(input: &impl Hash) -> u64 {
+    let mut hasher = RandomState::with_seeds(1, 2, 3, 4).build_hasher();
+    input.hash(&mut hasher);
+    hasher.finish()
+}
+
+pub fn with_stid(stid: Option<StidValue>, input: &syn::DeriveInput) -> syn::Result<TokenStream> {
     let name = &input.ident;
 
     let base_id = match &stid {
-        None => hash_id(&input),
+        None => hash_derive_input(&input),
         Some(StidValue::Int(int)) => int.base10_parse::<u64>()?,
         Some(StidValue::Str(str)) => {
             let s = str
@@ -110,18 +131,69 @@ pub fn with_stid(stid: Option<StidValue>, input: syn::DeriveInput) -> syn::Resul
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
 
     let output = quote::quote! {
-        #input
-
         impl #impl_generics ::arcana::stid::WithStid for #name #ty_generics #where_clause {
             #[inline(always)]
-            fn stid() -> Stid {
+            fn stid() -> ::arcana::stid::Stid {
                 let id = #combined_ids;
-                Stid::new(unsafe { ::core::num::NonZeroU64::new_unchecked(id) })
+                ::arcana::stid::Stid::new(unsafe { ::core::num::NonZeroU64::new_unchecked(id) })
             }
 
             #[inline(always)]
-            fn stid_dyn(&self) -> Stid {
-                Self::stid()
+            fn stid_dyn(&self) -> ::arcana::stid::Stid {
+                <Self as ::arcana::stid::WithStid>::stid()
+            }
+        }
+    };
+
+    Ok(output)
+}
+
+pub fn with_stid_fn(input: WithStid) -> syn::Result<TokenStream> {
+    let stid = match input.assign {
+        EasyMaybe::Nothing => None,
+        EasyMaybe::Just(AssignStid { assign: _, stid }) => Some(stid),
+    };
+
+    let ty = input.ty;
+
+    let base_id = match &stid {
+        None => hash_value(&ty),
+        Some(StidValue::Int(int)) => int.base10_parse::<u64>()?,
+        Some(StidValue::Str(str)) => {
+            let s = str
+                .value()
+                .trim()
+                .chars()
+                .filter(|c| "0123456789abcdef".contains(*c))
+                .collect::<String>();
+            u64::from_str_radix(&s, 16).map_err(|err| {
+                syn::Error::new(str.span(), format!("Failed to parse STID: {}", err))
+            })?
+        }
+    };
+
+    if base_id == 0 {
+        return Err(syn::Error::new(
+            match &stid {
+                None => Span::call_site(),
+                Some(StidValue::Int(int)) => int.span(),
+                Some(StidValue::Str(str)) => str.span(),
+            },
+            "STID must not be 0",
+        ));
+    }
+
+    let output = quote::quote! {
+        impl ::arcana::stid::WithStid for #ty {
+            #[inline(always)]
+            fn stid() -> ::arcana::stid::Stid {
+                let id = #base_id;
+                ::arcana::stid::Stid::new(unsafe { ::core::num::NonZeroU64::new_unchecked(id) })
+            }
+
+            #[inline(always)]
+            fn stid_dyn(&self) -> ::arcana::stid::Stid {
+                <Self as ::arcana::stid::WithStid>::stid()
             }
         }
     };

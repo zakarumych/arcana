@@ -5,6 +5,7 @@ use arcana_project::Dependency;
 use edict::{IntoSystem, System, World};
 use hashbrown::HashMap;
 
+use crate::code::{CodeDesc, CodeFn, CodeId};
 use crate::events::{EventFilter, FilterId, IntoEventFilter};
 use crate::make_id;
 use crate::work::{Job, JobDesc, JobId};
@@ -44,6 +45,19 @@ pub struct JobInfo {
     pub desc: JobDesc,
 }
 
+/// Job information declared by a plugin.
+#[derive(Clone)]
+pub struct CodeInfo {
+    /// Unique identified of the job.
+    pub id: CodeId,
+
+    /// Name of the code.
+    pub name: Name,
+
+    /// Description of the job.
+    pub desc: CodeDesc,
+}
+
 /// Active plugin hub contains
 /// systems, filters and jobs
 /// populated from plugins.
@@ -51,6 +65,7 @@ pub struct PluginsHub {
     pub systems: HashMap<SystemId, Box<dyn System + Send>>,
     pub filters: HashMap<FilterId, Box<dyn EventFilter>>,
     pub jobs: HashMap<JobId, Box<dyn Job>>,
+    pub fns: HashMap<CodeId, CodeFn>,
 }
 
 impl PluginsHub {
@@ -59,6 +74,7 @@ impl PluginsHub {
             systems: HashMap::new(),
             filters: HashMap::new(),
             jobs: HashMap::new(),
+            fns: HashMap::new(),
         }
     }
 
@@ -82,6 +98,11 @@ impl PluginsHub {
     /// Adds a job from a plugin to the hub.
     pub fn add_job(&mut self, id: JobId, job: impl Job) {
         self.jobs.insert(id, Box::new(job));
+    }
+
+    /// Adds a job from a plugin to the hub.
+    pub fn add_fn(&mut self, id: CodeId, code: CodeFn) {
+        self.fns.insert(id, code);
     }
 }
 

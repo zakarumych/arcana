@@ -4,6 +4,8 @@
 //! via derive macro or manual implementation of `WithStid` trait.
 //!
 
+pub use ::arcana_proc::{with_stid, WithStid};
+
 crate::make_id! {
     /// Stable Type Identifier.
     /// Assigned to type by engine and type author in plugin.
@@ -34,24 +36,4 @@ impl Stid {
     }
 }
 
-#[macro_export]
-macro_rules! with_stid {
-    ($ty:ty = $stid:literal) => {
-        impl $crate::stid::WithStid for $ty {
-            #[inline(always)]
-            fn stid() -> $crate::stid::Stid {
-                const VALUE: u64 = {
-                    let v = $stid;
-                    assert!(v != 0);
-                    v
-                };
-                $crate::stid::Stid::new(unsafe { ::core::num::NonZeroU64::new_unchecked(VALUE) })
-            }
-
-            #[inline(always)]
-            fn stid_dyn(&self) -> $crate::stid::Stid {
-                Self::stid()
-            }
-        }
-    };
-}
+with_stid!(::edict::entity::EntityId);

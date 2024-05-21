@@ -38,7 +38,7 @@ macro_rules! offset_of {
 macro_rules! const_format {
     ($fmt:literal $(, $arg:expr)* $(,)?) => {{
         ::std::thread_local! {
-            static VALUE: &'static str = ::std::format!($fmt $(, $arg)*).leak();
+            static VALUE: &'static str = const { ::std::format!($fmt $(, $arg)*).leak() };
         }
         let s: &'static str = VALUE.with(|s| *s);
         s
@@ -62,6 +62,7 @@ pub use mev;
 pub mod arena;
 pub mod assets;
 pub mod bundle;
+pub mod code;
 pub mod events;
 pub mod flow;
 pub mod id;
@@ -86,8 +87,6 @@ pub use self::{
     },
     stid::Stid,
 };
-
-pub use arcana_proc::stid;
 
 /// Returns version of the arcana crate.
 pub fn version() -> &'static str {
