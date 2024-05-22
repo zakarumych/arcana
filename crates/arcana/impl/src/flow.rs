@@ -1,3 +1,5 @@
+//! Async execution on ECS.
+
 use std::{
     cmp::Ordering,
     collections::BinaryHeap,
@@ -9,7 +11,7 @@ use edict::World;
 use gametime::{ClockStep, TimeSpan, TimeStamp};
 
 /// Causes flow to sleep for the specified duration.
-pub async fn sleep(duration: TimeSpan, world: &mut FlowWorld<'_>) {
+pub async fn sleep(duration: TimeSpan, world: FlowWorld<'_>) {
     if duration == TimeSpan::ZERO {
         return;
     }
@@ -21,7 +23,7 @@ pub async fn sleep(duration: TimeSpan, world: &mut FlowWorld<'_>) {
 }
 
 /// Causes flow to sleep untile specified time.
-pub async fn sleep_until(deadline: TimeStamp, world: &mut FlowWorld<'_>) {
+pub async fn sleep_until(deadline: TimeStamp, mut world: FlowWorld<'_>) {
     world
         .poll_fn(|world, cx| {
             let now = world.expect_resource::<ClockStep>().now;

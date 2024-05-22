@@ -1,3 +1,6 @@
+//! Typed arena to store values and keep mutable reference to them,
+//! and later drop or drain all stored values at once.
+
 use std::{
     alloc::Layout,
     cell::{Cell, RefCell},

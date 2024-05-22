@@ -50,6 +50,7 @@ extern crate self as arcana;
 // Re-exports
 pub use {
     arcana_names::{ident, name, Ident, Name},
+    arcana_proc::{stable_hash_tokens, with_stid, WithStid},
     arcana_project as project,
     blink_alloc::{self, Blink, BlinkAlloc},
     bytemuck,
@@ -61,7 +62,6 @@ pub use {
 pub use mev;
 pub mod arena;
 pub mod assets;
-pub mod bundle;
 pub mod code;
 pub mod events;
 pub mod flow;
@@ -73,8 +73,9 @@ pub mod refl;
 pub mod render;
 pub mod serde_with;
 mod stable_hasher;
-pub mod stid;
+mod stid;
 pub mod texture;
+pub mod unfold;
 pub mod viewport;
 pub mod work;
 
@@ -82,10 +83,10 @@ pub use self::{
     id::{BaseId, Id, IdGen},
     num2name::{hash_to_name, num_to_name},
     stable_hasher::{
-        hue_hash, rgb_hash, rgba_hash, rgba_premultiplied_hash, stable_hash, stable_hash_read,
-        stable_hasher,
+        hue_hash, mix_hash_with_string, rgb_hash, rgba_hash, rgba_premultiplied_hash, stable_hash,
+        stable_hash_read, stable_hasher,
     },
-    stid::Stid,
+    stid::{Stid, WithStid},
 };
 
 /// Returns version of the arcana crate.

@@ -1,3 +1,5 @@
+//! OS events handling.
+
 use std::fmt;
 
 use blink_alloc::Blink;

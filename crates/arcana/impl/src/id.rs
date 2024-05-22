@@ -1,3 +1,5 @@
+//! Strong id utility.
+
 use std::{fmt, hash::Hash, num::NonZeroU64};
 
 pub trait Id: fmt::Debug + Copy + Ord + Eq + Hash {
@@ -10,21 +12,17 @@ pub trait Id: fmt::Debug + Copy + Ord + Eq + Hash {
 #[macro_export]
 macro_rules! static_id {
     ($value:literal) => {{
-        const VALUE: u64 = {
-            let v = $value;
-            assert!(v != 0, "Id cannot be zero");
-            v
-        };
-        $crate::Id::new(unsafe { ::core::num::NonZeroU64::new_unchecked(VALUE) })
+        const {
+            assert!($value != 0, "Id cannot be zero");
+        }
+        $crate::Id::new(unsafe { ::core::num::NonZeroU64::new_unchecked($value) })
     }};
-    ($value:literal as $id:ty) => {{
-        const VALUE: u64 = {
-            let v = $value;
-            assert!(v != 0, "Id cannot be zero");
-            v
-        };
-        <$id as $crate::Id>::new(unsafe { ::core::num::NonZeroU64::new_unchecked(VALUE) })
-    }};
+    ($value:literal as $id:ty) => {
+        const {
+            assert!($value != 0, "Id cannot be zero");
+            <$id>::new(unsafe { ::core::num::NonZeroU64::new_unchecked($value) })
+        }
+    };
 }
 
 /// Produces hash based on hashable values.
@@ -35,14 +33,14 @@ macro_rules! hash_id {
     ($($value:expr),+ $(,)?) => {{
         let mut hasher = $crate::stable_hasher();
         $(::core::hash::Hash::hash(&{$value}, &mut hasher);)+
-        let hash = ::core::hash::Hasher::finish(&hasher);
-        $crate::Id::new(unsafe { ::core::num::NonZeroU64::new_unchecked(hash | 1) })
+        let hash = ::core::hash::Hasher::finish(&hasher) | 0x8000_0000_0000_0000;
+        $crate::Id::new(::core::num::NonZeroU64::new(hash).unwrap())
     }};
     ($($value:expr),+ => $id:ty) => {{
         let mut hasher = $crate::stable_hasher();
         $(::core::hash::Hash::hash(&{$value}, &mut hasher);)+
-        let hash = ::core::hash::Hasher::finish(&hasher);
-        <$id as $crate::Id>::new(unsafe { ::core::num::NonZeroU64::new_unchecked(hash | 1) })
+        let hash = ::core::hash::Hasher::finish(&hasher) | 0x8000_0000_0000_0000;
+        <$id>::new(::core::num::NonZeroU64::new(hash).unwrap())
     }};
 }
 
@@ -54,18 +52,66 @@ macro_rules! hash_id {
 ///
 /// It also supports hashing single identifier.
 #[macro_export]
-macro_rules! local_hash_id {
-    ($type:ident $(,)?) => {{
-        $crate::hash_id!(::core::module_path!(), ::core::stringify!($type))
+macro_rules! name_hash_id {
+    ($ident:ident) => {{
+        let hash = $crate::stable_hash_tokens!($ident) | 0x8000_0000_0000_0000;
+        $crate::Id::new(::core::num::NonZeroU64::new(hash).unwrap())
     }};
-    ($type:ident => $id:ty) => {{
-        $crate::hash_id!(::core::module_path!(), ::core::stringify!($type) => $id)
-    }};
-    ($($value:expr),+ $(,)?) => {
-        $crate::hash_id!(::core::module_path!(), $($value,)+)
+    ($ident:ident => $id:ty) => {
+        const {
+            let hash = $crate::stable_hash_tokens!($ident) | 0x8000_0000_0000_0000;
+            <$id>::new(unsafe { ::core::num::NonZeroU64::new_unchecked(hash) })
+        }
     };
-    ($($value:expr),+ => $id:ty) => {
-        $crate::hash_id!(::core::module_path!(), $($value,)+ => $id)
+}
+
+/// Produces id by hashing the module path and values.
+/// The hash is guaranteed to be stable across different runs and compilations of the program.
+///
+/// Unlike `hash_id!` result will change if macro invocation is moved to different module or module path changes.
+/// Use it if you may use same values in different modules but want to have different ids.
+///
+/// It also supports hashing single identifier.
+#[macro_export]
+macro_rules! local_hash_id {
+    ($($value:expr),+ $(,)?) => {{
+        let mut hasher = $crate::stable_hasher();
+        $(::core::hash::Hash::hash(&{$value}, &mut hasher);)+
+        let hash = ::core::hash::Hasher::finish(&hasher);
+        let hash = $crate::mix_hash_with_string(hash, ::core::module_path!()) | 0x8000_0000_0000_0000;
+        $crate::Id::new(::core::num::NonZeroU64::new(hash).unwrap())
+    }};
+    ($($value:expr),+ => $id:ty) => {{
+        let mut hasher = $crate::stable_hasher();
+        $(::core::hash::Hash::hash(&{$value}, &mut hasher);)+
+        let hash = ::core::hash::Hasher::finish(&hasher);
+        let hash = $crate::mix_hash_with_string(hash, ::core::module_path!()) | 0x8000_0000_0000_0000;
+        <$id>::new(::core::num::NonZeroU64::new(hash).unwrap())
+    }};
+}
+
+/// Produces id by hashing the module path and values.
+/// The hash is guaranteed to be stable across different runs and compilations of the program.
+///
+/// Unlike `hash_id!` result will change if macro invocation is moved to different module or module path changes.
+/// Use it if you may use same values in different modules but want to have different ids.
+///
+/// It also supports hashing single identifier.
+#[macro_export]
+macro_rules! local_name_hash_id {
+    ($ident:ident) => {{
+        let hash = $crate::stable_hash_tokens!($ident);
+        let hash =
+            $crate::mix_hash_with_string(hash, ::core::module_path!()) | 0x8000_0000_0000_0000;
+        $crate::Id::new(::core::num::NonZeroU64::new(hash).unwrap())
+    }};
+    ($ident:ident => $id:ty) => {
+        const {
+            let hash = $crate::stable_hash_tokens!($ident);
+            let hash =
+                $crate::mix_hash_with_string(hash, ::core::module_path!()) | 0x8000_0000_0000_0000;
+            <$id>::new(unsafe { ::core::num::NonZeroU64::new_unchecked(hash) })
+        }
     };
 }
 

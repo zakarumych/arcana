@@ -5,7 +5,7 @@ use std::sync::Arc;
 use arcana::{
     edict::world::WorldLocal,
     events::{DeviceId, Event, KeyCode, PhysicalKey, ViewportEvent},
-    flow::{execute_flows, Flows},
+    flow::Flows,
     gametime::{ClockRate, FrequencyNumExt, TimeSpan},
     mev,
     plugin::PluginsHub,
@@ -20,6 +20,7 @@ use parking_lot::Mutex;
 use winit::{event::WindowEvent, window::WindowId};
 
 use crate::{
+    code::ScheduledCode,
     container::Container,
     data::ProjectData,
     filters::Funnel,
@@ -60,6 +61,8 @@ pub struct Instance {
 
     /// Container in which plugins reside.
     container: Option<Container>,
+
+    scheduled_code: ScheduledCode,
 }
 
 impl Instance {
@@ -108,7 +111,8 @@ impl Instance {
             schedule.run(systems::Category::Var, &mut self.world, &mut self.hub);
         }
 
-        execute_flows(&mut self.world, &mut self.flows);
+        self.flows.execute(&mut self.world);
+        self.scheduled_code.trigger(&mut self.world);
     }
 
     pub fn on_event(&mut self, funnel: &Funnel, event: &Event) -> bool {
@@ -238,6 +242,7 @@ impl Main {
             present,
             viewport,
             container: None,
+            scheduled_code: ScheduledCode::new(),
         };
 
         Main {

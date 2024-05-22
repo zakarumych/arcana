@@ -6,10 +6,9 @@ use arcana::{
     model::Value,
     plugin::JobInfo,
     project::Project,
-    stid::WithStid,
     texture::Texture,
     work::{Edge, HookId, Image2D, JobDesc, JobId, JobIdx, PinId},
-    EntityId, Ident, Name, Stid,
+    EntityId, Ident, Name, Stid, WithStid,
 };
 use egui::Ui;
 use egui_snarl::{

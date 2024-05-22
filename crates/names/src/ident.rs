@@ -22,7 +22,6 @@ pub struct Ident {
 }
 
 impl Ident {
-    #[cfg_attr(inline_more, inline)]
     pub fn from_str<S>(s: &S) -> Result<Self, IdentError>
     where
         S: AsRef<str> + ?Sized,

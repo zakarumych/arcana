@@ -1,8 +1,9 @@
-use ahash::RandomState;
 use proc_easy::EasyMaybe;
 use proc_macro2::{Span, TokenStream};
 
-use std::hash::{BuildHasher, Hash, Hasher};
+use std::hash::{Hash, Hasher};
+
+use crate::stable_hasher::{stable_hash, stable_hasher};
 
 proc_easy::easy_parse! {
     pub enum StidValue {
@@ -26,7 +27,7 @@ proc_easy::easy_parse! {
 }
 
 fn hash_derive_input(input: &syn::DeriveInput) -> u64 {
-    let mut hasher = RandomState::with_seeds(1, 2, 3, 4).build_hasher();
+    let mut hasher = stable_hasher();
 
     for lt in input.generics.lifetimes() {
         lt.hash(&mut hasher);
@@ -63,17 +64,11 @@ fn hash_derive_input(input: &syn::DeriveInput) -> u64 {
     hasher.finish()
 }
 
-fn hash_value(input: &impl Hash) -> u64 {
-    let mut hasher = RandomState::with_seeds(1, 2, 3, 4).build_hasher();
-    input.hash(&mut hasher);
-    hasher.finish()
-}
-
 pub fn with_stid(stid: Option<StidValue>, input: &syn::DeriveInput) -> syn::Result<TokenStream> {
     let name = &input.ident;
 
     let base_id = match &stid {
-        None => hash_derive_input(&input),
+        None => hash_derive_input(&input) | 0x8000_0000_0000_0000,
         Some(StidValue::Int(int)) => int.base10_parse::<u64>()?,
         Some(StidValue::Str(str)) => {
             let s = str
@@ -122,10 +117,11 @@ pub fn with_stid(stid: Option<StidValue>, input: &syn::DeriveInput) -> syn::Resu
             let mut hasher = ::arcana::stable_hasher();
             ::core::hash::Hash::hash(&#base_id, &mut hasher);
             #(::core::hash::Hash::hash(&#ids, &mut hasher);)*
-            hasher.finish() | 1
+            hasher.finish() | 0x8000_0000_0000_0000
         });
     } else {
-        combined_ids = quote::quote!(#base_id);
+        let id = base_id;
+        combined_ids = quote::quote!(#id);
     }
 
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
@@ -135,7 +131,7 @@ pub fn with_stid(stid: Option<StidValue>, input: &syn::DeriveInput) -> syn::Resu
             #[inline(always)]
             fn stid() -> ::arcana::stid::Stid {
                 let id = #combined_ids;
-                ::arcana::stid::Stid::new(unsafe { ::core::num::NonZeroU64::new_unchecked(id) })
+                ::arcana::stid::Stid::new(::core::num::NonZeroU64::new(id).unwrap())
             }
 
             #[inline(always)]
@@ -157,7 +153,7 @@ pub fn with_stid_fn(input: WithStid) -> syn::Result<TokenStream> {
     let ty = input.ty;
 
     let base_id = match &stid {
-        None => hash_value(&ty),
+        None => stable_hash(&ty) | 0x8000_0000_0000_0000,
         Some(StidValue::Int(int)) => int.base10_parse::<u64>()?,
         Some(StidValue::Str(str)) => {
             let s = str
@@ -172,28 +168,16 @@ pub fn with_stid_fn(input: WithStid) -> syn::Result<TokenStream> {
         }
     };
 
-    if base_id == 0 {
-        return Err(syn::Error::new(
-            match &stid {
-                None => Span::call_site(),
-                Some(StidValue::Int(int)) => int.span(),
-                Some(StidValue::Str(str)) => str.span(),
-            },
-            "STID must not be 0",
-        ));
-    }
-
     let output = quote::quote! {
         impl ::arcana::stid::WithStid for #ty {
             #[inline(always)]
             fn stid() -> ::arcana::stid::Stid {
-                let id = #base_id;
-                ::arcana::stid::Stid::new(unsafe { ::core::num::NonZeroU64::new_unchecked(id) })
+                ::arcana::stid::Stid::new(::core::num::NonZeroU64::new(#base_id).unwrap())
             }
 
             #[inline(always)]
             fn stid_dyn(&self) -> ::arcana::stid::Stid {
-                <Self as ::arcana::stid::WithStid>::stid()
+                ::arcana::stid::Stid::new(::core::num::NonZeroU64::new(#base_id).unwrap())
             }
         }
     };

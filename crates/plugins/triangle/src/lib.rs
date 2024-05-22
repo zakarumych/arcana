@@ -1,13 +1,16 @@
 use std::mem::size_of;
 
 use arcana::{
-    edict::World,
-    gametime::ClockStep,
+    code::{schedule_code_flow, Input, Output, OutputId},
+    edict::{spawn_block, world::WorldLocal, World},
+    flow::sleep,
+    gametime::{ClockStep, TimeSpan},
     hashbrown::HashMap,
     mev::{self, Arguments, DeviceRepr},
     model::{ColorModel, ColorValue, Model, Value},
     name,
     work::{Exec, Image2D, Job, JobDesc, JobIdx, Planner},
+    EntityId,
 };
 
 #[derive(mev::Arguments)]
@@ -316,6 +319,26 @@ impl Job for OpJob {
 
         encoder.barrier(mev::PipelineStages::all(), mev::PipelineStages::all());
     }
+}
+
+fn sleep_1_code(
+    entity: EntityId,
+    idx: usize,
+    flow_in: usize,
+    _inputs: &[Input],
+    _outputs: &mut [Output],
+    world: &WorldLocal,
+) -> Option<usize> {
+    assert_eq!(flow_in, 0, "There's only one inflow");
+
+    world.defer(move |world| {
+        spawn_block!(in ref world for entity -> {
+            sleep(TimeSpan::SECOND, entity.world()).await;
+            schedule_code_flow(entity.id(), OutputId { node: idx, output: 0 }, &mut entity.world());
+        })
+    });
+
+    None
 }
 
 arcana::export_arcana_plugin! {

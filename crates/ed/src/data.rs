@@ -3,8 +3,8 @@
 
 use std::io::Write;
 
-use arcana::{project::Project, Ident};
-use hashbrown::HashSet;
+use arcana::{code::CodeId, project::Project, Ident};
+use hashbrown::{HashMap, HashSet};
 
 use crate::{filters::Funnel, render::WorkGraph, systems::SystemGraph};
 
@@ -25,6 +25,9 @@ pub struct ProjectData {
 
     /// Work graph.
     pub workgraph: WorkGraph,
+
+    /// Code graphs.
+    pub codes: HashMap<CodeId, CodeGraph>,
 }
 
 impl ProjectData {

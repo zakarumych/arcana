@@ -1,5 +1,6 @@
 // extern crate proc_macro;
 
+mod stable_hasher;
 mod stid;
 
 use proc_macro::TokenStream;
@@ -74,4 +75,10 @@ pub fn with_stid(tokens: TokenStream) -> TokenStream {
         Ok(output) => output.into(),
         Err(err) => err.to_compile_error().into(),
     }
+}
+
+#[proc_macro]
+pub fn stable_hash_tokens(tokens: TokenStream) -> TokenStream {
+    let hash = stable_hasher::stable_hash(&tokens.to_string());
+    quote::quote!(#hash).into()
 }

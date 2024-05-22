@@ -1,8 +1,9 @@
-//! This module defines simple data model suitable for handling data in absense of types.
+//! Data model suitable for handling data in absense of types.
 //!
 //! It can be used to go from typeless to typed seemlessly with `serde`.
 //!
-//!
+
+use std::fmt;
 
 use arcana_names::Name;
 use edict::EntityId;
@@ -30,8 +31,7 @@ pub enum ColorModel {
 /// - Matrix types `Mat2`, `Mat3`, `Mat4`
 /// - Entity id
 /// - Asset id
-///
-/// and others.
+/// - Composite types
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Model {
     /// Type with only single value and thus no data.
@@ -98,6 +98,7 @@ pub enum Model {
     Enum(Vec<(Name, Option<Model>)>),
 }
 
+/// Returns default value that correspons to the model or `Unit` if model is not specified.
 pub fn default_value(model: Option<&Model>) -> Value {
     match model {
         None => Value::Unit,
@@ -106,6 +107,7 @@ pub fn default_value(model: Option<&Model>) -> Value {
 }
 
 impl Model {
+    /// Returns default value that correspons to the model.
     pub fn default_value(&self) -> Value {
         match *self {
             Model::Unit => Value::Unit,
@@ -251,6 +253,7 @@ impl ColorValue {
     }
 }
 
+/// Data value compatible with `Model` description.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum Value {
     Unit,
@@ -280,9 +283,9 @@ impl Default for Value {
 }
 
 impl Value {
-    pub fn take(&mut self) -> Value {
-        std::mem::replace(self, Value::Unit)
-    }
+    // pub fn take(&mut self) -> Value {
+    //     std::mem::replace(self, Value::Unit)
+    // }
 
     pub fn kind(&self) -> &str {
         match self {
@@ -307,54 +310,271 @@ impl Value {
     }
 }
 
-// #[derive(Clone, Copy, Debug)]
-// pub enum EntityFilter {}
+#[derive(Clone, Debug, thiserror::Error)]
+pub enum DeValueError {
+    Custom(String),
+}
 
-// impl edict::query::AsQuery for EntityFilter {
-//     type Query = Self;
-// }
+impl fmt::Display for DeValueError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DeValueError::Custom(msg) => write!(f, "{}", msg),
+        }
+    }
+}
 
-// impl edict::query::IntoQuery for EntityFilter {
-//     #[inline(always)]
-//     fn into_query(self) -> Self::Query {
-//         self
-//     }
-// }
+impl serde::de::Error for DeValueError {
+    fn custom<T>(msg: T) -> Self
+    where
+        T: std::fmt::Display,
+    {
+        DeValueError::Custom(msg.to_string())
+    }
+}
 
-// #[derive(Clone, Copy, Debug)]
-// pub enum EntityFilterFetch<'a> {}
+impl<'de> serde::de::VariantAccess<'de> for ColorValue {
+    type Error = DeValueError;
 
-// impl<'a> edict::query::Fetch<'a> for EntityFilterFetch<'a> {
-//     type Item = ();
+    fn unit_variant(self) -> Result<(), Self::Error> {
+        Ok(())
+    }
 
-//     fn dangling() -> Self {
-//         unimplemented!()
-//     }
+    fn newtype_variant_seed<T>(self, seed: T) -> Result<T::Value, Self::Error>
+    where
+        T: serde::de::DeserializeSeed<'de>,
+    {
+        match self {
+            ColorValue::Luma(luma) => {
+                seed.deserialize(serde::de::value::F32Deserializer::new(luma.luma))
+            }
+            ColorValue::Lumaa(lumaa) => seed.deserialize(serde::de::value::SeqDeserializer::new(
+                [lumaa.luma, lumaa.alpha].into_iter(),
+            )),
 
-//     unsafe fn visit_chunk(&mut self, chunk_idx: u32) -> bool {
-//         unimplemented!()
-//     }
+            ColorValue::Hsv(hsv) => seed.deserialize(serde::de::value::SeqDeserializer::new(
+                [hsv.hue.into_inner(), hsv.saturation, hsv.value].into_iter(),
+            )),
+            ColorValue::Hsva(hsva) => seed.deserialize(serde::de::value::SeqDeserializer::new(
+                [
+                    hsva.hue.into_inner(),
+                    hsva.saturation,
+                    hsva.value,
+                    hsva.alpha,
+                ]
+                .into_iter(),
+            )),
+            ColorValue::Srgb(srgb) => seed.deserialize(serde::de::value::SeqDeserializer::new(
+                [srgb.red, srgb.green, srgb.blue].into_iter(),
+            )),
+            ColorValue::Srgba(srgb) => seed.deserialize(serde::de::value::SeqDeserializer::new(
+                [srgb.red, srgb.green, srgb.blue, srgb.alpha].into_iter(),
+            )),
+        }
+    }
 
-//     unsafe fn visit_item(&mut self, idx: u32) -> bool {
-//         unimplemented!()
-//     }
+    fn tuple_variant<V>(self, _len: usize, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: serde::de::Visitor<'de>,
+    {
+        match self {
+            ColorValue::Luma(luma) => visitor.visit_f32(luma.luma),
+            ColorValue::Lumaa(lumaa) => visitor.visit_seq(serde::de::value::SeqDeserializer::new(
+                [lumaa.luma, lumaa.alpha].into_iter(),
+            )),
 
-//     unsafe fn get_item(&mut self, _idx: u32) -> Self::Item {
-//         ()
-//     }
-// }
+            ColorValue::Hsv(hsv) => visitor.visit_seq(serde::de::value::SeqDeserializer::new(
+                [hsv.hue.into_inner(), hsv.saturation, hsv.value].into_iter(),
+            )),
+            ColorValue::Hsva(hsva) => visitor.visit_seq(serde::de::value::SeqDeserializer::new(
+                [
+                    hsva.hue.into_inner(),
+                    hsva.saturation,
+                    hsva.value,
+                    hsva.alpha,
+                ]
+                .into_iter(),
+            )),
+            ColorValue::Srgb(srgb) => visitor.visit_seq(serde::de::value::SeqDeserializer::new(
+                [srgb.red, srgb.green, srgb.blue].into_iter(),
+            )),
+            ColorValue::Srgba(srgb) => visitor.visit_seq(serde::de::value::SeqDeserializer::new(
+                [srgb.red, srgb.green, srgb.blue, srgb.alpha].into_iter(),
+            )),
+        }
+    }
 
-// unsafe impl edict::query::Query for EntityFilter {
-//     type Fetch<'a> = EntityFilterFetch<'a>;
-//     type Item<'a> = ();
+    fn struct_variant<V>(
+        self,
+        _fields: &'static [&'static str],
+        visitor: V,
+    ) -> Result<V::Value, Self::Error>
+    where
+        V: serde::de::Visitor<'de>,
+    {
+        match self {
+            ColorValue::Luma(luma) => visitor.visit_map(serde::de::value::MapDeserializer::new(
+                [("luma", luma.luma)].into_iter(),
+            )),
+            ColorValue::Lumaa(lumaa) => visitor.visit_seq(serde::de::value::MapDeserializer::new(
+                [("luma", lumaa.luma), ("alpha", lumaa.alpha)].into_iter(),
+            )),
+            ColorValue::Hsv(hsv) => visitor.visit_seq(serde::de::value::MapDeserializer::new(
+                [
+                    ("hue", hsv.hue.into_inner()),
+                    ("saturation", hsv.saturation),
+                    ("value", hsv.value),
+                ]
+                .into_iter(),
+            )),
+            ColorValue::Hsva(hsva) => visitor.visit_seq(serde::de::value::MapDeserializer::new(
+                [
+                    ("hue", hsva.hue.into_inner()),
+                    ("saturation", hsva.saturation),
+                    ("value", hsva.value),
+                    ("alpha", hsva.alpha),
+                ]
+                .into_iter(),
+            )),
+            ColorValue::Srgb(srgb) => visitor.visit_seq(serde::de::value::MapDeserializer::new(
+                [
+                    ("red", srgb.red),
+                    ("green", srgb.green),
+                    ("blue", srgb.blue),
+                ]
+                .into_iter(),
+            )),
+            ColorValue::Srgba(srgb) => visitor.visit_seq(serde::de::value::MapDeserializer::new(
+                [
+                    ("red", srgb.red),
+                    ("green", srgb.green),
+                    ("blue", srgb.blue),
+                    ("alpha", srgb.alpha),
+                ]
+                .into_iter(),
+            )),
+        }
+    }
+}
 
-//     const MUTABLE: bool = false;
-//     const FILTERS_ENTITIES: bool = true;
+impl<'de> serde::de::EnumAccess<'de> for ColorValue {
+    type Error = DeValueError;
+    type Variant = Self;
 
-//     fn component_type_access(
-//         &self,
-//         _ty: std::any::TypeId,
-//     ) -> Result<Option<edict::Access>, edict::query::WriteAlias> {
-//         Ok(Some(edict::Access::Read))
-//     }
-// }
+    fn variant_seed<V>(self, seed: V) -> Result<(V::Value, Self::Variant), Self::Error>
+    where
+        V: serde::de::DeserializeSeed<'de>,
+    {
+        let value = match self {
+            ColorValue::Luma(_) => seed.deserialize(serde::de::value::StrDeserializer::new("Luma")),
+            ColorValue::Lumaa(_) => {
+                seed.deserialize(serde::de::value::StrDeserializer::new("Lumaa"))
+            }
+            ColorValue::Hsv(_) => seed.deserialize(serde::de::value::StrDeserializer::new("Hsv")),
+            ColorValue::Hsva(_) => seed.deserialize(serde::de::value::StrDeserializer::new("Hsva")),
+            ColorValue::Srgb(_) => seed.deserialize(serde::de::value::StrDeserializer::new("Srgb")),
+            ColorValue::Srgba(_) => {
+                seed.deserialize(serde::de::value::StrDeserializer::new("Srgba"))
+            }
+        }?;
+
+        Ok((value, self))
+    }
+}
+
+impl<'de> serde::de::Deserializer<'de> for Value {
+    type Error = DeValueError;
+
+    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: serde::de::Visitor<'de>,
+    {
+        match self {
+            Value::Unit => visitor.visit_unit(),
+            Value::Bool(value) => visitor.visit_bool(value),
+            Value::Int(value) => visitor.visit_i64(value),
+            Value::Float(value) => visitor.visit_f64(value),
+            Value::String(value) => visitor.visit_string(value),
+            Value::Color(color) => visitor.visit_enum(color),
+            Value::Vec2(vec) => visitor.visit_seq(serde::de::value::SeqDeserializer::new(
+                [vec.x, vec.y].into_iter(),
+            )),
+            Value::Vec3(vec) => visitor.visit_seq(serde::de::value::SeqDeserializer::new(
+                [vec.x, vec.y, vec.z].into_iter(),
+            )),
+            Value::Vec4(vec) => visitor.visit_seq(serde::de::value::SeqDeserializer::new(
+                [vec.x, vec.y, vec.z, vec.w].into_iter(),
+            )),
+            _ => todo!(),
+        }
+    }
+
+    fn deserialize_struct<V>(
+        self,
+        name: &'static str,
+        fields: &'static [&'static str],
+        visitor: V,
+    ) -> Result<V::Value, Self::Error>
+    where
+        V: serde::de::Visitor<'de>,
+    {
+        match self {
+            Value::Color(color) => match (name, fields, color) {
+                ("Luma", &["luma"], ColorValue::Luma(luma)) => {
+                    return visitor.visit_seq(serde::de::value::SeqDeserializer::new(
+                        [luma.luma].into_iter(),
+                    ))
+                }
+                ("Lumaa", &["luma", "alpha"], ColorValue::Lumaa(lumaa)) => {
+                    return visitor.visit_seq(serde::de::value::SeqDeserializer::new(
+                        [lumaa.luma, lumaa.alpha].into_iter(),
+                    ))
+                }
+                _ => {}
+            },
+            _ => {}
+        }
+        self.deserialize_any(visitor)
+    }
+
+    serde::forward_to_deserialize_any! {
+        bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str
+        string bytes byte_buf option unit unit_struct newtype_struct seq
+        tuple tuple_struct map enum identifier ignored_any
+    }
+}
+
+impl<'de> serde::de::Deserializer<'de> for &'de Value {
+    type Error = DeValueError;
+
+    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: serde::de::Visitor<'de>,
+    {
+        match *self {
+            Value::Unit => visitor.visit_unit(),
+            Value::Bool(value) => visitor.visit_bool(value),
+            Value::Int(value) => visitor.visit_i64(value),
+            Value::Float(value) => visitor.visit_f64(value),
+            Value::String(ref value) => visitor.visit_str(value),
+            Value::Color(color) => visitor.visit_enum(color),
+            _ => todo!(),
+        }
+    }
+
+    serde::forward_to_deserialize_any! {
+        bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str
+        string bytes byte_buf option unit unit_struct newtype_struct seq
+        tuple tuple_struct map struct enum identifier ignored_any
+    }
+}
+
+/// Trait for types that matches some data model.
+pub trait TypeModel {
+    /// Returns data model that describes the type.
+    fn model() -> Model
+    where
+        Self: Sized;
+
+    /// Returns data model that describes the type.
+    fn model_dyn(&self) -> Model;
+}

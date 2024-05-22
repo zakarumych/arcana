@@ -99,3 +99,19 @@ where
         _ => [255, 0, mag],
     }
 }
+
+/// Mixes string value into the hash.
+/// Resulting hash is only as good as the source hash.
+#[doc(hidden)]
+pub const fn mix_hash_with_string(mut hash: u64, s: &str) -> u64 {
+    hash = hash.wrapping_mul(0x9E3779B97F4A7C15);
+    let mut bytes = s.as_bytes();
+
+    while let Some((first, rest)) = bytes.split_first() {
+        hash = hash.wrapping_add(*first as u64);
+        hash = hash.wrapping_mul(0x9E3779B97F4A7C15);
+        bytes = rest;
+    }
+
+    hash
+}

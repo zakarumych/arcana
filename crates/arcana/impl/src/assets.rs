@@ -1,3 +1,5 @@
+//! Utils to work with `argosy` asset pipeline.
+
 pub use argosy::{
     proc::{Asset, AssetField},
     AssetId,

@@ -2,11 +2,8 @@
 
 use std::{any::Any, marker::PhantomData};
 
-use edict::World;
-use hashbrown::{
-    hash_map::{DefaultHashBuilder, Entry},
-    HashMap,
-};
+use edict::{world::WorldLocal, Component, EntityId, World};
+use hashbrown::HashMap;
 
 use crate::{make_id, stid::Stid};
 
@@ -36,35 +33,40 @@ impl Output<'_> {
 }
 
 pub struct Input<'a> {
-    value: Option<&'a Box<dyn Any>>,
+    value: &'a dyn Any,
 }
 
 impl Input<'_> {
-    pub fn get<T: 'static>(&self) -> Option<&T> {
-        let boxed = self.value?;
-        boxed.downcast_ref()
+    pub fn get<T: 'static>(&self) -> &T {
+        self.value.downcast_ref().unwrap()
     }
 }
 
+#[derive(Component)]
 pub struct OutputCache {
     values: HashMap<OutputId, Box<dyn Any>>,
 }
 
 impl OutputCache {
-    pub fn input(&self, id: OutputId) -> Input {
-        Input {
-            value: self.values.get(&id),
+    pub fn new() -> Self {
+        OutputCache {
+            values: HashMap::new(),
         }
     }
 
-    pub fn output(&mut self, id: OutputId) -> Output<'static> {
+    pub fn input(&self, id: OutputId) -> Option<Input> {
+        let boxed = self.values.get(&id)?;
+        Some(Input { value: &**boxed })
+    }
+
+    pub fn take_output(&mut self, id: OutputId) -> Output<'static> {
         Output {
             boxed: self.values.remove(&id),
             marker: PhantomData,
         }
     }
 
-    pub fn set_output(&mut self, id: OutputId, output: Output<'_>) {
+    pub fn put_output(&mut self, id: OutputId, output: Output<'_>) {
         if let Some(boxed) = output.boxed {
             self.values.insert(id, boxed);
         }
@@ -75,54 +77,28 @@ impl OutputCache {
 /// It takes list of inputs and outputs to produce.
 /// Generally it should not have any visible side effects.
 /// Its execution may occur at any point or not occur at all.
-pub type PureFn = fn(inputs: &[Input], outputs: &mut [Output], world: &mut World);
+pub type PureCode = fn(inputs: &[Input], outputs: &mut [Output], world: &WorldLocal);
 
 /// Type of code function.
 /// It takes list of inputs and outputs to produce.
 /// It also takes index of input flow that triggered execution.
 /// It returns output flow index to trigger next flow function.
-pub type FlowFn = fn(
+pub type FlowCode = fn(
+    id: EntityId,
+    idx: usize,
     flow_in: usize,
     inputs: &[Input],
     outputs: &mut [Output],
-    world: &mut World,
+    world: &WorldLocal,
 ) -> Option<usize>;
 
-pub enum CodeFn {
-    Pure(PureFn),
-    Flow(FlowFn),
-}
-
-impl CodeFn {
-    pub fn run_pure(&self, inputs: &[Input], outputs: &mut [Output], world: &mut World) {
-        match self {
-            CodeFn::Pure(f) => f(inputs, outputs, world),
-            CodeFn::Flow(_) => panic!("expected flow function"),
-        }
-    }
-
-    pub fn run_flow(
-        &self,
-        inflow: usize,
-        inputs: &[Input],
-        outputs: &mut [Output],
-        world: &mut World,
-    ) -> Option<usize> {
-        match self {
-            CodeFn::Pure(_) => panic!("expected pure function"),
-            CodeFn::Flow(f) => f(inflow, inputs, outputs, world),
-        }
-    }
-}
-
 /// Code descriptor.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum CodeDesc {
     /// Pure node gets executed every type its output is required.
     Pure {
         inputs: Vec<Stid>,
         outputs: Vec<Stid>,
-        code: CodeId,
     },
 
     /// Flow node that gets executed when triggered by connected inflow.
@@ -131,6 +107,38 @@ pub enum CodeDesc {
         outflows: usize,
         inputs: Vec<Stid>,
         outputs: Vec<Stid>,
-        code: CodeId,
     },
+}
+
+pub struct CodeSchedule {
+    queue: Vec<(EntityId, OutputId)>,
+}
+
+impl CodeSchedule {
+    fn new() -> Self {
+        CodeSchedule { queue: Vec::new() }
+    }
+
+    pub fn drain(&mut self) -> impl Iterator<Item = (EntityId, OutputId)> + '_ {
+        self.queue.drain(..)
+    }
+}
+
+pub fn schedule_code_flow(entity: EntityId, outflow: OutputId, world: &mut World) {
+    world
+        .with_resource(CodeSchedule::new)
+        .queue
+        .push((entity, outflow));
+}
+
+/// Predefined code flow events.
+pub mod events {
+
+    use crate::local_name_hash_id;
+
+    use super::CodeId;
+
+    /// Event that occurs when flow graph is started.
+    /// Either at the beginning of the game or when flow graph is created during the game.
+    pub const START: CodeId = local_name_hash_id!(START => CodeId);
 }

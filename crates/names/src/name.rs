@@ -22,7 +22,6 @@ pub struct Name {
 }
 
 impl Name {
-    #[cfg_attr(inline_more, inline)]
     pub fn from_str<S>(s: &S) -> Result<Self, NameError>
     where
         S: AsRef<str> + ?Sized,
@@ -62,7 +61,7 @@ impl From<Ident> for Name {
 }
 
 impl Hash for Name {
-    #[cfg_attr(inline_more, inline(always))]
+    #[inline(always)]
     fn hash<H>(&self, state: &mut H)
     where
         H: Hasher,
@@ -250,14 +249,14 @@ pub enum NameError {
 }
 
 impl fmt::Debug for NameError {
-    #[cfg_attr(inline_more, inline)]
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(self, f)
     }
 }
 
 impl fmt::Display for NameError {
-    #[cfg_attr(inline_more, inline)]
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             NameError::Empty => write!(f, "Name must not be empty"),

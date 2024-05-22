@@ -5,7 +5,7 @@ use arcana_project::Dependency;
 use edict::{IntoSystem, System, World};
 use hashbrown::HashMap;
 
-use crate::code::{CodeDesc, CodeFn, CodeId};
+use crate::code::{CodeDesc, CodeId, FlowCode, PureCode};
 use crate::events::{EventFilter, FilterId, IntoEventFilter};
 use crate::make_id;
 use crate::work::{Job, JobDesc, JobId};
@@ -48,13 +48,13 @@ pub struct JobInfo {
 /// Job information declared by a plugin.
 #[derive(Clone)]
 pub struct CodeInfo {
-    /// Unique identified of the job.
+    /// Unique identified of the code..
     pub id: CodeId,
 
     /// Name of the code.
     pub name: Name,
 
-    /// Description of the job.
+    /// Description of the code.
     pub desc: CodeDesc,
 }
 
@@ -65,7 +65,8 @@ pub struct PluginsHub {
     pub systems: HashMap<SystemId, Box<dyn System + Send>>,
     pub filters: HashMap<FilterId, Box<dyn EventFilter>>,
     pub jobs: HashMap<JobId, Box<dyn Job>>,
-    pub fns: HashMap<CodeId, CodeFn>,
+    pub pure_fns: HashMap<CodeId, PureCode>,
+    pub flow_fns: HashMap<CodeId, FlowCode>,
 }
 
 impl PluginsHub {
@@ -74,7 +75,8 @@ impl PluginsHub {
             systems: HashMap::new(),
             filters: HashMap::new(),
             jobs: HashMap::new(),
-            fns: HashMap::new(),
+            pure_fns: HashMap::new(),
+            flow_fns: HashMap::new(),
         }
     }
 
@@ -100,9 +102,14 @@ impl PluginsHub {
         self.jobs.insert(id, Box::new(job));
     }
 
-    /// Adds a job from a plugin to the hub.
-    pub fn add_fn(&mut self, id: CodeId, code: CodeFn) {
-        self.fns.insert(id, code);
+    /// Adds a pure fn from a plugin to the hub.
+    pub fn add_pure_fn(&mut self, id: CodeId, code: PureCode) {
+        self.pure_fns.insert(id, code);
+    }
+
+    /// Adds a flow fn from a plugin to the hub.
+    pub fn add_flow_fn(&mut self, id: CodeId, code: FlowCode) {
+        self.flow_fns.insert(id, code);
     }
 }
 
@@ -151,6 +158,11 @@ pub trait ArcanaPlugin: Any + Sync {
 
     /// Returns list of systems.
     fn jobs(&self) -> Vec<JobInfo> {
+        Vec::new()
+    }
+
+    /// Returns list of systems.
+    fn pure_code(&self) -> Vec<CodeInfo> {
         Vec::new()
     }
 
@@ -362,7 +374,7 @@ macro_rules! export_arcana_plugin {
                     fn systems(&self) -> Vec<$crate::plugin::SystemInfo> {
                         vec![$(
                             $crate::plugin::SystemInfo {
-                                id: $crate::local_hash_id!($system_name),
+                                id: $crate::local_name_hash_id!($system_name),
                                 name: $crate::ident!($system_name).into(),
                             },
                         )+]
@@ -373,7 +385,7 @@ macro_rules! export_arcana_plugin {
                     fn filters(&self) -> Vec<$crate::plugin::FilterInfo> {
                         vec![$(
                             $crate::plugin::FilterInfo {
-                                id: $crate::local_hash_id!($filter_name),
+                                id: $crate::local_name_hash_id!($filter_name),
                                 name: $crate::ident!($filter_name).into(),
                             },
                         )+]
@@ -384,7 +396,7 @@ macro_rules! export_arcana_plugin {
                     fn jobs(&self) -> Vec<$crate::plugin::JobInfo> {
                         vec![$(
                             $crate::plugin::JobInfo {
-                                id: $crate::local_hash_id!($job_name),
+                                id: $crate::local_name_hash_id!($job_name),
                                 name: $crate::ident!($job_name).into(),
                                 desc: $crate::job_desc_or_expr!($job_name $(: $job_desc)?),
                             },
@@ -401,15 +413,15 @@ macro_rules! export_arcana_plugin {
                     )?
 
                     $($(
-                        hub.add_system($crate::local_hash_id!($system_name), $crate::name_or_expr!($system_name $(: $system)?));
+                        hub.add_system($crate::local_name_hash_id!($system_name), $crate::name_or_expr!($system_name $(: $system)?));
                     )+)?
 
                     $($(
-                        hub.add_filter($crate::local_hash_id!($filter_name), $crate::name_or_expr!($filter_name $(: $filter)?));
+                        hub.add_filter($crate::local_name_hash_id!($filter_name), $crate::name_or_expr!($filter_name $(: $filter)?));
                     )+)?
 
                     $($(
-                        hub.add_job($crate::local_hash_id!($job_name), $crate::job_new_or_expr!($job_name $(=> $job)?));
+                        hub.add_job($crate::local_name_hash_id!($job_name), $crate::job_new_or_expr!($job_name $(=> $job)?));
                     )+)?
 
                     $crate::init_resources! {

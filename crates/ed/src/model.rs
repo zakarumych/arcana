@@ -866,7 +866,8 @@ impl EguiProbe for ValueProbe<'_> {
                                 self.value.kind()
                             ));
                             if ui.small_button("Reset to some").clicked() {
-                                *self.value = Value::Option(Some(Box::new(self.value.take())));
+                                *self.value =
+                                    Value::Option(Some(Box::new(std::mem::take(&mut self.value))));
                                 changed = true;
                             }
                             ui.strong("?");
