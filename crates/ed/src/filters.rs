@@ -1,6 +1,6 @@
 use arcana::{
     edict::world::WorldLocal,
-    events::{Event, FilterId},
+    input::{FilterId, Input},
     plugin::PluginsHub,
     project::Project,
     Blink, Ident, Name, World,
@@ -36,12 +36,12 @@ impl Funnel {
         hub: &mut PluginsHub,
         blink: &Blink,
         world: &mut World,
-        event: &Event,
+        input: &Input,
     ) -> bool {
         for filter in self.filters.iter() {
             if filter.enabled {
                 if let Some(filter) = hub.filters.get_mut(&filter.id) {
-                    if filter.filter(blink, world, event) {
+                    if filter.filter(blink, world, input) {
                         return true;
                     }
                 }

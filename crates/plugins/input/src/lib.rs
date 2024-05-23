@@ -28,7 +28,7 @@ pub use self::client::*;
 
 export_arcana_plugin! {
     InputPlugin {
-        filters: [input: InputFilter::new()],
+        filters: [input: MyInputFilter::new()],
         in world => {
             client::init_world(world);
         }

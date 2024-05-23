@@ -1,13 +1,23 @@
 //! Building blocks for visual programming.
 
-use std::{any::Any, marker::PhantomData};
+use std::{any::Any, future::Future, marker::PhantomData, pin::Pin};
 
-use edict::{world::WorldLocal, Component, EntityId, World};
+use edict::{flow::FlowEntity, Component, EntityId, World};
 use hashbrown::HashMap;
 
-use crate::{make_id, stid::Stid};
+use crate::{
+    events::EventId,
+    make_id,
+    stid::{Stid, WithStid},
+};
 
 make_id!(pub CodeId);
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct InputId {
+    pub node: usize,
+    pub input: usize,
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct OutputId {
@@ -77,24 +87,36 @@ impl OutputCache {
 /// It takes list of inputs and outputs to produce.
 /// Generally it should not have any visible side effects.
 /// Its execution may occur at any point or not occur at all.
-pub type PureCode = fn(inputs: &[Input], outputs: &mut [Output], world: &WorldLocal);
+pub type PureCode = fn(entity: FlowEntity, inputs: &[Input], outputs: &mut [Output]);
+
+pub enum Continuation {
+    /// Continue execution with given output flow.
+    Continue(usize),
+
+    /// Continue execution with given output flow when given future resolves.
+    Await(Pin<Box<dyn Future<Output = usize> + Send>>),
+}
 
 /// Type of code function.
 /// It takes list of inputs and outputs to produce.
 /// It also takes index of input flow that triggered execution.
 /// It returns output flow index to trigger next flow function.
 pub type FlowCode = fn(
-    id: EntityId,
-    idx: usize,
-    flow_in: usize,
+    input: InputId,
+    entity: FlowEntity,
     inputs: &[Input],
     outputs: &mut [Output],
-    world: &WorldLocal,
-) -> Option<usize>;
+) -> Continuation;
 
 /// Code descriptor.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum CodeDesc {
+    /// Event node is never executed,
+    /// instead it is triggered externally and starts execution of code flow.
+    /// It always has exactly one outflow and number of output values.
+    /// But no inflows or input values.
+    Event { id: EventId, outputs: Vec<Stid> },
+
     /// Pure node gets executed every type its output is required.
     Pure {
         inputs: Vec<Stid>,
@@ -110,35 +132,94 @@ pub enum CodeDesc {
     },
 }
 
-pub struct CodeSchedule {
-    queue: Vec<(EntityId, OutputId)>,
+pub trait IntoPureCode<I, O> {
+    fn into_pure_code(self) -> (CodeDesc, PureCode);
 }
 
-impl CodeSchedule {
-    fn new() -> Self {
-        CodeSchedule { queue: Vec::new() }
+macro_rules! into_pure_code {
+    ($($a:ident)*, $($b:ident)*) => {
+        impl<F $(,$b)* $(,$a)*> IntoPureCode<($($a,)*), ($($b,)*)> for F
+        where
+            F: Fn(FlowEntity, $($a,)*) -> ($($b,)*) + Copy,
+            $($a: WithStid + Clone,)*
+            $($b: WithStid,)*
+        {
+            fn into_pure_code(self) -> (CodeDesc, PureCode) {
+                #![allow(unused, non_snake_case)]
+
+                const {
+                    if ::core::mem::size_of::<F>() != 0 {
+                        panic!("Code function must be zero-sized")
+                    }
+                }
+
+                let desc = CodeDesc::Pure {
+                    inputs: vec![$(<$a as WithStid>::stid(),)*],
+                    outputs: vec![$(<$b as WithStid>::stid(),)*],
+                };
+
+                let code = |entity: FlowEntity, inputs: &[Input], outputs: &mut [Output]| {
+                    let f: F = unsafe {
+                        core::mem::MaybeUninit::<F>::uninit().assume_init()
+                    };
+
+                    let mut idx = 0;
+                    $(
+                        let $a: $a = inputs[idx].get::<$a>().clone();
+                        idx += 1;
+                    )*
+
+                    let ($($b,)*) = f(entity, $($a,)*);
+
+                    let mut idx = 0;
+                    $(
+                        outputs[idx].set($b);
+                        idx += 1;
+                    )*
+                };
+
+                (desc, code)
+            }
+        }
+    };
+}
+
+for_tuple_2x!(into_pure_code);
+
+#[test]
+fn foo() {
+    fn foo(_: FlowEntity) {}
+
+    assert_eq!(
+        IntoPureCode::<(), ()>::into_pure_code(foo).0,
+        CodeDesc::Pure {
+            inputs: vec![],
+            outputs: vec![]
+        }
+    );
+}
+
+// This is horrible, burn it with fire.
+#[doc(hidden)]
+pub static mut RUN_CODE_AFTER_FN: fn(entity: EntityId, outflow: OutputId, world: &World) =
+    |_, _, _| {};
+
+pub fn run_code_after(entity: EntityId, outflow: OutputId, world: &World) {
+    unsafe {
+        RUN_CODE_AFTER_FN(entity, outflow, world);
     }
+}
 
-    pub fn drain(&mut self) -> impl Iterator<Item = (EntityId, OutputId)> + '_ {
-        self.queue.drain(..)
+pub fn trigger(entity: EntityId, outflow: OutputId, world: &World) {
+    unsafe {
+        RUN_CODE_AFTER_FN(entity, outflow, world);
     }
 }
 
-pub fn schedule_code_flow(entity: EntityId, outflow: OutputId, world: &mut World) {
-    world
-        .with_resource(CodeSchedule::new)
-        .queue
-        .push((entity, outflow));
-}
+/// Predefined code events.
+pub mod builtin {
+    use crate::{events::EventId, local_name_hash_id};
 
-/// Predefined code flow events.
-pub mod events {
-
-    use crate::local_name_hash_id;
-
-    use super::CodeId;
-
-    /// Event that occurs when flow graph is started.
-    /// Either at the beginning of the game or when flow graph is created during the game.
-    pub const START: CodeId = local_name_hash_id!(START => CodeId);
+    /// Event emitted when `Code` is added to the entity, including entity spawning.
+    pub const START_EVENT: EventId = local_name_hash_id!(START_EVENT => EventId);
 }

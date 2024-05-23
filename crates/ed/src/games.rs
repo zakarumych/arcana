@@ -197,7 +197,7 @@ impl Games {
         for game in world.view_mut::<&mut Game>() {
             if game.window_id() == Some(window_id) {
                 if let Ok(event) = ViewportEvent::try_from(event) {
-                    if game.on_event(&Event::ViewportEvent { event }) {
+                    if game.on_input(&Event::ViewportEvent { event }) {
                         return true;
                     }
                 }
@@ -231,12 +231,12 @@ impl Games {
                                 if !focus.cursor_inside {
                                     focus.cursor_inside = true;
 
-                                    game.on_event(&Event::ViewportEvent {
+                                    game.on_input(&Event::ViewportEvent {
                                         event: ViewportEvent::CursorEntered { device_id },
                                     });
                                 }
 
-                                game.on_event(&Event::ViewportEvent {
+                                game.on_input(&Event::ViewportEvent {
                                     event: ViewportEvent::CursorMoved {
                                         device_id,
                                         x: gx,
@@ -248,7 +248,7 @@ impl Games {
 
                                 if focus.cursor_inside {
                                     focus.cursor_inside = false;
-                                    game.on_event(&Event::ViewportEvent {
+                                    game.on_input(&Event::ViewportEvent {
                                         event: ViewportEvent::CursorLeft { device_id },
                                     });
                                 }
@@ -271,7 +271,7 @@ impl Games {
                             games.focus = None;
                         }
                         event => {
-                            game.on_event(&Event::ViewportEvent { event });
+                            game.on_input(&Event::ViewportEvent { event });
                         }
                     }
 

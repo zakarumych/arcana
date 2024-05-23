@@ -145,10 +145,10 @@ arcana::export_arcana_plugin! {
             };
 
             spawn_block!(in ref world -> {
-                sleep(timespan!(2 s), world).await;
+                sleep(timespan!(2 s), world.reborrow()).await;
                 loop {
                     new_node(&mut world);
-                    sleep(timespan!(1 s), world).await;
+                    sleep(timespan!(1 s), world.reborrow()).await;
                 }
             });
         }

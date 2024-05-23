@@ -3,8 +3,8 @@ use std::{path::PathBuf, process::Child, time::Duration};
 use arcana::{
     blink_alloc::BlinkAlloc,
     edict::world::World,
-    events::ViewportEvent,
     gametime::FrequencyNumExt,
+    input::ViewportInput,
     mev,
     project::{Dependency, Profile, Project},
     render::{render, RenderGraph, RenderResources},
@@ -41,7 +41,7 @@ fn main() {
             let step = clock.step();
             limiter.ticks(step.step);
 
-            app.on_event(event);
+            app.on_input(event);
             app.tick(step);
 
             if app.should_quit() {
@@ -182,7 +182,7 @@ impl App {
         }
     }
 
-    pub fn on_event(&mut self, event: Event) {
+    pub fn on_input(&mut self, event: Event) {
         match event {
             Event::WindowEvent {
                 event: WindowEvent::RedrawRequested,
@@ -195,7 +195,7 @@ impl App {
 
                 if world.expect_resource_mut::<Viewport>().get_window().id() == window_id {
                     let mut egui = world.expect_resource_mut::<Egui>();
-                    if let Ok(event) = ViewportEvent::try_from(&event) {
+                    if let Ok(event) = ViewportInput::try_from(&event) {
                         egui.handle_event(&event);
                     }
                 }

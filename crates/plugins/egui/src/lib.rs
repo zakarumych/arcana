@@ -3,6 +3,7 @@ use std::{mem::size_of_val, sync::OnceLock};
 use arcana::{
     bytemuck,
     gametime::TimeStamp,
+    input::InputFilter,
     mev::{self, Arguments, DeviceRepr},
     offset_of,
     render::{Render, RenderBuilderContext, RenderContext, RenderError, RenderGraph, TargetId},
@@ -706,14 +707,14 @@ impl Render for EguiRender {
 
 pub struct EguiFilter;
 
-impl arcana::events::EventFilter for EguiFilter {
-    fn filter(&mut self, _blink: &Blink, world: &mut World, event: &arcana::events::Event) -> bool {
+impl InputFilter for EguiFilter {
+    fn filter(&mut self, _blink: &Blink, world: &mut World, input: &arcana::input::Input) -> bool {
         let world = world.local();
 
-        if let arcana::events::Event::ViewportEvent { event } = event {
+        if let arcana::input::Input::ViewportInput { input } = input {
             if let Some(mut egui) = world.get_resource_mut::<Egui>() {
-                if egui.handle_event(event) {
-                    // Egui consumed this event.
+                if egui.handle_event(input) {
+                    // Egui consumed this input.
                     return true;
                 }
             }

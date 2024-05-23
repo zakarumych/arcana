@@ -18,7 +18,7 @@ macro_rules! name {
 #[derive(Clone, Copy)]
 #[repr(transparent)]
 pub struct Name {
-    s: &'static str,
+    pub(crate) s: &'static str,
 }
 
 impl Name {
@@ -108,16 +108,22 @@ impl fmt::Display for Name {
 impl PartialEq<Name> for Name {
     #[inline(always)]
     fn eq(&self, other: &Name) -> bool {
-        std::ptr::eq(self.s, other.s) || self.s == other.s
-    }
-
-    #[inline(always)]
-    fn ne(&self, other: &Name) -> bool {
-        (!std::ptr::eq(self.s, other.s)) && self.s != other.s
+        // There's no reason to compare strings
+        // because `Name`s are interned with deduplication.
+        std::ptr::eq(self.s, other.s)
     }
 }
 
 impl Eq for Name {}
+
+impl PartialEq<Ident> for Name {
+    #[inline(always)]
+    fn eq(&self, other: &Ident) -> bool {
+        // There's no reason to compare strings
+        // because `Name`s and `Ident`s are interned with deduplication.
+        std::ptr::eq(self.s, other.s)
+    }
+}
 
 impl PartialEq<str> for Name {
     #[inline(always)]

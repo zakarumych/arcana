@@ -3,7 +3,7 @@ use std::{path::PathBuf, sync::Arc};
 use arcana::{
     blink_alloc::BlinkAlloc,
     edict::world::WorldLocal,
-    events::ViewportEvent,
+    input::ViewportInput,
     mev,
     project::Project,
     render::{render, RenderGraph, RenderResources},
@@ -23,6 +23,7 @@ use winit::{
 };
 
 use crate::{
+    code::Codes,
     console::Console,
     data::ProjectData,
     filters::Filters,
@@ -48,6 +49,7 @@ enum Tab {
     Filters,
     Rendering,
     Main,
+    Codes,
 }
 
 /// Editor app instance.
@@ -205,12 +207,12 @@ impl App {
         }
     }
 
-    pub fn on_event<'a>(&mut self, window_id: WindowId, event: WindowEvent) {
+    pub fn on_input<'a>(&mut self, window_id: WindowId, event: WindowEvent) {
         let world = self.world.local();
 
         for (v, egui) in world.view_mut::<(&Viewport, &mut Egui)>() {
             if v.get_window().id() == window_id {
-                if let Ok(event) = ViewportEvent::try_from(&event) {
+                if let Ok(event) = ViewportInput::try_from(&event) {
                     if egui.handle_event(&event) {
                         return;
                     }
@@ -385,6 +387,7 @@ impl TabViewer for AppModel<'_> {
             Tab::Console => Console::show(self.world, ui),
             Tab::Systems => Systems::show(self.world, ui),
             Tab::Filters => Filters::show(self.world, ui),
+            Tab::Codes => Codes::show(self.world, ui),
             Tab::Rendering => Rendering::show(self.world, ui),
             Tab::Main => Main::show(self.world, ui, self.window.id()),
         }
@@ -396,6 +399,7 @@ impl TabViewer for AppModel<'_> {
             Tab::Console => "Console".into(),
             Tab::Systems => "Systems".into(),
             Tab::Filters => "Filters".into(),
+            Tab::Codes => "Codes".into(),
             Tab::Rendering => "Rendering".into(),
             Tab::Main => "Main".into(),
         }
@@ -403,8 +407,10 @@ impl TabViewer for AppModel<'_> {
 
     fn scroll_bars(&self, tab: &Tab) -> [bool; 2] {
         match tab {
-            Tab::Systems => [false, false],
             Tab::Console => [false, false],
+            Tab::Systems => [false, false],
+            Tab::Codes => [false, false],
+            Tab::Rendering => [false, false],
             _ => [true, true],
         }
     }

@@ -3,16 +3,16 @@ use std::collections::VecDeque;
 use arcana::{
     blink_alloc::Blink,
     edict::{EntityId, NoSuchEntity, World},
-    events::{
-        DeviceId, ElementState, Event, EventFilter, KeyEvent, MouseButton, PhysicalKey,
-        ViewportEvent,
+    input::{
+        DeviceId, ElementState, Input, InputFilter, KeyEvent, MouseButton, PhysicalKey,
+        ViewportInput,
     },
 };
 use hashbrown::HashMap;
 
 use crate::ActionQueue;
 
-pub struct InputFilter {
+pub struct MyInputFilter {
     /// Dispatch events from this device to this controller.
     device: HashMap<DeviceId, Box<dyn Controller>>,
 
@@ -21,16 +21,16 @@ pub struct InputFilter {
     global: Option<Box<dyn Controller>>,
 }
 
-impl EventFilter for InputFilter {
-    fn filter(&mut self, _: &Blink, world: &mut World, event: &Event) -> bool {
+impl InputFilter for MyInputFilter {
+    fn filter(&mut self, _: &Blink, world: &mut World, event: &Input) -> bool {
         self.add_controllers(world);
         self.handle(world, event)
     }
 }
 
-impl InputFilter {
+impl MyInputFilter {
     pub fn new() -> Self {
-        InputFilter {
+        MyInputFilter {
             device: HashMap::new(),
             global: None,
         }
@@ -49,10 +49,10 @@ impl InputFilter {
         }
     }
 
-    pub fn handle(&mut self, world: &mut World, event: &Event) -> bool {
+    pub fn handle(&mut self, world: &mut World, event: &Input) -> bool {
         match *event {
-            Event::ViewportEvent { ref event } => match *event {
-                ViewportEvent::KeyboardInput {
+            Input::ViewportInput { ref input } => match *input {
+                ViewportInput::KeyboardInput {
                     device_id,
                     ref event,
                     ..

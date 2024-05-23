@@ -13,7 +13,7 @@ use crate::{dependency::Dependency, real_path, Ident, CARGO_TOML_NAME};
 /// `Component`s,
 /// `Resource`s,
 /// `System`s,
-/// `EventFilter`s.
+/// `InputFilter`s.
 ///
 /// Initialization is done in a way that ensures that dependencies are initialized before dependents.
 ///

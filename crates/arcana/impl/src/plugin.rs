@@ -6,7 +6,7 @@ use edict::{IntoSystem, System, World};
 use hashbrown::HashMap;
 
 use crate::code::{CodeDesc, CodeId, FlowCode, PureCode};
-use crate::events::{EventFilter, FilterId, IntoEventFilter};
+use crate::input::{FilterId, InputFilter, IntoInputFilter};
 use crate::make_id;
 use crate::work::{Job, JobDesc, JobId};
 
@@ -63,7 +63,7 @@ pub struct CodeInfo {
 /// populated from plugins.
 pub struct PluginsHub {
     pub systems: HashMap<SystemId, Box<dyn System + Send>>,
-    pub filters: HashMap<FilterId, Box<dyn EventFilter>>,
+    pub filters: HashMap<FilterId, Box<dyn InputFilter>>,
     pub jobs: HashMap<JobId, Box<dyn Job>>,
     pub pure_fns: HashMap<CodeId, PureCode>,
     pub flow_fns: HashMap<CodeId, FlowCode>,
@@ -91,10 +91,10 @@ impl PluginsHub {
     /// Adds a filter from a plugin to the hub.
     pub fn add_filter<F, M>(&mut self, id: FilterId, filter: F)
     where
-        F: IntoEventFilter<M>,
+        F: IntoInputFilter<M>,
     {
         self.filters
-            .insert(id, Box::new(filter.into_event_filter()));
+            .insert(id, Box::new(filter.into_input_filter()));
     }
 
     /// Adds a job from a plugin to the hub.
@@ -355,6 +355,8 @@ macro_rules! export_arcana_plugin {
         $(systems: [$($system_name:ident $(: $system:expr)?),+ $(,)?] $(,)?)?
         $(filters: [$($filter_name:ident $(: $filter:expr)?),+ $(,)?] $(,)?)?
         $(jobs: [$($job_name:ident $(: $job_desc:expr)? $(=> $job:expr)?),+ $(,)?] $(,)?)?
+        $(pure_fns: [$($pure_fn:ident),+ $(,)?] $(,)?)?
+        $(flow_fns: [$($flow_fn:ident),+ $(,)?] $(,)?)?
         $(in $world:ident $(: $world_type:ty)? $( => { $($init:tt)* })?)?
     })?) => {
         $(

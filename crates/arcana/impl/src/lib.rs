@@ -1,5 +1,59 @@
 #![feature(allocator_api)]
 #![deny(unsafe_op_in_unsafe_fn)]
+#![recursion_limit = "512"]
+
+#[macro_export]
+macro_rules! for_tuple {
+    ($macro:ident) => {
+        $crate::for_tuple!($macro for A B C D E F G H I J K L M N O P);
+    };
+    ($macro:ident for ) => {
+        $macro!();
+    };
+    ($macro:ident for $head:ident $($tail:ident)*) => {
+        $crate::for_tuple!($macro for $($tail)*);
+        $macro!($head $($tail)*);
+    };
+}
+
+#[macro_export]
+macro_rules! for_tuple_2 {
+    ($macro:ident) => {
+        $crate::for_tuple_2!($macro for
+            AA AB AC AD AE AF AG AH AI AJ AK AL AM AN AO AP,
+            BA BB BC BD BE BF BG BH BI BJ BK BL BM BN BO BP
+        );
+    };
+    ($macro:ident for ,) => {
+        $macro!(,);
+    };
+    ($macro:ident for $a_head:ident $($a_tail:ident)*, $b_head:ident $($b_tail:ident)*) => {
+        $crate::for_tuple_2!($macro for $($a_tail)*, $($b_tail)*);
+
+        $macro!($a_head $($a_tail)*, $b_head $($b_tail)*);
+    };
+}
+
+#[macro_export]
+macro_rules! for_tuple_2x {
+    ($macro:ident) => {
+        $crate::for_tuple_2x!($macro for
+            AA AB AC AD AE AF AG AH AI AJ AK AL AM AN AO AP,
+            BA BB BC BD BE BF BG BH BI BJ BK BL BM BN BO BP
+        );
+    };
+    ($macro:ident for , ) => {
+        $macro!(,);
+    };
+    ($macro:ident for , $b_head:ident $($b_tail:ident)*) => {
+        $crate::for_tuple_2x!($macro for AA AB AC AD AE AF AG AH AI AJ AK AL AM AN AO AP, $($b_tail)*);
+    };
+    ($macro:ident for $a_head:ident $($a_tail:ident)*, $($b:ident)*) => {
+        $crate::for_tuple_2x!($macro for $($a_tail)*, $($b)*);
+
+        $macro!($a_head $($a_tail)*, $($b)*);
+    };
+}
 
 /// Finds offset of a field in a struct.
 ///
@@ -66,6 +120,7 @@ pub mod code;
 pub mod events;
 pub mod flow;
 pub mod id;
+pub mod input;
 pub mod model;
 mod num2name;
 pub mod plugin;

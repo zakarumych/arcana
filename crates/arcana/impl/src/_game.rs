@@ -21,7 +21,7 @@ use winit::{
 };
 
 use crate::{
-    events::{Event, EventFilter, EventFunnel},
+    events::{Event, EventFunnel, InputFilter},
     flow::{init_flows, wake_flows},
     plugin::{ArcanaPlugin, PluginsHub},
     render::{render_system, RenderGraph, RenderState},
@@ -194,7 +194,7 @@ impl Game {
         self.world.get_resource::<Window>().map(|w| w.id())
     }
 
-    pub fn on_event(&mut self, event: &Event) -> bool {
+    pub fn on_input(&mut self, event: &Event) -> bool {
         (self.funnel)(&self.blink, &mut self.world, event)
     }
 

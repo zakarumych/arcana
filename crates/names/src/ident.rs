@@ -5,7 +5,7 @@ use std::{
     ops::Deref,
 };
 
-use crate::intern::INTERNER;
+use crate::{intern::INTERNER, Name};
 
 #[macro_export]
 macro_rules! ident {
@@ -18,7 +18,7 @@ macro_rules! ident {
 #[derive(Clone, Copy)]
 #[repr(transparent)]
 pub struct Ident {
-    s: &'static str,
+    pub(crate) s: &'static str,
 }
 
 impl Ident {
@@ -108,6 +108,15 @@ impl PartialEq<Ident> for Ident {
 }
 
 impl Eq for Ident {}
+
+impl PartialEq<Name> for Ident {
+    #[inline(always)]
+    fn eq(&self, other: &Name) -> bool {
+        // There's no reason to compare strings
+        // because `Name`s and `Ident`s are interned with deduplication.
+        std::ptr::eq(self.s, other.s)
+    }
+}
 
 impl PartialEq<str> for Ident {
     #[inline(always)]

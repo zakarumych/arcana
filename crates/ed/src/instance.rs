@@ -4,9 +4,9 @@ use std::sync::Arc;
 
 use arcana::{
     edict::world::WorldLocal,
-    events::{DeviceId, Event, KeyCode, PhysicalKey, ViewportEvent},
-    flow::Flows,
+    flow::{init_flows, Flows},
     gametime::{ClockRate, FrequencyNumExt, TimeSpan},
+    input::{DeviceId, Input, KeyCode, PhysicalKey, ViewportInput},
     mev,
     plugin::PluginsHub,
     texture::Texture,
@@ -20,7 +20,6 @@ use parking_lot::Mutex;
 use winit::{event::WindowEvent, window::WindowId};
 
 use crate::{
-    code::ScheduledCode,
     container::Container,
     data::ProjectData,
     filters::Funnel,
@@ -61,8 +60,6 @@ pub struct Instance {
 
     /// Container in which plugins reside.
     container: Option<Container>,
-
-    scheduled_code: ScheduledCode,
 }
 
 impl Instance {
@@ -112,10 +109,9 @@ impl Instance {
         }
 
         self.flows.execute(&mut self.world);
-        self.scheduled_code.trigger(&mut self.world);
     }
 
-    pub fn on_event(&mut self, funnel: &Funnel, event: &Event) -> bool {
+    pub fn on_input(&mut self, funnel: &Funnel, event: &Input) -> bool {
         funnel.filter(&mut self.hub, &self.blink, &mut self.world, event)
     }
 
@@ -216,7 +212,7 @@ pub struct Main {
 
 impl Main {
     pub fn new() -> Self {
-        let world = World::new();
+        let mut world = World::new();
         let hub = PluginsHub::new();
         let blink = Blink::new();
 
@@ -224,11 +220,13 @@ impl Main {
         let fix = FrequencyTicker::new(60.hz(), rate.now());
         let lim = FrequencyTicker::new(60.hz(), rate.now());
 
-        let flows = Flows::default();
+        let flows = Flows::new();
         let workgraph = WorkGraph::new(HashMap::new(), HashSet::new()).unwrap();
 
         let present = None;
         let viewport = Viewport::new_image();
+
+        init_flows(&mut world);
 
         let instance = Instance {
             world,
@@ -242,7 +240,6 @@ impl Main {
             present,
             viewport,
             container: None,
-            scheduled_code: ScheduledCode::new(),
         };
 
         Main {
@@ -352,13 +349,13 @@ impl Main {
             return false;
         }
 
-        if let Ok(event) = ViewportEvent::try_from(event) {
+        if let Ok(event) = ViewportInput::try_from(event) {
             let mut consume = true;
 
             match event {
-                ViewportEvent::CursorEntered { .. } => return false,
-                ViewportEvent::CursorLeft { .. } => return false,
-                ViewportEvent::CursorMoved { device_id, x, y } => {
+                ViewportInput::CursorEntered { .. } => return false,
+                ViewportInput::CursorLeft { .. } => return false,
+                ViewportInput::CursorMoved { device_id, x, y } => {
                     let px = x / main.pixel_per_point;
                     let py = y / main.pixel_per_point;
 
@@ -367,18 +364,18 @@ impl Main {
 
                     if main.rect.contains(egui::pos2(px, py)) {
                         if main.contains_cursors.insert(device_id) {
-                            main.instance.on_event(
+                            main.instance.on_input(
                                 &data.funnel,
-                                &Event::ViewportEvent {
-                                    event: ViewportEvent::CursorEntered { device_id },
+                                &Input::ViewportInput {
+                                    input: ViewportInput::CursorEntered { device_id },
                                 },
                             );
                         }
 
-                        main.instance.on_event(
+                        main.instance.on_input(
                             &data.funnel,
-                            &Event::ViewportEvent {
-                                event: ViewportEvent::CursorMoved {
+                            &Input::ViewportInput {
+                                input: ViewportInput::CursorMoved {
                                     device_id,
                                     x: gx,
                                     y: gy,
@@ -389,40 +386,40 @@ impl Main {
                         consume = false;
 
                         if main.contains_cursors.remove(&device_id) {
-                            main.instance.on_event(
+                            main.instance.on_input(
                                 &data.funnel,
-                                &Event::ViewportEvent {
-                                    event: ViewportEvent::CursorLeft { device_id },
+                                &Input::ViewportInput {
+                                    input: ViewportInput::CursorLeft { device_id },
                                 },
                             );
                         }
                     }
                 }
-                ViewportEvent::MouseWheel { device_id, .. }
+                ViewportInput::MouseWheel { device_id, .. }
                     if !main.contains_cursors.contains(&device_id) =>
                 {
                     consume = false;
                 }
-                ViewportEvent::MouseInput { device_id, .. }
+                ViewportInput::MouseInput { device_id, .. }
                     if !main.contains_cursors.contains(&device_id) =>
                 {
                     consume = false;
                 }
-                ViewportEvent::Resized { .. } | ViewportEvent::ScaleFactorChanged { .. } => {
+                ViewportInput::Resized { .. } | ViewportInput::ScaleFactorChanged { .. } => {
                     consume = false;
                 }
-                ViewportEvent::KeyboardInput { event, .. }
+                ViewportInput::KeyboardInput { event, .. }
                     if event.physical_key == PhysicalKey::Code(KeyCode::Escape) =>
                 {
                     main.focused = false;
                 }
-                ViewportEvent::KeyboardInput {
+                ViewportInput::KeyboardInput {
                     device_id, event, ..
                 } if main.focused => {
-                    main.instance.on_event(
+                    main.instance.on_input(
                         &data.funnel,
-                        &Event::ViewportEvent {
-                            event: ViewportEvent::KeyboardInput { device_id, event },
+                        &Input::ViewportInput {
+                            input: ViewportInput::KeyboardInput { device_id, event },
                         },
                     );
                 }

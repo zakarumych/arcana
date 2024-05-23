@@ -3,23 +3,31 @@
 use std::ops::Range;
 
 use arcana::{
-    code::{CodeDesc, CodeId, CodeSchedule, FlowCode, OutputCache, OutputId, PureCode},
-    edict::{self, world::WorldLocal},
-    Component, EntityId, Name, World,
+    code::{CodeDesc, CodeId, Continuation, FlowCode, InputId, OutputCache, OutputId, PureCode},
+    edict::{
+        self, spawn_block,
+        world::{World, WorldLocal},
+        Component, EntityId,
+    },
+    events::EventId,
+    flow::FlowEntity,
+    Name,
 };
 use egui::{epaint::PathShape, Color32, Painter, PointerButton, Rect, Shape, Stroke, Ui};
 use egui_snarl::{
-    ui::{CustomPinShape, PinInfo, PinShape, SnarlViewer},
+    ui::{CustomPinShape, PinInfo, PinShape, SnarlStyle, SnarlViewer},
     InPin, InPinId, NodeId, OutPin, OutPinId, Snarl,
 };
 use hashbrown::{HashMap, HashSet};
 use smallvec::SmallVec;
 
-use crate::hue_hash;
+use crate::{data::ProjectData, hue_hash};
 
-#[derive(Component)]
-#[repr(transparent)]
-pub struct Code(pub CodeId);
+#[derive(Clone, Copy, Component)]
+#[edict(name = "Code")]
+pub struct Code {
+    id: CodeId,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct CodeNode {
@@ -90,30 +98,23 @@ fn schedule_pure_inputs(
 
 /// Execute specific pure code.
 fn execute_pure(
+    entity: FlowEntity,
     node: NodeId,
     snarl: &Snarl<CodeNode>,
-    world: &WorldLocal,
     cache: &mut OutputCache,
     get_pure_code: &HashMap<CodeId, PureCode>,
 ) {
-    match snarl.get_node(node) {
-        None => {
-            tracing::error!("Pure node {node:?} was not found");
-            return;
-        }
-        Some(CodeNode {
-            desc: CodeDesc::Flow { .. },
-            ..
-        }) => {
-            tracing::error!("Node {node:?} is not pure");
-            return;
-        }
-        Some(CodeNode {
-            id,
-            desc: CodeDesc::Pure { inputs, outputs },
-            ..
-        }) => {
-            let pure_code = get_pure_code[id];
+    let Some(code_node) = snarl.get_node(node) else {
+        tracing::error!("Pure node {node:?} was not found");
+        return;
+    };
+
+    match code_node.desc {
+        CodeDesc::Pure {
+            ref inputs,
+            ref outputs,
+        } => {
+            let pure_code = get_pure_code[&code_node.id];
 
             let mut outputs = (0..outputs.len())
                 .map(|output| {
@@ -141,77 +142,71 @@ fn execute_pure(
                 return;
             };
 
-            pure_code(&inputs, &mut outputs, world);
+            pure_code(entity, &inputs, &mut outputs);
+        }
+        _ => {
+            tracing::error!("Node {node:?} is not pure");
+            return;
         }
     }
 }
 
 /// Execute specific flow code.
 fn execute_flow(
-    entity: EntityId,
-    node: NodeId,
-    inflow: usize,
+    mut entity: FlowEntity,
+    pin: InPinId,
     snarl: &Snarl<CodeNode>,
-    world: &WorldLocal,
     cache: &mut OutputCache,
     get_pure_code: &HashMap<CodeId, PureCode>,
     get_flow_code: &HashMap<CodeId, FlowCode>,
 ) -> Option<usize> {
-    match snarl.get_node(node) {
-        None => {
-            tracing::error!("Flow node {node:?} was not found");
-            return None;
-        }
-        Some(CodeNode {
-            desc: CodeDesc::Pure { .. },
+    let Some(code_node) = snarl.get_node(pin.node) else {
+        tracing::error!("Pure node {:?} was not found", pin.node);
+        return None;
+    };
+
+    match code_node.desc {
+        CodeDesc::Flow {
+            inflows,
+            ref inputs,
+            ref outputs,
             ..
-        }) => {
-            tracing::error!("Node {node:?} is not flow");
-            return None;
-        }
-        Some(CodeNode {
-            id,
-            desc:
-                CodeDesc::Flow {
-                    inflows,
-                    inputs,
-                    outputs,
-                    ..
-                },
-            ..
-        }) => {
+        } => {
             // Check flow connection.
-            if inflow >= *inflows {
-                tracing::error!("Flow {node:?} doesn't have inflow {inflow}");
+            if pin.input >= inflows {
+                tracing::error!("Flow {:?} doesn't have inflow {}", pin.node, pin.input);
                 return None;
             }
 
             // Grab code function.
-            let flow_code = get_flow_code[id];
+            let flow_code = get_flow_code[&code_node.id];
 
             // Schedule pure deps.
-            let schedule = schedule_pure_inputs(node, *inflows..*inflows + inputs.len(), snarl);
+            let schedule = schedule_pure_inputs(pin.node, inflows..inflows + inputs.len(), snarl);
 
             // Execute pure deps.
             for node in schedule {
-                execute_pure(node, snarl, world, cache, get_pure_code);
+                execute_pure(entity.reborrow(), node, snarl, cache, get_pure_code);
             }
 
             // Collect outputs.
             let mut outputs = (0..outputs.len())
                 .map(|output| {
                     cache.take_output(OutputId {
-                        node: node.0,
+                        node: pin.node.0,
                         output,
                     })
                 })
                 .collect::<SmallVec<[_; 8]>>();
 
-            let next = {
+            let continuation = {
                 // Collect inputs.
-                let Some(inputs) = (*inflows..*inflows + inputs.len())
+                let Some(inputs) = (inflows..inflows + inputs.len())
                     .map(|input| {
-                        let in_pin = snarl.in_pin(InPinId { node, input });
+                        let in_pin = snarl.in_pin(InPinId {
+                            node: pin.node,
+                            input,
+                        });
                         assert!(in_pin.remotes.len() <= 1);
                         let out_pin_id = in_pin.remotes[0];
 
@@ -222,56 +217,81 @@ fn execute_flow(
                     })
                     .collect::<Option<SmallVec<[_; 8]>>>()
                 else {
-                    tracing::error!("Code node {node:?} has missing inputs");
+                    tracing::error!("Code node {:?} has missing inputs", pin.node);
                     return None;
                 };
 
-                flow_code(entity, node.0, inflow, &inputs, &mut outputs, world)
+                flow_code(
+                    InputId {
+                        node: pin.node.0,
+                        input: pin.input,
+                    },
+                    entity.reborrow(),
+                    &inputs,
+                    &mut outputs,
+                )
             };
 
             for (output, slot) in outputs.into_iter().enumerate() {
                 cache.put_output(
                     OutputId {
-                        node: node.0,
+                        node: pin.node.0,
                         output,
                     },
                     slot,
                 )
             }
 
-            next
+            match continuation {
+                Continuation::Continue(output) => Some(output),
+                Continuation::Await(future) => {
+                    let node = pin.node.0;
+                    // spawn_block!(for entity -> {
+                    //     let outflow = OutputId {
+                    //         node,
+                    //         output: future.await
+                    //     };
+                    //     run_code_after(entity.id(), outflow, &entity.world());
+                    // });
+                    None
+                }
+            }
+        }
+        _ => {
+            tracing::error!("Node {:?} is not flow", pin.node);
+            return None;
         }
     }
 }
 
-/// Trigger one specific out flow.
-fn trigger_impl(
-    entity: EntityId,
+/// Execute code after specific outflow.
+fn execute_code_after(
+    mut entity: FlowEntity,
     mut outflow: OutPinId,
     snarl: &Snarl<CodeNode>,
-    world: &WorldLocal,
     cache: &mut OutputCache,
     get_pure_code: &HashMap<CodeId, PureCode>,
     get_flow_code: &HashMap<CodeId, FlowCode>,
 ) {
     loop {
-        match snarl.get_node(outflow.node) {
-            None => {
-                tracing::error!("Flow node {:?} was not found", outflow.node);
+        let Some(code_node) = snarl.get_node(outflow.node) else {
+            tracing::error!("Code node {:?} was not found", outflow.node);
+            return;
+        };
+
+        match code_node.desc {
+            CodeDesc::Pure { .. } => {
+                tracing::error!("Node {:?} is not event or flow", outflow.node);
                 return;
             }
-            Some(CodeNode {
-                desc: CodeDesc::Pure { .. },
-                ..
-            }) => {
-                tracing::error!("Node {:?} is not flow", outflow.node);
-                return;
+            CodeDesc::Event { .. } => {
+                if outflow.output > 0 {
+                    tracing::error!("Events dont have outflow {:?}", outflow.output);
+                    return;
+                }
             }
-            Some(CodeNode {
-                desc: CodeDesc::Flow { outflows, .. },
-                ..
-            }) => {
-                if outflow.output >= *outflows {
+            CodeDesc::Flow { outflows, .. } => {
+                if outflow.output >= outflows {
                     tracing::error!(
                         "Flow {:?} doesn't have outflow {:?}",
                         outflow.node,
@@ -293,11 +313,9 @@ fn trigger_impl(
         let inflow = outpin.remotes[0];
 
         let next = execute_flow(
-            entity,
-            inflow.node,
-            inflow.input,
+            entity.reborrow(),
+            inflow,
             snarl,
-            world,
             cache,
             get_pure_code,
             get_flow_code,
@@ -315,75 +333,76 @@ fn trigger_impl(
     }
 }
 
-pub fn trigger(entity: EntityId, outflow: OutPinId, world: &mut World) {
-    let mut new_cache = None;
+pub fn on_code_event(
+    entity: EntityId,
+    event: EventId,
+    world: &mut World,
+    codes: &HashMap<CodeId, Snarl<CodeNode>>,
+    pure: &HashMap<CodeId, PureCode>,
+    flow: &HashMap<CodeId, FlowCode>,
+    cache: &mut HashMap<EntityId, OutputCache>,
+) {
+    let Ok(Some(Code { id, .. })) = world.try_get_cloned::<Code>(entity) else {
+        tracing::error!("Entity {:?} was despawned", entity);
+        return;
+    };
 
-    {
-        let world = &*world.local();
+    let Some(snarl) = codes.get(&id) else {
+        tracing::error!("Code {id:?} is not found");
+        return;
+    };
 
-        let pure = world.expect_resource::<HashMap<CodeId, PureCode>>();
-        let flow = world.expect_resource::<HashMap<CodeId, FlowCode>>();
-        let code = world.expect_resource::<HashMap<CodeId, Snarl<CodeNode>>>();
+    let node = snarl
+        .node_ids()
+        .find_map(|(node_id, node)| match node.desc {
+            CodeDesc::Event { id, .. } if id == event => Some(node_id),
+            _ => None,
+        });
 
-        let Ok(mut view) = world.try_view_one::<(&Code, Option<&mut OutputCache>)>(entity) else {
-            tracing::error!("Entity {:?} was despawned", entity);
-            return;
-        };
-        let Some((&Code(id), cache)) = view.get_mut() else {
-            tracing::error!("Entity {:?} doesn't have code", entity);
-            return;
-        };
+    let Some(node) = node else {
+        tracing::error!("Event {event:?} is not found");
+        return;
+    };
 
-        let Some(snarl) = code.get(&id) else {
-            tracing::error!("Code {id:?} is not found");
-            return;
-        };
+    let cache = cache.entry(entity).or_insert_with(OutputCache::new);
 
-        let cache = match cache {
-            Some(cache) => cache,
-            None => new_cache.get_or_insert(OutputCache::new()),
-        };
+    let guard = edict::tls::Guard::new(world);
 
-        trigger_impl(entity, outflow, snarl, world, cache, &pure, &flow);
-    }
+    let Ok(entity) = guard.entity(entity) else {
+        return;
+    };
 
-    if let Some(new_cache) = new_cache {
-        let _ = world.insert(entity, new_cache);
-    }
+    execute_code_after(
+        entity,
+        OutPinId { node, output: 0 },
+        snarl,
+        cache,
+        &pure,
+        &flow,
+    );
 }
 
-pub struct ScheduledCode {
+struct RunCodeAfterQueue {
     queue: Vec<(EntityId, OutPinId)>,
 }
 
-impl ScheduledCode {
-    pub fn new() -> Self {
-        ScheduledCode { queue: Vec::new() }
-    }
+pub(crate) fn run_code_after(entity: EntityId, outflow: OutputId, world: &World) {
+    let outflow = OutPinId {
+        node: NodeId(outflow.node),
+        output: outflow.output,
+    };
 
-    pub fn trigger(&mut self, world: &mut World) {
-        if let Some(mut schedule) = world.get_resource_mut::<CodeSchedule>() {
-            self.queue.extend(schedule.drain().map(|(e, o)| {
-                (
-                    e,
-                    OutPinId {
-                        node: NodeId(o.node),
-                        output: o.output,
-                    },
-                )
-            }));
-        }
-
-        for (e, o) in self.queue.drain(..) {
-            trigger(e, o, world);
-        }
-    }
+    world
+        .expect_resource_mut::<RunCodeAfterQueue>()
+        .queue
+        .push((entity, outflow));
 }
 
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct CodeGraph {
+    name: Name,
     snarl: Snarl<CodeNode>,
-    trigget: Option<(NodeId, OutPinId)>,
+    events: HashMap<(), OutPinId>,
 }
 
 struct CodeViewer;
@@ -391,6 +410,30 @@ struct CodeViewer;
 impl SnarlViewer<CodeNode> for CodeViewer {
     fn title(&mut self, node: &CodeNode) -> String {
         node.name.to_string()
+    }
+
+    fn inputs(&mut self, node: &CodeNode) -> usize {
+        match node.desc {
+            CodeDesc::Event { .. } => 0,
+            CodeDesc::Pure { ref inputs, .. } => inputs.len(),
+            CodeDesc::Flow {
+                inflows,
+                ref inputs,
+                ..
+            } => inflows + inputs.len(),
+        }
+    }
+
+    fn outputs(&mut self, node: &CodeNode) -> usize {
+        match node.desc {
+            CodeDesc::Event { ref outputs, .. } => 1 + outputs.len(),
+            CodeDesc::Pure { ref outputs, .. } => outputs.len(),
+            CodeDesc::Flow {
+                outflows,
+                ref outputs,
+                ..
+            } => outflows + outputs.len(),
+        }
     }
 
     fn show_header(
@@ -405,6 +448,9 @@ impl SnarlViewer<CodeNode> for CodeViewer {
         let node = &snarl[node];
 
         match node.desc {
+            CodeDesc::Event { .. } => {
+                ui.label(node.name.to_string());
+            }
             CodeDesc::Pure { .. } => {
                 ui.label(node.name.to_string());
             }
@@ -424,6 +470,7 @@ impl SnarlViewer<CodeNode> for CodeViewer {
         let node = &snarl[pin.id.node];
 
         match node.desc {
+            CodeDesc::Event { .. } => unreachable!(),
             CodeDesc::Pure { ref inputs, .. } => {
                 let input = inputs[pin.id.input];
                 PinInfo::square().with_fill(hue_hash(&input))
@@ -453,6 +500,14 @@ impl SnarlViewer<CodeNode> for CodeViewer {
         let node = &snarl[pin.id.node];
 
         match node.desc {
+            CodeDesc::Event { ref outputs, .. } => {
+                if pin.id.output == 0 {
+                    flow_pin()
+                } else {
+                    let output = outputs[pin.id.output - 1];
+                    PinInfo::square().with_fill(hue_hash(&output))
+                }
+            }
             CodeDesc::Pure { ref outputs, .. } => {
                 let output = outputs[pin.id.output];
                 PinInfo::square().with_fill(hue_hash(&output))
@@ -486,4 +541,48 @@ fn flow_pin() -> PinInfo {
     PinInfo::default().with_shape(PinShape::Custom(CustomPinShape::new(
         |painter, rect, _, _| draw_flow_pin(painter, rect),
     )))
+}
+
+pub struct Codes {
+    selected: Option<CodeId>,
+}
+
+impl Codes {
+    pub fn show(world: &WorldLocal, ui: &mut Ui) {
+        let mut codes = world.expect_resource_mut::<Codes>();
+        let mut data = world.expect_resource_mut::<ProjectData>();
+
+        let mut cbox = egui::ComboBox::from_id_source("selected-code");
+        if let Some(selected) = codes.selected {
+            if let Some(code) = data.codes.get(&selected) {
+                cbox = cbox.selected_text(code.name.to_string());
+            } else {
+                codes.selected = None;
+            }
+        }
+
+        ui.vertical(|ui| {
+            cbox.show_ui(ui, |ui| {
+                for (&id, code) in data.codes.iter() {
+                    let r = ui.selectable_label(Some(id) == codes.selected, code.name.to_string());
+
+                    if r.clicked_by(PointerButton::Primary) {
+                        codes.selected = Some(id);
+                        ui.close_menu();
+                    }
+                }
+            });
+
+            let Some(id) = codes.selected else {
+                return;
+            };
+
+            let Some(code) = data.codes.get_mut(&id) else {
+                return;
+            };
+
+            code.snarl
+                .show(&mut CodeViewer, &SnarlStyle::default(), "code-viwer", ui);
+        });
+    }
 }

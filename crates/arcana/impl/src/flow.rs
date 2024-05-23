@@ -108,6 +108,7 @@ impl Timers {
 }
 
 pub fn init_flows(world: &mut World) {
+    Flows::init(world);
     world.insert_resource(Timers::new());
 }
 
