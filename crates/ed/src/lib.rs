@@ -78,9 +78,6 @@ fn _run(path: &Path) -> miette::Result<()> {
     // Marks the running instance of Arcana library.
     // This flag is checked in plugins to ensure they are linked to this arcana.
     arcana::plugin::GLOBAL_LINK_CHECK.store(true, std::sync::atomic::Ordering::SeqCst);
-    unsafe {
-        arcana::code::RUN_CODE_AFTER_FN = crate::code::run_code_after;
-    }
 
     // `path` is `<project-dir>/crates/ed`
     let mut path = path.to_owned();

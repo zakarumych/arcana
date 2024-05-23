@@ -2,7 +2,7 @@
 
 use std::{any::Any, future::Future, marker::PhantomData, pin::Pin};
 
-use edict::{flow::FlowEntity, Component, EntityId, World};
+use edict::{flow::FlowEntity, Component};
 use hashbrown::HashMap;
 
 use crate::{
@@ -197,23 +197,6 @@ fn foo() {
             outputs: vec![]
         }
     );
-}
-
-// This is horrible, burn it with fire.
-#[doc(hidden)]
-pub static mut RUN_CODE_AFTER_FN: fn(entity: EntityId, outflow: OutputId, world: &World) =
-    |_, _, _| {};
-
-pub fn run_code_after(entity: EntityId, outflow: OutputId, world: &World) {
-    unsafe {
-        RUN_CODE_AFTER_FN(entity, outflow, world);
-    }
-}
-
-pub fn trigger(entity: EntityId, outflow: OutputId, world: &World) {
-    unsafe {
-        RUN_CODE_AFTER_FN(entity, outflow, world);
-    }
 }
 
 /// Predefined code events.

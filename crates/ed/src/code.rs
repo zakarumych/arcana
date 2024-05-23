@@ -246,13 +246,11 @@ fn execute_flow(
                 Continuation::Continue(output) => Some(output),
                 Continuation::Await(future) => {
                     let node = pin.node.0;
-                    // spawn_block!(for entity -> {
-                    //     let outflow = OutputId {
-                    //         node,
-                    //         output: future.await
-                    //     };
-                    //     run_code_after(entity.id(), outflow, &entity.world());
-                    // });
+
+                    spawn_block!(for entity -> {
+                        let output = future.await;
+                    });
+
                     None
                 }
             }
@@ -262,6 +260,26 @@ fn execute_flow(
             return None;
         }
     }
+}
+
+pub struct CodeAfter {
+    entity: EntityId,
+    code: CodeId,
+    outflow: OutPinId,
+}
+
+struct Schedule {
+    queue: Vec<CodeAfter>,
+}
+
+pub fn enque_code_after(entity: EntityId, world: &World, code: CodeId, outflow: OutPinId) {
+    let mut schedule = world.expect_resource_mut::<Schedule>();
+
+    schedule.queue.push(CodeAfter {
+        entity,
+        code,
+        outflow,
+    });
 }
 
 /// Execute code after specific outflow.

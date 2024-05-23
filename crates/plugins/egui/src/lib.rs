@@ -1,11 +1,13 @@
-use std::{mem::size_of_val, sync::OnceLock};
+use std::{
+    mem::{offset_of, size_of_val},
+    sync::OnceLock,
+};
 
 use arcana::{
     bytemuck,
     gametime::TimeStamp,
     input::InputFilter,
     mev::{self, Arguments, DeviceRepr},
-    offset_of,
     render::{Render, RenderBuilderContext, RenderContext, RenderError, RenderGraph, TargetId},
     texture::Texture,
     Blink, Component, EntityId, World,
@@ -498,17 +500,17 @@ impl Render for EguiRender {
                                     vertex_attributes: vec![
                                         mev::VertexAttributeDesc {
                                             format: mev::VertexFormat::Float32x2,
-                                            offset: offset_of!(Vertex.pos) as u32,
+                                            offset: offset_of!(Vertex, pos) as u32,
                                             buffer_index: 0,
                                         },
                                         mev::VertexAttributeDesc {
                                             format: mev::VertexFormat::Float32x2,
-                                            offset: offset_of!(Vertex.uv) as u32,
+                                            offset: offset_of!(Vertex, uv) as u32,
                                             buffer_index: 0,
                                         },
                                         mev::VertexAttributeDesc {
                                             format: mev::VertexFormat::Unorm8x4,
-                                            offset: offset_of!(Vertex.color) as u32,
+                                            offset: offset_of!(Vertex, color) as u32,
                                             buffer_index: 0,
                                         },
                                     ],
@@ -547,17 +549,17 @@ impl Render for EguiRender {
                                     vertex_attributes: vec![
                                         mev::VertexAttributeDesc {
                                             format: mev::VertexFormat::Float32x2,
-                                            offset: offset_of!(Vertex.pos) as u32,
+                                            offset: offset_of!(Vertex, pos) as u32,
                                             buffer_index: 0,
                                         },
                                         mev::VertexAttributeDesc {
                                             format: mev::VertexFormat::Float32x2,
-                                            offset: offset_of!(Vertex.uv) as u32,
+                                            offset: offset_of!(Vertex, uv) as u32,
                                             buffer_index: 0,
                                         },
                                         mev::VertexAttributeDesc {
                                             format: mev::VertexFormat::Unorm8x4,
-                                            offset: offset_of!(Vertex.color) as u32,
+                                            offset: offset_of!(Vertex, color) as u32,
                                             buffer_index: 0,
                                         },
                                     ],
