@@ -89,12 +89,14 @@ impl OutputCache {
 /// Its execution may occur at any point or not occur at all.
 pub type PureCode = fn(entity: FlowEntity, inputs: &[Input], outputs: &mut [Output]);
 
+pub type Await = Pin<Box<dyn Future<Output = usize> + Send>>;
+
 pub enum Continuation {
     /// Continue execution with given output flow.
     Continue(usize),
 
     /// Continue execution with given output flow when given future resolves.
-    Await(Pin<Box<dyn Future<Output = usize> + Send>>),
+    Await(Await),
 }
 
 /// Type of code function.
@@ -185,6 +187,62 @@ macro_rules! into_pure_code {
 }
 
 for_tuple_2x!(into_pure_code);
+
+pub trait IntoFlowCode<I, O> {
+    fn into_flow_code(self) -> (CodeDesc, FlowCode);
+}
+
+macro_rules! into_flow_code {
+    ($($a:ident)*, $($b:ident)*) => {
+        impl<F $(,$b)* $(,$a)*> IntoFlowCode<($($a,)*), ($($b,)*)> for F
+        where
+            F: Fn(FlowEntity, $($a,)*) -> ($($b,)*) + Copy,
+            $($a: WithStid + Clone,)*
+            $($b: WithStid,)*
+        {
+            fn into_flow_code(self) -> (CodeDesc, FlowCode) {
+                #![allow(unused, non_snake_case)]
+
+                const {
+                    if ::core::mem::size_of::<F>() != 0 {
+                        panic!("Code function must be zero-sized")
+                    }
+                }
+
+                let desc = CodeDesc::Pure {
+                    inputs: vec![$(<$a as WithStid>::stid(),)*],
+                    outputs: vec![$(<$b as WithStid>::stid(),)*],
+                };
+
+                let code = |_: InputId, entity: FlowEntity, inputs: &[Input], outputs: &mut [Output]| {
+                    let f: F = unsafe {
+                        core::mem::MaybeUninit::<F>::uninit().assume_init()
+                    };
+
+                    let mut idx = 0;
+                    $(
+                        let $a: $a = inputs[idx].get::<$a>().clone();
+                        idx += 1;
+                    )*
+
+                    let ($($b,)*) = f(entity, $($a,)*);
+
+                    let mut idx = 0;
+                    $(
+                        outputs[idx].set($b);
+                        idx += 1;
+                    )*
+
+                    Continuation::Continue(0)
+                };
+
+                (desc, code)
+            }
+        }
+    };
+}
+
+for_tuple_2x!(into_flow_code);
 
 #[test]
 fn foo() {

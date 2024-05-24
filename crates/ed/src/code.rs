@@ -1,6 +1,6 @@
 //! This module UI to generate flows.
 
-use std::ops::Range;
+use std::{collections::VecDeque, ops::Range};
 
 use arcana::{
     code::{CodeDesc, CodeId, Continuation, FlowCode, InputId, OutputCache, OutputId, PureCode},
@@ -159,7 +159,7 @@ fn execute_flow(
     cache: &mut OutputCache,
     get_pure_code: &HashMap<CodeId, PureCode>,
     get_flow_code: &HashMap<CodeId, FlowCode>,
-) -> Option<usize> {
+) -> Option<Continuation> {
     let Some(code_node) = snarl.get_node(pin.node) else {
         tracing::error!("Pure node {:?} was not found", pin.node);
         return None;
@@ -242,22 +242,11 @@ fn execute_flow(
                 )
             }
 
-            match continuation {
-                Continuation::Continue(output) => Some(output),
-                Continuation::Await(future) => {
-                    let node = pin.node.0;
-
-                    spawn_block!(for entity -> {
-                        let output = future.await;
-                    });
-
-                    None
-                }
-            }
+            Some(continuation)
         }
         _ => {
             tracing::error!("Node {:?} is not flow", pin.node);
-            return None;
+            None
         }
     }
 }
@@ -268,14 +257,14 @@ pub struct CodeAfter {
     outflow: OutPinId,
 }
 
-struct Schedule {
+struct CodeAfterSchedule {
     queue: Vec<CodeAfter>,
 }
 
-pub fn enque_code_after(entity: EntityId, world: &World, code: CodeId, outflow: OutPinId) {
-    let mut schedule = world.expect_resource_mut::<Schedule>();
+pub fn enque_code_after(entity: EntityId, code: CodeId, outflow: OutPinId, world: &World) {
+    let mut code_after_schedule = world.expect_resource_mut::<CodeAfterSchedule>();
 
-    schedule.queue.push(CodeAfter {
+    code_after_schedule.queue.push(CodeAfter {
         entity,
         code,
         outflow,
@@ -286,6 +275,7 @@ pub fn enque_code_after(entity: EntityId, world: &World, code: CodeId, outflow: 
 fn execute_code_after(
     mut entity: FlowEntity,
     mut outflow: OutPinId,
+    code: CodeId,
     snarl: &Snarl<CodeNode>,
     cache: &mut OutputCache,
     get_pure_code: &HashMap<CodeId, PureCode>,
@@ -325,12 +315,12 @@ fn execute_code_after(
 
         if outpin.remotes.is_empty() {
             // Leaf pin.
-            break;
+            return;
         }
 
         let inflow = outpin.remotes[0];
 
-        let next = execute_flow(
+        let continuation = execute_flow(
             entity.reborrow(),
             inflow,
             snarl,
@@ -339,18 +329,69 @@ fn execute_code_after(
             get_flow_code,
         );
 
-        match next {
-            None => break,
-            Some(output) => {
+        match continuation {
+            Some(Continuation::Continue(output)) => {
                 outflow = OutPinId {
                     node: inflow.node,
                     output,
                 };
             }
+            Some(Continuation::Await(fut)) => {
+                let node = inflow.node;
+                spawn_block!(for entity -> {
+                    let outflow = OutPinId { node, output: fut.await };
+                    enque_code_after(entity.id(), code, outflow, &entity.world());
+                });
+            }
+            None => return,
         }
     }
 }
 
+/// Run scheduled [`CodeAfter`]
+fn run_code_after(
+    world: &mut World,
+    queue: &mut VecDeque<CodeAfter>,
+    codes: &HashMap<CodeId, Snarl<CodeNode>>,
+    pure: &HashMap<CodeId, PureCode>,
+    flow: &HashMap<CodeId, FlowCode>,
+    cache: &mut HashMap<EntityId, OutputCache>,
+) {
+    queue.extend(
+        world
+            .expect_resource_mut::<CodeAfterSchedule>()
+            .queue
+            .drain(..),
+    );
+
+    let guard = edict::tls::Guard::new(world);
+
+    while let Some(code_after) = queue.pop_front() {
+        let Ok(entity) = guard.entity(code_after.entity) else {
+            continue;
+        };
+
+        let Some(snarl) = codes.get(&code_after.code) else {
+            continue;
+        };
+
+        let cache = cache
+            .entry(code_after.entity)
+            .or_insert_with(OutputCache::new);
+
+        execute_code_after(
+            entity,
+            code_after.outflow,
+            code_after.code,
+            snarl,
+            cache,
+            pure,
+            flow,
+        )
+    }
+}
+
+/// Run event code of the entity.
 pub fn on_code_event(
     entity: EntityId,
     event: EventId,
@@ -386,34 +427,13 @@ pub fn on_code_event(
 
     let guard = edict::tls::Guard::new(world);
 
-    let Ok(entity) = guard.entity(entity) else {
+    let Ok(mut entity) = guard.entity(entity) else {
         return;
     };
 
-    execute_code_after(
-        entity,
-        OutPinId { node, output: 0 },
-        snarl,
-        cache,
-        &pure,
-        &flow,
-    );
-}
+    let outflow = OutPinId { node, output: 0 };
 
-struct RunCodeAfterQueue {
-    queue: Vec<(EntityId, OutPinId)>,
-}
-
-pub(crate) fn run_code_after(entity: EntityId, outflow: OutputId, world: &World) {
-    let outflow = OutPinId {
-        node: NodeId(outflow.node),
-        output: outflow.output,
-    };
-
-    world
-        .expect_resource_mut::<RunCodeAfterQueue>()
-        .queue
-        .push((entity, outflow));
+    execute_code_after(entity.reborrow(), outflow, id, snarl, cache, &pure, &flow)
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
