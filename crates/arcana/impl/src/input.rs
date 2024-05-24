@@ -313,13 +313,13 @@ where
     }
 }
 
-pub struct EventFunnel {
+pub struct InputFunnel {
     pub filters: Vec<Box<dyn InputFilter>>,
 }
 
-impl EventFunnel {
+impl InputFunnel {
     pub const fn new() -> Self {
-        EventFunnel {
+        InputFunnel {
             filters: Vec::new(),
         }
     }
@@ -348,8 +348,8 @@ impl EventFunnel {
     }
 }
 
-/// Allow composing `EventFunnel` into super-funnels.
-impl InputFilter for EventFunnel {
+/// Allow composing `InputFunnel` into super-funnels.
+impl InputFilter for InputFunnel {
     #[inline(always)]
     fn filter(&mut self, blink: &Blink, world: &mut World, event: &Input) -> bool {
         self.filter(blink, world, event)

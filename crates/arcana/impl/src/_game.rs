@@ -21,7 +21,7 @@ use winit::{
 };
 
 use crate::{
-    events::{Event, EventFunnel, InputFilter},
+    events::{Event, InputFilter, InputFunnel},
     flow::{init_flows, wake_flows},
     plugin::{ArcanaPlugin, PluginsHub},
     render::{render_system, RenderGraph, RenderState},
