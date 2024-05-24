@@ -81,7 +81,7 @@ Main components of the engine are:
   to reduce amount of work to perform on every frame.
 
 ### Components diagram
-![Engine](engine_2.svg)
+![Engine](engine.svg)
 
 [`Plugins`]: .
 [`InputFunnel`]: .
