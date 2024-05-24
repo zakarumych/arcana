@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{fmt, sync::Arc};
 
 use core_graphics_types::{base::CGFloat, geometry::CGRect};
 use foreign_types::ForeignType;
@@ -11,24 +11,25 @@ use objc::{
 };
 
 use raw_window_handle::{
-    HasRawDisplayHandle, HasRawWindowHandle, RawDisplayHandle, RawWindowHandle,
+    HasDisplayHandle, HasRawDisplayHandle, HasRawWindowHandle, HasWindowHandle, RawDisplayHandle,
+    RawWindowHandle,
 };
 
 use crate::{
     generic::{
-        parse_shader, BufferDesc, BufferInitDesc, CreateLibraryError, CreatePipelineError,
-        ImageDesc, ImageDimensions, LibraryDesc, LibraryInput, Memory, OutOfMemory,
-        RenderPipelineDesc, SamplerDesc, ShaderCompileError, ShaderLanguage, SurfaceError,
-        VertexStepMode,
+        parse_shader, ArgumentKind, BlasDesc, BufferDesc, BufferInitDesc, ComputePipelineDesc,
+        CreateLibraryError, CreatePipelineError, ImageDesc, ImageExtent, LibraryDesc, LibraryInput,
+        Memory, OutOfMemory, RenderPipelineDesc, SamplerDesc, ShaderCompileError, ShaderLanguage,
+        SurfaceError, TlasDesc, VertexStepMode,
     },
-    ArgumentKind,
+    Extent3,
 };
 
 use super::{
     from::{IntoMetal, TryIntoMetal},
-    shader::Bindings,
-    Buffer, CreatePipelineErrorKind, Image, Library, RenderPipeline, Sampler, Surface,
-    MAX_VERTEX_BUFFERS,
+    shader::{Bindings, EntryPointData},
+    Blas, Buffer, ComputePipeline, CreatePipelineErrorKind, Image, Library, RenderPipeline,
+    Sampler, Surface, Tlas, MAX_VERTEX_BUFFERS,
 };
 
 #[derive(Clone)]
@@ -38,6 +39,22 @@ pub struct Device {
 
 unsafe impl Sync for Device {}
 unsafe impl Send for Device {}
+
+impl fmt::Debug for Device {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("Device")
+            .field(&self.device.as_ptr())
+            .finish()
+    }
+}
+
+impl PartialEq for Device {
+    fn eq(&self, other: &Self) -> bool {
+        self.device.as_ptr() == other.device.as_ptr()
+    }
+}
+
+impl Eq for Device {}
 
 impl Device {
     pub(super) fn new(device: metal::Device) -> Self {
@@ -76,9 +93,9 @@ impl crate::traits::Device for Device {
                             .new_library_with_source(&compiled.code, &options)
                             .unwrap();
 
-                        Ok(Library::with_per_entry_point_bindings(
+                        Ok(Library::with_entry_point_data(
                             library,
-                            compiled.per_entry_point_bindings,
+                            compiled.entry_point_data,
                         ))
                     }
                 }
@@ -86,11 +103,41 @@ impl crate::traits::Device for Device {
         }
     }
 
+    fn new_compute_pipeline(
+        &self,
+        desc: ComputePipelineDesc,
+    ) -> Result<ComputePipeline, CreatePipelineError> {
+        let mdesc = metal::ComputePipelineDescriptor::new();
+        mdesc.set_label(desc.name);
+
+        let compute_function = desc
+            .shader
+            .library
+            .get_function(&desc.shader.entry)
+            .ok_or_else(|| CreatePipelineError(CreatePipelineErrorKind::InvalidShaderEntry))?;
+
+        mdesc.set_compute_function(Some(&compute_function));
+
+        let pipeline = self
+            .device
+            .new_compute_pipeline_state(&mdesc)
+            .map_err(|err| {
+                CreatePipelineError(CreatePipelineErrorKind::FailedToBuildPipeline(err))
+            })?;
+
+        Ok(ComputePipeline::new(
+            pipeline,
+            desc.shader.library.get_bindings(&desc.shader.entry),
+            desc.shader.library.get_workgroup_size(&desc.shader.entry),
+        ))
+    }
+
     fn new_render_pipeline(
         &self,
         desc: RenderPipelineDesc,
     ) -> Result<RenderPipeline, CreatePipelineError> {
         let mdesc = metal::RenderPipelineDescriptor::new();
+        mdesc.set_label(desc.name);
 
         let vertex_function = desc
             .vertex_shader
@@ -270,76 +317,96 @@ impl crate::traits::Device for Device {
     }
 
     fn new_image(&self, desc: ImageDesc) -> Result<Image, OutOfMemory> {
-        let texture_descriptor = metal::TextureDescriptor::new();
-        texture_descriptor.set_pixel_format(desc.format.try_into_metal().unwrap());
+        let mdesc = metal::TextureDescriptor::new();
+        mdesc.set_pixel_format(desc.format.try_into_metal().unwrap());
         match desc.dimensions {
-            ImageDimensions::D1(size) => {
-                texture_descriptor.set_texture_type(metal::MTLTextureType::D1);
-                texture_descriptor.set_width(size as _);
+            ImageExtent::D1(extent) => {
+                mdesc.set_texture_type(metal::MTLTextureType::D1);
+                mdesc.set_width(extent.width() as _);
             }
-            ImageDimensions::D2(width, height) => {
-                texture_descriptor.set_texture_type(metal::MTLTextureType::D2);
-                texture_descriptor.set_width(width as _);
-                texture_descriptor.set_height(height as _);
+            ImageExtent::D2(extent) => {
+                mdesc.set_texture_type(metal::MTLTextureType::D2);
+                mdesc.set_width(extent.width() as _);
+                mdesc.set_height(extent.height() as _);
             }
-            ImageDimensions::D3(width, height, depth) => {
-                texture_descriptor.set_texture_type(metal::MTLTextureType::D3);
-                texture_descriptor.set_width(width as _);
-                texture_descriptor.set_height(height as _);
-                texture_descriptor.set_depth(depth as _);
+            ImageExtent::D3(extent) => {
+                mdesc.set_texture_type(metal::MTLTextureType::D3);
+                mdesc.set_width(extent.width() as _);
+                mdesc.set_height(extent.height() as _);
+                mdesc.set_depth(extent.depth() as _);
             }
         }
-        texture_descriptor.set_mipmap_level_count(desc.levels as _);
-        texture_descriptor.set_array_length(desc.layers as _);
-        texture_descriptor.set_sample_count(1);
-        texture_descriptor.set_usage(desc.usage.into_metal());
-        texture_descriptor.set_storage_mode(metal::MTLStorageMode::Private);
+        mdesc.set_mipmap_level_count(desc.levels as _);
+        mdesc.set_array_length(desc.layers as _);
+        mdesc.set_sample_count(1);
+        mdesc.set_usage(desc.usage.into_metal());
+        mdesc.set_storage_mode(metal::MTLStorageMode::Private);
 
-        let texture = self.device.new_texture(&texture_descriptor);
+        let texture = self.device.new_texture(&mdesc);
         Ok(Image::new(texture))
     }
 
     fn new_sampler(&self, desc: SamplerDesc) -> Result<Sampler, OutOfMemory> {
-        let sdesc = SamplerDescriptor::new();
-        sdesc.set_min_filter(desc.min_filter.into_metal());
-        sdesc.set_mag_filter(desc.mag_filter.into_metal());
-        sdesc.set_mip_filter(desc.mip_map_mode.into_metal());
-        sdesc.set_address_mode_s(desc.address_mode[0].into_metal());
-        sdesc.set_address_mode_t(desc.address_mode[1].into_metal());
-        sdesc.set_address_mode_r(desc.address_mode[2].into_metal());
+        let mdesc = SamplerDescriptor::new();
+        mdesc.set_min_filter(desc.min_filter.into_metal());
+        mdesc.set_mag_filter(desc.mag_filter.into_metal());
+        mdesc.set_mip_filter(desc.mip_map_mode.into_metal());
+        mdesc.set_address_mode_s(desc.address_mode[0].into_metal());
+        mdesc.set_address_mode_t(desc.address_mode[1].into_metal());
+        mdesc.set_address_mode_r(desc.address_mode[2].into_metal());
         if let Some(anisotropy) = desc.anisotropy {
-            sdesc.set_max_anisotropy((anisotropy as NSUInteger).clamp(1, 16));
+            mdesc.set_max_anisotropy((anisotropy as NSUInteger).clamp(1, 16));
         }
-        sdesc.set_lod_min_clamp(desc.min_lod);
-        sdesc.set_lod_max_clamp(desc.max_lod);
-        sdesc.set_normalized_coordinates(desc.normalized);
-        let state = self.device.new_sampler(&sdesc);
+        mdesc.set_lod_min_clamp(desc.min_lod);
+        mdesc.set_lod_max_clamp(desc.max_lod);
+        mdesc.set_normalized_coordinates(desc.normalized);
+        let state = self.device.new_sampler(&mdesc);
         Ok(Sampler::new(state))
     }
 
     fn new_surface(
         &self,
-        window: &impl HasRawWindowHandle,
-        display: &impl HasRawDisplayHandle,
+        window: &impl HasWindowHandle,
+        display: &impl HasDisplayHandle,
     ) -> Result<Surface, SurfaceError> {
-        let window = window.raw_window_handle();
-        let display = display.raw_display_handle();
-        match (window, display) {
+        let window = window
+            .window_handle()
+            .map_err(|_| SurfaceError::SurfaceLost)?;
+        let display = display
+            .display_handle()
+            .map_err(|_| SurfaceError::SurfaceLost)?;
+        match (window.as_raw(), display.as_raw()) {
             (RawWindowHandle::UiKit(handle), RawDisplayHandle::UiKit(_)) => unsafe {
-                let layer = layer_from_view(handle.ui_view.cast());
+                let layer = layer_from_view(handle.ui_view.cast().as_ptr());
                 layer.set_device(&self.device);
                 Ok(Surface::new(layer, std::ptr::null_mut()))
             },
             (RawWindowHandle::AppKit(handle), RawDisplayHandle::AppKit(_)) => unsafe {
-                let layer = layer_from_view(handle.ns_view.cast());
+                let layer = layer_from_view(handle.ns_view.cast().as_ptr());
                 layer.set_device(&self.device);
-                Ok(Surface::new(layer, handle.ns_view.cast()))
+                Ok(Surface::new(layer, handle.ns_view.cast().as_ptr()))
             },
             (RawWindowHandle::UiKit(_), _) | (RawWindowHandle::AppKit(_), _) => {
                 panic!("Mismatched window and display type")
             }
             _ => unreachable!("Unsupported window type for the metal backend"),
         }
+    }
+
+    fn new_blas(&self, desc: BlasDesc) -> Result<Blas, OutOfMemory> {
+        let Ok(size) = u64::try_from(desc.size) else {
+            return Err(OutOfMemory);
+        };
+        let blas = self.device.new_acceleration_structure_with_size(size);
+        Ok(Blas::new(blas))
+    }
+
+    fn new_tlas(&self, desc: TlasDesc) -> Result<Tlas, OutOfMemory> {
+        let Ok(size) = u64::try_from(desc.size) else {
+            return Err(OutOfMemory);
+        };
+        let tlas = self.device.new_acceleration_structure_with_size(size);
+        Ok(Tlas::new(tlas))
     }
 }
 
@@ -386,7 +453,7 @@ extern "C" {
 
 struct CompiledMetalShader {
     code: String,
-    per_entry_point_bindings: HashMap<String, Arc<Bindings>>,
+    entry_point_data: HashMap<String, EntryPointData>,
 }
 
 fn compile_shader(
@@ -406,7 +473,8 @@ fn compile_shader(
         zero_initialize_workgroup_memory: false,
     };
 
-    let mut per_entry_point_bindings = HashMap::new();
+    let mut entry_point_data = HashMap::new();
+
     for (i, entry) in module.entry_points.iter().enumerate() {
         let mut bindings = Bindings::new();
         let mut map = naga::back::msl::EntryPointResources::default();
@@ -503,8 +571,16 @@ fn compile_shader(
             }
         }
 
-        per_entry_point_bindings.insert(entry.name.clone(), Arc::new(bindings));
         options.per_entry_point_map.insert(entry.name.clone(), map);
+
+        entry_point_data.insert(
+            entry.name.clone(),
+            EntryPointData {
+                bindings: Arc::new(bindings),
+                workgroup_size: entry.workgroup_size,
+                name: Ok(String::new()),
+            },
+        );
     }
 
     let (code, translation) = naga::back::msl::write_string(
@@ -517,11 +593,16 @@ fn compile_shader(
     )
     .map_err(ShaderCompileError::GenMsl)?;
 
-    eprintln!("{}", code);
-    eprintln!("{:?}", translation.entry_point_names);
+    // eprintln!("{}", code);
+    // eprintln!("{:?}", translation.entry_point_names);
+
+    for (i, entry) in module.entry_points.iter().enumerate() {
+        entry_point_data.get_mut(&entry.name).unwrap().name =
+            translation.entry_point_names[i].clone();
+    }
 
     Ok(CompiledMetalShader {
         code,
-        per_entry_point_bindings,
+        entry_point_data,
     })
 }

@@ -5,7 +5,7 @@ authors.workspace = true
 readme.workspace = true
 license.workspace = true
 version.workspace = true
-description = "MEtal + Vulkan abstraction"
+description = "Metal Et Vulkan abstraction"
 
 [features]
 handle-device-lost = [] # Enable to handle device lost errors.
@@ -13,25 +13,25 @@ handle-device-lost = [] # Enable to handle device lost errors.
 [dependencies]
 mev-proc = { path = "proc" }
 
-bitflags = { workspace = true }
-bytemuck = { workspace = true }
-codespan-reporting = { workspace = true }
-hashbrown = { workspace = true }
-hidden-trait = { workspace = true }
-parking_lot = { workspace = true }
-raw-window-handle = { workspace = true }
-slab = { workspace = true }
-smallvec = { workspace = true }
-tracing = { workspace = true }
+bitflags.workspace = true
+bytemuck.workspace = true
+codespan-reporting.workspace = true
+hashbrown.workspace = true
+hidden-trait.workspace = true
+parking_lot.workspace = true
+raw-window-handle.workspace = true
+slab.workspace = true
+smallvec.workspace = true
+tracing.workspace = true
 
 [target.'cfg(any(windows, all(unix, not(any(target_os = "macos", target_os = "ios")))))'.dependencies]
-ash = { workspace = true }
-gpu-alloc = { workspace = true }
+ash.workspace = true
+gpu-alloc.workspace = true
 naga = { workspace = true, features = ["spv-out"] }
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
-metal = { workspace = true }
-objc = { workspace = true }
-core-graphics-types = { workspace = true }
-foreign-types = { workspace = true }
+metal.workspace = true
+objc.workspace = true
+core-graphics-types.workspace = true
+foreign-types.workspace = true
 naga = { workspace = true, features = ["msl-out"] }

@@ -5,30 +5,74 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
-pub fn normalizing_join(mut base: PathBuf, path: &Path) -> Option<PathBuf> {
-    let mut comps = path.components();
-    while let Some(comp) = comps.next() {
+fn normalized_extend(result: &mut PathBuf, components: std::path::Components) -> bool {
+    let mut too_many_parent_dirs = false;
+
+    for comp in components {
         match comp {
             Component::Normal(name) => {
-                base.push(name);
+                result.push(name);
             }
-            Component::Prefix(_) | Component::RootDir => {
-                base.clear();
-                base.push(comp);
-                for comp in comps {
-                    base.push(comp);
+            Component::CurDir => {
+                let prefix_only = result
+                    .components()
+                    .any(|c| !matches!(c, Component::Prefix(_)));
+
+                if prefix_only {
+                    result.push(Component::CurDir);
                 }
-                return Some(base);
             }
-            Component::CurDir => {}
             Component::ParentDir => {
-                if base.pop() {
-                    return None;
+                while result.ends_with(Component::CurDir) {
+                    result.pop();
                 }
+
+                if result.ends_with(Component::ParentDir) {
+                    result.push(Component::ParentDir);
+                } else if !result.pop() {
+                    if result.ends_with(Component::RootDir) {
+                        too_many_parent_dirs = true;
+                    } else {
+                        result.push(Component::ParentDir);
+                    }
+                }
+            }
+            Component::RootDir => {
+                too_many_parent_dirs = false;
+
+                let tmp = std::mem::take(result);
+
+                match tmp.components().next() {
+                    Some(Component::Prefix(prefix)) => {
+                        result.clear();
+                        result.push(Component::Prefix(prefix));
+                    }
+                    _ => {}
+                }
+
+                result.push(Component::RootDir);
+            }
+            Component::Prefix(prefix) => {
+                too_many_parent_dirs = false;
+                result.clear();
+                result.push(Component::Prefix(prefix));
             }
         }
     }
-    Some(base)
+
+    !too_many_parent_dirs
+}
+
+pub fn normalized_path(path: &Path) -> Option<PathBuf> {
+    normalizing_join(PathBuf::new(), path)
+}
+
+pub fn normalizing_join(mut base: PathBuf, path: &Path) -> Option<PathBuf> {
+    if normalized_extend(&mut base, path.components()) {
+        Some(base)
+    } else {
+        None
+    }
 }
 
 /// Returns absolute resolved path.
@@ -50,6 +94,10 @@ pub fn real_path(path: &Path) -> Option<PathBuf> {
     }
 
     let cd = std::env::current_dir().ok()?;
+    if !cd.is_absolute() {
+        return None;
+    }
+
     let path = normalizing_join(cd, path)?;
 
     // Current directory was canonicalized
@@ -95,12 +143,18 @@ pub fn make_relative(path: &Path, base: &Path) -> PathBuf {
                     return path.to_owned();
                 }
             }
-            (Some(Component::Prefix(_)), _) | (_, Some(Component::Prefix(_))) => {
+            (Some(Component::Prefix(_)), _) => {
                 return path.to_owned();
             }
+            (_, Some(Component::Prefix(_))) => {
+                panic!("Path must be absolute if base is absolute");
+            }
             (Some(Component::RootDir), Some(Component::RootDir)) => {}
-            (Some(Component::RootDir), _) | (_, Some(Component::RootDir)) => {
+            (Some(Component::RootDir), _) => {
                 return path.to_owned();
+            }
+            (_, Some(Component::RootDir)) => {
+                panic!("Path must be absolute if base is absolute");
             }
             (Some(path_component), Some(base_component)) => {
                 if path_component != base_component {

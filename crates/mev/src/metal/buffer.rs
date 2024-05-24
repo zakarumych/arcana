@@ -1,8 +1,16 @@
+use std::{
+    fmt,
+    hash::{Hash, Hasher},
+};
+
+use foreign_types::ForeignType;
+
 use crate::generic::{ArgumentKind, Automatic, Storage, Uniform};
 
 use super::{arguments::ArgumentsField, out_of_bounds};
 
 #[derive(Clone)]
+#[repr(transparent)]
 pub struct Buffer {
     buffer: metal::Buffer,
 }
@@ -19,12 +27,36 @@ impl Buffer {
 
 unsafe impl Send for Buffer {}
 
+impl fmt::Debug for Buffer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Buffer")
+            .field("buffer", &self.buffer)
+            .finish()
+    }
+}
+
+impl Hash for Buffer {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.buffer.as_ptr().hash(state);
+    }
+}
+
+impl PartialEq for Buffer {
+    fn eq(&self, other: &Self) -> bool {
+        self.buffer.as_ptr() == other.buffer.as_ptr()
+    }
+}
+
+impl Eq for Buffer {}
+
 #[hidden_trait::expose]
 impl crate::traits::Buffer for Buffer {
+    #[inline(always)]
     fn size(&self) -> usize {
         self.buffer.length() as usize
     }
 
+    #[inline(always)]
     fn detached(&self) -> bool {
         use foreign_types::ForeignType;
         use metal::NSUInteger;
@@ -34,7 +66,7 @@ impl crate::traits::Buffer for Buffer {
         count == 1
     }
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     unsafe fn write_unchecked(&mut self, offset: usize, data: &[u8]) {
         let length = self.buffer.length();
         let fits = match (u64::try_from(offset), u64::try_from(data.len())) {
@@ -72,6 +104,11 @@ impl ArgumentsField<Automatic> for Buffer {
     fn bind_fragment(&self, slot: u32, encoder: &metal::RenderCommandEncoderRef) {
         encoder.set_fragment_buffer(slot.into(), Some(&self.buffer), 0)
     }
+
+    #[inline(always)]
+    fn bind_compute(&self, slot: u32, encoder: &metal::ComputeCommandEncoderRef) {
+        encoder.set_buffer(slot.into(), Some(&self.buffer), 0)
+    }
 }
 
 impl ArgumentsField<Uniform> for Buffer {
@@ -87,6 +124,11 @@ impl ArgumentsField<Uniform> for Buffer {
     fn bind_fragment(&self, slot: u32, encoder: &metal::RenderCommandEncoderRef) {
         encoder.set_fragment_buffer(slot.into(), Some(&self.buffer), 0)
     }
+
+    #[inline(always)]
+    fn bind_compute(&self, slot: u32, encoder: &metal::ComputeCommandEncoderRef) {
+        encoder.set_buffer(slot.into(), Some(&self.buffer), 0)
+    }
 }
 
 impl ArgumentsField<Storage> for Buffer {
@@ -101,5 +143,10 @@ impl ArgumentsField<Storage> for Buffer {
     #[inline(always)]
     fn bind_fragment(&self, slot: u32, encoder: &metal::RenderCommandEncoderRef) {
         encoder.set_fragment_buffer(slot.into(), Some(&self.buffer), 0)
+    }
+
+    #[inline(always)]
+    fn bind_compute(&self, slot: u32, encoder: &metal::ComputeCommandEncoderRef) {
+        encoder.set_buffer(slot.into(), Some(&self.buffer), 0)
     }
 }

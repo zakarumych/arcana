@@ -45,7 +45,7 @@ impl Pool {
             unsafe {
                 device.begin_command_buffer(
                     *cbuf,
-                    &vk::CommandBufferBeginInfo::builder()
+                    &vk::CommandBufferBeginInfo::default()
                         .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT),
                 )
             }
@@ -60,11 +60,10 @@ impl Pool {
         let result = unsafe {
             (device.fp_v1_0().allocate_command_buffers)(
                 device.handle(),
-                &vk::CommandBufferAllocateInfo::builder()
+                &vk::CommandBufferAllocateInfo::default()
                     .command_pool(self.pool)
                     .level(vk::CommandBufferLevel::PRIMARY)
-                    .command_buffer_count(1)
-                    .build(),
+                    .command_buffer_count(1),
                 &mut cbuf,
             )
         };
@@ -77,7 +76,7 @@ impl Pool {
         let result = unsafe {
             device.begin_command_buffer(
                 cbuf,
-                &vk::CommandBufferBeginInfo::builder()
+                &vk::CommandBufferBeginInfo::default()
                     .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT),
             )
         };
@@ -337,7 +336,7 @@ impl Queue {
             _ => {
                 let pool = unsafe {
                     device.create_command_pool(
-                        &vk::CommandPoolCreateInfo::builder()
+                        &vk::CommandPoolCreateInfo::default()
                             .flags(vk::CommandPoolCreateFlags::TRANSIENT),
                         None,
                     )
@@ -388,7 +387,7 @@ impl Queue {
             None => {
                 /// Create a new epoch fence.
                 let fence =
-                    unsafe { device.create_fence(&ash::vk::FenceCreateInfo::builder(), None) }
+                    unsafe { device.create_fence(&ash::vk::FenceCreateInfo::default(), None) }
                         .map_err(map_oom)?;
 
                 // Always inserts since this_epoch is None.
@@ -426,11 +425,7 @@ impl crate::traits::Queue for Queue {
         ))
     }
 
-    fn submit<I>(
-        &mut self,
-        command_buffers: I,
-        check_point: bool,
-    ) -> Result<(), DeviceError<Vec<CommandBuffer>>>
+    fn submit<I>(&mut self, command_buffers: I, check_point: bool) -> Result<(), DeviceError>
     where
         I: IntoIterator<Item = CommandBuffer>,
     {
@@ -452,10 +447,9 @@ impl crate::traits::Queue for Queue {
             device,
         ) {
             Ok(epoch) => epoch,
-            Err(DeviceError::OutOfMemory(())) => {
-                return Err(DeviceError::OutOfMemory(
-                    command_buffers.into_iter().collect(),
-                ));
+            Err(DeviceError::OutOfMemory) => {
+                self.drop_command_buffer(command_buffers);
+                return Err(DeviceError::OutOfMemory);
             }
             Err(DeviceError::DeviceLost) => return Err(DeviceError::DeviceLost),
         };
@@ -484,12 +478,11 @@ impl crate::traits::Queue for Queue {
         let result = unsafe {
             self.device.ash().queue_submit(
                 self.handle,
-                &[vk::SubmitInfo::builder()
+                &[vk::SubmitInfo::default()
                     .wait_semaphores(&self.wait_semaphores)
                     .wait_dst_stage_mask(&self.wait_stages)
                     .signal_semaphores(&self.present_semaphores)
-                    .command_buffers(&self.command_buffer_submit)
-                    .build()],
+                    .command_buffers(&self.command_buffer_submit)],
                 fence,
             )
         };
@@ -509,9 +502,15 @@ impl crate::traits::Queue for Queue {
                         handle_host_oom()
                     }
                     vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => {
-                        return Err(DeviceError::OutOfMemory(std::mem::take(
-                            &mut self.command_buffers,
-                        )));
+                        for mut cbuf in self.command_buffers.drain(..) {
+                            cbuf.refs.clear();
+                            self.free_refs.push(cbuf.refs);
+
+                            unsafe {
+                                deallocate_cbuf(cbuf.handle, cbuf.pool, &mut self.pools);
+                            }
+                        }
+                        return Err(DeviceError::OutOfMemory);
                     }
                     vk::Result::ERROR_DEVICE_LOST => {
                         self.command_buffers.clear();
@@ -539,7 +538,7 @@ impl crate::traits::Queue for Queue {
             let result = unsafe {
                 self.device.swapchain().queue_present(
                     self.handle,
-                    &vk::PresentInfoKHR::builder()
+                    &vk::PresentInfoKHR::default()
                         .wait_semaphores(&self.present_semaphores)
                         .swapchains(&self.present_swapchains)
                         .image_indices(&self.present_indices),
@@ -554,7 +553,7 @@ impl crate::traits::Queue for Queue {
                 }
                 Err(vk::Result::ERROR_OUT_OF_HOST_MEMORY) => handle_host_oom(),
                 Err(vk::Result::ERROR_OUT_OF_DEVICE_MEMORY) => {
-                    return Err(DeviceError::OutOfMemory(Vec::new()))
+                    return Err(DeviceError::OutOfMemory)
                 }
                 Err(vk::Result::ERROR_DEVICE_LOST) => return Err(DeviceError::DeviceLost),
                 Err(
@@ -585,5 +584,11 @@ impl crate::traits::Queue for Queue {
                 deallocate_cbuf(cbuf.handle, cbuf.pool, &mut self.pools);
             }
         }
+    }
+
+    fn sync_frame(&mut self, frame: &mut Frame, before: PipelineStages) {
+        assert!(!frame.synced);
+        self.add_wait(frame.acquire, before);
+        frame.synced = true;
     }
 }

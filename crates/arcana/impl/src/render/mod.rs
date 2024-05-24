@@ -1,5 +1,7 @@
 //! Defines rendering for the Airy engine.
 
+#![allow(unused)]
+
 mod render;
 mod target;
 
@@ -7,20 +9,15 @@ use std::{
     collections::VecDeque, fmt, marker::PhantomData, num::NonZeroU64, ops::Range, sync::Arc,
 };
 
-use base64::engine::general_purpose::NO_PAD;
 use blink_alloc::BlinkAlloc;
 use edict::{EntityId, State, World};
-use hashbrown::{
-    hash_map::{DefaultHashBuilder, Entry},
-    HashMap, HashSet,
-};
-use mev::PipelineStages;
+use hashbrown::{hash_map::DefaultHashBuilder, HashMap, HashSet};
+
 use parking_lot::Mutex;
-use winit::window::{Window, WindowId};
 
 // use crate::window::Windows;
 
-use crate::viewport::{self, Viewport};
+use crate::viewport::Viewport;
 
 use self::{render::RenderId, target::RenderTarget};
 
@@ -286,7 +283,7 @@ pub enum RenderError {
 }
 
 impl From<mev::OutOfMemory> for RenderError {
-    #[inline(never)]
+    #[inline(always)]
     fn from(err: mev::OutOfMemory) -> Self {
         RenderError::OutOfMemory(err)
     }
@@ -406,6 +403,7 @@ impl RenderNodeEdges {
 }
 
 struct RenderNode {
+    #[allow(unused)]
     name: Box<str>,
     render: Box<dyn Render>,
     edges: RenderNodeEdges,
@@ -533,7 +531,10 @@ pub fn render<'a>(
         };
 
         match viewport.next_frame(device, queue, rt.writes(0)) {
-            Ok((image, frame)) => {
+            Ok(None) => {
+                // Don't need to render to this target.
+            }
+            Ok(Some((image, frame))) => {
                 ctx.init_images.insert(tid.0);
                 ctx.images.insert(tid.0, image);
                 if let Some(frame) = frame {
@@ -548,24 +549,28 @@ pub fn render<'a>(
     }
 
     if let Some(tid) = graph.main_present {
-        if let Some(mut viewport) = world.get_resource_mut::<Viewport>() {
-            // Target must exist.
-            let rt = &graph.image_targets[&tid.0];
+        // Expect main viewport to exist.
+        let mut viewport = world.expect_resource_mut::<Viewport>();
 
-            match viewport.next_frame(device, queue, rt.writes(0)) {
-                Ok((image, frame)) => {
-                    ctx.init_images.insert(tid.0);
-                    ctx.images.insert(tid.0, image);
-                    if let Some(frame) = frame {
-                        frames.push((frame, rt.writes(tid.1) | rt.reads(tid.1)));
-                    }
-                    image_targets_to_update.push(tid);
-                }
-                Err(err) => {
-                    tracing::error!(?err);
-                }
+        // Target must exist.
+        let rt = &graph.image_targets[&tid.0];
+
+        match viewport.next_frame(device, queue, rt.writes(0)) {
+            Ok(None) => {
+                // Don't need to render to this target.
             }
-        };
+            Ok(Some((image, frame))) => {
+                ctx.init_images.insert(tid.0);
+                ctx.images.insert(tid.0, image);
+                if let Some(frame) = frame {
+                    frames.push((frame, rt.writes(tid.1) | rt.reads(tid.1)));
+                }
+                image_targets_to_update.push(tid);
+            }
+            Err(err) => {
+                tracing::error!(?err);
+            }
+        }
     }
 
     // Find all renders to activate.

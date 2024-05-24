@@ -14,22 +14,21 @@
 use std::{
     collections::VecDeque,
     future::Future,
-    task::{Context, Poll, Waker},
+    task::{Poll, Waker},
 };
 
 use arcana::{
-    edict::{flow::FlowEntity, Component, EntityError},
+    edict::{flow::FlowEntity, Component},
     export_arcana_plugin,
 };
 
-arcana::feature_client! {
-    mod client;
-    pub use self::client::*;
-}
+mod client;
+
+pub use self::client::*;
 
 export_arcana_plugin! {
     InputPlugin {
-        filters: [input: InputFilter::new()],
+        filters: [input: MyInputFilter::new()],
         in world => {
             client::init_world(world);
         }
@@ -65,7 +64,7 @@ pub struct ActionQueueIter<'a, A> {
 impl<'a, A> Iterator for ActionQueueIter<'a, A> {
     type Item = A;
 
-    #[inline(never)]
+    #[inline(always)]
     fn next(&mut self) -> Option<A> {
         self.iter.next()
     }
@@ -74,14 +73,13 @@ impl<'a, A> Iterator for ActionQueueIter<'a, A> {
 /// Takes next action from the action queue of the entity.
 /// Waits if there is no action in the queue.
 /// Returns if the entity is not found or it does not have queue of actions `A`.
-pub fn next_action<A>(entity: FlowEntity<'_>) -> impl Future<Output = Result<A, EntityError>> + '_
+pub fn next_action<'a, A>(entity: &'a mut FlowEntity<'_>) -> impl Future<Output = Option<A>> + 'a
 where
     A: Send + 'static,
 {
-    std::future::poll_fn(move |cx: &mut Context| {
-        let queue = unsafe { entity.fetch_mut::<ActionQueue<A>>()? };
+    entity.try_poll_view_mut::<&mut ActionQueue<A>, _, _>(|queue, cx| {
         if let Some(action) = queue.actions.pop_front() {
-            return Poll::Ready(Ok(action));
+            return Poll::Ready(action);
         }
         queue.waker = Some(cx.waker().clone());
         Poll::Pending
@@ -89,17 +87,18 @@ where
 }
 
 /// Extension trait for `FlowEntity` to work with input.
+#[allow(async_fn_in_trait)]
 pub trait FlowEntityExt {
-    async fn next_action<A>(&self) -> Result<A, EntityError>
+    async fn next_action<A>(&mut self) -> Option<A>
     where
         A: Send + 'static;
 }
 
 impl FlowEntityExt for FlowEntity<'_> {
-    async fn next_action<A>(&self) -> Result<A, EntityError>
+    async fn next_action<'a, A>(&'a mut self) -> Option<A>
     where
         A: Send + 'static,
     {
-        next_action(*self).await
+        next_action::<A>(self).await
     }
 }

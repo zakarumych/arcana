@@ -1,16 +1,16 @@
 [package]
-name = "arcanoid"
+name = "breaker"
 version = "0.1.0"
 edition = "2021"
 publish = false
 
 [dependencies]
 arcana = { path = "../../arcana" }
-scene = { path = "../scene" }
-physics = { path = "../physics" }
+scene = { path = "../scene", features = ["dim2"] }
+physics = { path = "../physics", features = ["dim2"] }
 sdf = { path = "../sdf" }
 input = { path = "../input" }
 camera = { path = "../camera" }
-motion = { path = "../motion" }
+motion = { path = "../motion", features = ["dim2"] }
 cursor = { path = "../cursor" }
-rand = { workspace = true }
+rand.workspace = true

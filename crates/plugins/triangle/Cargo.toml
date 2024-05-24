@@ -7,4 +7,3 @@ publish = false
 [dependencies]
 arcana = { path = "../../arcana" }
 dummy = { path = "../dummy" }
-arcana-egui = { path = "../egui" }

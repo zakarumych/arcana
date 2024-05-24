@@ -1,222 +1,114 @@
-use std::fmt;
+//! Event system for the Arcana game engine.
+//!
 
-use blink_alloc::Blink;
-use edict::{EntityId, World};
-use winit::event::WindowEvent;
-
-pub use winit::{
-    event::{
-        ElementState, KeyboardInput, ModifiersState, MouseButton, MouseScrollDelta, ScanCode,
-        VirtualKeyCode,
-    },
-    window::CursorIcon,
+use std::{
+    any::{Any, TypeId},
+    collections::VecDeque,
 };
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-enum DeviceIdKind {
-    Winit(winit::event::DeviceId),
+use hashbrown::HashMap;
+
+use crate::make_id;
+
+make_id! {
+    /// Event ID type.
+    /// Any event type must have a unique ID.
+    /// Listeners can listen to specific event IDs.
+    ///
+    /// Events with same ID should be emitted with the same payload type.
+    pub EventId
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct DeviceId {
-    kind: DeviceIdKind,
+pub struct Event<T: ?Sized = dyn Any> {
+    value: T,
 }
 
-impl fmt::Debug for DeviceId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.kind {
-            DeviceIdKind::Winit(id) => write!(f, "winit::DeviceId({:?})", id),
-        }
+impl<T> Event<T> {
+    pub fn new(value: T) -> Self {
+        Event { value }
     }
 }
 
-impl From<winit::event::DeviceId> for DeviceId {
-    fn from(id: winit::event::DeviceId) -> Self {
-        DeviceId {
-            kind: DeviceIdKind::Winit(id),
-        }
+impl Event {
+    pub fn get<T: 'static>(&self) -> &T {
+        self.value.downcast_ref().unwrap()
     }
 }
 
-/// Event emitted from outside the game.
-///
-/// Viewport and device events fall into this category.
-#[derive(Clone)]
-pub enum Event {
-    /// Event emitted from a viewport.
-    ViewportEvent {
-        viewport: EntityId,
-        event: ViewportEvent,
-    },
-
-    /// Event emitted from a device.
-    DeviceEvent {
-        device: DeviceId,
-        event: DeviceEvent,
-    },
+/// Listener for a specific event type.
+pub struct EventListener {
+    id: EventId,
+    last_event_idx: u64,
 }
 
-#[derive(Clone)]
-pub enum ViewportEvent {
-    Resized {
-        width: u32,
-        height: u32,
-    },
-    ScaleFactorChanged {
-        scale_factor: f64,
-    },
-    KeyboardInput {
-        device_id: DeviceId,
-        input: KeyboardInput,
-    },
-    ModifiersChanged(ModifiersState),
-    CursorMoved {
-        device_id: DeviceId,
-        x: f64,
-        y: f64,
-    },
-    CursorEntered {
-        device_id: DeviceId,
-    },
-    CursorLeft {
-        device_id: DeviceId,
-    },
-    MouseWheel {
-        device_id: DeviceId,
-        delta: MouseScrollDelta,
-    },
-    MouseInput {
-        device_id: DeviceId,
-        state: ElementState,
-        button: MouseButton,
-    },
+trait AnyEvents: Any {
+    fn next_idx(&self) -> u64;
 }
 
-pub struct UnsupportedEvent;
+impl dyn AnyEvents {
+    fn is<T: 'static>(&self) -> bool {
+        self.type_id() == TypeId::of::<TypedEvents<T>>()
+    }
 
-impl TryFrom<&WindowEvent<'_>> for ViewportEvent {
-    type Error = UnsupportedEvent;
+    unsafe fn downcast_ref<T: 'static>(&self) -> &TypedEvents<T> {
+        debug_assert!(self.is::<T>());
+        unsafe { &*(self as *const dyn AnyEvents as *const TypedEvents<T>) }
+    }
 
-    fn try_from(event: &WindowEvent<'_>) -> Result<Self, UnsupportedEvent> {
-        match *event {
-            WindowEvent::Resized(size) => {
-                let width = size.width;
-                let height = size.height;
-                Ok(ViewportEvent::Resized { width, height })
-            }
-            WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                Ok(ViewportEvent::ScaleFactorChanged { scale_factor })
-            }
-            WindowEvent::KeyboardInput {
-                device_id, input, ..
-            } => {
-                let device_id = DeviceId::from(device_id);
-                Ok(ViewportEvent::KeyboardInput { device_id, input })
-            }
-            WindowEvent::ModifiersChanged(modifiers) => {
-                Ok(ViewportEvent::ModifiersChanged(modifiers))
-            }
-            WindowEvent::CursorMoved {
-                device_id,
-                position,
-                ..
-            } => {
-                let device_id = DeviceId::from(device_id);
-                let x = position.x;
-                let y = position.y;
-                Ok(ViewportEvent::CursorMoved { device_id, x, y })
-            }
-            WindowEvent::CursorEntered { device_id } => {
-                let device_id = DeviceId::from(device_id);
-                Ok(ViewportEvent::CursorEntered { device_id })
-            }
-            WindowEvent::CursorLeft { device_id } => {
-                let device_id = DeviceId::from(device_id);
-                Ok(ViewportEvent::CursorLeft { device_id })
-            }
-            WindowEvent::MouseWheel {
-                device_id,
-                delta,
-                phase,
-                modifiers,
-            } => {
-                let device_id = DeviceId::from(device_id);
-                let delta = delta;
-                Ok(ViewportEvent::MouseWheel { device_id, delta })
-            }
-            WindowEvent::MouseInput {
-                device_id,
-                state,
-                button,
-                modifiers,
-            } => {
-                let device_id = DeviceId::from(device_id);
-                let state = state;
-                let button = button;
-                Ok(ViewportEvent::MouseInput {
-                    device_id,
-                    state,
-                    button,
-                })
-            }
-            _ => Err(UnsupportedEvent),
-        }
+    unsafe fn downcast_mut<T: 'static>(&mut self) -> &mut TypedEvents<T> {
+        debug_assert!(self.is::<T>());
+        unsafe { &mut *(self as *mut dyn AnyEvents as *mut TypedEvents<T>) }
     }
 }
 
-#[derive(Clone)]
-pub enum DeviceEvent {}
+pub struct TypedEvents<T> {
+    offset: u64,
+    events: VecDeque<Event<T>>,
+}
 
-impl TryFrom<&winit::event::DeviceEvent> for DeviceEvent {
-    type Error = UnsupportedEvent;
-
-    fn try_from(value: &winit::event::DeviceEvent) -> Result<Self, UnsupportedEvent> {
-        Err(UnsupportedEvent)
+impl<T> AnyEvents for TypedEvents<T>
+where
+    T: 'static,
+{
+    fn next_idx(&self) -> u64 {
+        self.offset + self.events.len() as u64
     }
 }
 
-pub trait EventFilter: 'static {
-    fn filter(&mut self, blink: &Blink, world: &mut World, event: &Event) -> bool;
-}
-
-pub struct EventFunnel {
-    pub filters: Vec<Box<dyn EventFilter>>,
-}
-
-impl EventFunnel {
-    pub const fn new() -> Self {
-        EventFunnel {
-            filters: Vec::new(),
+impl<T> TypedEvents<T> {
+    pub fn new(offset: u64) -> Self {
+        TypedEvents {
+            offset: 0,
+            events: VecDeque::new(),
         }
     }
 
-    #[inline(never)]
-    pub fn add<F>(&mut self, filter: F)
-    where
-        F: EventFilter,
-    {
-        self.filters.push(Box::new(filter));
-    }
-
-    #[inline(never)]
-    pub fn add_boxed(&mut self, filter: Box<dyn EventFilter>) {
-        self.filters.push(filter);
-    }
-
-    #[inline(never)]
-    pub fn filter(&mut self, blink: &Blink, world: &mut World, event: &Event) -> bool {
-        for filter in self.filters.iter_mut() {
-            if filter.filter(blink, world, event) {
-                return true;
-            }
+    pub fn emit(&mut self, value: T) {
+        while self.events.len() >= 1000 {
+            self.events.pop_front();
+            self.offset += 1;
         }
-        false
+        self.events.push_back(Event { value });
     }
 }
 
-impl EventFilter for EventFunnel {
-    #[inline(never)]
-    fn filter(&mut self, blink: &Blink, world: &mut World, event: &Event) -> bool {
-        self.filter(blink, world, event)
+/// Events container.
+pub struct Events {
+    map: HashMap<EventId, Box<dyn AnyEvents>>,
+}
+
+impl Events {
+    /// Emit event with value payload.
+    pub fn emit<T: 'static>(&mut self, event: EventId, value: T) {
+        let events = self
+            .map
+            .entry(event)
+            .or_insert_with(|| Box::new(TypedEvents::<T>::new(0)));
+        if !events.is::<T>() {
+            let offset = events.next_idx();
+            *events = Box::new(TypedEvents::<T>::new(offset))
+        }
+        let typed_events = unsafe { events.downcast_mut::<T>() };
+        typed_events.emit(value);
     }
 }

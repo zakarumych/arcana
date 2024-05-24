@@ -3,9 +3,11 @@ use std::{alloc::Layout, fmt};
 use ash::vk;
 
 mod access;
+mod acst;
 mod arguments;
 mod buffer;
 mod command;
+mod compute_pipeline;
 mod device;
 mod from;
 mod image;
@@ -18,11 +20,16 @@ mod sampler;
 mod shader;
 mod surface;
 
-use crate::{generic::PixelFormat, DeviceError, OutOfMemory};
+use crate::generic::{DeviceError, OutOfMemory, PixelFormat};
 
 pub use self::{
+    acst::{Blas, Tlas},
     buffer::Buffer,
-    command::{CommandBuffer, CommandEncoder, CopyCommandEncoder, RenderCommandEncoder},
+    command::{
+        AccelerationStructureCommandEncoder, CommandBuffer, CommandEncoder, ComputeCommandEncoder,
+        CopyCommandEncoder, RenderCommandEncoder,
+    },
+    compute_pipeline::ComputePipeline,
     device::Device,
     image::Image,
     instance::Instance,
@@ -88,13 +95,13 @@ impl Version {
 }
 
 impl fmt::Display for Version {
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}.{}.{}", self.major, self.minor, self.patch)
     }
 }
 
-#[inline(always)]
+#[cfg_attr(inline_more, inline(always))]
 fn format_aspect(format: PixelFormat) -> vk::ImageAspectFlags {
     let mut aspect = vk::ImageAspectFlags::empty();
     if format.is_color() {
@@ -121,7 +128,7 @@ fn map_oom(err: vk::Result) -> OutOfMemory {
 fn map_device_error(err: vk::Result) -> DeviceError {
     match err {
         ash::vk::Result::ERROR_OUT_OF_HOST_MEMORY => handle_host_oom(),
-        ash::vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => DeviceError::OutOfMemory(()),
+        ash::vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => DeviceError::OutOfMemory,
         ash::vk::Result::ERROR_DEVICE_LOST => DeviceError::DeviceLost,
         _ => unexpected_error(err),
     }

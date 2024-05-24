@@ -1,24 +1,46 @@
-use std::ops::Mul;
+use std::{
+    hash::{Hash, Hasher},
+    ops::Mul,
+};
 
+use foreign_types::ForeignType;
 use metal::MTLTextureType;
 
-use crate::generic::{
-    ArgumentKind, Automatic, ComponentSwizzle, ImageDimensions, OutOfMemory, PixelFormat, Sampled,
-    Storage, Swizzle, ViewDesc,
+use crate::{
+    generic::{
+        ArgumentKind, Automatic, ComponentSwizzle, Extent1, Extent2, Extent3, ImageExtent,
+        OutOfMemory, PixelFormat, Sampled, Storage, Swizzle, ViewDesc,
+    },
+    ImageUsage,
 };
 
 use super::{
     arguments::ArgumentsField,
-    from::{TryIntoMetal, TryMetalInto},
+    from::{MetalInto, TryIntoMetal, TryMetalInto},
     Device,
 };
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Image {
     texture: metal::Texture,
 }
 
+impl PartialEq for Image {
+    fn eq(&self, other: &Self) -> bool {
+        self.texture.as_ptr() == other.texture.as_ptr()
+    }
+}
+
+impl Eq for Image {}
+
+impl Hash for Image {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.texture.as_ptr().hash(state);
+    }
+}
+
 unsafe impl Send for Image {}
+unsafe impl Sync for Image {}
 
 impl Image {
     pub(super) fn new(texture: metal::Texture) -> Self {
@@ -36,16 +58,16 @@ impl crate::traits::Image for Image {
         self.texture.pixel_format().expect_metal_into()
     }
 
-    fn dimensions(&self) -> ImageDimensions {
+    fn dimensions(&self) -> ImageExtent {
         match self.texture.texture_type() {
             MTLTextureType::D1 | MTLTextureType::D1Array => {
                 let width = self.texture.width();
-                ImageDimensions::D1(width as u32)
+                ImageExtent::D1(Extent1::new(width as u32))
             }
             MTLTextureType::D2 | MTLTextureType::D2Array => {
                 let width = self.texture.width();
                 let height = self.texture.height();
-                ImageDimensions::D2(width as u32, height as u32)
+                ImageExtent::D2(Extent2::new(width as u32, height as u32))
             }
             MTLTextureType::D2Multisample => unimplemented!(),
             MTLTextureType::D2MultisampleArray => unimplemented!(),
@@ -55,7 +77,7 @@ impl crate::traits::Image for Image {
                 let width = self.texture.width();
                 let height = self.texture.height();
                 let depth = self.texture.depth();
-                ImageDimensions::D3(width as u32, height as u32, depth as u32)
+                ImageExtent::D3(Extent3::new(width as u32, height as u32, depth as u32))
             }
         }
     }
@@ -66,6 +88,10 @@ impl crate::traits::Image for Image {
 
     fn levels(&self) -> u32 {
         self.texture.mipmap_level_count() as u32
+    }
+
+    fn usage(&self) -> ImageUsage {
+        self.texture.usage().metal_into()
     }
 
     fn view(&self, _device: &Device, desc: ViewDesc) -> Result<Image, OutOfMemory> {
@@ -184,6 +210,11 @@ impl ArgumentsField<Automatic> for Image {
     fn bind_fragment(&self, slot: u32, encoder: &metal::RenderCommandEncoderRef) {
         encoder.set_fragment_texture(slot.into(), Some(&self.texture));
     }
+
+    #[inline(always)]
+    fn bind_compute(&self, slot: u32, encoder: &metal::ComputeCommandEncoderRef) {
+        encoder.set_texture(slot.into(), Some(&self.texture));
+    }
 }
 
 impl ArgumentsField<Sampled> for Image {
@@ -199,6 +230,11 @@ impl ArgumentsField<Sampled> for Image {
     fn bind_fragment(&self, slot: u32, encoder: &metal::RenderCommandEncoderRef) {
         encoder.set_fragment_texture(slot.into(), Some(&self.texture));
     }
+
+    #[inline(always)]
+    fn bind_compute(&self, slot: u32, encoder: &metal::ComputeCommandEncoderRef) {
+        encoder.set_texture(slot.into(), Some(&self.texture));
+    }
 }
 
 impl ArgumentsField<Storage> for Image {
@@ -213,5 +249,10 @@ impl ArgumentsField<Storage> for Image {
     #[inline(always)]
     fn bind_fragment(&self, slot: u32, encoder: &metal::RenderCommandEncoderRef) {
         encoder.set_fragment_texture(slot.into(), Some(&self.texture));
+    }
+
+    #[inline(always)]
+    fn bind_compute(&self, slot: u32, encoder: &metal::ComputeCommandEncoderRef) {
+        encoder.set_texture(slot.into(), Some(&self.texture));
     }
 }

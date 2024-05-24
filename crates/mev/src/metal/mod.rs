@@ -1,3 +1,4 @@
+mod acst;
 mod arguments;
 mod buffer;
 mod command;
@@ -13,8 +14,12 @@ mod shader;
 mod surface;
 
 pub use self::{
+    acst::{Blas, Tlas},
     buffer::Buffer,
-    command::{CommandBuffer, CommandEncoder, CopyCommandEncoder, RenderCommandEncoder},
+    command::{
+        AccelerationStructureCommandEncoder, CommandBuffer, CommandEncoder, ComputeCommandEncoder,
+        CopyCommandEncoder, RenderCommandEncoder,
+    },
     compute_pipeline::ComputePipeline,
     device::Device,
     image::Image,
@@ -33,7 +38,7 @@ pub(crate) use self::{
 
 // Minimize functions size by offloading panic to a separate function.
 #[cold]
-#[inline(always)]
+#[cfg_attr(inline_more, inline(always))]
 #[track_caller]
 fn out_of_bounds() -> ! {
     panic!("offset + data.len() > buffer.length()");

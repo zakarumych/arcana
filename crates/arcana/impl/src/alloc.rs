@@ -3,7 +3,7 @@
 use std::{
     alloc::{GlobalAlloc, Layout, System},
     cell::Cell,
-    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
+    sync::atomic::{AtomicUsize, Ordering},
 };
 
 pub struct ArcanaAllocator;
@@ -11,7 +11,7 @@ pub struct ArcanaAllocator;
 unsafe impl GlobalAlloc for ArcanaAllocator {
     #[track_caller]
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        let ptr = System.alloc(layout);
+        let ptr = unsafe { System.alloc(layout) };
         if !ptr.is_null() {
             GLOBAL_STATS.allocations.fetch_add(1, Ordering::Relaxed);
             GLOBAL_STATS
@@ -27,7 +27,9 @@ unsafe impl GlobalAlloc for ArcanaAllocator {
             .deallocated_bytes
             .fetch_add(layout.size(), Ordering::Relaxed);
 
-        System.dealloc(ptr, layout);
+        unsafe {
+            System.dealloc(ptr, layout);
+        }
     }
 }
 

@@ -6,6 +6,10 @@ readme.workspace = true
 license.workspace = true
 version.workspace = true
 
+[features]
+dim2 = []
+dim3 = []
+
 [dependencies]
 arcana = { path = "../../arcana" }
-na = { workspace = true }
+na.workspace = true

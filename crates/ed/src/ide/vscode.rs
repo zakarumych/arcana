@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::SUBPROCESSES;
+use crate::subprocess;
 
 use super::Ide;
 

@@ -91,6 +91,14 @@ fn derive_impl(input: syn::DeriveInput) -> syn::Result<proc_macro2::TokenStream>
                                 quote_spanned!(fragment.span() => mev::ShaderStages::FRAGMENT.bits()),
                             )
                         }
+                        Shader::Compute(compute) => {
+                            if !tokens.is_empty() {
+                                tokens.extend(quote_spanned!(compute.span() => | ));
+                            }
+                            tokens.extend(
+                                quote_spanned!(compute.span() => mev::ShaderStages::COMPUTE.bits()),
+                            )
+                        }
                     }
                 }
 
@@ -138,6 +146,21 @@ fn derive_impl(input: syn::DeriveInput) -> syn::Result<proc_macro2::TokenStream>
 
                             if #field_stages.contains(mev::ShaderStages::FRAGMENT) {
                                 #field_argument_impls::bind_fragment_argument(&self.#field_names, group, idx, fragment_bindings, metal);
+                            }
+
+                            idx += 1;
+                        )*
+                    }
+
+                    #[inline(always)]
+                    fn bind_compute(&self, group: u32, encoder: &mut mev::ComputeCommandEncoder) {
+                        let metal = encoder.metal();
+                        let bindings = encoder.bindings();
+
+                        let mut idx = 0;
+                        #(
+                            if #field_stages.contains(mev::ShaderStages::COMPUTE) {
+                                #field_argument_impls::bind_compute_argument(&self.#field_names, group, idx, bindings, metal);
                             }
 
                             idx += 1;

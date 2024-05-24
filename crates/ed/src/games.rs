@@ -2,43 +2,57 @@
 //! Game Tool is responsible for managing game's plugins
 //! and run instances of the game.
 
-use std::{cmp::Reverse, collections::BinaryHeap, sync::Arc};
+use std::{rc::Rc, sync::Arc};
 
 use arcana::{
     const_format,
     edict::world::WorldLocal,
-    game::Game,
+    events::{Event, KeyCode, ViewportEvent},
+    game::{Game, GameInit, FPS},
+    gametime::{TimeSpan, TimeStamp},
     mev,
-    plugin::ArcanaPlugin,
-    project::{Ident, Item, Project},
+    plugin::PluginsHub,
+    project::Project,
     texture::Texture,
-    ClockStep, Component, Entities, EntityId, World,
+    Blink, ClockStep, Component, Entities, EntityId, World,
 };
 use parking_lot::Mutex;
-use winit::{event::WindowEvent, window::WindowId};
+use winit::{
+    event::WindowEvent,
+    window::{Window, WindowId},
+};
 
-use crate::Tab;
+use crate::{
+    data::ProjectData,
+    systems::{Category, Systems},
+};
 
 use super::plugins::Plugins;
 
 /// Game instances.
 pub struct Games {
-    free_ids: BinaryHeap<Reverse<u16>>,
-    last_id: u16,
-    name_offset: u16,
+    /// Currently focused game.
+    ///
+    /// If set, consumes viewport events and sends them to the game.
+    /// Cursor events are transformed by viewport and ignored if cursor is outside of the viewport.
+    focus: Option<GameFocus>,
 
-    /// List of games without viewer.
-    headless: Vec<GameId>,
+    games: Vec<GameId>,
 }
 
-#[must_use]
-pub struct GameId {
-    // Entity of the Game component.
-    // Expected to be alive.
+struct GameFocus {
+    window_id: WindowId,
+    rect: egui::Rect,
+    pixel_per_point: f32,
     entity: EntityId,
+    cursor_inside: bool,
+    lock_pointer: bool,
+}
 
-    // Unique game id.
-    id: u16,
+#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[repr(transparent)]
+pub struct GameId {
+    entity: Rc<EntityId>,
 }
 
 struct LaunchGame;
@@ -52,131 +66,125 @@ impl Component for LaunchGame {
 impl Games {
     pub fn new() -> Self {
         Games {
-            free_ids: BinaryHeap::new(),
-            last_id: 0,
-            name_offset: 0,
-            headless: Vec::new(),
+            focus: None,
+            games: Vec::new(),
         }
     }
 
-    fn alloc_id(&mut self) -> u16 {
-        match self.free_ids.pop() {
-            None => {
-                if self.last_id < u16::MAX {
-                    self.last_id += 1;
-                    self.last_id
-                } else {
-                    panic!("Can't allocate new game id");
-                }
-            }
-            Some(Reverse(id)) => id,
-        }
-    }
-
-    fn free_id(&mut self, id: u16) {
-        debug_assert!(id <= self.last_id);
-
-        if self.last_id == id {
-            self.last_id -= 1;
-
-            // Remove free ids that are at the end of the range.
-            while let Some(Reverse(id)) = self.free_ids.peek() {
-                debug_assert!(*id <= self.last_id);
-                if *id != self.last_id {
-                    break;
-                }
-                self.free_ids.pop();
-                self.last_id -= 1;
-            }
-        } else {
-            self.free_ids.push(Reverse(id));
-        }
+    fn is_focused(&self, id: &GameId) -> bool {
+        self.focus
+            .as_ref()
+            .map_or(false, |f| f.entity == *id.entity)
     }
 
     pub fn new_game(world: &WorldLocal) -> GameId {
         let mut games = world.expect_resource_mut::<Games>();
-        let id = games.alloc_id();
+        games._new_game(world)
+    }
+
+    fn _new_game(&mut self, world: &WorldLocal) -> GameId {
         let entity = world.allocate().id();
-        let game_id = GameId { entity, id };
         world.insert_defer(entity, LaunchGame);
-        game_id
+        tracing::info!("Game {entity} starting");
+
+        let id = GameId {
+            entity: Rc::new(entity),
+        };
+
+        self.games.push(id.clone());
+        id
     }
 
     pub fn detach(world: &WorldLocal, id: GameId) {
         let mut games = world.expect_resource_mut::<Games>();
-        games.headless.push(id);
+
+        if games.is_focused(&id) {
+            games.focus = None;
+        }
     }
 
     pub fn stop(world: &WorldLocal, id: GameId) {
-        world.despawn_defer(id.entity);
         let mut games = world.expect_resource_mut::<Games>();
-        games.free_id(id.id);
+        games._stop(world, id);
     }
 
-    /// Launches a new game instance in its own window.
-    fn _launch(world: &mut World) {
-        let project = world.expect_resource_mut::<Project>();
+    fn _stop(&mut self, world: &WorldLocal, id: GameId) {
+        if self.is_focused(&id) {
+            self.focus = None;
+        }
+
+        self.games.retain(|g| *g != id);
+
+        world.despawn_defer(*id.entity);
+        tracing::info!("Game {} stopped", id.entity);
+    }
+
+    /// Launches requested games.
+    pub fn launch_games(world: &mut WorldLocal) {
+        if world.new_view_mut().with::<LaunchGame>().iter().count() == 0 {
+            return;
+        }
+
+        tracing::info!("Launching games");
+
         let plugins = world.expect_resource_mut::<Plugins>();
+
         let Some(active_plugins) = plugins.active_plugins() else {
             return;
         };
+        let active_plugins = active_plugins.collect::<Vec<_>>();
 
-        let active = |exported: fn(&dyn ArcanaPlugin) -> &[&Ident]| {
-            let plugins = &plugins;
-            move |item: &&Item| {
-                if !item.enabled {
-                    return false;
-                }
-
-                if !plugins.is_active(&item.plugin) {
-                    return false;
-                }
-
-                let plugin = plugins.get_plugin(&item.plugin).unwrap();
-                if !exported(plugin).iter().any(|name| **name == *item.name) {
-                    return false;
-                }
-                true
-            }
-        };
-
-        let active_systems = project
-            .manifest()
-            .systems
-            .iter()
-            .filter(active(|p| p.systems()))
-            .map(|i| (&*i.plugin, &*i.name));
-
-        let active_filters = project
-            .manifest()
-            .filters
-            .iter()
-            .filter(active(|p| p.filters()))
-            .map(|i| (&*i.plugin, &*i.name));
-
-        let device = world.clone_resource::<mev::Device>();
-        let queue = world.clone_resource::<Arc<Mutex<mev::Queue>>>();
+        let project = world.expect_resource_mut::<Project>();
+        let data = world.expect_resource::<ProjectData>();
+        let device = world.expect_resource::<mev::Device>();
+        let queue = world.expect_resource::<Arc<Mutex<mev::Queue>>>();
+        let systems = world.expect_resource::<Systems>();
 
         let games = world
             .view::<Entities>()
             .with::<LaunchGame>()
             .into_iter()
             .map(|e| {
-                let game = Game::launch(
-                    active_plugins.clone(),
-                    active_filters.clone(),
-                    active_systems.clone(),
-                    device.clone(),
-                    queue.clone(),
-                    None,
-                );
+                tracing::info!("Launching game {e}");
+
+                let mut hub = PluginsHub::new();
+
+                let init = |game_world: &mut World| {
+                    for (_, plugin) in &active_plugins {
+                        plugin.init(game_world, &mut hub);
+                    }
+
+                    let mut scheduler = systems.scheduler(&data, hub.systems);
+
+                    let scheduler = Box::new(move |game_world: &mut World, fixed: bool| {
+                        let cat = match fixed {
+                            true => Category::Fix,
+                            false => Category::Var,
+                        };
+                        scheduler(game_world, cat);
+                    });
+
+                    let funnel = Box::new(
+                        move |blink: &Blink, game_world: &mut World, event: &Event| {
+                            for (_, filter) in &mut hub.filters {
+                                if filter.filter(blink, game_world, event) {
+                                    return true;
+                                }
+                            }
+                            false
+                        },
+                    );
+
+                    GameInit { scheduler, funnel }
+                };
+
+                let game = Game::launch(init, (*device).clone(), (*queue).clone(), None);
 
                 (e.id(), game)
             })
             .collect::<Vec<_>>();
 
-        drop(project);
-        drop(plugins);
+        drop((project, plugins, data, device, queue, systems));
 
         for (e, game) in games {
             let _ = world.drop::<LaunchGame>(e);
@@ -184,28 +192,105 @@ impl Games {
         }
     }
 
-    pub fn handle_event<'a>(
-        world: &mut World,
-        window_id: WindowId,
-        event: WindowEvent<'a>,
-    ) -> Option<WindowEvent<'a>> {
+    pub fn handle_event<'a>(world: &mut World, window_id: WindowId, event: &WindowEvent) -> bool {
+        let world = world.local();
         for game in world.view_mut::<&mut Game>() {
             if game.window_id() == Some(window_id) {
-                // return game.handle_event(event);
-                return None;
+                if let Ok(event) = ViewportEvent::try_from(event) {
+                    if game.on_input(&Event::ViewportEvent { event }) {
+                        return true;
+                    }
+                }
+
+                if let WindowEvent::CloseRequested = event {
+                    game.quit();
+                    return true;
+                }
             }
         }
-        Some(event)
+
+        let mut games = world.expect_resource_mut::<Games>();
+        if let Some(focus) = &mut games.focus {
+            if focus.window_id == window_id {
+                if let Ok(event) = ViewportEvent::try_from(event) {
+                    let mut consume = true;
+                    let mut game_view = world.try_view_one::<&mut Game>(focus.entity).unwrap();
+                    let game = game_view.get_mut().unwrap();
+
+                    match event {
+                        ViewportEvent::CursorEntered { .. } => return false,
+                        ViewportEvent::CursorLeft { .. } => return false,
+                        ViewportEvent::CursorMoved { device_id, x, y } => {
+                            let px = x / focus.pixel_per_point;
+                            let py = y / focus.pixel_per_point;
+
+                            let gx = px - focus.rect.min.x;
+                            let gy = py - focus.rect.min.y;
+
+                            if focus.rect.contains(egui::pos2(px, py)) {
+                                if !focus.cursor_inside {
+                                    focus.cursor_inside = true;
+
+                                    game.on_input(&Event::ViewportEvent {
+                                        event: ViewportEvent::CursorEntered { device_id },
+                                    });
+                                }
+
+                                game.on_input(&Event::ViewportEvent {
+                                    event: ViewportEvent::CursorMoved {
+                                        device_id,
+                                        x: gx,
+                                        y: gy,
+                                    },
+                                });
+                            } else {
+                                consume = false;
+
+                                if focus.cursor_inside {
+                                    focus.cursor_inside = false;
+                                    game.on_input(&Event::ViewportEvent {
+                                        event: ViewportEvent::CursorLeft { device_id },
+                                    });
+                                }
+                            }
+                        }
+                        ViewportEvent::MouseWheel { .. } if !focus.cursor_inside => {
+                            consume = false;
+                        }
+                        ViewportEvent::MouseInput { .. } if !focus.cursor_inside => {
+                            consume = false;
+                        }
+                        ViewportEvent::Resized { .. }
+                        | ViewportEvent::ScaleFactorChanged { .. } => {
+                            consume = false;
+                        }
+                        ViewportEvent::KeyboardInput { event, .. }
+                            if event.physical_key
+                                == winit::keyboard::PhysicalKey::Code(KeyCode::Escape) =>
+                        {
+                            games.focus = None;
+                        }
+                        event => {
+                            game.on_input(&Event::ViewportEvent { event });
+                        }
+                    }
+
+                    return consume;
+                }
+            }
+        }
+
+        false
     }
 
-    pub fn render(world: &mut World) {
+    pub fn render(world: &mut World, now: TimeStamp) {
         for game in world.view_mut::<&mut Game>() {
-            return game.render();
+            game.render(now);
         }
     }
 
     pub fn tick(world: &mut World, step: ClockStep) {
-        Self::_launch(world);
+        Self::launch_games(world.local());
 
         let mut to_remove = Vec::new();
         for (e, game) in world.view_mut::<(Entities, &mut Game)>() {
@@ -220,54 +305,64 @@ impl Games {
             let _ = world.despawn(e);
         }
     }
-
-    pub fn tab() -> Tab {
-        Tab::Game {
-            tab: GamesTab::default(),
-        }
-    }
-}
-
-enum OnTabClose {
-    Stop,
-    Detach,
 }
 
 pub struct GamesTab {
     id: Option<GameId>,
-    on_close: OnTabClose,
 }
 
 impl Default for GamesTab {
     fn default() -> Self {
-        Self {
-            id: None,
-            on_close: OnTabClose::Stop,
-        }
+        GamesTab { id: None }
     }
 }
 
 impl GamesTab {
     pub fn new(world: &WorldLocal) -> Self {
         let id = Games::new_game(world);
-        GamesTab {
-            id: Some(id),
-            on_close: OnTabClose::Stop,
-        }
+        GamesTab { id: Some(id) }
     }
 
-    pub fn show(&mut self, ui: &mut egui::Ui, world: &WorldLocal) {
+    pub fn show(&mut self, ui: &mut egui::Ui, world: &WorldLocal, window: &Window) {
+        let mut games = world.expect_resource_mut::<Games>();
+
         let mut game_view;
         let mut game: Option<&mut Game> = match &self.id {
             None => None,
             Some(id) => {
-                game_view = world.try_view_one::<&mut Game>(id.entity).unwrap();
-                game_view.get_mut()
+                if let Ok(gw) = world.try_view_one::<&mut Game>(*id.entity) {
+                    game_view = gw;
+                    game_view.get_mut()
+                } else {
+                    self.id = None;
+                    None
+                }
             }
         };
 
-        let r = ui.horizontal_top(|ui| {
-            let mut stop = false;
+        let mut stop = false;
+        let mut new_id = self.id.clone();
+
+        ui.horizontal_top(|ui| {
+            // let mut cbox = egui::ComboBox::from_id_source("games-list");
+
+            // if let Some(id) = &self.id {
+            //     cbox = cbox.selected_text(format!("{}", id.entity));
+            // } else {
+            //     cbox = cbox.selected_text("None");
+            // }
+            // cbox.show_ui(ui, |ui| {
+            //     for game in &games.games {
+            //         let r = ui.selectable_label(
+            //             self.id.as_ref().map_or(false, |id| *id == *game),
+            //             format!("{}", game.entity),
+            //         );
+            //         if r.clicked() {
+            //             new_id = Some(game.clone());
+            //         }
+            //     }
+            // });
+
             let was_enabled = ui.is_enabled();
             ui.set_enabled(game.is_some());
 
@@ -290,15 +385,24 @@ impl GamesTab {
 
             let mut rate = game.as_ref().map_or(0.0, |g| g.get_rate());
 
-            let value = egui::Slider::new(&mut rate, 0.0..=10.0);
+            let value = egui::Slider::new(&mut rate, 0.0..=10.0).clamp_to_range(false);
             let r = ui.add(value);
             if r.changed() {
                 game.as_mut().unwrap().set_rate(rate as f32);
             }
 
+            if let Some(game) = &game {
+                let fps = game.fps();
+                show_fps(ui, &fps);
+            }
+
             ui.set_enabled(was_enabled);
-            stop
         });
+
+        if stop {
+            games._stop(world, self.id.take().unwrap());
+            game = None;
+        }
 
         match game {
             None => {
@@ -310,7 +414,7 @@ impl GamesTab {
                             egui_phosphor::regular::ROCKET_LAUNCH
                         ));
                         if r.clicked() {
-                            self.id = Some(Games::new_game(world));
+                            new_id = Some(games._new_game(world));
                         }
                     });
                 } else {
@@ -322,41 +426,150 @@ impl GamesTab {
             Some(game) => {
                 let id = self.id.as_ref().unwrap();
 
-                let size = ui.available_size();
-                let extent = mev::Extent2::new(size.x as u32, size.y as u32);
-                let Ok(image) = game.render_with_texture(extent) else {
-                    ui.centered_and_justified(|ui| {
-                        ui.label("GPU OOM");
+                let focused = games.is_focused(id);
+
+                let game_frame = egui::Frame::none()
+                    .rounding(egui::Rounding::same(5.0))
+                    .stroke(egui::Stroke::new(
+                        1.0,
+                        if focused {
+                            egui::Color32::LIGHT_GRAY
+                        } else {
+                            egui::Color32::DARK_GRAY
+                        },
+                    ))
+                    .inner_margin(egui::Margin::same(10.0));
+
+                game_frame.show(ui, |ui| {
+                    let size = ui.available_size();
+                    let extent = mev::Extent2::new(size.x as u32, size.y as u32);
+                    let Ok(image) = game.render_with_texture(extent) else {
+                        ui.centered_and_justified(|ui| {
+                            ui.label("GPU OOM");
+                        });
+                        return;
+                    };
+
+                    world.insert_defer(*id.entity, Texture { image });
+
+                    let image = egui::Image::new(egui::load::SizedTexture {
+                        id: egui::TextureId::User(id.entity.bits()),
+                        size: size.into(),
                     });
-                    return;
-                };
 
-                world.insert_defer(id.entity, Texture { image });
+                    let r = ui.add(image.sense(egui::Sense::click()));
 
-                ui.add(egui::Image::new(egui::load::SizedTexture {
-                    id: egui::TextureId::User(id.entity.bits()),
-                    size: size.into(),
-                }));
+                    if focused {
+                        if !r.has_focus() {
+                            tracing::info!("Game {} lost focus", id.entity);
+                            games.focus = None;
+                        } else {
+                            let focus = games.focus.as_mut().unwrap();
 
-                if r.inner {
-                    world.drop_defer::<Game>(id.entity);
-                }
+                            focus.rect = r.rect;
+                            focus.pixel_per_point = ui.ctx().pixels_per_point();
+                        }
+                    } else {
+                        if r.has_focus() {
+                            r.surrender_focus();
+                        }
+
+                        let mut make_focused = false;
+                        if r.clicked() {
+                            r.request_focus();
+                            make_focused = !focused
+                        }
+
+                        if make_focused {
+                            tracing::info!("Game {} focused", id.entity);
+
+                            games.focus = Some(GameFocus {
+                                window_id: window.id(),
+                                rect: r.rect,
+                                pixel_per_point: ui.ctx().pixels_per_point(),
+                                entity: *id.entity,
+                                cursor_inside: false,
+                                lock_pointer: false,
+                            });
+                        }
+                    }
+                });
             }
         }
+
+        self.id = new_id;
     }
 
     pub fn on_close(&mut self, world: &WorldLocal) {
-        match self.on_close {
-            OnTabClose::Stop => {
-                if let Some(id) = self.id.take() {
-                    Games::stop(world, id);
-                }
-            }
-            OnTabClose::Detach => {
-                if let Some(id) = self.id.take() {
-                    Games::detach(world, id);
-                }
+        if let Some(id) = self.id.take() {
+            if Rc::strong_count(&id.entity) <= 2 {
+                Games::stop(world, id);
             }
         }
     }
+}
+
+fn show_fps(ui: &mut egui::Ui, fps: &FPS) {
+    let frame = egui::Frame::canvas(&ui.style());
+
+    let mut iter = fps.iter();
+
+    let Some(last) = iter.next_back() else {
+        return;
+    };
+
+    let mut max_frame_time = TimeSpan::ZERO;
+    let mut min_frame_time = TimeSpan::YEAR;
+
+    let mut frame_times = Vec::new();
+    let mut next = last;
+    for frame in iter.rev() {
+        let frame_time = next - frame;
+        frame_times.push(frame_time);
+
+        max_frame_time = max_frame_time.max(frame_time);
+        min_frame_time = min_frame_time.min(frame_time);
+
+        next = frame;
+
+        if last - next > TimeSpan::SECOND * 3 {
+            break;
+        }
+    }
+
+    if frame_times.is_empty() {
+        return;
+    }
+
+    frame.show(ui, |ui| {
+        let (_, rect) = ui.allocate_space(egui::vec2(
+            (ui.spacing().interact_size.x * 3.0).min(ui.available_width()),
+            ui.spacing().interact_size.y.min(ui.available_height()),
+        ));
+        ui.painter().add(egui::Shape::Path(egui::epaint::PathShape {
+            points: frame_times
+                .iter()
+                .rev()
+                .enumerate()
+                .map(|(idx, frame_time)| {
+                    let x = egui::emath::lerp(
+                        rect.left()..=rect.right(),
+                        idx as f32 / frame_times.len() as f32,
+                    );
+                    let y = egui::emath::lerp(
+                        rect.bottom()..=rect.top(),
+                        frame_time.as_secs_f32() / max_frame_time.as_secs_f32() / 1.5,
+                    );
+                    egui::pos2(x, y)
+                })
+                .collect(),
+
+            closed: false,
+            fill: egui::Color32::TRANSPARENT,
+            stroke: ui.visuals().widgets.noninteractive.fg_stroke,
+        }));
+    });
+
+    let average = (last - next) / frame_times.len() as u64;
+    ui.weak(format!("[{min_frame_time} .. {max_frame_time}] {average}"));
 }

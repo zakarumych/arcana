@@ -1,6 +1,8 @@
 // mod _arguments;
+mod acst;
 mod arguments;
 mod buffer;
+mod compute_pipeline;
 mod data;
 mod feature;
 mod format;
@@ -17,15 +19,21 @@ mod surface;
 use std::{error::Error, fmt};
 
 pub use self::{
+    acst::{
+        AccelerationStructureBuildFlags, AccelerationStructurePerformance, BlasAABBs,
+        BlasBuildDesc, BlasDesc, BlasFlags, BlasGeometryDesc, BlasTriangles, TlasBuildDesc,
+        TlasDesc, TlasFlags, TlasInstanceDesc,
+    },
     arguments::{
         ArgumentGroupLayout, ArgumentKind, ArgumentLayout, Arguments, ArgumentsField, Automatic,
         /*Constant,*/ Sampled, Storage, Uniform,
     },
-    buffer::{BufferDesc, BufferInitDesc, BufferUsage, Memory},
+    buffer::{AsBufferSlice, BufferDesc, BufferInitDesc, BufferSlice, BufferUsage, Memory},
+    compute_pipeline::ComputePipelineDesc,
     data::*,
     feature::Features,
     format::{PixelFormat, VertexFormat},
-    image::{ComponentSwizzle, ImageDesc, ImageDimensions, ImageUsage, Swizzle, ViewDesc},
+    image::{ComponentSwizzle, ImageDesc, ImageExtent, ImageUsage, Swizzle, ViewDesc},
     instance::{
         Capabilities, CreateError, DeviceCapabilities, DeviceDesc, FamilyCapabilities, LoadError,
     },
@@ -62,39 +70,48 @@ impl fmt::Display for OutOfMemory {
 
 impl Error for OutOfMemory {}
 
-pub enum DeviceError<T = ()> {
-    OutOfMemory(T),
+pub enum DeviceError {
+    OutOfMemory,
     DeviceLost,
 }
 
-impl From<OutOfMemory> for DeviceError {
-    #[inline(never)]
-    fn from(_: OutOfMemory) -> Self {
-        DeviceError::OutOfMemory(())
+impl DeviceError {
+    pub fn abort_on_device_lost(self) -> OutOfMemory {
+        match self {
+            DeviceError::OutOfMemory => OutOfMemory,
+            DeviceError::DeviceLost => panic!("device lost"),
+        }
     }
 }
 
-impl<T> fmt::Debug for DeviceError<T> {
-    #[inline(never)]
+impl From<OutOfMemory> for DeviceError {
+    #[inline(always)]
+    fn from(_: OutOfMemory) -> Self {
+        DeviceError::OutOfMemory
+    }
+}
+
+impl fmt::Debug for DeviceError {
+    #[inline(always)]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            DeviceError::OutOfMemory(_) => write!(f, "DeviceError::OutOfMemory"),
+            DeviceError::OutOfMemory => write!(f, "DeviceError::OutOfMemory"),
             DeviceError::DeviceLost => write!(f, "DeviceError::DeviceLost"),
         }
     }
 }
 
-impl<T> fmt::Display for DeviceError<T> {
-    #[inline(never)]
+impl fmt::Display for DeviceError {
+    #[inline(always)]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            DeviceError::OutOfMemory(_) => write!(f, "out of memory"),
+            DeviceError::OutOfMemory => write!(f, "out of memory"),
             DeviceError::DeviceLost => write!(f, "device lost"),
         }
     }
 }
 
-impl<T> Error for DeviceError<T> {}
+impl Error for DeviceError {}
 
 pub trait Zero {
     const ZERO: Self;

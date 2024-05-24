@@ -1,3 +1,5 @@
+//! Utils to work with `argosy` asset pipeline.
+
 pub use argosy::{
     proc::{Asset, AssetField},
     AssetId,
@@ -16,17 +18,9 @@ pub struct Assets {
 
 /// Builder for a Bob asset.
 /// This is required to build graphics assets.
-#[cfg(feature = "client")]
 pub struct BobBuilder<'a> {
     pub device: &'a mev::Device,
     pub encoder: mev::CopyCommandEncoder<'a>,
-}
-
-/// Builder for a Bob asset.
-/// This is required to build graphics assets.
-#[cfg(not(feature = "client"))]
-pub struct BobBuilder<'a> {
-    marker: std::marker::PhantomData<&'a ()>,
 }
 
 struct Bob;
@@ -65,7 +59,6 @@ impl Assets {
         }
     }
 
-    #[cfg(feature = "client")]
     pub fn build(
         &mut self,
         device: &mev::Device,
@@ -99,9 +92,8 @@ impl Assets {
 
         match queue.submit(Some(encoder.finish()?), false) {
             Ok(()) => {}
-            Err(mev::DeviceError::OutOfMemory(cbufs)) => {
-                queue.drop_command_buffer(cbufs);
-                return Err(mev::DeviceError::OutOfMemory(()));
+            Err(mev::DeviceError::OutOfMemory) => {
+                return Err(mev::DeviceError::OutOfMemory);
             }
             Err(mev::DeviceError::DeviceLost) => return Err(mev::DeviceError::DeviceLost),
         }
@@ -109,29 +101,29 @@ impl Assets {
         Ok(())
     }
 
-    #[cfg(not(feature = "client"))]
-    pub fn build(&mut self) -> Result<(), std::convert::Infallible> {
-        self.load_queue
-            .retain_mut(|driver| match driver.poll_loaded() {
-                None => true,
-                Some(loaded) => {
-                    self.build_queue.push(loaded);
-                    false
-                }
-            });
+    // #[cfg(not(feature = "client"))]
+    // pub fn build(&mut self) -> Result<(), std::convert::Infallible> {
+    //     self.load_queue
+    //         .retain_mut(|driver| match driver.poll_loaded() {
+    //             None => true,
+    //             Some(loaded) => {
+    //                 self.build_queue.push(loaded);
+    //                 false
+    //             }
+    //         });
 
-        if self.build_queue.is_empty() {
-            return Ok(());
-        }
+    //     if self.build_queue.is_empty() {
+    //         return Ok(());
+    //     }
 
-        for loaded in self.build_queue.drain(..) {
-            loaded.build(&mut BobBuilder {
-                marker: std::marker::PhantomData,
-            });
-        }
+    //     for loaded in self.build_queue.drain(..) {
+    //         loaded.build(&mut BobBuilder {
+    //             marker: std::marker::PhantomData,
+    //         });
+    //     }
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
     pub fn load_with_id<A>(&mut self, id: AssetId) -> AssetFuture<A>
     where

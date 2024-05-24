@@ -1,12 +1,13 @@
+//! Async execution on ECS.
+
 use std::{
     cmp::Ordering,
-    collections::{binary_heap::PeekMut, BinaryHeap},
-    future::poll_fn,
+    collections::BinaryHeap,
     task::{Poll, Waker},
 };
 
 pub use edict::flow::*;
-use edict::{Res, ResMut, Scheduler, World};
+use edict::World;
 use gametime::{ClockStep, TimeSpan, TimeStamp};
 
 /// Causes flow to sleep for the specified duration.
@@ -15,51 +16,14 @@ pub async fn sleep(duration: TimeSpan, world: FlowWorld<'_>) {
         return;
     }
 
-    let deadline = world
-        .poll_fn(|world, cx| {
-            let now = world.expect_resource::<ClockStep>().now;
-            let deadline = now + duration;
+    let now = world.expect_resource::<ClockStep>().now;
+    let deadline = now + duration;
 
-            world
-                .expect_resource_mut::<Timers>()
-                .add_timer(cx.waker().clone(), deadline);
-            Poll::Ready(deadline)
-        })
-        .await;
-
-    world
-        .poll_fn(|world, cx| {
-            let now = world.expect_resource::<ClockStep>().now;
-
-            if now >= deadline {
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
-        })
-        .await
+    sleep_until(deadline, world).await;
 }
 
 /// Causes flow to sleep untile specified time.
-pub async fn sleep_until(deadline: TimeStamp, world: FlowWorld<'_>) {
-    let ready = world
-        .poll_fn(|world, cx| {
-            let now = world.expect_resource::<ClockStep>().now;
-            if now >= deadline {
-                return Poll::Ready(true);
-            }
-
-            world
-                .expect_resource_mut::<Timers>()
-                .add_timer(cx.waker().clone(), deadline);
-            Poll::Ready(false)
-        })
-        .await;
-
-    if ready {
-        return;
-    }
-
+pub async fn sleep_until(deadline: TimeStamp, mut world: FlowWorld<'_>) {
     world
         .poll_fn(|world, cx| {
             let now = world.expect_resource::<ClockStep>().now;
@@ -67,6 +31,9 @@ pub async fn sleep_until(deadline: TimeStamp, world: FlowWorld<'_>) {
             if now >= deadline {
                 Poll::Ready(())
             } else {
+                world
+                    .expect_resource_mut::<Timers>()
+                    .add_timer(cx.waker().clone(), deadline);
                 Poll::Pending
             }
         })
@@ -140,14 +107,16 @@ impl Timers {
     }
 }
 
-pub fn init_flows(world: &mut World, scheduler: &mut Scheduler) {
+pub fn init_flows(world: &mut World) {
+    Flows::init(world);
     world.insert_resource(Timers::new());
+}
 
-    scheduler.add_system(|mut timers: ResMut<Timers>, clocks: Res<ClockStep>| {
-        timers.wake_until(clocks.now);
-    });
+pub fn wake_flows(world: &mut World) {
+    let mut times = world.expect_resource_mut::<Timers>();
+    let clocks = world.expect_resource::<ClockStep>();
 
-    scheduler.add_system(flows_system);
+    times.wake_until(clocks.now);
 }
 
 pub trait FlowWorldExt {}

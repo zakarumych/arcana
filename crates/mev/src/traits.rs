@@ -1,15 +1,19 @@
-use std::ops::Range;
+use std::{fmt::Debug, hash::Hash, ops::Range};
 
-use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
+use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 
-use crate::generic::{
-    Arguments, BufferDesc, BufferInitDesc, Capabilities, CreateError, CreateLibraryError,
-    CreatePipelineError, DeviceDesc, DeviceError, DeviceRepr, Extent2, Extent3, ImageDesc,
-    ImageDimensions, LibraryDesc, Offset2, Offset3, OutOfMemory, PipelineStages, PixelFormat,
-    RenderPassDesc, RenderPipelineDesc, SamplerDesc, SurfaceError, ViewDesc,
+use crate::{
+    generic::{
+        Arguments, AsBufferSlice, BlasBuildDesc, BlasDesc, BufferDesc, BufferInitDesc, BufferSlice,
+        Capabilities, ComputePipelineDesc, CreateError, CreateLibraryError, CreatePipelineError,
+        DeviceDesc, DeviceError, DeviceRepr, Extent2, Extent3, ImageDesc, ImageExtent, LibraryDesc,
+        Offset2, Offset3, OutOfMemory, PipelineStages, PixelFormat, RenderPassDesc,
+        RenderPipelineDesc, SamplerDesc, SurfaceError, TlasBuildDesc, TlasDesc, ViewDesc,
+    },
+    ImageUsage, Shader,
 };
 
-pub trait Instance {
+pub trait Instance: Debug + Send + Sync + 'static {
     fn capabilities(&self) -> &Capabilities;
     fn create(
         &self,
@@ -17,12 +21,18 @@ pub trait Instance {
     ) -> Result<(crate::backend::Device, Vec<crate::backend::Queue>), CreateError>;
 }
 
-pub trait Device {
+pub trait Device: Clone + Debug + Eq + Send + Sync + 'static {
     /// Create a new shader library.
     fn new_shader_library(
         &self,
         desc: LibraryDesc,
     ) -> Result<crate::backend::Library, CreateLibraryError>;
+
+    /// Create a new compute pipeline.
+    fn new_compute_pipeline(
+        &self,
+        desc: ComputePipelineDesc,
+    ) -> Result<crate::backend::ComputePipeline, CreatePipelineError>;
 
     /// Create a new render pipeline.
     fn new_render_pipeline(
@@ -45,12 +55,18 @@ pub trait Device {
     /// Create a new surface associated with given window.
     fn new_surface(
         &self,
-        window: &impl HasRawWindowHandle,
-        display: &impl HasRawDisplayHandle,
+        window: &impl HasWindowHandle,
+        display: &impl HasDisplayHandle,
     ) -> Result<crate::backend::Surface, SurfaceError>;
+
+    /// Create a new bottom-level acceleration structure.
+    fn new_blas(&self, desc: BlasDesc) -> Result<crate::backend::Blas, OutOfMemory>;
+
+    /// Create a new top-level acceleration structure.
+    fn new_tlas(&self, desc: TlasDesc) -> Result<crate::backend::Tlas, OutOfMemory>;
 }
 
-pub trait Queue {
+pub trait Queue: Debug + Send + Sync + 'static {
     /// Get the queue family index.
     fn family(&self) -> u32;
 
@@ -61,12 +77,8 @@ pub trait Queue {
     /// Submit command buffers to the queue.
     ///
     /// If `check_point` is `true`, inserts a checkpoint into queue and check previous checkpoints.
-    /// Checkpoints are required to synchronize resource use and reclamation.
-    fn submit<I>(
-        &mut self,
-        command_buffers: I,
-        check_point: bool,
-    ) -> Result<(), DeviceError<Vec<crate::backend::CommandBuffer>>>
+    /// Checkpoints are required for resource reclamation.
+    fn submit<I>(&mut self, command_buffers: I, check_point: bool) -> Result<(), DeviceError>
     where
         I: IntoIterator<Item = crate::backend::CommandBuffer>;
 
@@ -74,6 +86,8 @@ pub trait Queue {
     fn drop_command_buffer<I>(&mut self, command_buffers: I)
     where
         I: IntoIterator<Item = crate::backend::CommandBuffer>;
+
+    fn sync_frame(&mut self, frame: &mut crate::backend::Frame, before: PipelineStages);
 }
 
 pub trait CommandEncoder {
@@ -95,17 +109,49 @@ pub trait CommandEncoder {
         image: &crate::backend::Image,
     );
 
-    /// Returns encoder for copy commands.
-    fn copy(&mut self) -> crate::backend::CopyCommandEncoder<'_>;
-
-    /// Starts rendering and returns encoder for render commands.
-    fn render(&mut self, desc: RenderPassDesc) -> crate::backend::RenderCommandEncoder<'_>;
-
     /// Presents the frame to the surface.
     fn present(&mut self, frame: crate::backend::Frame, after: PipelineStages);
 
     /// Finishes encoding and returns the command buffer.
     fn finish(self) -> Result<crate::backend::CommandBuffer, OutOfMemory>;
+
+    /// Returns encoder for copy commands.
+    fn copy(&mut self) -> crate::backend::CopyCommandEncoder<'_>;
+
+    fn acceleration_structure(&mut self)
+        -> crate::backend::AccelerationStructureCommandEncoder<'_>;
+
+    fn compute(&mut self) -> crate::backend::ComputeCommandEncoder<'_>;
+
+    /// Starts rendering and returns encoder for render commands.
+    fn render(&mut self, desc: RenderPassDesc) -> crate::backend::RenderCommandEncoder<'_>;
+}
+
+pub trait ComputeCommandEncoder {
+    /// Synchronizes the access to the resources.
+    /// Commands in `before` stages of subsequent commands will be
+    /// executed only after commands in `after` stages of previous commands
+    /// are finished.
+    fn barrier(&mut self, after: PipelineStages, before: PipelineStages);
+
+    fn init_image(
+        &mut self,
+        after: PipelineStages,
+        before: PipelineStages,
+        image: &crate::backend::Image,
+    );
+
+    /// Sets the current compute pipeline.
+    fn with_pipeline(&mut self, pipeline: &crate::backend::ComputePipeline);
+
+    /// Sets arguments group for the current pipeline.
+    fn with_arguments(&mut self, group: u32, arguments: &impl Arguments);
+
+    /// Sets constants for the current pipeline.
+    fn with_constants(&mut self, constants: &impl DeviceRepr);
+
+    /// Dispatches compute work.
+    fn dispatch(&mut self, groups: Extent3);
 }
 
 pub trait CopyCommandEncoder {
@@ -123,23 +169,13 @@ pub trait CopyCommandEncoder {
     );
 
     /// Writes data to the buffer.
-    fn write_buffer_raw(&mut self, buffer: &crate::backend::Buffer, offset: usize, data: &[u8]);
+    fn write_buffer_raw(&mut self, slice: impl AsBufferSlice, data: &[u8]);
 
     /// Writes data to the buffer.
-    fn write_buffer(
-        &mut self,
-        buffer: &crate::backend::Buffer,
-        offset: usize,
-        data: &impl bytemuck::Pod,
-    );
+    fn write_buffer(&mut self, slice: impl AsBufferSlice, data: &impl bytemuck::Pod);
 
     /// Writes data to the buffer.
-    fn write_buffer_slice(
-        &mut self,
-        buffer: &crate::backend::Buffer,
-        offset: usize,
-        data: &[impl bytemuck::Pod],
-    );
+    fn write_buffer_slice(&mut self, slice: impl AsBufferSlice, data: &[impl bytemuck::Pod]);
 
     /// Copies pixels from src image to dst image.
     fn copy_buffer_to_image(
@@ -159,11 +195,13 @@ pub trait CopyCommandEncoder {
     fn copy_image_region(
         &mut self,
         src: &crate::backend::Image,
-        src_offset: Offset3<u32>,
+        src_level: u32,
         src_base_layer: u32,
+        src_offset: Offset3<u32>,
         dst: &crate::backend::Image,
-        dst_offset: Offset3<u32>,
+        dst_level: u32,
         dst_base_layer: u32,
+        dst_offset: Offset3<u32>,
         extent: Extent3<u32>,
         layers: u32,
     );
@@ -184,10 +222,10 @@ pub trait RenderCommandEncoder {
     fn with_constants(&mut self, constants: &impl DeviceRepr);
 
     /// Bind vertex buffer to the current pipeline.
-    fn bind_vertex_buffers(&mut self, start: u32, buffers: &[(&crate::backend::Buffer, usize)]);
+    fn bind_vertex_buffers(&mut self, start: u32, slices: &[impl AsBufferSlice]);
 
     /// Bind index buffer to the current pipeline.
-    fn bind_index_buffer(&mut self, buffer: &crate::backend::Buffer, offset: usize);
+    fn bind_index_buffer(&mut self, slice: impl AsBufferSlice);
 
     /// Draws primitives.
     fn draw(&mut self, vertices: Range<u32>, instances: Range<u32>);
@@ -196,31 +234,46 @@ pub trait RenderCommandEncoder {
     fn draw_indexed(&mut self, vertex_offset: i32, indices: Range<u32>, instances: Range<u32>);
 }
 
-pub trait Surface {
-    /// Acquires next frame from the surface.
-    fn next_frame(
+pub trait AccelerationStructureCommandEncoder {
+    fn build_blas(
         &mut self,
-        queue: &mut crate::backend::Queue,
-        before: PipelineStages,
-    ) -> Result<crate::backend::Frame, SurfaceError>;
+        blas: &crate::backend::Blas,
+        desc: BlasBuildDesc,
+        scratch: impl AsBufferSlice,
+    );
+
+    fn build_tlas(
+        &mut self,
+        tlas: &crate::backend::Tlas,
+        desc: TlasBuildDesc,
+        scratch: impl AsBufferSlice,
+    );
 }
 
-pub trait Frame {
+pub trait Surface: Send + Sync + 'static {
+    /// Acquires next frame from the surface.
+    fn next_frame(&mut self) -> Result<crate::backend::Frame, SurfaceError>;
+}
+
+pub trait Frame: Send + Sync + 'static {
     fn image(&self) -> &crate::backend::Image;
 }
 
-pub trait Image {
+pub trait Image: Clone + Debug + Eq + Hash + Send + Sync + 'static {
     /// Returns the pixel format of the image.
     fn format(&self) -> PixelFormat;
 
     /// Returns the dimensions of the image.
-    fn dimensions(&self) -> ImageDimensions;
+    fn dimensions(&self) -> ImageExtent;
 
     /// Returns the number of layers in the image.
     fn layers(&self) -> u32;
 
     /// Returns the number of mip levels in the image.
     fn levels(&self) -> u32;
+
+    /// Returns the usage of the image.
+    fn usage(&self) -> ImageUsage;
 
     /// Returns new image that is a view into this image.
     fn view(
@@ -241,7 +294,7 @@ pub trait Image {
     fn detached(&self) -> bool;
 }
 
-pub trait Buffer {
+pub trait Buffer: Clone + Debug + Eq + Hash + Send + Sync + 'static {
     /// Returns the size of the buffer in bytes.
     fn size(&self) -> usize;
 
@@ -264,6 +317,11 @@ pub trait Buffer {
     /// Other threads or GPU may access the same buffer region.
     ///
     /// Use [`CommandEncoder::write_buffer`] to update
-    /// buffer in safer way.
+    /// buffer in a bit safer way.
     unsafe fn write_unchecked(&mut self, offset: usize, data: &[u8]);
+}
+
+pub trait Library {
+    /// Returns shader entry point.
+    fn entry<'a>(&self, entry: &'a str) -> Shader<'a>;
 }

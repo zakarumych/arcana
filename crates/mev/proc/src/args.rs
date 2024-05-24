@@ -11,6 +11,7 @@ proc_easy::easy_flags! {
     pub Shader(shader) | pub Shaders(shaders) {
         Vertex(vertex),
         Fragment(fragment),
+        Compute(compute),
     }
 }
 

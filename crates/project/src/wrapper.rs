@@ -7,7 +7,7 @@ use std::{
     process::{Child, Command},
 };
 
-use crate::{path::make_relative, Plugin, WORKSPACE_DIR_NAME};
+use crate::{path::make_relative, WORKSPACE_DIR_NAME};
 
 use super::Dependency;
 
@@ -32,40 +32,70 @@ use super::Dependency;
 //     }
 // }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Profile {
+    Release,
+    Debug,
+}
+
 /// Construct a command to run ed for arcana project.
-pub fn run_editor(root: &Path) -> Command {
+pub fn run_editor(root: &Path, profile: Profile) -> Command {
     let workspace = root.join(WORKSPACE_DIR_NAME);
     let mut cmd = Command::new("cargo");
-    cmd.arg("run")
-        .arg("--package=ed")
-        // .arg("--release")
-        // .arg("--verbose")
-        .env("RUSTFLAGS", "-Zshare-generics=off -Cprefer-dynamic=yes")
+    cmd.arg("run").arg("--package=ed");
+    match profile {
+        Profile::Release => {
+            cmd.arg("--release");
+            cmd.env("ARCANA_PROFILE", "release");
+        }
+        Profile::Debug => {
+            cmd.env("ARCANA_PROFILE", "debug");
+        }
+    }
+    // cmd.arg("--verbose")
+    cmd.env("RUSTFLAGS", "-Zshare-generics=off -Cprefer-dynamic=yes")
         .current_dir(&workspace);
     cmd
 }
 
 /// Construct a command to run ed for arcana project.
-pub fn run_game(root: &Path) -> Command {
+pub fn build_editor(root: &Path, profile: Profile) -> Command {
     let workspace = root.join(WORKSPACE_DIR_NAME);
     let mut cmd = Command::new("cargo");
-    cmd.arg("run")
-        .arg("--package=game")
-        .arg("--features=arcana/ed")
-        // .arg("--release")
-        .env("RUSTFLAGS", "-Zshare-generics=off -Cprefer-dynamic=yes")
+    cmd.arg("build").arg("--package=ed");
+    if profile == Profile::Release {
+        cmd.arg("--release");
+    }
+    // cmd.arg("--verbose")
+    cmd.env("RUSTFLAGS", "-Zshare-generics=off -Cprefer-dynamic=yes")
         .current_dir(&workspace);
     cmd
 }
 
 /// Construct a command to run ed for arcana project.
-pub fn build_game(root: &Path) -> Command {
+pub fn run_game(root: &Path, profile: Profile) -> Command {
     let workspace = root.join(WORKSPACE_DIR_NAME);
     let mut cmd = Command::new("cargo");
-    cmd.arg("build")
+    cmd.arg("run")
         .arg("--package=game")
-        // .arg("--release")
-        .env("RUSTFLAGS", "-Zshare-generics=off")
+        .arg("--features=arcana/ed");
+    if profile == Profile::Release {
+        cmd.arg("--release");
+    }
+    cmd.env("RUSTFLAGS", "-Zshare-generics=off -Cprefer-dynamic=yes")
+        .current_dir(&workspace);
+    cmd
+}
+
+/// Construct a command to run ed for arcana project.
+pub fn build_game(root: &Path, profile: Profile) -> Command {
+    let workspace = root.join(WORKSPACE_DIR_NAME);
+    let mut cmd = Command::new("cargo");
+    cmd.arg("build").arg("--package=game");
+    if profile == Profile::Release {
+        cmd.arg("--release");
+    }
+    cmd.env("RUSTFLAGS", "-Zshare-generics=off")
         .current_dir(&workspace);
     cmd
 }
@@ -73,33 +103,39 @@ pub fn build_game(root: &Path) -> Command {
 /// Spawn async plugins building process.
 /// Returns BuildProcess that can be used to determine expected shared lib artefact
 /// and poll build completion.
-pub fn build_plugins(root: &Path) -> miette::Result<BuildProcess> {
+pub fn build_plugins(root: &Path, profile: Profile) -> miette::Result<BuildProcess> {
     let workspace = root.join(WORKSPACE_DIR_NAME);
 
-    let child = Command::new("cargo")
-        .arg("build")
-        // .arg("--verbose")
-        // .arg("--release")
-        .arg("--package=plugins")
+    let mut cmd = Command::new("cargo");
+    cmd.arg("build").arg("--package=plugins");
+
+    if profile == Profile::Release {
+        cmd.arg("--release");
+    }
+
+    let child = cmd
         .env("RUSTFLAGS", "-Zshare-generics=off -Cprefer-dynamic=yes")
         .current_dir(&workspace)
         .spawn()
         .map_err(|err| {
             miette::miette!(
-                "Failed to start building plugins '{}'. {err}",
+                "Failed to start building plugins '{}'. {err:?}",
                 workspace.display()
             )
         })?;
 
-    let artifact = plugins_lib_path(&workspace);
+    let artifact = plugins_lib_path(&workspace, profile);
 
     Ok(BuildProcess { child, artifact })
 }
 
 /// Construct expected plugin build artifact path.
-fn plugins_lib_path(workspace: &Path) -> PathBuf {
+fn plugins_lib_path(workspace: &Path, profile: Profile) -> PathBuf {
     let mut lib_path = workspace.join("target");
-    lib_path.push("debug"); // Hardcoded for now.
+    lib_path.push(match profile {
+        Profile::Release => "release",
+        Profile::Debug => "debug",
+    }); // Hardcoded for now.
     lib_path.push(format!("{DLL_PREFIX}plugins{DLL_SUFFIX}"));
     lib_path
 }
@@ -123,7 +159,7 @@ impl BuildProcess {
     pub fn finished(&mut self) -> miette::Result<bool> {
         match self.child.try_wait() {
             Err(err) => {
-                miette::bail!("Failed to wait for build process to finish. {err}",);
+                miette::bail!("Failed to wait for build process to finish. {err:?}",);
             }
             Ok(None) => Ok(false),
             Ok(Some(status)) if status.success() => Ok(true),

@@ -6,7 +6,7 @@ use super::{feature::Features, queue::QueueFlags};
 pub struct LoadError(pub(crate) crate::backend::LoadErrorKind);
 
 impl fmt::Display for LoadError {
-    #[inline(never)]
+    #[inline(always)]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(&self.0, f)
     }
@@ -18,7 +18,7 @@ impl std::error::Error for LoadError {}
 pub struct CreateError(pub(crate) crate::backend::CreateErrorKind);
 
 impl fmt::Display for CreateError {
-    #[inline(never)]
+    #[inline(always)]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(&self.0, f)
     }

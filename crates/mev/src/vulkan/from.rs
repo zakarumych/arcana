@@ -1,10 +1,13 @@
 use ash::vk;
 
-use crate::generic::{
-    AddressMode, BlendFactor, BlendOp, BufferUsage, CompareFunction, ComponentSwizzle, Culling,
-    Extent2, Extent3, FamilyCapabilities, Filter, FrontFace, ImageDimensions, ImageUsage,
-    MipMapMode, Offset2, Offset3, PipelineStage, PipelineStages, PixelFormat, QueueFlags,
-    ShaderStage, ShaderStages, Swizzle, VertexFormat, WriteMask,
+use crate::{
+    generic::{
+        AddressMode, BlendFactor, BlendOp, BufferUsage, CompareFunction, ComponentSwizzle, Culling,
+        Extent2, Extent3, FamilyCapabilities, Filter, FrontFace, ImageExtent, ImageUsage,
+        MipMapMode, Offset2, Offset3, PipelineStage, PipelineStages, PixelFormat, QueueFlags,
+        ShaderStage, ShaderStages, Swizzle, VertexFormat, WriteMask,
+    },
+    mat,
 };
 
 macro_rules! from_flags {
@@ -36,7 +39,7 @@ impl<T, A> AshInto<T> for A
 where
     T: FromAsh<A>,
 {
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn ash_into(self) -> T {
         T::from_ash(self)
     }
@@ -54,7 +57,7 @@ impl<A, T> IntoAsh<A> for T
 where
     A: AshFrom<T>,
 {
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn into_ash(self) -> A {
         A::ash_from(self)
     }
@@ -72,7 +75,7 @@ impl<T, U> TryAshInto<U> for T
 where
     U: TryFromAsh<T>,
 {
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn try_ash_into(self) -> Option<U> {
         U::try_from_ash(self)
     }
@@ -90,14 +93,14 @@ impl<T, U> TryIntoAsh<U> for T
 where
     U: TryAshFrom<T>,
 {
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn try_into_ash(self) -> Option<U> {
         U::try_ash_from(self)
     }
 }
 
 impl FromAsh<vk::QueueFamilyProperties> for FamilyCapabilities {
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn from_ash(value: vk::QueueFamilyProperties) -> Self {
         FamilyCapabilities {
             queue_flags: value.queue_flags.ash_into(),
@@ -106,15 +109,15 @@ impl FromAsh<vk::QueueFamilyProperties> for FamilyCapabilities {
     }
 }
 
-impl FromAsh<vk::QueueFamilyProperties2> for FamilyCapabilities {
-    #[inline(never)]
+impl FromAsh<vk::QueueFamilyProperties2<'_>> for FamilyCapabilities {
+    #[cfg_attr(inline_more, inline(always))]
     fn from_ash(value: vk::QueueFamilyProperties2) -> Self {
         value.queue_family_properties.ash_into()
     }
 }
 
 impl FromAsh<vk::QueueFlags> for QueueFlags {
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn from_ash(value: vk::QueueFlags) -> Self {
         // from_flags!(vk::QueueFlags => QueueFlags, [GRAPHICS, COMPUTE, TRANSFER], value)
 
@@ -131,7 +134,7 @@ impl FromAsh<vk::QueueFlags> for QueueFlags {
 }
 
 impl AshFrom<BufferUsage> for vk::BufferUsageFlags {
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn ash_from(value: BufferUsage) -> Self {
         from_flags!(BufferUsage => vk::BufferUsageFlags, [
             TRANSFER_SRC => TRANSFER_SRC,
@@ -145,30 +148,30 @@ impl AshFrom<BufferUsage> for vk::BufferUsageFlags {
     }
 }
 
-impl AshFrom<ImageDimensions> for vk::ImageType {
-    #[inline(never)]
-    fn ash_from(value: ImageDimensions) -> Self {
+impl AshFrom<ImageExtent> for vk::ImageType {
+    #[cfg_attr(inline_more, inline(always))]
+    fn ash_from(value: ImageExtent) -> Self {
         match value {
-            ImageDimensions::D1(_) => vk::ImageType::TYPE_1D,
-            ImageDimensions::D2(_) => vk::ImageType::TYPE_2D,
-            ImageDimensions::D3(_) => vk::ImageType::TYPE_3D,
+            ImageExtent::D1(_) => vk::ImageType::TYPE_1D,
+            ImageExtent::D2(_) => vk::ImageType::TYPE_2D,
+            ImageExtent::D3(_) => vk::ImageType::TYPE_3D,
         }
     }
 }
 
-impl AshFrom<ImageDimensions> for vk::ImageViewType {
-    #[inline(never)]
-    fn ash_from(value: ImageDimensions) -> Self {
+impl AshFrom<ImageExtent> for vk::ImageViewType {
+    #[cfg_attr(inline_more, inline(always))]
+    fn ash_from(value: ImageExtent) -> Self {
         match value {
-            ImageDimensions::D1(_) => vk::ImageViewType::TYPE_1D,
-            ImageDimensions::D2(_) => vk::ImageViewType::TYPE_2D,
-            ImageDimensions::D3(_) => vk::ImageViewType::TYPE_3D,
+            ImageExtent::D1(_) => vk::ImageViewType::TYPE_1D,
+            ImageExtent::D2(_) => vk::ImageViewType::TYPE_2D,
+            ImageExtent::D3(_) => vk::ImageViewType::TYPE_3D,
         }
     }
 }
 
 impl TryAshFrom<PixelFormat> for vk::Format {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn try_ash_from(value: PixelFormat) -> Option<Self> {
         Some(match value {
             PixelFormat::R8Unorm => vk::Format::R8_UNORM,
@@ -253,7 +256,7 @@ impl TryAshFrom<PixelFormat> for vk::Format {
 }
 
 impl TryFromAsh<vk::Format> for PixelFormat {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn try_from_ash(value: vk::Format) -> Option<Self> {
         Some(match value {
             vk::Format::R8_UNORM => PixelFormat::R8Unorm,
@@ -338,7 +341,7 @@ impl TryFromAsh<vk::Format> for PixelFormat {
 }
 
 impl AshFrom<(ImageUsage, PixelFormat)> for vk::ImageUsageFlags {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn ash_from((usage, format): (ImageUsage, PixelFormat)) -> Self {
         let mut result = vk::ImageUsageFlags::empty();
         if usage.contains(ImageUsage::TRANSFER_SRC) {
@@ -365,7 +368,7 @@ impl AshFrom<(ImageUsage, PixelFormat)> for vk::ImageUsageFlags {
 }
 
 impl FromAsh<vk::ImageUsageFlags> for ImageUsage {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn from_ash(usage: vk::ImageUsageFlags) -> Self {
         let mut result = ImageUsage::empty();
         if usage.contains(vk::ImageUsageFlags::TRANSFER_SRC) {
@@ -390,7 +393,7 @@ impl FromAsh<vk::ImageUsageFlags> for ImageUsage {
 }
 
 impl TryAshFrom<VertexFormat> for vk::Format {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn try_ash_from(value: VertexFormat) -> Option<Self> {
         Some(match value {
             VertexFormat::Uint8 => vk::Format::R8_UINT,
@@ -455,7 +458,7 @@ impl TryAshFrom<VertexFormat> for vk::Format {
 }
 
 impl AshFrom<CompareFunction> for vk::CompareOp {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn ash_from(compare: CompareFunction) -> Self {
         match compare {
             CompareFunction::Never => vk::CompareOp::NEVER,
@@ -471,7 +474,7 @@ impl AshFrom<CompareFunction> for vk::CompareOp {
 }
 
 impl AshFrom<BlendFactor> for vk::BlendFactor {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn ash_from(factor: BlendFactor) -> Self {
         match factor {
             BlendFactor::Zero => vk::BlendFactor::ZERO,
@@ -492,7 +495,7 @@ impl AshFrom<BlendFactor> for vk::BlendFactor {
 }
 
 impl AshFrom<BlendOp> for vk::BlendOp {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn ash_from(op: BlendOp) -> Self {
         match op {
             BlendOp::Add => vk::BlendOp::ADD,
@@ -505,7 +508,7 @@ impl AshFrom<BlendOp> for vk::BlendOp {
 }
 
 impl AshFrom<WriteMask> for vk::ColorComponentFlags {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn ash_from(mask: WriteMask) -> Self {
         let mut flags = vk::ColorComponentFlags::empty();
         if mask.contains(WriteMask::RED) {
@@ -525,7 +528,7 @@ impl AshFrom<WriteMask> for vk::ColorComponentFlags {
 }
 
 impl AshFrom<Filter> for ash::vk::Filter {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn ash_from(filter: Filter) -> Self {
         match filter {
             Filter::Nearest => ash::vk::Filter::NEAREST,
@@ -535,7 +538,7 @@ impl AshFrom<Filter> for ash::vk::Filter {
 }
 
 impl AshFrom<MipMapMode> for ash::vk::SamplerMipmapMode {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn ash_from(mode: MipMapMode) -> Self {
         match mode {
             MipMapMode::Nearest => ash::vk::SamplerMipmapMode::NEAREST,
@@ -545,7 +548,7 @@ impl AshFrom<MipMapMode> for ash::vk::SamplerMipmapMode {
 }
 
 impl AshFrom<AddressMode> for ash::vk::SamplerAddressMode {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn ash_from(mode: AddressMode) -> Self {
         match mode {
             AddressMode::Repeat => ash::vk::SamplerAddressMode::REPEAT,
@@ -556,7 +559,7 @@ impl AshFrom<AddressMode> for ash::vk::SamplerAddressMode {
 }
 
 impl AshFrom<ShaderStage> for ash::vk::ShaderStageFlags {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn ash_from(stage: ShaderStage) -> Self {
         match stage {
             ShaderStage::Vertex => ash::vk::ShaderStageFlags::VERTEX,
@@ -567,7 +570,7 @@ impl AshFrom<ShaderStage> for ash::vk::ShaderStageFlags {
 }
 
 impl AshFrom<ShaderStages> for ash::vk::ShaderStageFlags {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn ash_from(stages: ShaderStages) -> Self {
         from_flags!(ShaderStages => vk::ShaderStageFlags, [
             VERTEX => VERTEX,
@@ -578,7 +581,7 @@ impl AshFrom<ShaderStages> for ash::vk::ShaderStageFlags {
 }
 
 impl AshFrom<PipelineStage> for ash::vk::PipelineStageFlags {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn ash_from(stage: PipelineStage) -> Self {
         match stage {
             PipelineStage::DrawIndirect => ash::vk::PipelineStageFlags::DRAW_INDIRECT,
@@ -595,7 +598,7 @@ impl AshFrom<PipelineStage> for ash::vk::PipelineStageFlags {
 }
 
 impl AshFrom<PipelineStages> for ash::vk::PipelineStageFlags {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn ash_from(stages: PipelineStages) -> Self {
         from_flags!(PipelineStages => vk::PipelineStageFlags, [
             DRAW_INDIRECT => DRAW_INDIRECT,
@@ -612,7 +615,7 @@ impl AshFrom<PipelineStages> for ash::vk::PipelineStageFlags {
 }
 
 impl AshFrom<FrontFace> for ash::vk::FrontFace {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn ash_from(face: FrontFace) -> Self {
         match face {
             FrontFace::Clockwise => ash::vk::FrontFace::CLOCKWISE,
@@ -622,7 +625,7 @@ impl AshFrom<FrontFace> for ash::vk::FrontFace {
 }
 
 impl AshFrom<Culling> for ash::vk::CullModeFlags {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn ash_from(generic: Culling) -> Self {
         match generic {
             Culling::None => ash::vk::CullModeFlags::NONE,
@@ -633,7 +636,7 @@ impl AshFrom<Culling> for ash::vk::CullModeFlags {
 }
 
 impl AshFrom<Extent2> for ash::vk::Extent2D {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn ash_from(generic: Extent2) -> Self {
         ash::vk::Extent2D {
             width: generic.width(),
@@ -643,7 +646,7 @@ impl AshFrom<Extent2> for ash::vk::Extent2D {
 }
 
 impl AshFrom<Extent3> for ash::vk::Extent3D {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn ash_from(generic: Extent3) -> Self {
         ash::vk::Extent3D {
             width: generic.width(),
@@ -653,8 +656,31 @@ impl AshFrom<Extent3> for ash::vk::Extent3D {
     }
 }
 
+impl AshFrom<ImageExtent> for ash::vk::Extent3D {
+    #[cfg_attr(inline_more, inline(always))]
+    fn ash_from(generic: ImageExtent) -> Self {
+        match generic {
+            ImageExtent::D1(extent) => ash::vk::Extent3D {
+                width: extent.width(),
+                height: 1,
+                depth: 1,
+            },
+            ImageExtent::D2(extent) => ash::vk::Extent3D {
+                width: extent.width(),
+                height: extent.height(),
+                depth: 1,
+            },
+            ImageExtent::D3(extent) => ash::vk::Extent3D {
+                width: extent.width(),
+                height: extent.height(),
+                depth: extent.depth(),
+            },
+        }
+    }
+}
+
 impl AshFrom<Offset2> for ash::vk::Offset2D {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn ash_from(generic: Offset2) -> Self {
         ash::vk::Offset2D {
             x: generic.x(),
@@ -664,7 +690,7 @@ impl AshFrom<Offset2> for ash::vk::Offset2D {
 }
 
 impl AshFrom<Offset3> for ash::vk::Offset3D {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn ash_from(generic: Offset3) -> Self {
         ash::vk::Offset3D {
             x: generic.x(),
@@ -675,7 +701,7 @@ impl AshFrom<Offset3> for ash::vk::Offset3D {
 }
 
 impl AshFrom<ComponentSwizzle> for ash::vk::ComponentSwizzle {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn ash_from(component: ComponentSwizzle) -> Self {
         match component {
             ComponentSwizzle::Identity => ash::vk::ComponentSwizzle::IDENTITY,
@@ -690,7 +716,7 @@ impl AshFrom<ComponentSwizzle> for ash::vk::ComponentSwizzle {
 }
 
 impl AshFrom<Swizzle> for ash::vk::ComponentMapping {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn ash_from(swizzle: Swizzle) -> Self {
         ash::vk::ComponentMapping {
             r: swizzle.r.into_ash(),

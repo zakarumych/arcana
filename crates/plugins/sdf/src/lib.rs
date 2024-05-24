@@ -1,33 +1,28 @@
-arcana::not_feature_client! {
-    std::compile_error!("arcana/client feature is required");
-}
-
 use std::mem::size_of;
 
 use arcana::{
     edict::{self, Component, EntityId, World},
     mev::{self, Arguments, DeviceRepr},
-    project::Ident,
     render::{Render, RenderBuilderContext, RenderContext, RenderError, RenderGraph, TargetId},
 };
 
-macro_rules! print_layout {
-    ($name:ident {
-        $($field:ident)*
-    }) => {
-        let value = unsafe { core::mem::MaybeUninit::<<$name as DeviceRepr>::Repr>::zeroed().assume_init() };
-        let ptr = &value as *const _ as usize;
-        println!("{}: {} {{", stringify!($name), size_of::<<$name as DeviceRepr>::Repr>());
-        $(
-            let field_ptr = &value.$field as *const _ as usize;
-            println!("  {}: {}", stringify!($field), field_ptr - ptr);
-        )*
-        println!("}}");
-    };
-}
+// macro_rules! print_layout {
+//     ($name:ident {
+//         $($field:ident)*
+//     }) => {
+//         let value = unsafe { core::mem::MaybeUninit::<<$name as DeviceRepr>::Repr>::zeroed().assume_init() };
+//         let ptr = &value as *const _ as usize;
+//         println!("{}: {} {{", stringify!($name), size_of::<<$name as DeviceRepr>::Repr>());
+//         $(
+//             let field_ptr = &value.$field as *const _ as usize;
+//             println!("  {}: {}", stringify!($field), field_ptr - ptr);
+//         )*
+//         println!("}}");
+//     };
+// }
 
 use camera::Camera2;
-use scene::Global2;
+use scene::dim2::Global;
 
 arcana::export_arcana_plugin! {
     SdfPlugin {
@@ -36,7 +31,7 @@ arcana::export_arcana_plugin! {
     }
 }
 
-#[derive(Component)]
+#[derive(Clone, Copy, Component)]
 pub struct Shape {
     pub color: [f32; 4],
     pub transform: na::Affine2<f32>,
@@ -66,6 +61,7 @@ impl Shape {
     }
 }
 
+#[derive(Clone, Copy)]
 pub enum ShapeKind {
     Circle { radius: f32 },
     Rect { width: f32, height: f32 },
@@ -190,10 +186,10 @@ impl Render for SdfRender {
                 .unwrap()
         });
 
-        let dims = target.dimensions().to_2d();
+        let dims = target.dimensions().expect_2d();
 
         let camera = world
-            .try_view_one::<(&Global2, &Camera2)>(self.camera)
+            .try_view_one::<(&Global, &Camera2)>(self.camera)
             .expect("Camera is missing");
 
         let camera = {
@@ -206,7 +202,7 @@ impl Render for SdfRender {
             <[[f32; 3]; 3]>::from((g.iso * viewport).to_homogeneous())
         };
 
-        let shapes = world.view::<(&Global2, &Shape)>();
+        let shapes = world.view::<(&Global, &Shape)>();
         let shapes_count = shapes.iter().count();
 
         let arguments = self.arguments.get_or_insert_with(|| {
@@ -299,7 +295,7 @@ impl Render for SdfRender {
         self.circles_device.clear();
         self.rects_device.clear();
         for (global, shape) in shapes.iter() {
-            let tr = shape.transform.matrix() * global.iso.to_homogeneous();
+            let tr = global.iso.to_homogeneous() * shape.transform.matrix();
             let inv_tr = tr.try_inverse().unwrap();
 
             self.shapes_device.push(
@@ -337,9 +333,9 @@ impl Render for SdfRender {
 
         {
             let mut copy = encoder.copy();
-            copy.write_buffer_slice(&arguments.shapes, 0, &self.shapes_device);
-            copy.write_buffer_slice(&arguments.circles, 0, &self.circles_device);
-            copy.write_buffer_slice(&arguments.rects, 0, &self.rects_device);
+            copy.write_buffer_slice(&arguments.shapes, &self.shapes_device);
+            copy.write_buffer_slice(&arguments.circles, &self.circles_device);
+            copy.write_buffer_slice(&arguments.rects, &self.rects_device);
         }
 
         let mut render = encoder.render(mev::RenderPassDesc {

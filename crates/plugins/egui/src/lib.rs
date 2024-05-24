@@ -1,9 +1,13 @@
-use std::{mem::size_of_val, sync::OnceLock};
+use std::{
+    mem::{offset_of, size_of_val},
+    sync::OnceLock,
+};
 
 use arcana::{
     bytemuck,
+    gametime::TimeStamp,
+    input::InputFilter,
     mev::{self, Arguments, DeviceRepr},
-    offset_of,
     render::{Render, RenderBuilderContext, RenderContext, RenderError, RenderGraph, TargetId},
     texture::Texture,
     Blink, Component, EntityId, World,
@@ -43,7 +47,7 @@ pub struct Egui {
     textures: HashMap<u64, (mev::Image, Sampler)>,
     raw_input: egui::RawInput,
     mouse_pos: Pos2,
-    pixel_per_point: f32,
+    scale_factor: f32,
     size: Vec2,
 }
 
@@ -72,8 +76,13 @@ impl Egui {
         cx.set_fonts(fonts);
 
         let mut raw_input = egui::RawInput::default();
-        raw_input.screen_rect = Some(Rect::from_min_size(Default::default(), size / scale_factor));
-        raw_input.pixels_per_point = Some(scale_factor);
+        let rect = Rect::from_min_size(Default::default(), size / scale_factor);
+        raw_input.screen_rect = Some(rect);
+
+        let viewport = raw_input.viewports.get_mut(&raw_input.viewport_id).unwrap();
+
+        viewport.inner_rect = Some(rect);
+        viewport.native_pixels_per_point = Some(scale_factor);
 
         Egui {
             cx,
@@ -82,12 +91,14 @@ impl Egui {
             textures: HashMap::new(),
             mouse_pos: Pos2::ZERO,
             raw_input,
-            pixel_per_point: scale_factor,
+            scale_factor,
             size,
         }
     }
 
-    pub fn run<R>(&mut self, run_ui: impl FnOnce(&Context) -> R) -> Option<R> {
+    pub fn run<R>(&mut self, time: TimeStamp, run_ui: impl FnOnce(&Context) -> R) -> R {
+        self.raw_input.time = Some(time.elapsed_since_start().as_secs_f64());
+
         self.cx.begin_frame(self.raw_input.take());
         let ret = run_ui(&self.cx);
         let output = self.cx.end_frame();
@@ -97,7 +108,7 @@ impl Egui {
 
         self.textures_delta.append(output.textures_delta);
         self.shapes = output.shapes;
-        Some(ret)
+        ret
     }
 }
 
@@ -117,7 +128,7 @@ struct EguiConstants {
 }
 
 pub struct EguiRender {
-    id: EntityId,
+    id: Option<EntityId>,
     target: TargetId<mev::Image>,
     samplers: Option<[mev::Sampler; 4]>,
     library: Option<mev::Library>,
@@ -131,7 +142,7 @@ pub struct EguiRender {
 
 impl EguiRender {
     fn new(
-        id: EntityId,
+        id: Option<EntityId>,
         target: TargetId<mev::Image>,
         load_op: mev::LoadOp<mev::ClearColor>,
     ) -> Self {
@@ -149,7 +160,7 @@ impl EguiRender {
     }
 
     pub fn build_overlay(
-        id: EntityId,
+        id: Option<EntityId>,
         target: TargetId<mev::Image>,
         graph: &mut RenderGraph,
     ) -> TargetId<mev::Image> {
@@ -159,25 +170,36 @@ impl EguiRender {
         new_target
     }
 
-    pub fn build(
-        id: EntityId,
-        color: mev::ClearColor,
-        graph: &mut RenderGraph,
-    ) -> TargetId<mev::Image> {
+    pub fn build(id: Option<EntityId>, graph: &mut RenderGraph) -> TargetId<mev::Image> {
         let mut builder = RenderBuilderContext::new("egui", graph);
         let new_target = builder.create_target("egui-surface", mev::PipelineStages::COLOR_OUTPUT);
-        builder.build(EguiRender::new(id, new_target, mev::LoadOp::Clear(color)));
+        builder.build(EguiRender::new(id, new_target, mev::LoadOp::DontCare));
         new_target
     }
 }
 
 impl Render for EguiRender {
     fn render(&mut self, world: &World, mut cx: RenderContext<'_, '_>) -> Result<(), RenderError> {
-        let Ok(mut egui) = world.try_view_one::<&mut Egui>(self.id) else {
-            return Ok(());
-        };
-        let Some(egui) = egui.get_mut() else {
-            return Ok(());
+        let mut egui_res;
+        let mut egui_view;
+        let egui = match self.id {
+            None => {
+                egui_res = match world.get_resource_mut::<Egui>() {
+                    Some(egui) => egui,
+                    None => return Ok(()),
+                };
+                &mut *egui_res
+            }
+            Some(id) => {
+                egui_view = match world.try_view_one::<&mut Egui>(id) {
+                    Ok(egui) => egui,
+                    Err(_) => return Ok(()),
+                };
+                match egui_view.get_mut() {
+                    Some(egui) => egui,
+                    None => return Ok(()),
+                }
+            }
         };
 
         let samplers = match &mut self.samplers {
@@ -278,7 +300,9 @@ impl Render for EguiRender {
                                 dimensions: mev::Extent2::new(size[0] as u32, size[1] as u32)
                                     .into(),
                                 format,
-                                usage: mev::ImageUsage::SAMPLED | mev::ImageUsage::TRANSFER_DST,
+                                usage: mev::ImageUsage::SAMPLED
+                                    | mev::ImageUsage::TRANSFER_DST
+                                    | mev::ImageUsage::TRANSFER_SRC,
                                 layers: 1,
                                 levels: 1,
                                 name: &format!("egui-texture-{id:?}"),
@@ -305,7 +329,7 @@ impl Render for EguiRender {
                         Entry::Occupied(mut entry) => {
                             entry.get_mut().1 = Sampler::from_options(delta.options);
                             image = entry.get().0.clone();
-                            let extent = image.dimensions().to_2d();
+                            let extent = image.dimensions().expect_2d();
                             if (extent.width() as usize) < size[0]
                                 || (extent.height() as usize) < size[1]
                             {
@@ -313,11 +337,19 @@ impl Render for EguiRender {
                                     dimensions: mev::Extent2::new(size[0] as u32, size[1] as u32)
                                         .into(),
                                     format,
-                                    usage: mev::ImageUsage::SAMPLED | mev::ImageUsage::TRANSFER_DST,
+                                    usage: mev::ImageUsage::SAMPLED
+                                        | mev::ImageUsage::TRANSFER_DST
+                                        | mev::ImageUsage::TRANSFER_SRC,
                                     layers: 1,
                                     levels: 1,
                                     name: &format!("egui-texture-{id:?}"),
                                 })?;
+
+                                copy_encoder.init_image(
+                                    mev::PipelineStages::empty(),
+                                    mev::PipelineStages::TRANSFER,
+                                    &new_image,
+                                );
 
                                 if let ImageData::Font(_) = &delta.image {
                                     new_image = new_image.view(
@@ -328,12 +360,14 @@ impl Render for EguiRender {
 
                                 copy_encoder.copy_image_region(
                                     &image,
-                                    mev::Offset3::ZERO,
                                     0,
+                                    0,
+                                    mev::Offset3::ZERO,
                                     &new_image,
-                                    mev::Offset3::ZERO,
                                     0,
-                                    image.dimensions().to_3d(),
+                                    0,
+                                    mev::Offset3::ZERO,
+                                    image.dimensions().into_3d(),
                                     1,
                                 );
 
@@ -369,7 +403,9 @@ impl Render for EguiRender {
             }
 
             if !egui.shapes.is_empty() {
-                let primitives = egui.cx.tessellate(std::mem::take(&mut egui.shapes));
+                let primitives = egui
+                    .cx
+                    .tessellate(std::mem::take(&mut egui.shapes), egui.scale_factor);
 
                 if !primitives.is_empty() {
                     let mut total_vertex_size = 0;
@@ -420,13 +456,11 @@ impl Render for EguiRender {
                         match &primitive.primitive {
                             Primitive::Mesh(mesh) => {
                                 copy_encoder.write_buffer_slice(
-                                    &vertex_buffer,
-                                    vertex_buffer_offset,
+                                    vertex_buffer.slice(vertex_buffer_offset..),
                                     &mesh.vertices[..],
                                 );
                                 copy_encoder.write_buffer_slice(
-                                    &index_buffer,
-                                    index_buffer_offset,
+                                    index_buffer.slice(index_buffer_offset..),
                                     &mesh.indices[..],
                                 );
                                 vertex_buffer_offset += size_of_val(&mesh.vertices[..]);
@@ -466,17 +500,17 @@ impl Render for EguiRender {
                                     vertex_attributes: vec![
                                         mev::VertexAttributeDesc {
                                             format: mev::VertexFormat::Float32x2,
-                                            offset: offset_of!(Vertex.pos) as u32,
+                                            offset: offset_of!(Vertex, pos) as u32,
                                             buffer_index: 0,
                                         },
                                         mev::VertexAttributeDesc {
                                             format: mev::VertexFormat::Float32x2,
-                                            offset: offset_of!(Vertex.uv) as u32,
+                                            offset: offset_of!(Vertex, uv) as u32,
                                             buffer_index: 0,
                                         },
                                         mev::VertexAttributeDesc {
                                             format: mev::VertexFormat::Unorm8x4,
-                                            offset: offset_of!(Vertex.color) as u32,
+                                            offset: offset_of!(Vertex, color) as u32,
                                             buffer_index: 0,
                                         },
                                     ],
@@ -515,17 +549,17 @@ impl Render for EguiRender {
                                     vertex_attributes: vec![
                                         mev::VertexAttributeDesc {
                                             format: mev::VertexFormat::Float32x2,
-                                            offset: offset_of!(Vertex.pos) as u32,
+                                            offset: offset_of!(Vertex, pos) as u32,
                                             buffer_index: 0,
                                         },
                                         mev::VertexAttributeDesc {
                                             format: mev::VertexFormat::Float32x2,
-                                            offset: offset_of!(Vertex.uv) as u32,
+                                            offset: offset_of!(Vertex, uv) as u32,
                                             buffer_index: 0,
                                         },
                                         mev::VertexAttributeDesc {
                                             format: mev::VertexFormat::Unorm8x4,
-                                            offset: offset_of!(Vertex.color) as u32,
+                                            offset: offset_of!(Vertex, color) as u32,
                                             buffer_index: 0,
                                         },
                                     ],
@@ -556,7 +590,7 @@ impl Render for EguiRender {
 
                     drop(copy_encoder);
 
-                    let dims = target.dimensions().to_2d();
+                    let dims = target.dimensions().expect_2d();
 
                     let mut render = encoder.render(mev::RenderPassDesc {
                         color_attachments: &[
@@ -643,9 +677,9 @@ impl Render for EguiRender {
 
                                 render.bind_vertex_buffers(
                                     0,
-                                    &[(&vertex_buffer, vertex_buffer_offset)],
+                                    &[vertex_buffer.slice(vertex_buffer_offset..)],
                                 );
-                                render.bind_index_buffer(&index_buffer, index_buffer_offset);
+                                render.bind_index_buffer(index_buffer.slice(index_buffer_offset..));
                                 render.draw_indexed(0, 0..mesh.indices.len() as u32, 0..1);
 
                                 next_mesh!();
@@ -675,14 +709,14 @@ impl Render for EguiRender {
 
 pub struct EguiFilter;
 
-impl arcana::events::EventFilter for EguiFilter {
-    fn filter(&mut self, _blink: &Blink, world: &mut World, event: &arcana::events::Event) -> bool {
+impl InputFilter for EguiFilter {
+    fn filter(&mut self, _blink: &Blink, world: &mut World, input: &arcana::input::Input) -> bool {
         let world = world.local();
 
-        if let arcana::events::Event::ViewportEvent { viewport, event } = event {
-            if let Ok(egui) = world.get::<&mut Egui>(*viewport) {
-                if egui.handle_event(event) {
-                    // Egui consumed this event.
+        if let arcana::input::Input::ViewportInput { input } = input {
+            if let Some(mut egui) = world.get_resource_mut::<Egui>() {
+                if egui.handle_event(input) {
+                    // Egui consumed this input.
                     return true;
                 }
             }

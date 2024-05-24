@@ -1,5 +1,6 @@
 use core::fmt;
 use std::{
+    hash::{Hash, Hasher},
     mem::{size_of, ManuallyDrop},
     sync::Arc,
 };
@@ -10,8 +11,8 @@ use hashbrown::{hash_map::Entry, HashMap};
 use parking_lot::Mutex;
 
 use crate::generic::{
-    ArgumentKind, Automatic, ImageDimensions, ImageUsage, OutOfMemory, PixelFormat, Sampled,
-    Storage, Swizzle, ViewDesc,
+    ArgumentKind, Automatic, ImageExtent, ImageUsage, OutOfMemory, PixelFormat, Sampled, Storage,
+    Swizzle, ViewDesc,
 };
 
 use super::{
@@ -35,7 +36,7 @@ struct ImageData {
     owner: WeakDevice,
     format: PixelFormat,
     usage: ImageUsage,
-    dimensions: ImageDimensions,
+    dimensions: ImageExtent,
     layers: u32,
     levels: u32,
     flavor: Flavor,
@@ -58,7 +59,7 @@ struct Inner {
     data: Arc<ImageData>,
     desc: ViewDesc,
     usage: ImageUsage,
-    dimensions: ImageDimensions,
+    dimensions: ImageExtent,
     owner: WeakDevice,
 }
 
@@ -67,6 +68,24 @@ pub struct Image {
     handle: vk::Image,
     view: vk::ImageView,
     inner: Arc<Inner>,
+}
+
+impl PartialEq for Image {
+    fn eq(&self, other: &Self) -> bool {
+        self.handle == other.handle
+            && self.view == other.view
+            && Arc::ptr_eq(&self.inner, &other.inner)
+    }
+}
+
+impl Eq for Image {}
+
+impl Hash for Image {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.handle.hash(state);
+        self.view.hash(state);
+        Arc::as_ptr(&self.inner).hash(state);
+    }
 }
 
 impl fmt::Debug for Image {
@@ -79,7 +98,7 @@ impl fmt::Debug for Image {
 }
 
 impl DeviceOwned for Image {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn owner(&self) -> &WeakDevice {
         &self.inner.owner
     }
@@ -91,7 +110,7 @@ impl Image {
         handle: vk::Image,
         view: vk::ImageView,
         view_idx: usize,
-        dimensions: impl Into<ImageDimensions>,
+        dimensions: impl Into<ImageExtent>,
         format: PixelFormat,
         usage: ImageUsage,
         layers: u32,
@@ -138,7 +157,7 @@ impl Image {
         handle: vk::Image,
         view: vk::ImageView,
         view_idx: usize,
-        dimensions: ImageDimensions,
+        dimensions: ImageExtent,
         format: PixelFormat,
         usage: ImageUsage,
         layers: u32,
@@ -168,7 +187,7 @@ impl Image {
         handle: vk::Image,
         view: vk::ImageView,
         view_idx: usize,
-        dimensions: impl Into<ImageDimensions>,
+        dimensions: impl Into<ImageExtent>,
         format: PixelFormat,
         usage: ImageUsage,
     ) -> Self {
@@ -186,7 +205,7 @@ impl Image {
         )
     }
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     pub(super) fn get_view(&self, device: &Device, desc: ViewDesc) -> Result<Image, OutOfMemory> {
         let desc = ViewDesc {
             base_layer: desc.base_layer + self.inner.desc.base_layer,
@@ -220,22 +239,22 @@ impl Image {
         })
     }
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     pub(super) fn handle(&self) -> vk::Image {
         self.handle
     }
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     pub(super) fn view_handle(&self) -> vk::ImageView {
         self.view
     }
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     pub(super) fn base_layer(&self) -> u32 {
         self.inner.desc.base_layer
     }
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     pub(super) fn base_level(&self) -> u32 {
         self.inner.desc.base_level
     }
@@ -243,32 +262,37 @@ impl Image {
 
 #[hidden_trait::expose]
 impl crate::traits::Image for Image {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn format(&self) -> PixelFormat {
         self.inner.desc.format
     }
 
-    #[inline(always)]
-    fn dimensions(&self) -> ImageDimensions {
+    #[cfg_attr(inline_more, inline(always))]
+    fn dimensions(&self) -> ImageExtent {
         self.inner.dimensions
     }
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn layers(&self) -> u32 {
         self.inner.desc.layers
     }
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn levels(&self) -> u32 {
         self.inner.desc.levels
     }
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
+    fn usage(&self) -> ImageUsage {
+        self.inner.usage
+    }
+
+    #[cfg_attr(inline_more, inline(always))]
     fn view(&self, device: &Device, desc: ViewDesc) -> Result<Image, OutOfMemory> {
         self.get_view(device, desc)
     }
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn detached(&self) -> bool {
         // If strong is 1, it cannot be changed by another thread if called owns
         // mutable reference to self
@@ -287,12 +311,12 @@ impl ArgumentsField<Automatic> for Image {
 
     type Update = <Self as ArgumentsField<Sampled>>::Update;
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn update(&self) -> <Self as ArgumentsField<Sampled>>::Update {
         <Self as ArgumentsField<Sampled>>::update(self)
     }
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn add_refs(&self, refs: &mut Refs) {
         refs.add_image(self.clone());
     }
@@ -306,7 +330,7 @@ impl ArgumentsField<Sampled> for Image {
 
     type Update = vk::DescriptorImageInfo;
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn update(&self) -> vk::DescriptorImageInfo {
         vk::DescriptorImageInfo {
             sampler: vk::Sampler::null(),
@@ -315,7 +339,7 @@ impl ArgumentsField<Sampled> for Image {
         }
     }
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn add_refs(&self, refs: &mut Refs) {
         refs.add_image(self.clone());
     }
@@ -329,7 +353,7 @@ impl ArgumentsField<Storage> for Image {
 
     type Update = vk::DescriptorImageInfo;
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn update(&self) -> vk::DescriptorImageInfo {
         vk::DescriptorImageInfo {
             sampler: vk::Sampler::null(),
@@ -338,7 +362,7 @@ impl ArgumentsField<Storage> for Image {
         }
     }
 
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn add_refs(&self, refs: &mut Refs) {
         refs.add_image(self.clone());
     }

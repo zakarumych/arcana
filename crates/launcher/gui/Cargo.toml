@@ -7,23 +7,27 @@ license.workspace = true
 version.workspace = true
 description = "Arcana Engine launcher"
 
+[[bin]]
+name = "arcana"
+path = "src/main.rs"
+
 [dependencies]
-arcana = { path = "../../arcana", features = ["client"] }
+arcana = { path = "../../arcana" }
 # arcana-project = { path = "../../project" }
 arcana-launcher = { path = ".." }
 arcana-egui = { path = "../../plugins/egui" }
-dirs = { workspace = true }
-egui = { workspace = true }
-egui_dnd = { workspace = true }
-egui-phosphor = { workspace = true }
-egui_tracing = { workspace = true }
-egui-winit = { workspace = true }
-hashbrown = { workspace = true }
+camino.workspace = true
+dirs.workspace = true
+egui.workspace = true
+egui_dnd.workspace = true
+egui_file.workspace = true
+egui-phosphor.workspace = true
+egui_tracing.workspace = true
+hashbrown.workspace = true
 miette = { workspace = true, features = ["fancy"] }
-rfd = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-tracing = { workspace = true }
-tracing-error = { workspace = true }
-tracing-subscriber = { workspace = true }
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-error.workspace = true
+tracing-subscriber.workspace = true
 winit = { workspace = true, features = ["serde"] }

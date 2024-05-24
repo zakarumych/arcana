@@ -1,68 +1,11 @@
-const ADJECTIVES: &'static [&'static str; 64] = &[
-    "Agile",
-    "Amiable",
-    "Blissful",
-    "Bold",
-    "Brave",
-    "Bright",
-    "Calm",
-    "Cheerful",
-    "Clever",
-    "Cool",
-    "Cozy",
-    "Cute",
-    "Dandy",
-    "Dapper",
-    "Eager",
-    "Energetic",
-    "Exciting",
-    "Fancy",
-    "Fine",
-    "Fresh",
-    "Generous",
-    "Gentle",
-    "Glad",
-    "Glowing",
-    "Good",
-    "Grace",
-    "Grateful",
-    "Great",
-    "Happy",
-    "Hardy",
-    "Harmonious",
-    "Innovative",
-    "Jolly",
-    "Joyful",
-    "Keen",
-    "Kind",
-    "Lively",
-    "Lucky",
-    "Mellow",
-    "Merry",
-    "Nice",
-    "Noble",
-    "Optimistic",
-    "Polite",
-    "Playful",
-    "Proud",
-    "Pure",
-    "Radiant",
-    "Rich",
-    "Shiny",
-    "Sincere",
-    "Sleek",
-    "Smart",
-    "Spark",
-    "Stellar",
-    "Sweet",
-    "Swift",
-    "Tender",
-    "Top",
-    "True",
-    "Warm",
-    "Wise",
-    "Young",
-    "Zen",
+use std::hash::Hash;
+
+use crate::stable_hash;
+
+const ADJECTIVES: &'static [&'static str; 32] = &[
+    "Brave", "Bright", "Calm", "Clever", "Cool", "Cozy", "Cute", "Eager", "Fancy", "Fresh", "Good",
+    "Grace", "Great", "Happy", "Hardy", "Jolly", "Joyful", "Keen", "Kind", "Lively", "Lucky",
+    "Merry", "Nice", "Shiny", "Smart", "Spark", "Stellar", "Sweet", "Swift", "Warm", "Wise", "Zen",
 ];
 
 const COLORS: &'static [&'static str; 32] = &[
@@ -83,12 +26,21 @@ const NOUNS: &'static [&'static str; 64] = &[
 pub fn num_to_name(num: u16) -> String {
     let num = (((num as u32) * 29983u32) >> 8) as u16;
 
-    let adjective = (num >> 10) as usize;
-    let color = ((num >> 5) & 0b11111) as usize;
-    let noun = (num & 0b11111) as usize;
+    let adjective = (num >> 11) as usize;
+    let color = ((num >> 6) & 0b11111) as usize;
+    let noun = (num & 0b111111) as usize;
 
     format!(
         "{} {} {}",
         ADJECTIVES[adjective], COLORS[color], NOUNS[noun]
     )
+}
+
+pub fn hash_to_name<T>(value: &T) -> String
+where
+    T: Hash + ?Sized,
+{
+    let hash = stable_hash(value);
+    let num = (hash >> 48) as u16;
+    num_to_name(num)
 }

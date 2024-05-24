@@ -1,30 +1,58 @@
 #![feature(allocator_api)]
-#![allow(warnings)]
+#![deny(unsafe_op_in_unsafe_fn)]
+#![recursion_limit = "512"]
 
-/// Finds offset of a field in a struct.
-///
-/// It uses `addr_of!` macro to get raw pointer to the field for uninit struct
-/// and then calculates offset from the beginning of the struct.
 #[macro_export]
-macro_rules! offset_of {
-    ($struct:ident . $field:ident) => {{
-        let uninit: ::core::mem::MaybeUninit<$struct> = ::core::mem::MaybeUninit::uninit();
+macro_rules! for_tuple {
+    ($macro:ident) => {
+        $crate::for_tuple!($macro for A B C D E F G H I J K L M N O P);
+    };
+    ($macro:ident for ) => {
+        $macro!();
+    };
+    ($macro:ident for $head:ident $($tail:ident)*) => {
+        $crate::for_tuple!($macro for $($tail)*);
+        $macro!($head $($tail)*);
+    };
+}
 
-        if false {
-            // Safety: Not executed.
-            // This is required to make sure that field exists on the struct itself.
-            // To avoid `(*struct_ptr).$field` below to invoke `Deref::deref`.
-            unsafe {
-                let $struct { $field: _, .. } = uninit.assume_init();
-            }
-        }
+#[macro_export]
+macro_rules! for_tuple_2 {
+    ($macro:ident) => {
+        $crate::for_tuple_2!($macro for
+            AA AB AC AD AE AF AG AH AI AJ AK AL AM AN AO AP,
+            BA BB BC BD BE BF BG BH BI BJ BK BL BM BN BO BP
+        );
+    };
+    ($macro:ident for ,) => {
+        $macro!(,);
+    };
+    ($macro:ident for $a_head:ident $($a_tail:ident)*, $b_head:ident $($b_tail:ident)*) => {
+        $crate::for_tuple_2!($macro for $($a_tail)*, $($b_tail)*);
 
-        let struct_ptr: *const _ = unsafe { uninit.as_ptr() };
-        let field_ptr: *const _ = unsafe { ::core::ptr::addr_of!((*struct_ptr).$field) };
+        $macro!($a_head $($a_tail)*, $b_head $($b_tail)*);
+    };
+}
 
-        // # Safety: Cannot overflow because result is field offset.
-        unsafe { field_ptr.cast::<u8>().offset_from(struct_ptr.cast::<u8>()) as usize }
-    }};
+#[macro_export]
+macro_rules! for_tuple_2x {
+    ($macro:ident) => {
+        $crate::for_tuple_2x!($macro for
+            AA AB AC AD AE AF AG AH AI AJ AK AL AM AN AO AP,
+            BA BB BC BD BE BF BG BH BI BJ BK BL BM BN BO BP
+        );
+    };
+    ($macro:ident for , ) => {
+        $macro!(,);
+    };
+    ($macro:ident for , $b_head:ident $($b_tail:ident)*) => {
+        $crate::for_tuple_2x!($macro for AA AB AC AD AE AF AG AH AI AJ AK AL AM AN AO AP, $($b_tail)*);
+    };
+    ($macro:ident for $a_head:ident $($a_tail:ident)*, $($b:ident)*) => {
+        $crate::for_tuple_2x!($macro for $($a_tail)*, $($b)*);
+
+        $macro!($a_head $($a_tail)*, $($b)*);
+    };
 }
 
 /// `std::format` where all arguments are constants.
@@ -33,132 +61,79 @@ macro_rules! offset_of {
 /// This helps avoiding re-formatting of the same string each time code is executed.
 ///
 /// String created will never be freed.
-/// This is OK since we were goint go use it untile the end of the program.
+/// This is OK since we were going go use it until the end of the program.
 #[macro_export]
 macro_rules! const_format {
     ($fmt:literal $(, $arg:expr)* $(,)?) => {{
         ::std::thread_local! {
-            static VALUE: &'static str = ::std::format!($fmt $(, $arg)*).leak();
+            static VALUE: &'static str = const { ::std::format!($fmt $(, $arg)*).leak() };
         }
         let s: &'static str = VALUE.with(|s| *s);
         s
     }};
 }
 
+extern crate self as arcana;
+
 // Re-exports
 pub use {
+    arcana_names::{ident, name, Ident, Name},
+    arcana_proc::{stable_hash_tokens, with_stid, WithStid},
     arcana_project as project,
     blink_alloc::{self, Blink, BlinkAlloc},
     bytemuck,
     edict::{self, prelude::*},
     gametime::{self, Clock, ClockStep, Frequency, FrequencyTicker, FrequencyTickerIter},
-    na, parking_lot, tokio,
+    hashbrown, na, parking_lot, tokio,
 };
 
-#[cfg(feature = "derive")]
-pub use arcana_proc::*;
-
-feature_client! {
-    pub use mev;
-    pub mod events;
-    pub mod game;
-    pub mod render;
-    pub mod texture;
-    pub mod viewport;
-}
-
-pub mod alloc;
+pub use mev;
+pub mod arena;
 pub mod assets;
-pub mod bundle;
+pub mod code;
+pub mod events;
 pub mod flow;
+pub mod id;
+pub mod input;
+pub mod model;
 mod num2name;
 pub mod plugin;
+pub mod refl;
+pub mod render;
+pub mod serde_with;
+mod stable_hasher;
+mod stid;
+pub mod texture;
+pub mod unfold;
+pub mod viewport;
+pub mod work;
 
-pub use num2name::num_to_name;
+pub use self::{
+    id::{BaseId, Id, IdGen},
+    num2name::{hash_to_name, num_to_name},
+    stable_hasher::{
+        hue_hash, mix_hash_with_string, rgb_hash, rgba_hash, rgba_premultiplied_hash, stable_hash,
+        stable_hash_read, stable_hasher,
+    },
+    stid::{Stid, WithStid},
+};
 
 /// Returns version of the arcana crate.
 pub fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
-#[cfg(feature = "client")]
-pub fn init_mev() -> (mev::Device, mev::Queue) {
-    let instance = mev::Instance::load().expect("Failed to init graphics");
-
-    let (device, mut queues) = instance
-        .create(mev::DeviceDesc {
-            idx: 0,
-            queues: &[0],
-            features: mev::Features::SURFACE,
-        })
-        .unwrap();
-    let queue = queues.pop().unwrap();
-    (device, queue)
+/// Triggers panic.
+/// Use when too large capacity is requested.
+#[inline(always)]
+#[cold]
+fn capacity_overflow() -> ! {
+    panic!("capacity overflow");
 }
 
-#[cfg(feature = "client")]
-#[macro_export]
-macro_rules! feature_client {
-    ($($tt:tt)*) => {$($tt)*};
+#[inline(always)]
+fn alloc_guard(alloc_size: usize) {
+    if usize::BITS < 64 && alloc_size > isize::MAX as usize {
+        capacity_overflow()
+    }
 }
-
-#[cfg(not(feature = "client"))]
-#[macro_export]
-macro_rules! feature_client {
-    ($($tt:tt)*) => {};
-}
-
-#[cfg(feature = "server")]
-#[macro_export]
-macro_rules! feature_server {
-    ($($tt:tt)*) => {$($tt)*};
-}
-
-#[cfg(not(feature = "server"))]
-#[macro_export]
-macro_rules! feature_server {
-    ($($tt:tt)*) => {};
-}
-
-#[cfg(feature = "client")]
-#[macro_export]
-macro_rules! not_feature_client {
-    ($($tt:tt)*) => {};
-}
-
-#[cfg(not(feature = "client"))]
-#[macro_export]
-macro_rules! not_feature_client {
-    ($($tt:tt)*) => {$($tt)*};
-}
-
-#[cfg(feature = "server")]
-#[macro_export]
-macro_rules! not_feature_server {
-    ($($tt:tt)*) => {};
-}
-
-#[cfg(not(feature = "server"))]
-#[macro_export]
-macro_rules! not_feature_server {
-    ($($tt:tt)*) => {$($tt)*};
-}
-
-/// Conditional compilation based on features enabled in arcana crate.
-#[macro_export]
-macro_rules! feature {
-    (client => $($tt:tt)*) => { $crate::feature_client!($($tt)*) };
-    (server => $($tt:tt)*) => { $crate::feature_server!($($tt)*) };
-    (ed => $($tt:tt)*) => { $crate::feature_ed!($($tt)*) };
-
-    (!client => $($tt:tt)*) => { $crate::not_feature_client!($($tt)*) };
-    (!server => $($tt:tt)*) => { $crate::not_feature_server!($($tt)*) };
-    (!ed => $($tt:tt)*) => { $crate::not_feature_ed!($($tt)*) };
-
-    (if client { $($yes:tt)* } $(else { $($no:tt)* })?) => { $crate::feature_client!($($yes)*); $($crate::not_feature_client!($($no)*);)? };
-    (if server { $($yes:tt)* } $(else { $($no:tt)* })?) => { $crate::feature_server!($($yes)*); $($crate::not_feature_server!($($no)*);)? };
-    (if ed { $($yes:tt)* } $(else { $($no:tt)* })?) => { $crate::feature_ed!($($yes)*); $($crate::not_feature_ed!($($no)*);)? };
-}
-
-// #[global_allocator]
-// static ALLOC: alloc::ArcanaAllocator = alloc::ArcanaAllocator;

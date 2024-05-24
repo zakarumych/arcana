@@ -1,5 +1,6 @@
 use core::fmt;
 use std::{
+    hash::{Hash, Hasher},
     mem::{size_of, ManuallyDrop},
     sync::Arc,
 };
@@ -29,6 +30,21 @@ pub struct Buffer {
     inner: Arc<Inner>,
 }
 
+impl PartialEq for Buffer {
+    fn eq(&self, other: &Self) -> bool {
+        self.handle == other.handle && Arc::ptr_eq(&self.inner, &other.inner)
+    }
+}
+
+impl Eq for Buffer {}
+
+impl Hash for Buffer {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.handle.hash(state);
+        Arc::as_ptr(&self.inner).hash(state);
+    }
+}
+
 impl fmt::Debug for Buffer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Image")
@@ -45,7 +61,7 @@ impl Drop for Inner {
 }
 
 impl DeviceOwned for Buffer {
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn owner(&self) -> &WeakDevice {
         &self.inner.owner
     }
@@ -72,7 +88,7 @@ impl Buffer {
         }
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     pub fn handle(&self) -> vk::Buffer {
         self.handle
     }
@@ -80,18 +96,18 @@ impl Buffer {
 
 #[hidden_trait::expose]
 impl crate::traits::Buffer for Buffer {
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn size(&self) -> usize {
         self.inner.size
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn detached(&self) -> bool {
         debug_assert_eq!(Arc::weak_count(&self.inner), 0, "No weak refs allowed");
         Arc::strong_count(&self.inner) == 1
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     unsafe fn write_unchecked(&mut self, offset: usize, data: &[u8]) {
         let inner = Arc::get_mut(&mut self.inner).unwrap();
         if let Some(device) = inner.owner.upgrade() {
@@ -114,12 +130,12 @@ impl ArgumentsField<Automatic> for Buffer {
 
     type Update = <Self as ArgumentsField<Uniform>>::Update;
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn update(&self) -> <Self as ArgumentsField<Uniform>>::Update {
         <Self as ArgumentsField<Uniform>>::update(self)
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn add_refs(&self, refs: &mut Refs) {
         refs.add_buffer(self.clone());
     }
@@ -133,7 +149,7 @@ impl ArgumentsField<Uniform> for Buffer {
 
     type Update = vk::DescriptorBufferInfo;
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn update(&self) -> vk::DescriptorBufferInfo {
         vk::DescriptorBufferInfo {
             buffer: self.handle,
@@ -142,7 +158,7 @@ impl ArgumentsField<Uniform> for Buffer {
         }
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn add_refs(&self, refs: &mut Refs) {
         refs.add_buffer(self.clone());
     }
@@ -156,7 +172,7 @@ impl ArgumentsField<Storage> for Buffer {
 
     type Update = vk::DescriptorBufferInfo;
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn update(&self) -> vk::DescriptorBufferInfo {
         vk::DescriptorBufferInfo {
             buffer: self.handle,
@@ -165,7 +181,7 @@ impl ArgumentsField<Storage> for Buffer {
         }
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     fn add_refs(&self, refs: &mut Refs) {
         refs.add_buffer(self.clone());
     }

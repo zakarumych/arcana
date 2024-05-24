@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::OutOfMemory;
+use crate::generic::OutOfMemory;
 
 #[derive(Debug)]
 pub enum SurfaceError {
@@ -9,14 +9,14 @@ pub enum SurfaceError {
 }
 
 impl From<OutOfMemory> for SurfaceError {
-    #[inline(never)]
+    #[inline(always)]
     fn from(_: OutOfMemory) -> Self {
         SurfaceError::OutOfMemory
     }
 }
 
 impl fmt::Display for SurfaceError {
-    #[inline(never)]
+    #[inline(always)]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             SurfaceError::OutOfMemory => fmt::Display::fmt(&OutOfMemory, f),

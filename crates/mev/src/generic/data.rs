@@ -12,27 +12,29 @@ union TransmuteUnchecked<A: Copy, B: Copy> {
     b: B,
 }
 
+/// Transmutes type without compile-time check of sizes.
+///
+/// # Safety
+///
+/// Sizes must have equal size.
+/// Current bits of argument must be valid for type `B`.
 #[inline(always)]
 unsafe fn transmute_unchecked<A: Copy, B: Copy>(a: A) -> B {
     debug_assert_eq!(size_of::<A>(), size_of::<B>());
     unsafe { TransmuteUnchecked { a }.b }
 }
 
-/// Type represetable as a POD type with layout with GPU compatible.
+/// Type represetable as a POD type with GPU compatible layout
 pub trait DeviceRepr: Sized + 'static {
-    /// The POD type with layout compatible with shaders.
+    /// A POD type that can represent same data with layout compatible with shaders.
+    /// It is `Self` or another type with same data and manual padding.
     type Repr: bytemuck::Pod + Debug;
 
-    /// The POD type with layout compatible with shaders.
+    /// A POD type with layout compatible with shaders.
     /// This is the same as `Self::Repr` but with tail padding up to `Self::ALIGN`.
     type ArrayRepr: bytemuck::Pod + Debug;
 
     /// Construct a `Self::Repr` from `&self`.
-    ///
-    /// This needs to be implemented if `Self::Repr` is not the same size as `Self`.
-    /// Typically implemented by `DeviceRepr` proc-macro and executed when
-    /// non-zero padding is required.
-    #[inline(always)]
     fn as_repr(&self) -> Self::Repr;
 
     #[inline(always)]
@@ -64,6 +66,19 @@ pub trait DeviceRepr: Sized + 'static {
     const ARRAY_SIZE: usize = size_of::<Self::ArrayRepr>();
 }
 
+#[cfg_attr(inline_more, inline)]
+fn array_as_repr_slow<T: DeviceRepr, const N: usize>(array: &[T; N]) -> [T::ArrayRepr; N] {
+    // Construct `ArrayRepr` from elements.
+    let mut repr: MaybeUninit<[T::ArrayRepr; N]> = MaybeUninit::uninit();
+    let ptr = repr.as_mut_ptr().cast::<T::ArrayRepr>();
+    for idx in 0..N {
+        unsafe {
+            ptr.add(idx).write(array[idx].as_array_repr());
+        }
+    }
+    unsafe { repr.assume_init() }
+}
+
 impl<T, const N: usize> DeviceRepr for [T; N]
 where
     T: DeviceRepr,
@@ -85,15 +100,7 @@ where
             return unsafe { transmute_copy(self) };
         }
 
-        // Construct `ArrayRepr` from elements.
-        let mut repr: MaybeUninit<[T::ArrayRepr; N]> = MaybeUninit::uninit();
-        let ptr = repr.as_mut_ptr().cast::<T::ArrayRepr>();
-        for idx in 0..N {
-            unsafe {
-                ptr.add(idx).write(self[idx].as_array_repr());
-            }
-        }
-        unsafe { repr.assume_init() }
+        array_as_repr_slow(self)
     }
 
     #[inline(always)]
@@ -123,6 +130,7 @@ pub enum ScalarType {
 }
 
 impl ScalarType {
+    #[inline(always)]
     pub const fn size(&self) -> usize {
         match self {
             ScalarType::Bool => 1,
@@ -351,6 +359,7 @@ where
 #[allow(non_camel_case_types)]
 pub type vec2<T = f32> = vec<T, 2>;
 
+#[inline(always)]
 pub fn vec2<T>(x: T, y: T) -> vec2<T> {
     vec([x, y])
 }
@@ -358,6 +367,7 @@ pub fn vec2<T>(x: T, y: T) -> vec2<T> {
 #[allow(non_camel_case_types)]
 pub type vec3<T = f32> = vec<T, 3>;
 
+#[inline(always)]
 pub fn vec3<T>(x: T, y: T, z: T) -> vec3<T> {
     vec([x, y, z])
 }
@@ -365,6 +375,7 @@ pub fn vec3<T>(x: T, y: T, z: T) -> vec3<T> {
 #[allow(non_camel_case_types)]
 pub type vec4<T = f32> = vec<T, 4>;
 
+#[inline(always)]
 pub fn vec4<T>(x: T, y: T, z: T, w: T) -> vec4<T> {
     vec([x, y, z, w])
 }
@@ -372,6 +383,7 @@ pub fn vec4<T>(x: T, y: T, z: T, w: T) -> vec4<T> {
 #[allow(non_camel_case_types)]
 pub type mat2<T = f32> = mat<T, 2, 2>;
 
+#[inline(always)]
 pub fn mat2<T>(x: vec2<T>, y: vec2<T>) -> mat2<T> {
     mat([x, y])
 }
@@ -379,6 +391,7 @@ pub fn mat2<T>(x: vec2<T>, y: vec2<T>) -> mat2<T> {
 #[allow(non_camel_case_types)]
 pub type mat3<T = f32> = mat<T, 3, 3>;
 
+#[inline(always)]
 pub fn mat3<T>(x: vec3<T>, y: vec3<T>, z: vec3<T>) -> mat3<T> {
     mat([x, y, z])
 }
@@ -386,6 +399,7 @@ pub fn mat3<T>(x: vec3<T>, y: vec3<T>, z: vec3<T>) -> mat3<T> {
 #[allow(non_camel_case_types)]
 pub type mat4<T = f32> = mat<T, 4, 4>;
 
+#[inline(always)]
 pub fn mat4<T>(x: vec4<T>, y: vec4<T>, z: vec4<T>, w: vec4<T>) -> mat4<T> {
     mat([x, y, z, w])
 }
@@ -393,6 +407,7 @@ pub fn mat4<T>(x: vec4<T>, y: vec4<T>, z: vec4<T>, w: vec4<T>) -> mat4<T> {
 #[allow(non_camel_case_types)]
 pub type mat2x2<T = f32> = mat<T, 2, 2>;
 
+#[inline(always)]
 pub fn mat2x2<T>(x: vec2<T>, y: vec2<T>) -> mat2x2<T> {
     mat([x, y])
 }
@@ -400,6 +415,7 @@ pub fn mat2x2<T>(x: vec2<T>, y: vec2<T>) -> mat2x2<T> {
 #[allow(non_camel_case_types)]
 pub type mat2x3<T = f32> = mat<T, 2, 3>;
 
+#[inline(always)]
 pub fn mat2x3<T>(x: vec3<T>, y: vec3<T>) -> mat2x3<T> {
     mat([x, y])
 }
@@ -407,6 +423,7 @@ pub fn mat2x3<T>(x: vec3<T>, y: vec3<T>) -> mat2x3<T> {
 #[allow(non_camel_case_types)]
 pub type mat2x4<T = f32> = mat<T, 2, 4>;
 
+#[inline(always)]
 pub fn mat2x4<T>(x: vec4<T>, y: vec4<T>) -> mat2x4<T> {
     mat([x, y])
 }
@@ -414,6 +431,7 @@ pub fn mat2x4<T>(x: vec4<T>, y: vec4<T>) -> mat2x4<T> {
 #[allow(non_camel_case_types)]
 pub type mat3x2<T = f32> = mat<T, 3, 2>;
 
+#[inline(always)]
 pub fn mat3x2<T>(x: vec2<T>, y: vec2<T>, z: vec2<T>) -> mat3x2<T> {
     mat([x, y, z])
 }
@@ -421,6 +439,7 @@ pub fn mat3x2<T>(x: vec2<T>, y: vec2<T>, z: vec2<T>) -> mat3x2<T> {
 #[allow(non_camel_case_types)]
 pub type mat3x3<T = f32> = mat<T, 3, 3>;
 
+#[inline(always)]
 pub fn mat3x3<T>(x: vec3<T>, y: vec3<T>, z: vec3<T>) -> mat3x3<T> {
     mat([x, y, z])
 }
@@ -428,6 +447,7 @@ pub fn mat3x3<T>(x: vec3<T>, y: vec3<T>, z: vec3<T>) -> mat3x3<T> {
 #[allow(non_camel_case_types)]
 pub type mat3x4<T = f32> = mat<T, 3, 4>;
 
+#[inline(always)]
 pub fn mat3x4<T>(x: vec4<T>, y: vec4<T>, z: vec4<T>) -> mat3x4<T> {
     mat([x, y, z])
 }
@@ -435,6 +455,7 @@ pub fn mat3x4<T>(x: vec4<T>, y: vec4<T>, z: vec4<T>) -> mat3x4<T> {
 #[allow(non_camel_case_types)]
 pub type mat4x2<T = f32> = mat<T, 4, 2>;
 
+#[inline(always)]
 pub fn mat4x2<T>(x: vec2<T>, y: vec2<T>, z: vec2<T>, w: vec2<T>) -> mat4x2<T> {
     mat([x, y, z, w])
 }
@@ -442,6 +463,7 @@ pub fn mat4x2<T>(x: vec2<T>, y: vec2<T>, z: vec2<T>, w: vec2<T>) -> mat4x2<T> {
 #[allow(non_camel_case_types)]
 pub type mat4x3<T = f32> = mat<T, 4, 3>;
 
+#[inline(always)]
 pub fn mat4x3<T>(x: vec3<T>, y: vec3<T>, z: vec3<T>, w: vec3<T>) -> mat4x3<T> {
     mat([x, y, z, w])
 }
@@ -449,6 +471,7 @@ pub fn mat4x3<T>(x: vec3<T>, y: vec3<T>, z: vec3<T>, w: vec3<T>) -> mat4x3<T> {
 #[allow(non_camel_case_types)]
 pub type mat4x4<T = f32> = mat<T, 4, 4>;
 
+#[inline(always)]
 pub fn mat4x4<T>(x: vec4<T>, y: vec4<T>, z: vec4<T>, w: vec4<T>) -> mat4x4<T> {
     mat([x, y, z, w])
 }

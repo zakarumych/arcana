@@ -49,6 +49,12 @@ impl Instance {
     }
 }
 
+impl fmt::Debug for Instance {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("Instance").finish()
+    }
+}
+
 #[hidden_trait::expose]
 impl crate::traits::Instance for Instance {
     fn capabilities(&self) -> &Capabilities {

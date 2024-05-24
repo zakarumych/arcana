@@ -3,39 +3,35 @@ use std::collections::VecDeque;
 use arcana::{
     blink_alloc::Blink,
     edict::{EntityId, NoSuchEntity, World},
-    events::{
-        DeviceId, ElementState, Event, EventFilter, KeyboardInput, MouseButton, ScanCode,
-        ViewportEvent, VirtualKeyCode,
+    input::{
+        DeviceId, ElementState, Input, InputFilter, KeyEvent, MouseButton, PhysicalKey,
+        ViewportInput,
     },
 };
 use hashbrown::HashMap;
 
 use crate::ActionQueue;
 
-pub struct InputFilter {
+pub struct MyInputFilter {
     /// Dispatch events from this device to this controller.
     device: HashMap<DeviceId, Box<dyn Controller>>,
-
-    /// Dispatch events from this window to this controller.
-    viewport: HashMap<EntityId, Box<dyn Controller>>,
 
     /// Dispatch any input event to this controller if
     /// no more specific controller is found for it.
     global: Option<Box<dyn Controller>>,
 }
 
-impl EventFilter for InputFilter {
-    fn filter(&mut self, _: &Blink, world: &mut World, event: &Event) -> bool {
+impl InputFilter for MyInputFilter {
+    fn filter(&mut self, _: &Blink, world: &mut World, event: &Input) -> bool {
         self.add_controllers(world);
         self.handle(world, event)
     }
 }
 
-impl InputFilter {
+impl MyInputFilter {
     pub fn new() -> Self {
-        InputFilter {
+        MyInputFilter {
             device: HashMap::new(),
-            viewport: HashMap::new(),
             global: None,
         }
     }
@@ -49,30 +45,23 @@ impl InputFilter {
                 ControllerBind::Device(device) => {
                     self.device.insert(device, controller);
                 }
-                ControllerBind::Viewport(viewport) => {
-                    self.viewport.insert(viewport, controller);
-                }
             }
         }
     }
 
-    pub fn handle(&mut self, world: &mut World, event: &Event) -> bool {
+    pub fn handle(&mut self, world: &mut World, event: &Input) -> bool {
         match *event {
-            Event::ViewportEvent {
-                viewport,
-                ref event,
-            } => match *event {
-                ViewportEvent::KeyboardInput {
-                    device_id, input, ..
+            Input::ViewportInput { ref input } => match *input {
+                ViewportInput::KeyboardInput {
+                    device_id,
+                    ref event,
+                    ..
                 } => {
                     if let Some(controller) = self.device.get_mut(&device_id) {
-                        controller.on_keyboard_input(world, &input);
-                        return true;
-                    } else if let Some(controller) = self.viewport.get_mut(&viewport) {
-                        controller.on_keyboard_input(world, &input);
+                        controller.on_key_event(world, event);
                         return true;
                     } else if let Some(controller) = &mut self.global {
-                        controller.on_keyboard_input(world, &input);
+                        controller.on_key_event(world, event);
                         return true;
                     }
                 }
@@ -93,38 +82,31 @@ pub struct InputHandler {
 pub enum ControllerBind {
     Global,
     Device(DeviceId),
-    Viewport(EntityId),
 }
 
 impl InputHandler {
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     pub fn new() -> Self {
         InputHandler {
             add_controller: HashMap::new(),
         }
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     pub fn add_controller(&mut self, controller: Box<dyn Controller>, bind: ControllerBind) {
         self.add_controller.insert(bind, controller);
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     pub fn add_global_controller(&mut self, controller: Box<dyn Controller>) {
         self.add_controller
             .insert(ControllerBind::Global, controller);
     }
 
-    #[inline(never)]
+    #[cfg_attr(inline_more, inline(always))]
     pub fn add_device_controller(&mut self, device: DeviceId, controller: Box<dyn Controller>) {
         self.add_controller
             .insert(ControllerBind::Device(device), controller);
-    }
-
-    #[inline(never)]
-    pub fn add_viewport_controller(&mut self, viewport: EntityId, controller: Box<dyn Controller>) {
-        self.add_controller
-            .insert(ControllerBind::Viewport(viewport), controller);
     }
 }
 
@@ -132,8 +114,8 @@ impl InputHandler {
 /// When added to InputHandler it may be associated with
 /// a specific device or window.
 pub trait Controller: Send {
-    fn on_keyboard_input(&mut self, world: &mut World, input: &KeyboardInput) {
-        let _ = (world, input);
+    fn on_key_event(&mut self, world: &mut World, event: &KeyEvent) {
+        let _ = (world, event);
     }
     fn on_mouse_button(&mut self, world: &mut World, button: MouseButton, state: ElementState) {
         let _ = (world, button, state);
@@ -146,8 +128,8 @@ pub trait Controller: Send {
 pub trait Translator: Send {
     type Action;
 
-    fn on_keyboard_input(&mut self, input: &KeyboardInput) -> Option<Self::Action> {
-        let _ = input;
+    fn on_key_event(&mut self, event: &KeyEvent) -> Option<Self::Action> {
+        let _ = event;
         None
     }
     fn on_mouse_button(
@@ -165,8 +147,7 @@ pub trait Translator: Send {
 }
 
 pub struct Mapper<A> {
-    keyboard_map: HashMap<(VirtualKeyCode, ElementState), A>,
-    scancode_map: HashMap<(ScanCode, ElementState), A>,
+    keyboard_map: HashMap<(PhysicalKey, ElementState), A>,
     mouse_map: HashMap<(MouseButton, ElementState), A>,
     move_map: fn(f64, f64) -> Option<A>,
 }
@@ -177,14 +158,8 @@ where
 {
     type Action = A;
 
-    fn on_keyboard_input(&mut self, input: &KeyboardInput) -> Option<A> {
-        if let Some(action) = input
-            .virtual_keycode
-            .and_then(|code| self.keyboard_map.get(&(code, input.state)))
-        {
-            return Some(action.clone());
-        }
-        if let Some(action) = self.scancode_map.get(&(input.scancode, input.state)) {
+    fn on_key_event(&mut self, event: &KeyEvent) -> Option<A> {
+        if let Some(action) = self.keyboard_map.get(&(event.physical_key, event.state)) {
             return Some(action.clone());
         }
         None
@@ -224,8 +199,8 @@ where
     T: Translator,
     T::Action: Send + 'static,
 {
-    fn on_keyboard_input(&mut self, world: &mut World, input: &KeyboardInput) {
-        if let Some(action) = self.translator.on_keyboard_input(input) {
+    fn on_key_event(&mut self, world: &mut World, event: &KeyEvent) {
+        if let Some(action) = self.translator.on_key_event(event) {
             self.send(world, action);
         }
     }

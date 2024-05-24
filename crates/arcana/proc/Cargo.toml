@@ -11,6 +11,8 @@ description = "Arcana Engine proc-macro crate"
 proc-macro = true
 
 [dependencies]
-syn = { workspace = true }
-quote = { workspace = true }
-proc-macro2 = { workspace = true }
+syn.workspace = true
+quote.workspace = true
+proc-macro2.workspace = true
+proc-easy.workspace = true
+ahash.workspace = true

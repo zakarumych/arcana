@@ -1,6 +1,10 @@
-use crate::generic::{DeviceError, OutOfMemory};
+use std::fmt;
 
-use super::{CommandBuffer, CommandEncoder};
+use foreign_types::ForeignType;
+
+use crate::generic::{DeviceError, OutOfMemory, PipelineStages};
+
+use super::{CommandBuffer, CommandEncoder, Frame};
 
 pub struct Queue {
     device: metal::Device,
@@ -9,6 +13,15 @@ pub struct Queue {
 
 unsafe impl Send for Queue {}
 unsafe impl Sync for Queue {}
+
+impl fmt::Debug for Queue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Queue")
+            .field("device", &self.device.as_ptr())
+            .field("queue", &self.queue.as_ptr())
+            .finish()
+    }
+}
 
 impl Queue {
     pub(super) fn new(device: metal::Device, queue: metal::CommandQueue) -> Self {
@@ -29,17 +42,11 @@ impl crate::traits::Queue for Queue {
         ))
     }
 
-    fn submit<I>(
-        &mut self,
-        command_buffers: I,
-        _check_point: bool,
-    ) -> Result<(), DeviceError<Vec<CommandBuffer>>>
+    fn submit<I>(&mut self, command_buffers: I, _check_point: bool) -> Result<(), DeviceError>
     where
         I: IntoIterator<Item = CommandBuffer>,
     {
-        for buffer in command_buffers {
-            buffer.commit();
-        }
+        command_buffers.into_iter().for_each(CommandBuffer::commit);
         Ok(())
     }
 
@@ -50,4 +57,6 @@ impl crate::traits::Queue for Queue {
     {
         command_buffers.into_iter().for_each(drop);
     }
+
+    fn sync_frame(&mut self, _frame: &mut Frame, _before: PipelineStages) {}
 }

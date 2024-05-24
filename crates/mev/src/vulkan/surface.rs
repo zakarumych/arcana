@@ -7,9 +7,8 @@ use std::{
 
 use ash::vk;
 
-use crate::{
-    generic::{ImageDimensions, OutOfMemory, PipelineStages, SurfaceError, Swizzle, ViewDesc},
-    Extent2,
+use crate::generic::{
+    Extent2, ImageExtent, OutOfMemory, PipelineStages, SurfaceError, Swizzle, ViewDesc,
 };
 
 use super::{
@@ -160,7 +159,7 @@ impl Surface {
 
         let result = unsafe {
             self.device.swapchain().create_swapchain(
-                &vk::SwapchainCreateInfoKHR::builder()
+                &vk::SwapchainCreateInfoKHR::default()
                     .surface(self.surface)
                     .min_image_count(3.clamp(self.caps.min_image_count, self.caps.max_image_count))
                     .image_format(self.preferred_format.format)
@@ -201,7 +200,7 @@ impl Surface {
 
         let semaphore = |device: &ash::Device| {
             let result =
-                unsafe { device.create_semaphore(&vk::SemaphoreCreateInfo::builder(), None) };
+                unsafe { device.create_semaphore(&vk::SemaphoreCreateInfo::default(), None) };
             result.map_err(|err| match err {
                 vk::Result::ERROR_OUT_OF_HOST_MEMORY => handle_host_oom(),
                 vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => SurfaceError::OutOfMemory,
@@ -321,11 +320,7 @@ impl Surface {
 
 #[hidden_trait::expose]
 impl crate::traits::Surface for Surface {
-    fn next_frame(
-        &mut self,
-        queue: &mut Queue,
-        before: PipelineStages,
-    ) -> Result<Frame, SurfaceError> {
+    fn next_frame(&mut self) -> Result<Frame, SurfaceError> {
         self.clear_retired();
 
         match self.suboptimal_retire {
@@ -338,11 +333,11 @@ impl crate::traits::Surface for Surface {
             }
         }
 
-        loop {
-            if self.current.is_none() {
-                self.init()?;
-            }
+        if self.current.is_none() {
+            self.init()?;
+        }
 
+        loop {
             let current = self.current.as_mut().unwrap();
 
             let result = unsafe {
@@ -374,22 +369,22 @@ impl crate::traits::Surface for Surface {
                     return Err(SurfaceError::SurfaceLost);
                 }
                 Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
-                    self.current = None;
+                    self.init()?;
                     continue;
                 }
                 Err(err) => unexpected_error(err),
             };
 
-            let (image, [acquire, present]) = &mut current.images[idx as usize];
+            let (ref image, [ref mut acquire, present]) = current.images[idx as usize];
             std::mem::swap(&mut current.next, acquire);
-
-            queue.add_wait(*acquire, before);
 
             return Ok(Frame {
                 swapchain: current.handle,
                 image: image.clone(),
                 idx,
-                present: *present,
+                acquire: *acquire,
+                present,
+                synced: false,
             });
         }
     }
@@ -399,7 +394,9 @@ pub struct Frame {
     pub(super) swapchain: vk::SwapchainKHR,
     pub(super) image: Image,
     pub(super) idx: u32,
+    pub(super) acquire: vk::Semaphore,
     pub(super) present: vk::Semaphore,
+    pub(super) synced: bool,
 }
 
 impl Deref for Frame {

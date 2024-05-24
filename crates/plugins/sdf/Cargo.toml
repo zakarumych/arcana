@@ -8,6 +8,6 @@ version.workspace = true
 
 [dependencies]
 arcana = { path = "../../arcana" }
-scene = { path = "../scene" }
+scene = { path = "../scene", features = ["dim2"] }
 camera = { path = "../camera" }
-na = { workspace = true }
+na.workspace = true

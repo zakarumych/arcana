@@ -18,6 +18,7 @@ pub struct Surface {
     suboptimal_retire_cooldown: u64,
 }
 
+unsafe impl Sync for Surface {}
 unsafe impl Send for Surface {}
 
 impl Drop for Surface {
@@ -66,11 +67,7 @@ unsafe fn view_size(view: *mut Object) -> CGSize {
 
 #[hidden_trait::expose]
 impl crate::traits::Surface for Surface {
-    fn next_frame(
-        &mut self,
-        _queue: &mut Queue,
-        _before: PipelineStages,
-    ) -> Result<Frame, SurfaceError> {
+    fn next_frame(&mut self) -> Result<Frame, SurfaceError> {
         if self.suboptimal_retire_cooldown == 0 {
             if !self.view.is_null() {
                 unsafe {
@@ -107,14 +104,13 @@ impl crate::traits::Surface for Surface {
     }
 }
 
-
 pub struct Frame {
     drawable: metal::MetalDrawable,
     image: Image,
 }
 
 impl Frame {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     pub(super) fn drawable(&self) -> &metal::MetalDrawableRef {
         &self.drawable
     }
@@ -122,7 +118,7 @@ impl Frame {
 
 #[hidden_trait::expose]
 impl crate::traits::Frame for Frame {
-    #[inline(always)]
+    #[cfg_attr(inline_more, inline(always))]
     fn image(&self) -> &Image {
         &self.image
     }

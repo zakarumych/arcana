@@ -6,6 +6,6 @@ publish = false
 
 [dependencies]
 arcana = { path = "../../arcana" }
-hashbrown = { workspace = true }
-flume = { workspace = true }
-futures = { workspace = true }
+hashbrown.workspace = true
+flume.workspace = true
+futures.workspace = true

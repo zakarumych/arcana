@@ -3,37 +3,54 @@ use std::{path::PathBuf, sync::Arc};
 use arcana::{
     blink_alloc::BlinkAlloc,
     edict::world::WorldLocal,
-    events::ViewportEvent,
-    game::Quit,
-    init_mev, mev,
+    input::ViewportInput,
+    mev,
     project::Project,
     render::{render, RenderGraph, RenderResources},
     viewport::Viewport,
-    Clock, Entities, With, WorldBuilder,
+    ClockStep, Entities, IdGen, With, World,
 };
 use arcana_egui::{Egui, EguiRender, TopBottomPanel, Ui, WidgetText};
-use egui::vec2;
-use egui_dock::{DockState, TabViewer};
+use egui::{vec2, Id};
+use egui_dock::{DockState, NodeIndex, TabIndex, TabViewer, Tree};
 use egui_tracing::EventCollector;
 use hashbrown::HashMap;
 use parking_lot::Mutex;
 use winit::{
     dpi,
     event::WindowEvent,
-    window::{WindowBuilder, WindowId},
+    window::{Window, WindowId},
 };
 
-use crate::games::GamesTab;
-
-use super::{
-    console::Console, filters::Filters, games::Games, plugins::Plugins, systems::Systems, Tab,
+use crate::{
+    code::Codes,
+    console::Console,
+    data::ProjectData,
+    filters::Filters,
+    init_mev,
+    instance::Main,
+    plugins::Plugins,
+    render::Rendering,
+    sample::ImageSample,
+    subprocess::{filter_subprocesses, kill_subprocesses},
+    systems::Systems,
 };
 
 pub enum UserEvent {}
 
-pub type Event<'a> = winit::event::Event<'a, UserEvent>;
 pub type EventLoop = winit::event_loop::EventLoop<UserEvent>;
-pub type EventLoopWindowTarget = winit::event_loop::EventLoopWindowTarget<UserEvent>;
+
+/// Editor tab.
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+enum Tab {
+    Plugins,
+    Console,
+    Systems,
+    Filters,
+    Rendering,
+    Main,
+    Codes,
+}
 
 /// Editor app instance.
 /// Contains state of the editor.
@@ -42,16 +59,19 @@ pub struct App {
     dock_states: HashMap<WindowId, DockState<Tab>>,
 
     // App state is stored in World.
-    world: WorldLocal,
+    world: World,
 
     graph: RenderGraph,
     resources: RenderResources,
 
     blink: BlinkAlloc,
-    clock: Clock,
 
     device: mev::Device,
     queue: Arc<Mutex<mev::Queue>>,
+
+    tab_idgen: IdGen,
+
+    should_quit: bool,
 }
 
 impl Drop for App {
@@ -62,7 +82,7 @@ impl Drop for App {
                 .view_mut::<&Viewport>()
                 .iter()
                 .map(|viewport| {
-                    let window = viewport.window();
+                    let window = viewport.get_window();
                     let scale_factor = window.scale_factor();
                     AppWindowState {
                         pos: window
@@ -74,33 +94,43 @@ impl Drop for App {
                             .dock_states
                             .remove(&window.id())
                             .unwrap_or_else(|| DockState::new(vec![])),
+                        maximized: window.is_maximized(),
                     }
                 })
                 .collect(),
+
+            tab_idgen: self.tab_idgen.clone(),
         };
         let _ = save_app_state(&state);
 
-        let subprocesses = std::mem::take(&mut *super::SUBPROCESSES.lock());
-        for mut child in subprocesses {
-            let _ = child.kill();
-        }
+        kill_subprocesses();
     }
 }
 
 impl App {
-    pub fn new(events: &EventLoop, event_collector: EventCollector, project: Project) -> Self {
+    pub fn new(
+        events: &EventLoop,
+        event_collector: EventCollector,
+        project: Project,
+        data: ProjectData,
+    ) -> Self {
         let (device, queue) = init_mev();
         let queue = Arc::new(Mutex::new(queue));
 
-        let builder = WorldBuilder::new();
+        let builder = World::builder();
 
-        let mut world = builder.build_local();
+        let mut world = builder.build();
         world.insert_resource(project);
         world.insert_resource(Plugins::new());
         world.insert_resource(Console::new(event_collector));
-        world.insert_resource(Games::new());
+        world.insert_resource(Systems::new());
+        world.insert_resource(Filters::new());
+        world.insert_resource(Rendering::new());
+        world.insert_resource(Main::new());
         world.insert_resource(device.clone());
         world.insert_resource(queue.clone());
+        world.insert_resource(data);
+        world.insert_resource(ImageSample::new(&device).unwrap());
 
         let mut graph = RenderGraph::new();
 
@@ -109,10 +139,12 @@ impl App {
         let mut dock_states = HashMap::new();
 
         if state.windows.is_empty() {
-            let builder = WindowBuilder::new().with_title("Ed");
-            let window = builder
-                .build(events)
-                .map_err(|err| miette::miette!("Failed to create Ed window: {err}"))
+            let builder = Window::default_attributes().with_title("Ed");
+
+            #[allow(deprecated)]
+            let window = events
+                .create_window(builder)
+                .map_err(|err| miette::miette!("Failed to create Ed window: {err:?}"))
                 .unwrap();
 
             let size = window.inner_size();
@@ -126,20 +158,25 @@ impl App {
             );
             let id = world.spawn((Viewport::new_window(window), egui)).id();
 
-            let target = EguiRender::build(id, mev::ClearColor(0.2, 0.2, 0.2, 1.0), &mut graph);
+            let target = EguiRender::build(Some(id), &mut graph);
             graph.present_to(target, id);
         }
 
         for w in state.windows {
-            let builder = WindowBuilder::new()
+            let builder = Window::default_attributes()
                 .with_title("Ed")
                 .with_position(w.pos)
                 .with_inner_size(w.size);
 
-            let window = builder
-                .build(&events)
-                .map_err(|err| miette::miette!("Failed to create Ed window: {err}"))
+            #[allow(deprecated)]
+            let window: Window = events
+                .create_window(builder)
+                .map_err(|err| miette::miette!("Failed to create Ed window: {err:?}"))
                 .unwrap();
+
+            if w.maximized {
+                window.set_maximized(true);
+            }
 
             let size = window.inner_size();
             let scale_factor = window.scale_factor();
@@ -152,7 +189,7 @@ impl App {
             );
             let id = world.spawn((Viewport::new_window(window), egui)).id();
 
-            let target = EguiRender::build(id, mev::ClearColor(0.2, 0.2, 0.2, 1.0), &mut graph);
+            let target = EguiRender::build(Some(id), &mut graph);
             graph.present_to(target, id);
         }
 
@@ -162,136 +199,123 @@ impl App {
             graph,
             resources: RenderResources::default(),
             blink: BlinkAlloc::new(),
-            clock: Clock::new(),
             device,
             queue,
+
+            tab_idgen: state.tab_idgen,
+            should_quit: false,
         }
     }
 
-    pub fn on_event<'a>(&mut self, event: Event<'a>, _events: &EventLoopWindowTarget) {
+    pub fn on_input<'a>(&mut self, window_id: WindowId, event: WindowEvent) {
+        let world = self.world.local();
+
+        for (v, egui) in world.view_mut::<(&Viewport, &mut Egui)>() {
+            if v.get_window().id() == window_id {
+                if let Ok(event) = ViewportInput::try_from(&event) {
+                    if egui.handle_event(&event) {
+                        return;
+                    }
+                }
+            }
+        }
+
+        Main::handle_event(world, window_id, &event);
+
         match event {
-            Event::WindowEvent { window_id, event } => {
-                let world = self.world.local();
-
-                let Some(event) = Games::handle_event(world, window_id, event) else {
-                    return;
-                };
-
-                for (v, egui) in world.view_mut::<(&Viewport, &mut Egui)>() {
-                    if v.window().id() == window_id {
-                        if let Ok(event) = ViewportEvent::try_from(&event) {
-                            egui.handle_event(&event);
-                        }
+            WindowEvent::CloseRequested => {
+                let mut windows_count = 0;
+                let mut window_entity = None;
+                for (e, v) in world.view_mut::<(Entities, &Viewport)>() {
+                    windows_count += 1;
+                    if v.get_window().id() == window_id {
+                        window_entity = Some(e.id());
                     }
                 }
-
-                match event {
-                    WindowEvent::CloseRequested => {
-                        let mut windows_count = 0;
-                        let mut window_entity = None;
-                        for (e, v) in world.view_mut::<(Entities, &Viewport)>() {
-                            windows_count += 1;
-                            if v.window().id() == window_id {
-                                window_entity = Some(e.id());
-                            }
-                        }
-                        if let Some(window_entity) = window_entity {
-                            if windows_count < 2 {
-                                world.insert_resource(Quit);
-                            } else {
-                                let _ = world.despawn(window_entity);
-                            }
-                        }
+                if let Some(window_entity) = window_entity {
+                    if windows_count < 2 {
+                        self.should_quit = true;
+                    } else {
+                        let _ = world.despawn(window_entity);
                     }
-                    _ => {}
                 }
-            }
-            Event::MainEventsCleared => {
-                self.tick();
-            }
-            Event::RedrawEventsCleared => {
-                self.render();
             }
             _ => {}
         }
     }
 
-    pub fn tick(&mut self) {
+    pub fn tick(&mut self, step: ClockStep) {
         // Quit if last window was closed.
         if self.world.view_mut::<With<Viewport>>().into_iter().count() == 0 {
-            self.world.insert_resource(Quit);
+            self.should_quit = true;
             return;
         }
 
-        let step = self.clock.step();
-
-        Games::tick(&mut self.world, step);
+        // Update plugins state.
         Plugins::tick(&mut self.world);
 
-        for (viewport, egui) in self.world.view::<(&Viewport, &mut Egui)>() {
+        // Simulate main isntance.
+        Main::tick(&mut self.world, step);
+
+        let world: &WorldLocal = self.world.local();
+
+        for (viewport, egui) in world.view::<(&Viewport, &mut Egui)>() {
+            let window = viewport.get_window();
             let dock_state = self
                 .dock_states
-                .entry(viewport.window().id())
+                .entry(window.id())
                 .or_insert_with(|| DockState::new(vec![]));
 
-            egui.run(|cx| {
+            egui.run(step.now, |cx| {
                 let tabs = dock_state.main_surface_mut();
                 TopBottomPanel::top("Menu").show(cx, |ui| {
                     ui.horizontal(|ui| {
                         ui.menu_button("File", |ui| {
                             if ui.button("Exit").clicked() {
-                                self.world.insert_resource_defer(Quit);
+                                self.should_quit = true;
                                 ui.close_menu();
-                            }
-                        });
-                        ui.menu_button("Run", |ui| {
-                            if ui.button("New game").clicked() {
-                                tabs.push_to_first_leaf(Tab::Game {
-                                    tab: GamesTab::new(&self.world),
-                                });
                             }
                         });
                         ui.menu_button("View", |ui| {
-                            if ui.button("Game").clicked() {
-                                tabs.push_to_first_leaf(Tab::Game {
-                                    tab: GamesTab::default(),
-                                });
-                                ui.close_menu();
-                            }
                             if ui.button("Plugins").clicked() {
-                                tabs.push_to_first_leaf(Plugins::tab());
+                                focus_or_add_tab(tabs, Tab::Plugins);
                                 ui.close_menu();
                             }
                             if ui.button("Console").clicked() {
-                                tabs.push_to_first_leaf(Console::tab());
+                                focus_or_add_tab(tabs, Tab::Console);
                                 ui.close_menu();
                             }
                             if ui.button("Systems").clicked() {
-                                tabs.push_to_first_leaf(Systems::tab());
+                                focus_or_add_tab(tabs, Tab::Systems);
                                 ui.close_menu();
                             }
                             if ui.button("Filters").clicked() {
-                                tabs.push_to_first_leaf(Filters::tab());
+                                focus_or_add_tab(tabs, Tab::Filters);
+                                ui.close_menu();
+                            }
+                            if ui.button("Rendering").clicked() {
+                                focus_or_add_tab(tabs, Tab::Rendering);
+                                ui.close_menu();
+                            }
+                            if ui.button("Main").clicked() {
+                                focus_or_add_tab(tabs, Tab::Main);
                                 ui.close_menu();
                             }
                         });
                     });
                 });
-                egui_dock::DockArea::new(dock_state).show(cx, &mut AppModel { world: &self.world })
+                egui_dock::DockArea::new(dock_state).show(cx, &mut AppModel { world, window })
             });
         }
+
+        // Run actions encoded by UI.
         self.world.run_deferred();
 
-        let mut subprocesses = super::SUBPROCESSES.lock();
-        subprocesses.retain_mut(|child| match child.try_wait() {
-            Ok(Some(_)) => false,
-            Err(_) => false,
-            _ => true,
-        });
+        filter_subprocesses();
     }
 
     pub fn render(&mut self) {
-        Games::render(&mut self.world);
+        Main::render(&mut self.world);
 
         if self.world.view_mut::<With<Viewport>>().into_iter().count() == 0 {
             return;
@@ -309,16 +333,25 @@ impl App {
     }
 
     pub fn should_quit(&self) -> bool {
-        if self.world.get_resource::<Quit>().is_none() {
-            return false;
+        self.should_quit
+    }
+}
+
+fn find_tab(tabs: &Tree<Tab>, tab: Tab) -> Option<(NodeIndex, TabIndex)> {
+    for (node_idx, node) in tabs.iter().enumerate() {
+        if let Some(tab_idx) = node.iter_tabs().position(|t| *t == tab) {
+            return Some((NodeIndex(node_idx), TabIndex(tab_idx)));
         }
-        let subprocesses = std::mem::take(&mut *super::SUBPROCESSES.lock());
-        for mut subprocess in subprocesses {
-            if subprocess.kill().is_ok() {
-                let _ = subprocess.wait();
-            }
-        }
-        true
+    }
+    None
+}
+
+fn focus_or_add_tab(tabs: &mut Tree<Tab>, tab: Tab) {
+    if let Some((node_idx, tab_idx)) = find_tab(tabs, tab) {
+        tabs.set_focused_node(node_idx);
+        tabs.set_active_tab(node_idx, tab_idx);
+    } else {
+        tabs.push_to_first_leaf(tab);
     }
 }
 
@@ -326,21 +359,27 @@ impl App {
 struct AppWindowState {
     pos: dpi::LogicalPosition<f64>,
     size: dpi::LogicalSize<f64>,
+    maximized: bool,
     dock_state: DockState<Tab>,
 }
 
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 struct AppState {
     windows: Vec<AppWindowState>,
+    tab_idgen: IdGen,
 }
 
-#[repr(transparent)]
 struct AppModel<'a> {
     world: &'a WorldLocal,
+    window: &'a Window,
 }
 
 impl TabViewer for AppModel<'_> {
     type Tab = Tab;
+
+    fn id(&mut self, tab: &mut Tab) -> egui::Id {
+        Id::new(*tab)
+    }
 
     fn ui(&mut self, ui: &mut Ui, tab: &mut Tab) {
         match *tab {
@@ -348,30 +387,32 @@ impl TabViewer for AppModel<'_> {
             Tab::Console => Console::show(self.world, ui),
             Tab::Systems => Systems::show(self.world, ui),
             Tab::Filters => Filters::show(self.world, ui),
-            Tab::Game { ref mut tab } => tab.show(ui, self.world),
-            // Tab::Memory => Memory::show(&mut self.world, ui),
+            Tab::Codes => Codes::show(self.world, ui),
+            Tab::Rendering => Rendering::show(self.world, ui),
+            Tab::Main => Main::show(self.world, ui, self.window.id()),
         }
     }
 
     fn title(&mut self, tab: &mut Tab) -> WidgetText {
-        match tab {
+        match *tab {
             Tab::Plugins => "Plugins".into(),
             Tab::Console => "Console".into(),
             Tab::Systems => "Systems".into(),
             Tab::Filters => "Filters".into(),
-            Tab::Game { .. } => "Game".into(),
-            // Tab::Memory => "Memory".into(),
+            Tab::Codes => "Codes".into(),
+            Tab::Rendering => "Rendering".into(),
+            Tab::Main => "Main".into(),
         }
     }
 
-    fn on_close(&mut self, tab: &mut Tab) -> bool {
+    fn scroll_bars(&self, tab: &Tab) -> [bool; 2] {
         match tab {
-            Tab::Game { tab } => {
-                tab.on_close(self.world);
-            }
-            _ => {}
+            Tab::Console => [false, false],
+            Tab::Systems => [false, false],
+            Tab::Codes => [false, false],
+            Tab::Rendering => [false, false],
+            _ => [true, true],
         }
-        true
     }
 }
 
@@ -390,17 +431,17 @@ fn app_state_path(create: bool) -> Option<PathBuf> {
             path
         }
     };
-    path.push("ed_state.json");
+    path.push("ed.bin");
     Some(path)
 }
 
 fn load_app_state() -> Option<AppState> {
     let mut file = std::fs::File::open(app_state_path(false)?).ok()?;
 
-    serde_json::from_reader(&mut file).ok()
+    bincode::deserialize_from(&mut file).ok()
 }
 
 fn save_app_state(state: &AppState) -> Option<()> {
     let mut file = std::fs::File::create(app_state_path(true)?).ok()?;
-    serde_json::to_writer(&mut file, state).ok()
+    bincode::serialize_into(&mut file, state).ok()
 }
