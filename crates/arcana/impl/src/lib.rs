@@ -75,6 +75,8 @@ macro_rules! const_format {
 
 extern crate self as arcana;
 
+use std::any::Any;
+
 // Re-exports
 pub use {
     arcana_names::{ident, name, Ident, Name},
@@ -87,6 +89,9 @@ pub use {
     hashbrown, na, parking_lot, tokio,
 };
 
+use code::init_codes;
+use events::init_events;
+use flow::init_flows;
 pub use mev;
 pub mod arena;
 pub mod assets;
@@ -136,4 +141,95 @@ fn alloc_guard(alloc_size: usize) {
     if usize::BITS < 64 && alloc_size > isize::MAX as usize {
         capacity_overflow()
     }
+}
+
+pub fn type_id<T: 'static>() -> std::any::TypeId {
+    std::any::TypeId::of::<T>()
+}
+
+#[macro_export]
+macro_rules! static_assert {
+    ($cond:expr) => {
+        const _: () = {
+            assert!($cond);
+        };
+    };
+    ($cond:expr, $($arg:tt)+) => {
+        const _: () = {
+            assert!($cond, $($arg)+);
+        };
+    };
+}
+
+/// Slot for storing a single value of `Any` type
+/// with type-safe access, replacement and removal.
+#[derive(Default)]
+pub struct Slot(Option<Box<dyn Any + Send>>);
+
+impl From<Option<Box<dyn Any + Send>>> for Slot {
+    fn from(opt: Option<Box<dyn Any + Send>>) -> Self {
+        Slot(opt)
+    }
+}
+
+impl From<Box<dyn Any + Send>> for Slot {
+    fn from(boxed: Box<dyn Any + Send>) -> Self {
+        Slot(Some(boxed))
+    }
+}
+
+impl Slot {
+    pub fn new() -> Self {
+        Self(None)
+    }
+
+    pub fn with_value<T>(value: T) -> Self
+    where
+        T: Send + 'static,
+    {
+        Self(Some(Box::new(value)))
+    }
+
+    pub fn boxed(self) -> Option<Box<dyn Any + Send>> {
+        self.0
+    }
+
+    pub fn set<T>(&mut self, value: T)
+    where
+        T: Send + 'static,
+    {
+        if let Some(boxed) = &mut self.0 {
+            if let Some(slot) = boxed.downcast_mut::<T>() {
+                *slot = value;
+                return;
+            }
+        }
+        self.0 = Some(Box::new(value));
+    }
+
+    pub fn get<T: 'static>(&self) -> Option<&T> {
+        if let Some(boxed) = &self.0 {
+            return boxed.downcast_ref::<T>();
+        }
+
+        None
+    }
+
+    pub fn take<T: 'static>(&mut self) -> Option<T> {
+        if let Some(boxed) = &self.0 {
+            if boxed.is::<T>() {
+                let boxed = self.0.take().unwrap();
+                let value = *boxed.downcast::<T>().unwrap();
+                return Some(value);
+            }
+        }
+
+        None
+    }
+}
+
+pub fn init_world(world: &mut World) {
+    init_flows(world);
+    init_events(world);
+    init_codes(world);
 }

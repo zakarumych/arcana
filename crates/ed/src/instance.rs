@@ -3,9 +3,12 @@
 use std::sync::Arc;
 
 use arcana::{
+    code::{builtin::emit_code_start, init_codes},
     edict::world::WorldLocal,
+    events::init_events,
     flow::{init_flows, Flows},
     gametime::{ClockRate, FrequencyNumExt, TimeSpan},
+    init_world,
     input::{DeviceId, Input, KeyCode, PhysicalKey, ViewportInput},
     mev,
     plugin::PluginsHub,
@@ -20,6 +23,7 @@ use parking_lot::Mutex;
 use winit::{event::WindowEvent, window::WindowId};
 
 use crate::{
+    code::CodeContext,
     container::Container,
     data::ProjectData,
     filters::Funnel,
@@ -45,6 +49,9 @@ pub struct Instance {
 
     /// Instance rate.
     rate: ClockRate,
+
+    /// Codes execution context.
+    code: CodeContext,
 
     /// Flows to run on each tick.
     flows: Flows,
@@ -73,6 +80,8 @@ impl Instance {
             }
             Some(_old) => {
                 self.world = World::new();
+                init_world(&mut self.world);
+
                 self.hub = PluginsHub::new();
                 self.container = Some(c.clone());
 
@@ -91,7 +100,9 @@ impl Instance {
         &mut self.rate
     }
 
-    pub fn tick(&mut self, span: TimeSpan, schedule: &Schedule) {
+    pub fn tick(&mut self, span: TimeSpan, schedule: &Schedule, data: &ProjectData) {
+        emit_code_start(&mut self.world);
+
         let last_now = self.rate.now();
         let step = self.rate.step(span);
 
@@ -108,7 +119,11 @@ impl Instance {
             schedule.run(systems::Category::Var, &mut self.world, &mut self.hub);
         }
 
+        self.code.execute(&self.hub, data, &mut self.world);
         self.flows.execute(&mut self.world);
+
+        self.world.run_deferred();
+        self.world.execute_received_actions();
     }
 
     pub fn on_input(&mut self, funnel: &Funnel, event: &Input) -> bool {
@@ -221,12 +236,13 @@ impl Main {
         let lim = FrequencyTicker::new(60.hz(), rate.now());
 
         let flows = Flows::new();
+        let code = CodeContext::new();
         let workgraph = WorkGraph::new(HashMap::new(), HashSet::new()).unwrap();
 
         let present = None;
         let viewport = Viewport::new_image();
 
-        init_flows(&mut world);
+        init_world(&mut world);
 
         let instance = Instance {
             world,
@@ -236,6 +252,7 @@ impl Main {
             lim,
             rate,
             flows,
+            code,
             workgraph,
             present,
             viewport,
@@ -436,7 +453,8 @@ impl Main {
         let world = world.local();
         let mut main = world.expect_resource_mut::<Main>();
         let systems = world.expect_resource::<Systems>();
-        main.instance.tick(step.step, systems.schedule());
+        let data = world.expect_resource::<ProjectData>();
+        main.instance.tick(step.step, systems.schedule(), &data);
     }
 
     pub fn render(world: &mut World) {

@@ -6,7 +6,7 @@ use std::{
 
 use hashbrown::HashMap;
 
-use crate::{make_id, stid::WithStid};
+use crate::{make_id, stid::WithStid, type_id};
 
 make_id!(pub TargetId);
 
@@ -162,13 +162,13 @@ impl TargetHub {
     }
 
     pub fn data<T: Target>(&self, id: TargetId) -> Option<&TargetData<T>> {
-        let any_hub = self.types.get(&TypeId::of::<T>())?;
+        let any_hub = self.types.get(&type_id::<T>())?;
         let typed_hub = unsafe { any_hub.downcast_ref::<TargetData<T>>() };
         typed_hub.get(&id)
     }
 
     pub fn data_mut<T: Target>(&mut self, id: TargetId) -> Option<&mut TargetData<T>> {
-        let any_hub = self.types.get_mut(&TypeId::of::<T>())?;
+        let any_hub = self.types.get_mut(&type_id::<T>())?;
         let typed_hub = unsafe { any_hub.downcast_mut::<TargetData<T>>() };
         typed_hub.get_mut(&id)
     }
@@ -176,7 +176,7 @@ impl TargetHub {
     pub fn make_data_mut<T: Target>(&mut self, id: TargetId) -> &mut TargetData<T> {
         let any_hub = self
             .types
-            .entry(TypeId::of::<T>())
+            .entry(type_id::<T>())
             .or_insert_with(|| AnyHashMap::<TargetId>::new::<TargetData<T>>());
         let typed_hub = unsafe { any_hub.downcast_mut::<TargetData<T>>() };
         typed_hub.entry(id).or_insert_with(|| TargetData::new())

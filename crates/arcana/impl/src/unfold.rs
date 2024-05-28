@@ -15,6 +15,8 @@ use edict::{
 };
 use hashbrown::HashSet;
 
+use crate::type_id;
+
 pub trait Unfold: Component + Sync {
     /// Query type for the bundle.
     /// Typical bundle would use query that is matched by any entity.
@@ -50,7 +52,7 @@ impl UnfoldRegistrar {
     }
 
     fn register<U: Unfold>(&mut self) {
-        let type_id = TypeId::of::<U>();
+        let type_id = type_id::<U>();
         if self.registered.contains(&type_id) {
             return;
         }
