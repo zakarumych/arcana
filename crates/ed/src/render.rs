@@ -128,11 +128,11 @@ impl Rendering {
                 WorkGraphNode::Job {
                     job, desc, active, ..
                 } => {
-                    if let Some(job_desc) = all_jobs.remove(&*job) {
+                    if let Some(new_job_desc) = all_jobs.get(&*job) {
                         *active = true;
 
-                        if *desc != job_desc {
-                            *desc = job_desc;
+                        if *desc != *new_job_desc {
+                            *desc = new_job_desc.clone();
                         }
                     }
                 }

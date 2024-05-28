@@ -34,12 +34,20 @@ pub struct Event<T: ?Sized = dyn Any> {
     pub payload: T,
 }
 
-impl<T> Event<T> {
+impl Event<()> {
     #[inline(always)]
-    pub fn new(id: EventId, entity: impl Entity, payload: T) -> Self {
+    pub fn new(id: EventId, entity: impl Entity) -> Self {
         Event {
             id,
             entity: entity.id(),
+            payload: (),
+        }
+    }
+
+    pub fn with_payload<T>(self, payload: T) -> Event<T> {
+        Event {
+            id: self.id,
+            entity: self.entity,
             payload,
         }
     }
@@ -309,7 +317,7 @@ trait AnyPayloadStorage: Any {
 
 impl dyn AnyPayloadStorage {
     fn is<T: AnyPayload>(&self) -> bool {
-        type_id::<T>() == type_id::<TypedPayloadStorage<T>>()
+        self.type_id() == type_id::<TypedPayloadStorage<T>>()
     }
 
     fn downcast_ref<T: AnyPayload>(&self) -> &TypedPayloadStorage<T> {

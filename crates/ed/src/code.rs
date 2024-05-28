@@ -119,8 +119,18 @@ fn schedule_pure_inputs(
                     if !inpin.remotes.is_empty() {
                         let producer = inpin.remotes[0];
                         if !scheduled.contains(&producer.node) {
-                            delay = true;
-                            queue.push(producer.node);
+                            match snarl.get_node(producer.node) {
+                                Some(CodeNode::Pure { .. }) => {
+                                    if !delay {
+                                        queue.push(node);
+                                    }
+                                    delay = true;
+                                    queue.push(producer.node);
+                                }
+                                _ => {
+                                    scheduled.insert(producer.node);
+                                }
+                            }
                         }
                     }
                 }
@@ -128,9 +138,7 @@ fn schedule_pure_inputs(
             _ => continue,
         }
 
-        if delay {
-            queue.push(node);
-        } else {
+        if !delay {
             scheduled.insert(node);
             schedule.push(node);
         }
@@ -273,6 +281,8 @@ fn execute_flow(
                 &outputs,
                 continuation,
             );
+
+            tracing::info!("Next is {:?}", next);
 
             next
         }

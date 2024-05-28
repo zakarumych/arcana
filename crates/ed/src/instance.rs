@@ -6,7 +6,7 @@ use arcana::{
     code::{builtin::emit_code_start, init_codes},
     edict::world::WorldLocal,
     events::init_events,
-    flow::{init_flows, Flows},
+    flow::{init_flows, wake_flows, Flows},
     gametime::{ClockRate, FrequencyNumExt, TimeSpan},
     init_world,
     input::{DeviceId, Input, KeyCode, PhysicalKey, ViewportInput},
@@ -120,6 +120,8 @@ impl Instance {
         }
 
         self.code.execute(&self.hub, data, &mut self.world);
+
+        wake_flows(&mut self.world);
         self.flows.execute(&mut self.world);
 
         self.world.run_deferred();

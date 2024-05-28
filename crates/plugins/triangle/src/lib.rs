@@ -1,10 +1,14 @@
 use std::mem::size_of;
 
 use arcana::{
+    code::Code,
     edict::{self, query::Cpy, World},
+    events::{Event, Events},
     flow::{sleep, FlowEntity},
     gametime::{ClockStep, TimeSpan},
+    hash_id,
     hashbrown::HashMap,
+    local_name_hash_id,
     mev::{self, Arguments, DeviceRepr},
     model::{ColorModel, ColorValue, Model, Value},
     name,
@@ -34,7 +38,6 @@ pub struct DrawTriangle {
 impl DrawTriangle {
     pub fn desc() -> JobDesc {
         arcana::job_desc! [
-            speed: in Model::Float,
             c1: in Model::Color(ColorModel::Srgb),
             c2: in Model::Color(ColorModel::Srgb),
             c3: in Model::Color(ColorModel::Srgb),
@@ -59,18 +62,7 @@ impl Job for DrawTriangle {
             return;
         };
 
-        let mut speed = match planner.param("speed") {
-            Value::Int(speed) => (*speed) as f32,
-            Value::Float(speed) => (*speed) as f32,
-            _ => 1.0,
-        };
-
-        speed *= world
-            .view::<Cpy<Speed>>()
-            .into_iter()
-            .next()
-            .unwrap_or(Speed(1.0))
-            .0;
+        let speed = world.view::<Cpy<Speed>>().into_iter().next().unwrap().0;
 
         let constants = self.constants.entry(idx).or_insert(DTConstants {
             angle: 0.0,
@@ -332,13 +324,16 @@ fn x2(_: FlowEntity, a: &f32) -> (f32,) {
 }
 
 async fn wait(mut e: FlowEntity<'_>) {
+    tracing::info!("Sleeping for a second");
     sleep(TimeSpan::SECOND, e.world()).await;
+    tracing::info!("One second passed");
 }
 
 #[derive(Clone, Copy, Component)]
 struct Speed(f32);
 
 fn set_angle_speed(e: FlowEntity, speed: &f32) {
+    tracing::info!("Setting triangle speed to {}", speed);
     let _ = e.set(Speed(*speed));
 }
 
@@ -361,7 +356,14 @@ arcana::export_arcana_plugin! {
 
         // Init block
         in world => {
-            world.spawn((Speed(1.0),));
+            let e = world.spawn((
+                Speed(0.01),
+                Code {
+                    code_id: hash_id!("speedup"),
+                }
+            )).id();
+
+            world.local().expect_resource_mut::<Events>().emit(Event::new(local_name_hash_id!(Start), e));
         }
         //     let world = world.local();
 
