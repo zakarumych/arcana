@@ -331,15 +331,15 @@ fn x2(_: FlowEntity, a: &f32) -> (f32,) {
     (a * 2.0,)
 }
 
-async fn wait(mut e: FlowEntity<'_>, span: TimeSpan) {
-    sleep(span, e.world()).await;
+async fn wait(mut e: FlowEntity<'_>) {
+    sleep(TimeSpan::SECOND, e.world()).await;
 }
 
 #[derive(Clone, Copy, Component)]
 struct Speed(f32);
 
 fn set_angle_speed(e: FlowEntity, speed: &f32) {
-    e.set(Speed(*speed));
+    let _ = e.set(Speed(*speed));
 }
 
 fn get_angle_speed(e: FlowEntity) -> (f32,) {
@@ -354,8 +354,10 @@ arcana::export_arcana_plugin! {
         // List jobs
         jobs: [DrawTriangle, op: OpJob::desc() => OpJob::new()],
 
-        pure_fns: [x2, get_angle_speed],
-        flow_fns: [wait, set_angle_speed],
+        events: [Start],
+
+        pure_codes: [x2, get_angle_speed],
+        flow_codes: [wait, set_angle_speed],
 
         // Init block
         in world => {

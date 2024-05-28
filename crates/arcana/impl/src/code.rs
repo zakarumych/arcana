@@ -7,7 +7,6 @@ use hashbrown::{hash_map::Entry, HashMap};
 use smallvec::SmallVec;
 
 use crate::{
-    events::EventId,
     make_id,
     stid::{Stid, WithStid},
     Slot,
@@ -151,12 +150,6 @@ pub type FlowCode = fn(
 /// Code descriptor.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum CodeDesc {
-    /// Event node is never executed,
-    /// instead it is triggered externally and starts execution of code flow.
-    /// It always has exactly one outflow and number of output values.
-    /// But no inflows or input values.
-    Event { id: EventId, outputs: Vec<Stid> },
-
     /// Pure node gets executed every type its output is required.
     Pure {
         inputs: Vec<Stid>,

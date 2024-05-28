@@ -14,9 +14,9 @@ use arcana::{
     },
     events::{EventId, Events},
     hash_id,
-    plugin::{CodeInfo, PluginsHub},
+    plugin::{CodeInfo, EventInfo, PluginsHub},
     project::Project,
-    Ident, Name,
+    Ident, Name, Stid,
 };
 use egui::{epaint::PathShape, Color32, Painter, PointerButton, Rect, Shape, Stroke, Ui};
 use egui_snarl::{
@@ -57,10 +57,29 @@ impl OutputCache {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub struct CodeNode {
-    id: CodeId,
-    name: Name,
-    desc: CodeDesc,
+pub enum CodeNode {
+    Event {
+        id: EventId,
+        name: Name,
+        outputs: Vec<Stid>,
+    },
+    /// Pure node gets executed every type its output is required.
+    Pure {
+        id: CodeId,
+        name: Name,
+        inputs: Vec<Stid>,
+        outputs: Vec<Stid>,
+    },
+
+    /// Flow node that gets executed when triggered by connected inflow.
+    Flow {
+        id: CodeId,
+        name: Name,
+        inflows: usize,
+        outflows: usize,
+        inputs: Vec<Stid>,
+        outputs: Vec<Stid>,
+    },
 }
 
 fn schedule_pure_inputs(
@@ -92,10 +111,7 @@ fn schedule_pure_inputs(
         let mut delay = false;
 
         match snarl.get_node(node) {
-            Some(CodeNode {
-                desc: CodeDesc::Pure { inputs, .. },
-                ..
-            }) => {
+            Some(CodeNode::Pure { inputs, .. }) => {
                 for input in 0..inputs.len() {
                     let inpin = snarl.in_pin(InPinId { node, input });
                     assert!(inpin.remotes.len() <= 1);
@@ -136,12 +152,14 @@ fn execute_pure(
         return;
     };
 
-    match code_node.desc {
-        CodeDesc::Pure {
+    match *code_node {
+        CodeNode::Pure {
+            id,
             ref inputs,
             ref outputs,
+            ..
         } => {
-            let pure_code = pures[&code_node.id];
+            let pure_code = pures[&id];
 
             let mut outputs = (0..outputs.len())
                 .map(|output| ValueId {
@@ -188,11 +206,12 @@ fn execute_flow(
         return None;
     };
 
-    match code_node.desc {
-        CodeDesc::Flow {
+    match *code_node {
+        CodeNode::Flow {
             inflows,
             ref inputs,
             ref outputs,
+            id,
             ..
         } => {
             // Check flow connection.
@@ -202,7 +221,7 @@ fn execute_flow(
             }
 
             // Grab code function.
-            let flow_code = flows[&code_node.id];
+            let flow_code = flows[&id];
 
             // Schedule pure deps.
             let schedule = schedule_pure_inputs(pin.node, inflows..inflows + inputs.len(), snarl);
@@ -280,18 +299,19 @@ fn run_code(
             break;
         };
 
-        match code_node.desc {
-            CodeDesc::Pure { .. } => {
-                tracing::error!("Node {:?} is not event or flow", outflow.node);
-                break;
-            }
-            CodeDesc::Event { .. } => {
+        match *code_node {
+            CodeNode::Event { .. } => {
                 if outflow.output > 0 {
                     tracing::error!("Events dont have outflow {:?}", outflow.output);
                     break;
                 }
             }
-            CodeDesc::Flow { outflows, .. } => {
+            CodeNode::Pure { .. } => {
+                tracing::error!("Node {:?} is not event or flow", outflow.node);
+                break;
+            }
+
+            CodeNode::Flow { outflows, .. } => {
                 if outflow.output >= outflows {
                     tracing::error!(
                         "Flow {:?} doesn't have outflow {:?}",
@@ -408,10 +428,10 @@ pub fn handle_code_events(
                 graph
                     .snarl
                     .node_ids()
-                    .find_map(|(node_id, node)| match node.desc {
-                        CodeDesc::Event { id, ref outputs } if id == event.id => {
-                            Some((node_id, outputs))
-                        }
+                    .find_map(|(node_id, node)| match *node {
+                        CodeNode::Event {
+                            id, ref outputs, ..
+                        } if id == event.id => Some((node_id, outputs)),
                         _ => None,
                     })
             else {
@@ -515,19 +535,24 @@ pub struct CodeGraph {
 }
 
 struct CodeViewer<'a> {
-    available: &'a BTreeMap<Ident, Vec<CodeInfo>>,
+    available_events: &'a BTreeMap<Ident, Vec<EventInfo>>,
+    available_codes: &'a BTreeMap<Ident, Vec<CodeInfo>>,
 }
 
 impl SnarlViewer<CodeNode> for CodeViewer<'_> {
     fn title(&mut self, node: &CodeNode) -> String {
-        node.name.to_string()
+        match *node {
+            CodeNode::Event { name, .. } => name.to_string(),
+            CodeNode::Flow { name, .. } => name.to_string(),
+            CodeNode::Pure { name, .. } => name.to_string(),
+        }
     }
 
     fn inputs(&mut self, node: &CodeNode) -> usize {
-        match node.desc {
-            CodeDesc::Event { .. } => 0,
-            CodeDesc::Pure { ref inputs, .. } => inputs.len(),
-            CodeDesc::Flow {
+        match *node {
+            CodeNode::Event { .. } => 0,
+            CodeNode::Pure { ref inputs, .. } => inputs.len(),
+            CodeNode::Flow {
                 inflows,
                 ref inputs,
                 ..
@@ -536,10 +561,10 @@ impl SnarlViewer<CodeNode> for CodeViewer<'_> {
     }
 
     fn outputs(&mut self, node: &CodeNode) -> usize {
-        match node.desc {
-            CodeDesc::Event { ref outputs, .. } => 1 + outputs.len(),
-            CodeDesc::Pure { ref outputs, .. } => outputs.len(),
-            CodeDesc::Flow {
+        match *node {
+            CodeNode::Event { ref outputs, .. } => 1 + outputs.len(),
+            CodeNode::Pure { ref outputs, .. } => outputs.len(),
+            CodeNode::Flow {
                 outflows,
                 ref outputs,
                 ..
@@ -558,15 +583,15 @@ impl SnarlViewer<CodeNode> for CodeViewer<'_> {
     ) {
         let node = &snarl[node];
 
-        match node.desc {
-            CodeDesc::Event { .. } => {
-                ui.label(node.name.to_string());
+        match *node {
+            CodeNode::Event { name, .. } => {
+                ui.label(name.to_string());
             }
-            CodeDesc::Pure { .. } => {
-                ui.label(node.name.to_string());
+            CodeNode::Pure { name, .. } => {
+                ui.label(name.to_string());
             }
-            CodeDesc::Flow { .. } => {
-                ui.label(node.name.to_string());
+            CodeNode::Flow { name, .. } => {
+                ui.label(name.to_string());
             }
         }
     }
@@ -580,13 +605,13 @@ impl SnarlViewer<CodeNode> for CodeViewer<'_> {
     ) -> PinInfo {
         let node = &snarl[pin.id.node];
 
-        match node.desc {
-            CodeDesc::Event { .. } => unreachable!(),
-            CodeDesc::Pure { ref inputs, .. } => {
+        match *node {
+            CodeNode::Event { .. } => unreachable!(),
+            CodeNode::Pure { ref inputs, .. } => {
                 let input = inputs[pin.id.input];
                 PinInfo::square().with_fill(hue_hash(&input))
             }
-            CodeDesc::Flow {
+            CodeNode::Flow {
                 inflows,
                 ref inputs,
                 ..
@@ -610,8 +635,8 @@ impl SnarlViewer<CodeNode> for CodeViewer<'_> {
     ) -> PinInfo {
         let node = &snarl[pin.id.node];
 
-        match node.desc {
-            CodeDesc::Event { ref outputs, .. } => {
+        match *node {
+            CodeNode::Event { ref outputs, .. } => {
                 if pin.id.output == 0 {
                     flow_pin()
                 } else {
@@ -619,11 +644,11 @@ impl SnarlViewer<CodeNode> for CodeViewer<'_> {
                     PinInfo::square().with_fill(hue_hash(&output))
                 }
             }
-            CodeDesc::Pure { ref outputs, .. } => {
+            CodeNode::Pure { ref outputs, .. } => {
                 let output = outputs[pin.id.output];
                 PinInfo::square().with_fill(hue_hash(&output))
             }
-            CodeDesc::Flow {
+            CodeNode::Flow {
                 outflows,
                 ref outputs,
                 ..
@@ -646,37 +671,79 @@ impl SnarlViewer<CodeNode> for CodeViewer<'_> {
         &mut self,
         pos: egui::Pos2,
         ui: &mut Ui,
-        scale: f32,
+        _scale: f32,
         snarl: &mut Snarl<CodeNode>,
     ) {
-        ui.label("Add code");
+        if !self.available_events.is_empty() {
+            ui.label("Add event");
+            for (&plugin, events) in self.available_events.iter() {
+                if events.is_empty() {
+                    continue;
+                }
 
-        if self.available.is_empty() {
-            ui.separator();
-            ui.weak("No available codes");
-        }
+                ui.separator();
+                ui.weak(plugin.as_str());
 
-        for (&plugin, codes) in self.available.iter() {
-            if codes.is_empty() {
-                continue;
+                for event in events {
+                    if ui.button(event.name.as_str()).clicked() {
+                        snarl.insert_node(
+                            pos,
+                            CodeNode::Event {
+                                id: event.id,
+                                name: event.name,
+                                outputs: event.values.clone(),
+                            },
+                        );
+
+                        ui.close_menu();
+                        return;
+                    }
+                }
             }
+        }
+        if !self.available_codes.is_empty() {
+            ui.label("Add code");
+            for (&plugin, codes) in self.available_codes.iter() {
+                if codes.is_empty() {
+                    continue;
+                }
 
-            ui.separator();
-            ui.weak(plugin.as_str());
+                ui.separator();
+                ui.weak(plugin.as_str());
 
-            for code in codes {
-                if ui.button(code.name.as_str()).clicked() {
-                    snarl.insert_node(
-                        pos,
-                        CodeNode {
-                            id: code.id,
-                            name: code.name,
-                            desc: code.desc.clone(),
-                        },
-                    );
+                for code in codes {
+                    if ui.button(code.name.as_str()).clicked() {
+                        snarl.insert_node(
+                            pos,
+                            match code.desc {
+                                CodeDesc::Pure {
+                                    ref inputs,
+                                    ref outputs,
+                                } => CodeNode::Pure {
+                                    id: code.id,
+                                    name: code.name,
+                                    inputs: inputs.clone(),
+                                    outputs: outputs.clone(),
+                                },
+                                CodeDesc::Flow {
+                                    inflows,
+                                    outflows,
+                                    ref inputs,
+                                    ref outputs,
+                                } => CodeNode::Flow {
+                                    id: code.id,
+                                    name: code.name,
+                                    inflows,
+                                    outflows,
+                                    inputs: inputs.clone(),
+                                    outputs: outputs.clone(),
+                                },
+                            },
+                        );
 
-                    ui.close_menu();
-                    return;
+                        ui.close_menu();
+                        return;
+                    }
                 }
             }
         }
@@ -688,7 +755,7 @@ fn draw_flow_pin(painter: &Painter, rect: Rect) {
         points: vec![rect.left_top(), rect.right_center(), rect.left_bottom()],
         closed: true,
         fill: Color32::WHITE,
-        stroke: Stroke::new(2.0, Color32::GRAY),
+        stroke: Stroke::new(1.0, Color32::WHITE),
     }));
 }
 
@@ -701,7 +768,8 @@ fn flow_pin() -> PinInfo {
 pub struct Codes {
     selected: Option<CodeId>,
     new_code_name: String,
-    available: BTreeMap<Ident, Vec<CodeInfo>>,
+    available_events: BTreeMap<Ident, Vec<EventInfo>>,
+    available_codes: BTreeMap<Ident, Vec<CodeInfo>>,
 }
 
 impl Codes {
@@ -709,17 +777,25 @@ impl Codes {
         Codes {
             selected: None,
             new_code_name: String::new(),
-            available: BTreeMap::new(),
+            available_events: BTreeMap::new(),
+            available_codes: BTreeMap::new(),
         }
     }
 
     pub fn update_plugins(&mut self, _data: &mut ProjectData, container: &Container) {
-        self.available.clear();
+        self.available_codes.clear();
 
         for (name, plugin) in container.plugins() {
-            let codes = self.available.entry(name).or_insert(plugin.codes());
+            let codes = self.available_codes.entry(name).or_insert(plugin.codes());
 
             codes.sort_by_key(|node| node.name);
+        }
+
+        self.available_events.clear();
+
+        for (name, plugin) in container.plugins() {
+            let events = self.available_events.entry(name).or_insert(plugin.events());
+            events.sort_by_key(|node| node.name);
         }
     }
 
@@ -756,7 +832,13 @@ impl Codes {
                             data.codes.insert(id, new_code);
                             codes.selected = Some(id);
                         }
-                        Err(_) => {}
+                        Err(err) => {
+                            tracing::error!(
+                                "Failed to create code: {}. with name {}",
+                                err,
+                                codes.new_code_name
+                            );
+                        }
                     }
                 }
 
@@ -783,7 +865,8 @@ impl Codes {
 
             code.snarl.show(
                 &mut CodeViewer {
-                    available: &codes.available,
+                    available_events: &codes.available_events,
+                    available_codes: &codes.available_codes,
                 },
                 &SnarlStyle::default(),
                 "code-viwer",

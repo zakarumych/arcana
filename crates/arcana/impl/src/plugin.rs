@@ -6,9 +6,10 @@ use edict::{IntoSystem, System, World};
 use hashbrown::HashMap;
 
 use crate::code::{CodeDesc, CodeId, FlowCode, PureCode};
+use crate::events::EventId;
 use crate::input::{FilterId, InputFilter, IntoInputFilter};
-use crate::make_id;
 use crate::work::{Job, JobDesc, JobId};
+use crate::{make_id, Stid};
 
 make_id!(pub SystemId);
 
@@ -48,7 +49,7 @@ pub struct JobInfo {
 /// Job information declared by a plugin.
 #[derive(Clone)]
 pub struct CodeInfo {
-    /// Unique identified of the code..
+    /// Unique identified of the code.
     pub id: CodeId,
 
     /// Name of the code.
@@ -56,6 +57,19 @@ pub struct CodeInfo {
 
     /// Description of the code.
     pub desc: CodeDesc,
+}
+
+/// Job information declared by a plugin.
+#[derive(Clone)]
+pub struct EventInfo {
+    /// Unique identified of the event.
+    pub id: EventId,
+
+    /// Name of the event.
+    pub name: Name,
+
+    /// List of event values.
+    pub values: Vec<Stid>,
 }
 
 /// Active plugin hub contains
@@ -113,20 +127,6 @@ impl PluginsHub {
     }
 }
 
-#[macro_export]
-macro_rules! plugin_init {
-    (
-        $(systems: [$($system:ident),* $(,)?])?
-        $(filters: [$($filter:ident),* $(,)?])?
-        $(jobs: [$($make_job:ident),* $(,)?])?
-        => $hub:ident
-    ) => {{
-        $($hub.add_system($crate::hash_id!(::core::module_path!(), ::core::stringify!($system)), $system))*
-        $($hub.add_filter($crate::hash_id!(::core::module_path!(), ::core::stringify!($filter)), $filter))*
-        $($hub.add_job($crate::hash_id!(::core::module_path!(), ::core::stringify!($make_job)), $make_job))*
-    }};
-}
-
 /// Plugin protocol for Bob engine.
 /// It allows bundling systems and resources together into a single unit
 /// that can be initialized at once.
@@ -158,6 +158,10 @@ pub trait ArcanaPlugin: Any + Sync {
 
     /// Returns list of render jobs.
     fn jobs(&self) -> Vec<JobInfo> {
+        Vec::new()
+    }
+
+    fn events(&self) -> Vec<EventInfo> {
         Vec::new()
     }
 
@@ -399,8 +403,9 @@ macro_rules! export_arcana_plugin {
         $(systems: [$($system_name:ident $(: $system:expr)?),+ $(,)?] $(,)?)?
         $(filters: [$($filter_name:ident $(: $filter:expr)?),+ $(,)?] $(,)?)?
         $(jobs: [$($job_name:ident $(: $job_desc:expr)? $(=> $job:expr)?),+ $(,)?] $(,)?)?
-        $(pure_fns: [$($pure_fn:ident $(: $pure_desc:expr)? $(=> $pure_code:expr)?),+ $(,)?] $(,)?)?
-        $(flow_fns: [$($flow_fn:ident $(: $flow_desc:expr)? $(=> $flow_code:expr)?),+ $(,)?] $(,)?)?
+        $(events: [$($event_name:ident $(: [$($value:ty),+ $(,)?])?),+ $(,)?] $(,)?)?
+        $(pure_codes: [$($pure_name:ident $(: $pure_desc:expr)? $(=> $pure_code:expr)?),+ $(,)?] $(,)?)?
+        $(flow_codes: [$($flow_name:ident $(: $flow_desc:expr)? $(=> $flow_code:expr)?),+ $(,)?] $(,)?)?
         $(in $world:ident $(: $world_type:ty)? $( => { $($init:tt)* })?)?
     })?) => {
         $(
@@ -450,23 +455,41 @@ macro_rules! export_arcana_plugin {
                     }
                 )?
 
+                $(
+                    fn events(&self) -> Vec<$crate::plugin::EventInfo> {
+                        vec![$(
+                            $crate::plugin::EventInfo {
+                                id: $crate::local_name_hash_id!($event_name),
+                                name: $crate::ident!($event_name).into(),
+                                values: {
+                                    let mut values = Vec::new();
+                                    $(
+                                        $(values.push(<$value as $crate::WithStid>::stid());)+
+                                    )?
+                                    values
+                                },
+                            },
+                        )+]
+                    }
+                )?
+
                 fn codes(&self) -> Vec<$crate::plugin::CodeInfo> {
                     use $crate::code::{IntoPureCode, IntoFlowCode, IntoAsyncFlowCode};
                     let mut codes = Vec::new();
 
                     $($(
                         codes.push($crate::plugin::CodeInfo {
-                            id: $crate::local_name_hash_id!($flow_fn),
-                            name: $crate::ident!($flow_fn).into(),
-                            desc: $crate::flow_desc_or_expr!($flow_fn $(: $flow_desc)?),
+                            id: $crate::local_name_hash_id!($flow_name),
+                            name: $crate::ident!($flow_name).into(),
+                            desc: $crate::flow_desc_or_expr!($flow_name $(: $flow_desc)?),
                         });
                     )+)?
 
                     $($(
                         codes.push($crate::plugin::CodeInfo {
-                            id: $crate::local_name_hash_id!($pure_fn),
-                            name: $crate::ident!($pure_fn).into(),
-                            desc: $crate::pure_desc_or_expr!($pure_fn $(: $pure_desc)?),
+                            id: $crate::local_name_hash_id!($pure_name),
+                            name: $crate::ident!($pure_name).into(),
+                            desc: $crate::pure_desc_or_expr!($pure_name $(: $pure_desc)?),
                         });
                     )+)?
 
@@ -496,11 +519,11 @@ macro_rules! export_arcana_plugin {
                     )+)?
 
                     $($(
-                        hub.add_pure_fn($crate::local_name_hash_id!($pure_fn), $crate::pure_code_or_expr!($pure_fn $(=> $pure_code)?));
+                        hub.add_pure_fn($crate::local_name_hash_id!($pure_name), $crate::pure_code_or_expr!($pure_name $(=> $pure_code)?));
                     )+)?
 
                     $($(
-                        hub.add_flow_fn($crate::local_name_hash_id!($flow_fn), $crate::flow_code_or_expr!($flow_fn $(=> $flow_code)?));
+                        hub.add_flow_fn($crate::local_name_hash_id!($flow_name), $crate::flow_code_or_expr!($flow_name $(=> $flow_code)?));
                     )+)?
 
                     $crate::init_resources! {
