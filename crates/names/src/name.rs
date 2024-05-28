@@ -277,6 +277,7 @@ impl fmt::Display for NameError {
 
 /// Validates that string has no control characters.
 /// Returns error if it is not.
+#[inline(never)]
 pub fn validate_name(s: &str) -> Result<(), NameError> {
     if s.is_empty() {
         return Err(NameError::Empty);

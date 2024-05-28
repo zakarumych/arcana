@@ -5,6 +5,7 @@
 //!
 
 use arcana_proc::with_stid;
+use gametime::TimeSpan;
 
 crate::make_id! {
     /// Stable Type Identifier.
@@ -46,4 +47,16 @@ impl Stid {
     }
 }
 
-with_stid!(::edict::entity::EntityId = 0x0000_0000_0000_0001);
+with_stid!(u8 = 0x0000_0000_0000_0001);
+with_stid!(u16 = 0x0000_0000_0000_0002);
+with_stid!(u32 = 0x0000_0000_0000_0003);
+with_stid!(u64 = 0x0000_0000_0000_0004);
+with_stid!(i8 = 0x0000_0000_0000_0005);
+with_stid!(i16 = 0x0000_0000_0000_0006);
+with_stid!(i32 = 0x0000_0000_0000_0007);
+with_stid!(i64 = 0x0000_0000_0000_0008);
+with_stid!(f32 = 0x0000_0000_0000_0009);
+with_stid!(f64 = 0x0000_0000_0000_000A);
+
+with_stid!(TimeSpan = 0x0000_0000_0000_00041);
+with_stid!(::edict::entity::EntityId = 0x0000_0000_0000_0042);

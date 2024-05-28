@@ -11,6 +11,7 @@ use egui::{Color32, RichText, Ui};
 use egui_file::FileDialog;
 
 use crate::{
+    code::Codes,
     container::{Container, Loader, PluginsError},
     data::ProjectData,
     filters::Filters,
@@ -109,6 +110,7 @@ impl Plugins {
         let mut systems = world.expect_resource_mut::<Systems>();
         let mut filters = world.expect_resource_mut::<Filters>();
         let mut rendering = world.expect_resource_mut::<Rendering>();
+        let mut codes = world.expect_resource_mut::<Codes>();
         let mut main = world.expect_resource_mut::<Main>();
 
         if let Some(mut build) = plugins.build.take() {
@@ -206,6 +208,7 @@ impl Plugins {
                 systems.update_plugins(&mut data, &c);
                 filters.update_plugins(&mut data, &c);
                 rendering.update_plugins(&mut data, &c);
+                codes.update_plugins(&mut data, &c);
                 plugins.linked = Some(c);
             }
         }

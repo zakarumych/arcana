@@ -46,6 +46,7 @@ macro_rules! for_tuple_2x {
         $macro!(,);
     };
     ($macro:ident for , $b_head:ident $($b_tail:ident)*) => {
+        $macro!(, $b_head $($b_tail)*);
         $crate::for_tuple_2x!($macro for AA AB AC AD AE AF AG AH AI AJ AK AL AM AN AO AP, $($b_tail)*);
     };
     ($macro:ident for $a_head:ident $($a_tail:ident)*, $($b:ident)*) => {

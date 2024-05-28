@@ -251,7 +251,9 @@ macro_rules! into_flow_code {
                     }
                 }
 
-                let desc = CodeDesc::Pure {
+                let desc = CodeDesc::Flow {
+                    inflows: 1,
+                    outflows: 1,
                     inputs: vec![$(<$a as WithStid>::stid(),)*],
                     outputs: vec![$(<$b as WithStid>::stid(),)*],
                 };
@@ -332,7 +334,9 @@ macro_rules! into_async_flow_code {
                     }
                 }
 
-                let desc = CodeDesc::Pure {
+                let desc = CodeDesc::Flow {
+                    inflows: 1,
+                    outflows: 1,
                     inputs: vec![$(<$a as WithStid>::stid(),)*],
                     outputs: vec![$(<$b as WithStid>::stid(),)*],
                 };

@@ -61,6 +61,7 @@ mod error;
 mod instance;
 mod model;
 // mod monitor;
+mod inspector;
 mod plugins;
 mod sample;
 mod subprocess;

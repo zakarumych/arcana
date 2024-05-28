@@ -1,13 +1,15 @@
 use std::mem::size_of;
 
 use arcana::{
-    edict::World,
-    gametime::ClockStep,
+    edict::{self, query::Cpy, World},
+    flow::{sleep, FlowEntity},
+    gametime::{ClockStep, TimeSpan},
     hashbrown::HashMap,
     mev::{self, Arguments, DeviceRepr},
     model::{ColorModel, ColorValue, Model, Value},
     name,
     work::{Exec, Image2D, Job, JobDesc, JobIdx, Planner},
+    Component,
 };
 
 #[derive(mev::Arguments)]
@@ -57,11 +59,18 @@ impl Job for DrawTriangle {
             return;
         };
 
-        let speed = match planner.param("speed") {
+        let mut speed = match planner.param("speed") {
             Value::Int(speed) => (*speed) as f32,
             Value::Float(speed) => (*speed) as f32,
             _ => 1.0,
         };
+
+        speed *= world
+            .view::<Cpy<Speed>>()
+            .into_iter()
+            .next()
+            .unwrap_or(Speed(1.0))
+            .0;
 
         let constants = self.constants.entry(idx).or_insert(DTConstants {
             angle: 0.0,
@@ -318,6 +327,25 @@ impl Job for OpJob {
     }
 }
 
+fn x2(_: FlowEntity, a: &f32) -> (f32,) {
+    (a * 2.0,)
+}
+
+async fn wait(mut e: FlowEntity<'_>, span: TimeSpan) {
+    sleep(span, e.world()).await;
+}
+
+#[derive(Clone, Copy, Component)]
+struct Speed(f32);
+
+fn set_angle_speed(e: FlowEntity, speed: &f32) {
+    e.set(Speed(*speed));
+}
+
+fn get_angle_speed(e: FlowEntity) -> (f32,) {
+    (e.get_cloned::<Speed>().unwrap().0,)
+}
+
 arcana::export_arcana_plugin! {
     TrianglePlugin {
         // List dependencies
@@ -326,8 +354,13 @@ arcana::export_arcana_plugin! {
         // List jobs
         jobs: [DrawTriangle, op: OpJob::desc() => OpJob::new()],
 
-        // // Init block
-        // in world => {
+        pure_fns: [x2, get_angle_speed],
+        flow_fns: [wait, set_angle_speed],
+
+        // Init block
+        in world => {
+            world.spawn((Speed(1.0),));
+        }
         //     let world = world.local();
 
         //     // let window = world.expect_resource::<Window>().id();

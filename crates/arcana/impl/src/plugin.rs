@@ -156,13 +156,13 @@ pub trait ArcanaPlugin: Any + Sync {
         Vec::new()
     }
 
-    /// Returns list of systems.
+    /// Returns list of render jobs.
     fn jobs(&self) -> Vec<JobInfo> {
         Vec::new()
     }
 
-    /// Returns list of systems.
-    fn pure_code(&self) -> Vec<CodeInfo> {
+    /// Returns list of pure codes.
+    fn codes(&self) -> Vec<CodeInfo> {
         Vec::new()
     }
 
@@ -237,6 +237,50 @@ macro_rules! job_new_or_expr {
     }};
     ($name:ident) => {{
         <$name>::new()
+    }};
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! pure_desc_or_expr {
+    ($_:ident: $e:expr) => {{
+        $e
+    }};
+    ($name:ident) => {{
+        IntoPureCode::into_pure_code($name).0
+    }};
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! flow_desc_or_expr {
+    ($_:ident: $e:expr) => {{
+        $e
+    }};
+    ($name:ident) => {{
+        $name.into_flow_code().0
+    }};
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! pure_code_or_expr {
+    ($_:ident: $e:expr) => {{
+        $e
+    }};
+    ($name:ident) => {{
+        $name.into_pure_code().1
+    }};
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! flow_code_or_expr {
+    ($_:ident: $e:expr) => {{
+        $e
+    }};
+    ($name:ident) => {{
+        $name.into_flow_code().1
     }};
 }
 
@@ -355,8 +399,8 @@ macro_rules! export_arcana_plugin {
         $(systems: [$($system_name:ident $(: $system:expr)?),+ $(,)?] $(,)?)?
         $(filters: [$($filter_name:ident $(: $filter:expr)?),+ $(,)?] $(,)?)?
         $(jobs: [$($job_name:ident $(: $job_desc:expr)? $(=> $job:expr)?),+ $(,)?] $(,)?)?
-        $(pure_fns: [$($pure_fn:ident),+ $(,)?] $(,)?)?
-        $(flow_fns: [$($flow_fn:ident),+ $(,)?] $(,)?)?
+        $(pure_fns: [$($pure_fn:ident $(: $pure_desc:expr)? $(=> $pure_code:expr)?),+ $(,)?] $(,)?)?
+        $(flow_fns: [$($flow_fn:ident $(: $flow_desc:expr)? $(=> $flow_code:expr)?),+ $(,)?] $(,)?)?
         $(in $world:ident $(: $world_type:ty)? $( => { $($init:tt)* })?)?
     })?) => {
         $(
@@ -406,7 +450,32 @@ macro_rules! export_arcana_plugin {
                     }
                 )?
 
+                fn codes(&self) -> Vec<$crate::plugin::CodeInfo> {
+                    use $crate::code::{IntoPureCode, IntoFlowCode, IntoAsyncFlowCode};
+                    let mut codes = Vec::new();
+
+                    $($(
+                        codes.push($crate::plugin::CodeInfo {
+                            id: $crate::local_name_hash_id!($flow_fn),
+                            name: $crate::ident!($flow_fn).into(),
+                            desc: $crate::flow_desc_or_expr!($flow_fn $(: $flow_desc)?),
+                        });
+                    )+)?
+
+                    $($(
+                        codes.push($crate::plugin::CodeInfo {
+                            id: $crate::local_name_hash_id!($pure_fn),
+                            name: $crate::ident!($pure_fn).into(),
+                            desc: $crate::pure_desc_or_expr!($pure_fn $(: $pure_desc)?),
+                        });
+                    )+)?
+
+                    codes
+                }
+
                 fn init(&self, world: &mut $crate::edict::World, hub: &mut $crate::plugin::PluginsHub) {
+                    use $crate::code::{IntoPureCode, IntoFlowCode, IntoAsyncFlowCode};
+
                     $($(world.ensure_component_registered::<$component>();)*)?
 
                     $(
@@ -424,6 +493,14 @@ macro_rules! export_arcana_plugin {
 
                     $($(
                         hub.add_job($crate::local_name_hash_id!($job_name), $crate::job_new_or_expr!($job_name $(=> $job)?));
+                    )+)?
+
+                    $($(
+                        hub.add_pure_fn($crate::local_name_hash_id!($pure_fn), $crate::pure_code_or_expr!($pure_fn $(=> $pure_code)?));
+                    )+)?
+
+                    $($(
+                        hub.add_flow_fn($crate::local_name_hash_id!($flow_fn), $crate::flow_code_or_expr!($flow_fn $(=> $flow_code)?));
                     )+)?
 
                     $crate::init_resources! {

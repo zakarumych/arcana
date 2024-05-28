@@ -28,6 +28,7 @@ use crate::{
     data::ProjectData,
     filters::Filters,
     init_mev,
+    inspector::Inspector,
     instance::Main,
     plugins::Plugins,
     render::Rendering,
@@ -50,6 +51,7 @@ enum Tab {
     Rendering,
     Main,
     Codes,
+    Inspector,
 }
 
 /// Editor app instance.
@@ -131,6 +133,7 @@ impl App {
         world.insert_resource(queue.clone());
         world.insert_resource(data);
         world.insert_resource(ImageSample::new(&device).unwrap());
+        world.insert_resource(Codes::new());
 
         let mut graph = RenderGraph::new();
 
@@ -285,6 +288,10 @@ impl App {
                                 focus_or_add_tab(tabs, Tab::Console);
                                 ui.close_menu();
                             }
+                            if ui.button("Codes").clicked() {
+                                focus_or_add_tab(tabs, Tab::Codes);
+                                ui.close_menu();
+                            }
                             if ui.button("Systems").clicked() {
                                 focus_or_add_tab(tabs, Tab::Systems);
                                 ui.close_menu();
@@ -390,6 +397,7 @@ impl TabViewer for AppModel<'_> {
             Tab::Codes => Codes::show(self.world, ui),
             Tab::Rendering => Rendering::show(self.world, ui),
             Tab::Main => Main::show(self.world, ui, self.window.id()),
+            Tab::Inspector => Inspector::show(self.world, ui),
         }
     }
 
@@ -402,6 +410,7 @@ impl TabViewer for AppModel<'_> {
             Tab::Codes => "Codes".into(),
             Tab::Rendering => "Rendering".into(),
             Tab::Main => "Main".into(),
+            Tab::Inspector => "Inspector".into(),
         }
     }
 

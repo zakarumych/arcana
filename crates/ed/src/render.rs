@@ -220,9 +220,8 @@ impl Rendering {
 
         if viewer.modified {
             rendering.modification += 1;
+            try_log_err!(data.sync(&project));
         }
-
-        try_log_err!(data.sync(&project));
     }
 }
 

@@ -1,6 +1,6 @@
 //! This module UI to generate flows.
 
-use std::{hash::Hash, ops::Range};
+use std::{collections::BTreeMap, hash::Hash, ops::Range};
 
 use arcana::{
     code::{
@@ -13,8 +13,10 @@ use arcana::{
         world::{World, WorldLocal},
     },
     events::{EventId, Events},
-    plugin::PluginsHub,
-    Name,
+    hash_id,
+    plugin::{CodeInfo, PluginsHub},
+    project::Project,
+    Ident, Name,
 };
 use egui::{epaint::PathShape, Color32, Painter, PointerButton, Rect, Shape, Stroke, Ui};
 use egui_snarl::{
@@ -24,7 +26,7 @@ use egui_snarl::{
 use hashbrown::{HashMap, HashSet};
 use smallvec::SmallVec;
 
-use crate::{data::ProjectData, hue_hash};
+use crate::{container::Container, data::ProjectData, hue_hash};
 
 #[derive(Default)]
 struct OutputCacheEntry {
@@ -242,6 +244,7 @@ fn execute_flow(
                 .collect::<SmallVec<[_; 8]>>();
 
             let mut next = None;
+            values.get_or_insert_with(|| cache.grab(code));
             let continuation = Continuation::new(pin.node.0, code, values, &mut next, &outputs);
 
             flow_code(
@@ -511,9 +514,11 @@ pub struct CodeGraph {
     events: HashMap<EventId, OutPinId>,
 }
 
-struct CodeViewer;
+struct CodeViewer<'a> {
+    available: &'a BTreeMap<Ident, Vec<CodeInfo>>,
+}
 
-impl SnarlViewer<CodeNode> for CodeViewer {
+impl SnarlViewer<CodeNode> for CodeViewer<'_> {
     fn title(&mut self, node: &CodeNode) -> String {
         node.name.to_string()
     }
@@ -632,6 +637,50 @@ impl SnarlViewer<CodeNode> for CodeViewer {
             }
         }
     }
+
+    fn has_graph_menu(&mut self, _pos: egui::Pos2, _snarl: &mut Snarl<CodeNode>) -> bool {
+        true
+    }
+
+    fn show_graph_menu(
+        &mut self,
+        pos: egui::Pos2,
+        ui: &mut Ui,
+        scale: f32,
+        snarl: &mut Snarl<CodeNode>,
+    ) {
+        ui.label("Add code");
+
+        if self.available.is_empty() {
+            ui.separator();
+            ui.weak("No available codes");
+        }
+
+        for (&plugin, codes) in self.available.iter() {
+            if codes.is_empty() {
+                continue;
+            }
+
+            ui.separator();
+            ui.weak(plugin.as_str());
+
+            for code in codes {
+                if ui.button(code.name.as_str()).clicked() {
+                    snarl.insert_node(
+                        pos,
+                        CodeNode {
+                            id: code.id,
+                            name: code.name,
+                            desc: code.desc.clone(),
+                        },
+                    );
+
+                    ui.close_menu();
+                    return;
+                }
+            }
+        }
+    }
 }
 
 fn draw_flow_pin(painter: &Painter, rect: Rect) {
@@ -651,9 +700,29 @@ fn flow_pin() -> PinInfo {
 
 pub struct Codes {
     selected: Option<CodeId>,
+    new_code_name: String,
+    available: BTreeMap<Ident, Vec<CodeInfo>>,
 }
 
 impl Codes {
+    pub fn new() -> Self {
+        Codes {
+            selected: None,
+            new_code_name: String::new(),
+            available: BTreeMap::new(),
+        }
+    }
+
+    pub fn update_plugins(&mut self, _data: &mut ProjectData, container: &Container) {
+        self.available.clear();
+
+        for (name, plugin) in container.plugins() {
+            let codes = self.available.entry(name).or_insert(plugin.codes());
+
+            codes.sort_by_key(|node| node.name);
+        }
+    }
+
     pub fn show(world: &WorldLocal, ui: &mut Ui) {
         let mut codes = world.expect_resource_mut::<Codes>();
         let mut data = world.expect_resource_mut::<ProjectData>();
@@ -668,15 +737,40 @@ impl Codes {
         }
 
         ui.vertical(|ui| {
-            cbox.show_ui(ui, |ui| {
-                for (&id, code) in data.codes.iter() {
-                    let r = ui.selectable_label(Some(id) == codes.selected, code.name.to_string());
+            ui.horizontal(|ui| {
+                ui.text_edit_singleline(&mut codes.new_code_name);
 
-                    if r.clicked_by(PointerButton::Primary) {
-                        codes.selected = Some(id);
-                        ui.close_menu();
+                let r = ui.small_button(egui_phosphor::regular::PLUS);
+                if r.clicked_by(PointerButton::Primary) {
+                    match Name::from_str(&codes.new_code_name) {
+                        Ok(name) => {
+                            codes.new_code_name.clear();
+
+                            let new_code = CodeGraph {
+                                name,
+                                snarl: Snarl::new(),
+                                events: HashMap::new(),
+                            };
+
+                            let id = hash_id!(name);
+                            data.codes.insert(id, new_code);
+                            codes.selected = Some(id);
+                        }
+                        Err(_) => {}
                     }
                 }
+
+                cbox.show_ui(ui, |ui| {
+                    for (&id, code) in data.codes.iter() {
+                        let r =
+                            ui.selectable_label(Some(id) == codes.selected, code.name.to_string());
+
+                        if r.clicked_by(PointerButton::Primary) {
+                            codes.selected = Some(id);
+                            ui.close_menu();
+                        }
+                    }
+                });
             });
 
             let Some(id) = codes.selected else {
@@ -687,8 +781,17 @@ impl Codes {
                 return;
             };
 
-            code.snarl
-                .show(&mut CodeViewer, &SnarlStyle::default(), "code-viwer", ui);
+            code.snarl.show(
+                &mut CodeViewer {
+                    available: &codes.available,
+                },
+                &SnarlStyle::default(),
+                "code-viwer",
+                ui,
+            );
         });
+
+        let project = world.expect_resource::<Project>();
+        try_log_err!(data.sync(&project));
     }
 }
