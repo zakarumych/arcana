@@ -379,10 +379,9 @@ pub fn arcana_linked(check: &::core::sync::atomic::AtomicBool) -> bool {{
 }}
 
 #[no_mangle]
-pub fn arcana_plugins() -> &'static [(arcana::Ident, &'static dyn arcana::plugin::ArcanaPlugin)] {{
-    const PLUGINS: [(arcana::Ident, &'static dyn arcana::plugin::ArcanaPlugin); {plugins_count}] = ["#,
+pub fn arcana_plugins() -> Vec<(arcana::Ident, &'static dyn arcana::plugin::ArcanaPlugin)> {{
+    let plugins = vec!["#,
         gh_issue = github_autogen_issue_template("plugins/src/lib.rs"),
-        plugins_count = plugins.len(),
     );
 
     if !plugins.is_empty() {
@@ -398,7 +397,7 @@ pub fn arcana_plugins() -> &'static [(arcana::Ident, &'static dyn arcana::plugin
 
     lib_rs.push_str(
         r#"    ];
-    &PLUGINS
+    plugins
 }"#,
     );
 

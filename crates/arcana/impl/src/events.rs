@@ -67,10 +67,10 @@ struct AnyEvent {
     payload_idx: u64,
 }
 
-pub trait AnyPayload: Any + Send {
+pub trait AnyPayload: Any + Send + Sync {
     fn len(&self) -> usize;
-    fn get(&self, idx: usize) -> &(dyn Any + Send);
-    fn get_mut(&mut self, idx: usize) -> &mut (dyn Any + Send);
+    fn get(&self, idx: usize) -> &(dyn Any + Send + Sync);
+    fn get_mut(&mut self, idx: usize) -> &mut (dyn Any + Send + Sync);
     fn clone_to(&self, idx: usize, slot: &mut Slot);
 }
 
@@ -81,11 +81,11 @@ macro_rules! any_payload {
                 0
             }
 
-            fn get(&self, _idx: usize) -> &(dyn Any + Send) {
+            fn get(&self, _idx: usize) -> &(dyn Any + Send + Sync) {
                 unreachable!()
             }
 
-            fn get_mut(&mut self, _idx: usize) -> &mut (dyn Any + Send) {
+            fn get_mut(&mut self, _idx: usize) -> &mut (dyn Any + Send + Sync) {
                 unreachable!()
             }
 
@@ -94,23 +94,23 @@ macro_rules! any_payload {
             }
         }
     };
-    (A) => {
-        impl<A> AnyPayload for (A,)
+    (P) => {
+        impl<P> AnyPayload for (P,)
         where
-            A: Any + Clone + Send,
+            P: Any + Clone + Send + Sync,
         {
             fn len(&self) -> usize {
                 1
             }
 
-            fn get(&self, idx: usize) -> &(dyn Any + Send) {
+            fn get(&self, idx: usize) -> &(dyn Any + Send + Sync) {
                 match idx {
                     0 => &self.0,
                     _ => unreachable!(),
                 }
             }
 
-            fn get_mut(&mut self, idx: usize) -> &mut (dyn Any + Send) {
+            fn get_mut(&mut self, idx: usize) -> &mut (dyn Any + Send + Sync) {
                 match idx {
                     0 => &mut self.0,
                     _ => unreachable!(),
@@ -125,17 +125,17 @@ macro_rules! any_payload {
             }
         }
     };
-    (A B) => {
-        impl<A, B> AnyPayload for (A, B)
+    (O P) => {
+        impl<O, P> AnyPayload for (O, P)
         where
-            A: Any + Clone + Send,
-            B: Any + Clone + Send,
+            O: Any + Clone + Send + Sync,
+            P: Any + Clone + Send + Sync,
         {
             fn len(&self) -> usize {
                 2
             }
 
-            fn get(&self, idx: usize) -> &(dyn Any + Send) {
+            fn get(&self, idx: usize) -> &(dyn Any + Send + Sync) {
                 match idx {
                     0 => &self.0,
                     1 => &self.1,
@@ -143,7 +143,7 @@ macro_rules! any_payload {
                 }
             }
 
-            fn get_mut(&mut self, idx: usize) -> &mut (dyn Any + Send) {
+            fn get_mut(&mut self, idx: usize) -> &mut (dyn Any + Send + Sync) {
                 match idx {
                     0 => &mut self.0,
                     1 => &mut self.1,
@@ -151,7 +151,7 @@ macro_rules! any_payload {
                 }
             }
 
-            fn clone_to(&self, idx: usize, slot: &mut Box<dyn Any>) {
+            fn clone_to(&self, idx: usize, slot: &mut Slot) {
                 match idx {
                     0 => slot.set(self.0.clone()),
                     1 => slot.set(self.1.clone()),
@@ -160,18 +160,18 @@ macro_rules! any_payload {
             }
         }
     };
-    (A B C) => {
-        impl<A, B, C> AnyPayload for (A, B, C)
+    (N O P) => {
+        impl<N, O, P> AnyPayload for (N, O, P)
         where
-            A: Any + Clone + Send,
-            B: Any + Clone + Send,
-            C: Any + Clone + Send,
+            N: Any + Clone + Send + Sync,
+            O: Any + Clone + Send + Sync,
+            P: Any + Clone + Send + Sync,
         {
             fn len(&self) -> usize {
                 3
             }
 
-            fn get(&self, idx: usize) -> &(dyn Any + Send) {
+            fn get(&self, idx: usize) -> &(dyn Any + Send + Sync) {
                 match idx {
                     0 => &self.0,
                     1 => &self.1,
@@ -180,7 +180,7 @@ macro_rules! any_payload {
                 }
             }
 
-            fn get_mut(&mut self, idx: usize) -> &mut (dyn Any + Send) {
+            fn get_mut(&mut self, idx: usize) -> &mut (dyn Any + Send + Sync) {
                 match idx {
                     0 => &mut self.0,
                     1 => &mut self.1,
@@ -189,7 +189,7 @@ macro_rules! any_payload {
                 }
             }
 
-            fn clone_to(&self, idx: usize, slot: &mut Box<dyn Any>) {
+            fn clone_to(&self, idx: usize, slot: &mut Slot) {
                 match idx {
                     0 => slot.set(self.0.clone()),
                     1 => slot.set(self.1.clone()),
@@ -199,19 +199,19 @@ macro_rules! any_payload {
             }
         }
     };
-    (A B C D) => {
-        impl<A, B, C, D> AnyPayload for (A, B, C, D)
+    (M N O P) => {
+        impl<M, N, O, P> AnyPayload for (M, N, O, P)
         where
-            A: Any + Clone + Send,
-            B: Any + Clone + Send,
-            C: Any + Clone + Send,
-            D: Any + Clone + Send,
+            M: Any + Clone + Send + Sync,
+            N: Any + Clone + Send + Sync,
+            O: Any + Clone + Send + Sync,
+            P: Any + Clone + Send + Sync,
         {
             fn len(&self) -> usize {
                 4
             }
 
-            fn get(&self, idx: usize) -> &(dyn Any + Send) {
+            fn get(&self, idx: usize) -> &(dyn Any + Send + Sync) {
                 match idx {
                     0 => &self.0,
                     1 => &self.1,
@@ -221,7 +221,7 @@ macro_rules! any_payload {
                 }
             }
 
-            fn get_mut(&mut self, idx: usize) -> &mut (dyn Any + Send) {
+            fn get_mut(&mut self, idx: usize) -> &mut (dyn Any + Send + Sync) {
                 match idx {
                     0 => &mut self.0,
                     1 => &mut self.1,
@@ -231,7 +231,7 @@ macro_rules! any_payload {
                 }
             }
 
-            fn clone_to(&self, idx: usize, slot: &mut Box<dyn Any>) {
+            fn clone_to(&self, idx: usize, slot: &mut Slot) {
                 match idx {
                     0 => slot.set(self.0.clone()),
                     1 => slot.set(self.1.clone()),
@@ -245,7 +245,7 @@ macro_rules! any_payload {
     ($($a:ident)+) => {
         impl<$($a),+> AnyPayload for ($($a,)+)
         where
-            $($a: Any + Clone + Send,)+
+            $($a: Clone + Send + Sync + 'static,)+
         {
             fn len(&self) -> usize {
                 let mut count = 0;
@@ -256,7 +256,7 @@ macro_rules! any_payload {
                 count
             }
 
-            fn get(&self, idx: usize) -> &(dyn Any + Send) {
+            fn get(&self, idx: usize) -> &(dyn Any + Send + Sync) {
                 #![allow(unused, non_snake_case)]
 
                 let ($($a,)+) = self;
@@ -272,7 +272,7 @@ macro_rules! any_payload {
                 unreachable!()
             }
 
-            fn get_mut(&mut self, idx: usize) -> &mut (dyn Any + Send) {
+            fn get_mut(&mut self, idx: usize) -> &mut (dyn Any + Send + Sync) {
                 #![allow(unused, non_snake_case)]
 
                 let ($($a,)+) = self;
@@ -310,7 +310,7 @@ macro_rules! any_payload {
 
 for_tuple!(any_payload);
 
-trait AnyPayloadStorage: Any {
+trait AnyPayloadStorage: Any + Send {
     fn evict_before(&mut self, idx: u64);
     fn get(&self, idx: u64) -> &dyn AnyPayload;
 }
@@ -536,4 +536,12 @@ impl<'a> Iterator for EventIter<'a> {
 
 pub fn init_events(world: &mut World) {
     world.insert_resource(Events::new());
+}
+
+pub fn emit_event<T>(world: &World, event: Event<T>)
+where
+    T: AnyPayload,
+{
+    let mut events = world.get_resource_mut::<Events>().unwrap();
+    events.emit(event);
 }

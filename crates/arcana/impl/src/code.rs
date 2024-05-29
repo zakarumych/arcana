@@ -50,7 +50,7 @@ impl CodeValues {
 
     pub fn set<T>(&mut self, id: ValueId, value: T)
     where
-        T: Send + 'static,
+        T: Send + Sync + 'static,
     {
         match self.values.entry(id) {
             Entry::Occupied(mut entry) => {
@@ -107,7 +107,7 @@ impl<'a> Continuation<'a> {
 
     pub fn set<T>(&mut self, id: ValueId, value: T)
     where
-        T: Send + 'static,
+        T: Send + Sync + 'static,
     {
         self.values.as_mut().unwrap().set(id, value);
     }
@@ -179,7 +179,7 @@ macro_rules! into_pure_code {
         where
             F: Fn(FlowEntity, $(&$a,)*) -> ($($b,)*) + Copy,
             $($a: WithStid,)*
-            $($b: WithStid + Send,)*
+            $($b: WithStid + Send + Sync,)*
         {
             fn into_pure_code(self) -> (CodeDesc, PureCode) {
                 #![allow(unused, non_snake_case)]
@@ -237,7 +237,7 @@ macro_rules! into_flow_code {
         where
             F: Fn(FlowEntity, $(&$a,)*) -> ($($b,)*) + Copy,
             $($a: WithStid,)*
-            $($b: WithStid + Send,)*
+            $($b: WithStid + Send + Sync,)*
         {
             fn into_flow_code(self) -> (CodeDesc, FlowCode) {
                 #![allow(unused, non_snake_case)]
@@ -320,7 +320,7 @@ macro_rules! into_async_flow_code {
         where
             F: for<'a> IntoAsyncFlowCodeL<'a, ($($a,)*), ($($b,)*)> + Copy,
             $($a: WithStid + Clone,)*
-            $($b: WithStid + Send,)*
+            $($b: WithStid + Send + Sync,)*
         {
             fn into_flow_code(self) -> (CodeDesc, FlowCode) {
                 #![allow(unused, non_snake_case)]

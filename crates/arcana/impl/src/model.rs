@@ -10,6 +10,8 @@ use edict::EntityId;
 use hashbrown::HashMap;
 use palette::IntoColor;
 
+use crate::Stid;
+
 #[derive(
     Copy, Clone, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
 )]
@@ -73,9 +75,6 @@ pub enum Model {
     /// 4x4 matrix.
     Mat4,
 
-    /// Entity id.
-    Entity,
-
     /// Optional value.
     Option(Option<Box<Model>>),
 
@@ -94,8 +93,11 @@ pub enum Model {
     /// Record with named fields.
     Record(Vec<(Name, Option<Model>)>),
 
-    // Enum with named variants.
+    /// Enum with named variants.
     Enum(Vec<(Name, Option<Model>)>),
+
+    /// Opaque type not representable in model.
+    Opaque(Stid),
 }
 
 /// Returns default value that correspons to the model or `Unit` if model is not specified.
@@ -139,7 +141,6 @@ impl Model {
             Model::Mat2 => Value::Mat2(na::Matrix2::identity()),
             Model::Mat3 => Value::Mat3(na::Matrix3::identity()),
             Model::Mat4 => Value::Mat4(na::Matrix4::identity()),
-            Model::Entity => Value::Entity(EntityId::dangling()),
             Model::Option(_) => Value::Option(None),
             Model::Array { ref elem, len } => {
                 let len = len.unwrap_or(0);
@@ -160,6 +161,7 @@ impl Model {
                 let v = &variants[0];
                 Value::Enum(v.0, Box::new(default_value(v.1.as_ref())))
             }
+            Model::Opaque(_) => Value::Unit,
         }
     }
 }

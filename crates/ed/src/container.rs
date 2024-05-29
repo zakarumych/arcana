@@ -461,7 +461,7 @@ fn load_lib(path: &Path, new_path: PathBuf) -> miette::Result<Loaded> {
 
     type ArcanaVersionFn = fn() -> &'static str;
     type ArcanaLinkedFn = fn(&AtomicBool) -> bool;
-    type ArcanaPluginsFn = fn() -> &'static [(Ident, &'static dyn ArcanaPlugin)];
+    type ArcanaPluginsFn = fn() -> Vec<(Ident, &'static dyn ArcanaPlugin)>;
 
     let arcana_version =
         unsafe { lib.get::<ArcanaVersionFn>(b"arcana_version\0") }.map_err(|source| {
@@ -500,7 +500,7 @@ fn load_lib(path: &Path, new_path: PathBuf) -> miette::Result<Loaded> {
         return Err(PluginsLibraryEngineUnlinked.into());
     }
 
-    let plugins = sort_plugins(arcana_plugins())?;
+    let plugins = sort_plugins(&arcana_plugins())?;
 
     Ok(Loaded {
         plugins,

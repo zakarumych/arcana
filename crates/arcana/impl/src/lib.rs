@@ -76,8 +76,6 @@ macro_rules! const_format {
 
 extern crate self as arcana;
 
-use std::any::Any;
-
 // Re-exports
 pub use {
     arcana_names::{ident, name, Ident, Name},
@@ -109,6 +107,7 @@ pub mod render;
 pub mod serde_with;
 mod stable_hasher;
 mod stid;
+mod tany;
 pub mod texture;
 pub mod unfold;
 pub mod viewport;
@@ -122,6 +121,7 @@ pub use self::{
         stable_hash_read, stable_hasher,
     },
     stid::{Stid, WithStid},
+    tany::TAny,
 };
 
 /// Returns version of the arcana crate.
@@ -165,16 +165,16 @@ macro_rules! static_assert {
 /// Slot for storing a single value of `Any` type
 /// with type-safe access, replacement and removal.
 #[derive(Default)]
-pub struct Slot(Option<Box<dyn Any + Send>>);
+pub struct Slot(Option<TAny>);
 
-impl From<Option<Box<dyn Any + Send>>> for Slot {
-    fn from(opt: Option<Box<dyn Any + Send>>) -> Self {
+impl From<Option<TAny>> for Slot {
+    fn from(opt: Option<TAny>) -> Self {
         Slot(opt)
     }
 }
 
-impl From<Box<dyn Any + Send>> for Slot {
-    fn from(boxed: Box<dyn Any + Send>) -> Self {
+impl From<TAny> for Slot {
+    fn from(boxed: TAny) -> Self {
         Slot(Some(boxed))
     }
 }
@@ -186,18 +186,18 @@ impl Slot {
 
     pub fn with_value<T>(value: T) -> Self
     where
-        T: Send + 'static,
+        T: Send + Sync + 'static,
     {
-        Self(Some(Box::new(value)))
+        Self(Some(TAny::new(value)))
     }
 
-    pub fn boxed(self) -> Option<Box<dyn Any + Send>> {
+    pub fn into_inner(self) -> Option<TAny> {
         self.0
     }
 
     pub fn set<T>(&mut self, value: T)
     where
-        T: Send + 'static,
+        T: Send + Sync + 'static,
     {
         if let Some(boxed) = &mut self.0 {
             if let Some(slot) = boxed.downcast_mut::<T>() {
@@ -205,7 +205,7 @@ impl Slot {
                 return;
             }
         }
-        self.0 = Some(Box::new(value));
+        self.0 = Some(TAny::new(value));
     }
 
     pub fn get<T: 'static>(&self) -> Option<&T> {
@@ -217,10 +217,10 @@ impl Slot {
     }
 
     pub fn take<T: 'static>(&mut self) -> Option<T> {
-        if let Some(boxed) = &self.0 {
-            if boxed.is::<T>() {
-                let boxed = self.0.take().unwrap();
-                let value = *boxed.downcast::<T>().unwrap();
+        if let Some(tany) = &self.0 {
+            if tany.is::<T>() {
+                let tany = self.0.take().unwrap();
+                let value = unsafe { tany.downcast::<T>().unwrap_unchecked() };
                 return Some(value);
             }
         }

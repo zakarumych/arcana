@@ -30,7 +30,7 @@ impl Name {
         validate_name(s)?;
 
         let s = INTERNER.intern(s);
-        Ok(Name::from_name_str(s))
+        Ok(Name { s })
     }
 
     /// This function is safe because it cannot be used
@@ -38,7 +38,8 @@ impl Name {
     ///
     /// However, it is possible to create invalid `Name` that may cause unexpected behavior.
     #[inline(always)]
-    pub const fn from_name_str(s: &'static str) -> Self {
+    pub fn from_name_str(s: &'static str) -> Self {
+        let s = INTERNER.intern(s);
         Name { s }
     }
 
@@ -49,7 +50,8 @@ impl Name {
 
     #[inline(always)]
     pub fn from_ident(ident: Ident) -> Self {
-        Name::from_name_str(ident.as_str())
+        // NOTE: ident.as_str() is already interned.
+        Name { s: ident.as_str() }
     }
 }
 

@@ -36,7 +36,7 @@ impl WorkGraph {
             .filter_map(|(id, node)| match node {
                 WorkGraphNode::Job {
                     job, desc, params, ..
-                } => Some((JobIdx(id.0), (*job, desc.clone(), params.clone()))),
+                } => Some((JobIdx(id.0), (*job, desc.clone(), dbg!(params.clone())))),
                 _ => None,
             })
             .collect();

@@ -3,7 +3,7 @@ use std::mem::size_of;
 use arcana::{
     code::Code,
     edict::{self, query::Cpy, World},
-    events::{Event, Events},
+    events::{emit_event, Event},
     flow::{sleep, FlowEntity},
     gametime::{ClockStep, TimeSpan},
     hash_id,
@@ -363,26 +363,7 @@ arcana::export_arcana_plugin! {
                 }
             )).id();
 
-            world.local().expect_resource_mut::<Events>().emit(Event::new(local_name_hash_id!(Start), e));
+            emit_event(world, Event::new(local_name_hash_id!(Start), e));
         }
-        //     let world = world.local();
-
-        //     // let window = world.expect_resource::<Window>().id();
-
-        //     let mut graph = world.expect_resource_mut::<RenderGraph>();
-        //     // Create main pass.
-        //     // It returns target id that it renders to.
-        //     let target = MainPass::build(&mut graph);
-
-        //     // let id = world.spawn_one(Egui::new()).id();
-
-        //     // if world.get_resource::<EguiResource>().is_some() {
-        //     //     target = EguiRender::build_overlay(id, target, &mut graph);
-        //     // }
-
-        //     // Use window's surface for the render target.
-        //     graph.present(target);
-        //     drop(graph);
-        // }
     }
 }
