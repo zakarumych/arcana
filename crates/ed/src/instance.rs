@@ -3,10 +3,9 @@
 use std::sync::Arc;
 
 use arcana::{
-    code::{builtin::emit_code_start, init_codes},
+    code::builtin::emit_code_start,
     edict::world::WorldLocal,
-    events::init_events,
-    flow::{init_flows, wake_flows, Flows},
+    flow::{wake_flows, Flows},
     gametime::{ClockRate, FrequencyNumExt, TimeSpan},
     init_world,
     input::{DeviceId, Input, KeyCode, PhysicalKey, ViewportInput},

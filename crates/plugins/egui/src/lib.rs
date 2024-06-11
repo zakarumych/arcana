@@ -96,6 +96,15 @@ impl Egui {
         }
     }
 
+    pub fn with_style(self, style: egui::Style) -> Self {
+        self.cx.set_style(style);
+        self
+    }
+
+    pub fn set_style(&self, style: egui::Style) {
+        self.cx.set_style(style);
+    }
+
     pub fn run<R>(&mut self, time: TimeStamp, run_ui: impl FnOnce(&Context) -> R) -> R {
         self.raw_input.time = Some(time.elapsed_since_start().as_secs_f64());
 

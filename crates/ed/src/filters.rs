@@ -1,5 +1,4 @@
 use arcana::{
-    edict::world::WorldLocal,
     input::{FilterId, Input},
     plugin::PluginsHub,
     project::Project,
@@ -59,20 +58,16 @@ impl Filters {
         }
     }
 
-    pub fn show(world: &WorldLocal, ui: &mut Ui) {
-        let mut filters = world.expect_resource_mut::<Filters>();
-        let project = world.expect_resource_mut::<Project>();
-        let mut data = world.expect_resource_mut::<ProjectData>();
-
+    pub fn show(&mut self, project: &Project, data: &mut ProjectData, ui: &mut Ui) {
         let mut sync = false;
         let mut add_filter = None;
 
         ui.menu_button(egui_phosphor::regular::PLUS, |ui| {
-            if filters.available.is_empty() {
+            if self.available.is_empty() {
                 ui.weak("No available systems");
             }
 
-            for (idx, filter) in filters.available.iter().enumerate() {
+            for (idx, filter) in self.available.iter().enumerate() {
                 let r = ui.button(filter.name.as_str());
                 if r.clicked() {
                     add_filter = Some(idx);
@@ -83,7 +78,7 @@ impl Filters {
         });
 
         if let Some(idx) = add_filter {
-            let filter = filters.available.remove(idx);
+            let filter = self.available.remove(idx);
             data.funnel.filters.push(filter);
             sync = true;
         }
@@ -139,7 +134,7 @@ impl Filters {
 
         if let Some(idx) = remove_filter {
             let info = data.funnel.filters.remove(idx);
-            filters.available.push(info);
+            self.available.push(info);
             sync = true;
         }
 

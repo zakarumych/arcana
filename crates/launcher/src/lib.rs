@@ -5,10 +5,12 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use arcana_names::Ident;
-use arcana_project::{new_plugin_crate, process_path_ident, Dependency, Plugin, Profile, Project};
+use arcana_project::{new_plugin_crate, process_path_ident, Plugin};
 use camino::Utf8PathBuf;
 use figa::Figa;
+
+pub use arcana_names::Ident;
+pub use arcana_project::{Dependency, Profile, Project};
 
 #[derive(Default, serde::Serialize, serde::Deserialize, figa::Figa)]
 struct Config {

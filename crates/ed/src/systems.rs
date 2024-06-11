@@ -1,7 +1,6 @@
 use std::collections::VecDeque;
 
 use arcana::{
-    edict::world::WorldLocal,
     plugin::{PluginsHub, SystemId},
     project::Project,
     ActionBufferSliceExt, Ident, Name, World,
@@ -109,23 +108,19 @@ impl Systems {
         }
     }
 
-    pub fn show(world: &WorldLocal, ui: &mut Ui) {
-        let mut me = world.expect_resource_mut::<Self>();
-        let mut data = world.expect_resource_mut::<ProjectData>();
-        let project = world.expect_resource::<Project>();
-
+    pub fn show(&mut self, project: &Project, data: &mut ProjectData, ui: &mut Ui) {
         const STYLE: SnarlStyle = SnarlStyle::new();
 
         let mut viewer = SystemViewer {
             modified: false,
-            available: &mut me.available,
+            available: &mut self.available,
         };
 
         data.systems.snarl.show(&mut viewer, &STYLE, "systems", ui);
 
         if viewer.modified {
-            me.schedule.fix_schedule = order_systems(&data.systems.snarl, Category::Fix);
-            me.schedule.var_schedule = order_systems(&data.systems.snarl, Category::Var);
+            self.schedule.fix_schedule = order_systems(&data.systems.snarl, Category::Fix);
+            self.schedule.var_schedule = order_systems(&data.systems.snarl, Category::Var);
 
             try_log_err!(data.sync(&project));
         }

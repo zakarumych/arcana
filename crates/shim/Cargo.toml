@@ -1,0 +1,15 @@
+[package]
+name = "arcana"
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+license.workspace = true
+version.workspace = true
+description = "Arcana Engine"
+
+[features]
+dynamic = ["dep:arcana-dyn"]
+
+[dependencies]
+arcana-runtime = { path = "../runtime" }
+arcana-runtime = { path = "../dyn", optional = true }

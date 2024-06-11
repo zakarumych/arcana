@@ -66,7 +66,8 @@ mod plugins;
 mod sample;
 mod subprocess;
 mod systems;
-mod tools;
+mod tool;
+mod ui;
 
 /// Runs the editor application
 pub fn run(path: &Path) {
@@ -104,44 +105,15 @@ fn _run(path: &Path) -> miette::Result<()> {
         panic!("Failed to install tracing subscriber: {}", err);
     }
 
-    let mut clock = Clock::new();
-
-    let mut limiter = clock.ticker(240.hz());
-
     let mut builder = EventLoop::<UserEvent>::with_user_event();
 
     #[cfg(windows)]
     builder.with_any_thread(true);
 
     let events = builder.build().expect("Failed to create event loop");
-    let mut app = app::App::new(&events, event_collector, project, data);
+    let mut app = app::App::new(event_collector, project, data);
 
-    #[allow(deprecated)]
-    events
-        .run(move |event, events| match event {
-            Event::WindowEvent { window_id, event } => {
-                app.on_input(window_id, event);
-            }
-            Event::AboutToWait => {
-                let step = clock.step();
-
-                app.tick(step);
-
-                if app.should_quit() {
-                    events.exit();
-                    return;
-                }
-
-                limiter.ticks(step.step);
-                let until = clock.stamp_instant(limiter.next_tick().unwrap());
-
-                events.set_control_flow(ControlFlow::WaitUntil(until));
-
-                app.render();
-            }
-            _ => {}
-        })
-        .unwrap();
+    events.run_app(&mut app).unwrap();
 
     Ok(())
 }
@@ -232,6 +204,6 @@ fn hue_hash<T>(value: &T) -> egui::Color32
 where
     T: Hash + ?Sized,
 {
-    let [r, g, b] = ::arcana::hue_hash(value);
+    let [r, g, b] = ::arcana::hash::hue_hash(value);
     egui::Color32::from_rgb(r, g, b)
 }

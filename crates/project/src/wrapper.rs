@@ -11,27 +11,6 @@ use crate::{path::make_relative, WORKSPACE_DIR_NAME};
 
 use super::Dependency;
 
-// #[derive(Clone, Copy)]
-// enum Profile {
-//     Client,
-//     Server,
-//     ClientServer,
-//     Ed,
-// }
-
-// struct WithFeatures(Profile);
-
-// impl fmt::Display for WithFeatures {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-//         match self.0 {
-//             Profile::Client => write!(f, ", features = [\"client\"]"),
-//             Profile::Server => write!(f, ", features = [\"server\"]"),
-//             Profile::ClientServer => write!(f, ", features = [\"client\", \"server\"]"),
-//             Profile::Ed => write!(f, ", features = [\"ed\"]"),
-//         }
-//     }
-// }
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Profile {
     Release,

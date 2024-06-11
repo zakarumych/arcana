@@ -2,7 +2,7 @@ use std::mem::size_of;
 
 use arcana::{
     code::Code,
-    edict::{self, query::Cpy, World},
+    edict::{self, query::Cpy, spawn_block, World},
     events::{emit_event, Event},
     flow::{sleep, FlowEntity},
     gametime::{ClockStep, TimeSpan},
@@ -323,16 +323,16 @@ fn x2(_: FlowEntity, a: &f32) -> (f32,) {
     (a * 2.0,)
 }
 
-async fn wait(mut e: FlowEntity<'_>) {
+async fn wait(e: FlowEntity<'_>) {
     tracing::info!("Sleeping for a second");
-    sleep(TimeSpan::SECOND, e.world()).await;
+    sleep(TimeSpan::SECOND, e.get_world()).await;
     tracing::info!("One second passed");
 }
 
 #[derive(Clone, Copy, Component)]
 struct Speed(f32);
 
-fn set_angle_speed(e: FlowEntity, speed: &f32) {
+fn set_angle_speed(mut e: FlowEntity, speed: &f32) {
     tracing::info!("Setting triangle speed to {}", speed);
     let _ = e.set(Speed(*speed));
 }
@@ -363,7 +363,12 @@ arcana::export_arcana_plugin! {
                 }
             )).id();
 
-            emit_event(world, Event::new(local_name_hash_id!(Start), e));
+            spawn_block!(in world -> {
+                for _ in 0..5 {
+                    emit_event(world, Event::new(local_name_hash_id!(Start), e));
+                    sleep(TimeSpan::SECOND, world).await;
+                }
+            });
         }
     }
 }

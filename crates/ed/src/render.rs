@@ -19,7 +19,7 @@ use hashbrown::HashMap;
 
 use crate::{
     container::Container, data::ProjectData, hue_hash, instance::Main, model::ValueProbe,
-    sample::ImageSample,
+    sample::ImageSample, ui::UserTextures,
 };
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
@@ -36,7 +36,7 @@ impl WorkGraph {
             .filter_map(|(id, node)| match node {
                 WorkGraphNode::Job {
                     job, desc, params, ..
-                } => Some((JobIdx(id.0), (*job, desc.clone(), dbg!(params.clone())))),
+                } => Some((JobIdx(id.0), (*job, desc.clone(), params.clone()))),
                 _ => None,
             })
             .collect();
@@ -83,7 +83,7 @@ impl WorkGraph {
 
 struct Preview {
     image: Option<mev::Image>,
-    id: EntityId,
+    id: egui::TextureId,
     hook: Option<HookId>,
     size: Option<mev::Extent2>,
 }
@@ -149,17 +149,18 @@ impl Rendering {
         }
     }
 
-    pub fn show(world: &WorldLocal, ui: &mut Ui) {
-        let mut data = world.expect_resource_mut::<ProjectData>();
-        let project = world.expect_resource::<Project>();
-        let mut rendering = world.expect_resource_mut::<Rendering>();
-        let mut main = world.expect_resource_mut::<Main>();
-        let sample = world.expect_resource::<ImageSample>();
-        let device = world.expect_resource::<mev::Device>();
-        let rendering = &mut *rendering;
-
-        let preview = rendering.preview.get_or_insert_with(|| {
-            let id = world.allocate().id();
+    pub fn show(
+        &mut self,
+        project: &Project,
+        data: &mut ProjectData,
+        sample: &ImageSample,
+        device: &mev::Device,
+        main: &mut Main,
+        textures: &mut UserTextures,
+        ui: &mut Ui,
+    ) {
+        let preview = self.preview.get_or_insert_with(|| {
+            let id = textures.new_id();
 
             Rc::new(RefCell::new(Preview {
                 image: None,
@@ -192,12 +193,7 @@ impl Rendering {
                         })
                         .unwrap();
 
-                    world.insert_defer(
-                        id,
-                        Texture {
-                            image: image.clone(),
-                        },
-                    );
+                    textures.set(id, image.clone(), crate::ui::Sampler::LinearLinear);
 
                     image
                 });
@@ -208,8 +204,8 @@ impl Rendering {
 
         let mut viewer = WorkGraphViewer {
             modified: false,
-            available: &mut rendering.available,
-            main: &mut main,
+            available: &mut self.available,
+            main,
             sample: &sample,
             preview,
         };
@@ -219,7 +215,7 @@ impl Rendering {
             .show(&mut viewer, &STYLE, "work-graph", ui);
 
         if viewer.modified {
-            rendering.modification += 1;
+            self.modification += 1;
             try_log_err!(data.sync(&project));
         }
     }
@@ -471,7 +467,6 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer<'_> {
     /// Show context menu for the snarl. This menu is opened when releasing a pin to empty
     /// space. It can be used to implement menu for adding new node, and directly
     /// connecting it to the released wire.
-    #[cfg_attr(inline_more, inline)]
     fn show_dropped_wire_menu(
         &mut self,
         pos: egui::Pos2,
@@ -664,7 +659,7 @@ fn show_preview(
             preview.borrow_mut().hook = hook;
             if let Some(size) = preview.borrow().size {
                 ui.image(egui::load::SizedTexture {
-                    id: egui::TextureId::User(preview.borrow().id.bits()),
+                    id: preview.borrow().id,
                     size: egui::vec2(size.width() as f32, size.height() as f32),
                 });
             }

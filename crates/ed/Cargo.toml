@@ -8,11 +8,12 @@ version.workspace = true
 description = "Arcana Engine Editor"
 
 [dependencies]
-arcana = { path = "../arcana", features = ["dynamic"] }
-arcana-egui = { path = "../plugins/egui" }
+arcana = { path = "../arcana" }
+arboard.workspace = true
 bincode.workspace = true
 camino.workspace = true
 cint.workspace = true
+cursor-icon.workspace = true
 dirs.workspace = true
 egui.workspace = true
 egui_dnd.workspace = true
@@ -26,6 +27,7 @@ hashbrown.workspace = true
 libloading.workspace = true
 miette = { workspace = true, features = ["fancy"] }
 nucleo.workspace = true
+open.workspace = true
 palette.workspace = true
 parking_lot.workspace = true
 rand.workspace = true
@@ -39,6 +41,3 @@ tracing.workspace = true
 tracing-error.workspace = true
 tracing-subscriber.workspace = true
 winit = { workspace = true, features = ["serde"] }
-
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(inline_more)'] }

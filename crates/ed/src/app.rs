@@ -1,30 +1,28 @@
-use std::{path::PathBuf, sync::Arc};
+use std::{hash::Hash, path::PathBuf, time::Instant};
 
+use arboard::Clipboard;
 use arcana::{
     blink_alloc::BlinkAlloc,
-    edict::world::WorldLocal,
+    gametime::{FrequencyNumExt, TimeStamp},
     input::ViewportInput,
     mev,
     project::Project,
-    render::{render, RenderGraph, RenderResources},
-    viewport::Viewport,
-    ClockStep, Entities, IdGen, With, World,
+    Clock, ClockStep, FrequencyTicker,
 };
-use arcana_egui::{Egui, EguiRender, TopBottomPanel, Ui, WidgetText};
-use egui::{vec2, Id};
+use egui::{Id, TopBottomPanel, WidgetText};
 use egui_dock::{DockState, NodeIndex, TabIndex, TabViewer, Tree};
 use egui_tracing::EventCollector;
-use hashbrown::HashMap;
-use parking_lot::Mutex;
 use winit::{
     dpi,
     event::WindowEvent,
+    event_loop::{ActiveEventLoop, ControlFlow},
     window::{Window, WindowId},
 };
 
 use crate::{
     code::Codes,
     console::Console,
+    container::Container,
     data::ProjectData,
     filters::Filters,
     init_mev,
@@ -35,11 +33,10 @@ use crate::{
     sample::ImageSample,
     subprocess::{filter_subprocesses, kill_subprocesses},
     systems::Systems,
+    ui::{Ui, UiViewport, UserTextures},
 };
 
 pub enum UserEvent {}
-
-pub type EventLoop = winit::event_loop::EventLoop<UserEvent>;
 
 /// Editor tab.
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -52,295 +49,258 @@ enum Tab {
     Main,
     Codes,
     Inspector,
+    // Custom(ToolId),
 }
 
 /// Editor app instance.
 /// Contains state of the editor.
 pub struct App {
-    /// Tabs opened in the editor.
-    dock_states: HashMap<WindowId, DockState<Tab>>,
+    project: Project,
+    data: ProjectData,
+    container: Option<Container>,
 
-    // App state is stored in World.
-    world: World,
+    views: Vec<AppView>,
 
-    graph: RenderGraph,
-    resources: RenderResources,
+    ui: Ui,
 
     blink: BlinkAlloc,
 
-    device: mev::Device,
-    queue: Arc<Mutex<mev::Queue>>,
+    queue: mev::Queue,
 
-    tab_idgen: IdGen,
+    plugins: Plugins,
+    console: Console,
+    codes: Codes,
+    systems: Systems,
+    filters: Filters,
+    rendering: Rendering,
+    main: Main,
 
+    image_sample: ImageSample,
+    clipboard: Clipboard,
     should_quit: bool,
+
+    clock: Clock,
+    limiter: FrequencyTicker,
+}
+
+struct AppView {
+    window: Window,
+    surface: Option<mev::Surface>,
+    dock_state: DockState<Tab>,
+    viewport: UiViewport,
 }
 
 impl Drop for App {
     fn drop(&mut self) {
-        let state = AppState {
-            windows: self
-                .world
-                .view_mut::<&Viewport>()
-                .iter()
-                .map(|viewport| {
-                    let window = viewport.get_window();
-                    let scale_factor = window.scale_factor();
-                    AppWindowState {
-                        pos: window
-                            .inner_position()
-                            .unwrap_or_default()
-                            .to_logical(scale_factor),
-                        size: window.inner_size().to_logical(scale_factor),
-                        dock_state: self
-                            .dock_states
-                            .remove(&window.id())
-                            .unwrap_or_else(|| DockState::new(vec![])),
-                        maximized: window.is_maximized(),
-                    }
-                })
-                .collect(),
-
-            tab_idgen: self.tab_idgen.clone(),
-        };
-        let _ = save_app_state(&state);
-
         kill_subprocesses();
     }
 }
 
 impl App {
-    pub fn new(
-        events: &EventLoop,
-        event_collector: EventCollector,
-        project: Project,
-        data: ProjectData,
-    ) -> Self {
+    pub fn new(event_collector: EventCollector, project: Project, data: ProjectData) -> Self {
         let (device, queue) = init_mev();
-        let queue = Arc::new(Mutex::new(queue));
 
-        let builder = World::builder();
+        let plugins = Plugins::new();
+        let console = Console::new(event_collector);
+        let systems = Systems::new();
+        let filters = Filters::new();
+        let rendering = Rendering::new();
+        let image_sample = ImageSample::new(&device).unwrap();
+        let codes = Codes::new();
+        let main = Main::new();
 
-        let mut world = builder.build();
-        world.insert_resource(project);
-        world.insert_resource(Plugins::new());
-        world.insert_resource(Console::new(event_collector));
-        world.insert_resource(Systems::new());
-        world.insert_resource(Filters::new());
-        world.insert_resource(Rendering::new());
-        world.insert_resource(Main::new());
-        world.insert_resource(device.clone());
-        world.insert_resource(queue.clone());
-        world.insert_resource(data);
-        world.insert_resource(ImageSample::new(&device).unwrap());
-        world.insert_resource(Codes::new());
+        let clipboard = Clipboard::new().unwrap();
 
-        let mut graph = RenderGraph::new();
+        let views = Vec::new();
 
-        let state = load_app_state().unwrap_or_default();
-
-        let mut dock_states = HashMap::new();
-
-        if state.windows.is_empty() {
-            let builder = Window::default_attributes().with_title("Ed");
-
-            #[allow(deprecated)]
-            let window = events
-                .create_window(builder)
-                .map_err(|err| miette::miette!("Failed to create Ed window: {err:?}"))
-                .unwrap();
-
-            let size = window.inner_size();
-            let scale_factor = window.scale_factor();
-
-            dock_states.insert(window.id(), DockState::new(vec![]));
-
-            let egui = Egui::new(
-                vec2(size.width as f32, size.height as f32),
-                scale_factor as f32,
-            );
-            let id = world.spawn((Viewport::new_window(window), egui)).id();
-
-            let target = EguiRender::build(Some(id), &mut graph);
-            graph.present_to(target, id);
-        }
-
-        for w in state.windows {
-            let builder = Window::default_attributes()
-                .with_title("Ed")
-                .with_position(w.pos)
-                .with_inner_size(w.size);
-
-            #[allow(deprecated)]
-            let window: Window = events
-                .create_window(builder)
-                .map_err(|err| miette::miette!("Failed to create Ed window: {err:?}"))
-                .unwrap();
-
-            if w.maximized {
-                window.set_maximized(true);
-            }
-
-            let size = window.inner_size();
-            let scale_factor = window.scale_factor();
-
-            dock_states.insert(window.id(), w.dock_state);
-
-            let egui = Egui::new(
-                vec2(size.width as f32, size.height as f32),
-                scale_factor as f32,
-            );
-            let id = world.spawn((Viewport::new_window(window), egui)).id();
-
-            let target = EguiRender::build(Some(id), &mut graph);
-            graph.present_to(target, id);
-        }
+        let clock = Clock::new();
+        let limiter = clock.ticker(20.hz());
 
         App {
-            dock_states,
-            world,
-            graph,
-            resources: RenderResources::default(),
+            project,
+            data,
+            container: None,
+
+            views,
+
+            ui: Ui::new(),
+
             blink: BlinkAlloc::new(),
-            device,
             queue,
 
-            tab_idgen: state.tab_idgen,
+            console,
+            plugins,
+            codes,
+            systems,
+            filters,
+            rendering,
+            main,
+
+            image_sample,
+            clipboard,
+
             should_quit: false,
+
+            clock,
+            limiter,
         }
     }
 
-    pub fn on_input<'a>(&mut self, window_id: WindowId, event: WindowEvent) {
-        let world = self.world.local();
+    pub fn try_tick(&mut self, events: &ActiveEventLoop) {
+        let mut last = self.clock.now();
+        let step = self.clock.step();
 
-        for (v, egui) in world.view_mut::<(&Viewport, &mut Egui)>() {
-            if v.get_window().id() == window_id {
-                if let Ok(event) = ViewportInput::try_from(&event) {
-                    if egui.handle_event(&event) {
-                        return;
-                    }
-                }
-            }
-        }
+        let ticks = self.limiter.ticks(step.step);
 
-        Main::handle_event(world, window_id, &event);
-
-        match event {
-            WindowEvent::CloseRequested => {
-                let mut windows_count = 0;
-                let mut window_entity = None;
-                for (e, v) in world.view_mut::<(Entities, &Viewport)>() {
-                    windows_count += 1;
-                    if v.get_window().id() == window_id {
-                        window_entity = Some(e.id());
-                    }
-                }
-                if let Some(window_entity) = window_entity {
-                    if windows_count < 2 {
-                        self.should_quit = true;
-                    } else {
-                        let _ = world.despawn(window_entity);
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-
-    pub fn tick(&mut self, step: ClockStep) {
-        // Quit if last window was closed.
-        if self.world.view_mut::<With<Viewport>>().into_iter().count() == 0 {
-            self.should_quit = true;
-            return;
-        }
-
-        // Update plugins state.
-        Plugins::tick(&mut self.world);
-
-        // Simulate main isntance.
-        Main::tick(&mut self.world, step);
-
-        let world: &WorldLocal = self.world.local();
-
-        for (viewport, egui) in world.view::<(&Viewport, &mut Egui)>() {
-            let window = viewport.get_window();
-            let dock_state = self
-                .dock_states
-                .entry(window.id())
-                .or_insert_with(|| DockState::new(vec![]));
-
-            egui.run(step.now, |cx| {
-                let tabs = dock_state.main_surface_mut();
-                TopBottomPanel::top("Menu").show(cx, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.menu_button("File", |ui| {
-                            if ui.button("Exit").clicked() {
-                                self.should_quit = true;
-                                ui.close_menu();
-                            }
-                        });
-                        ui.menu_button("View", |ui| {
-                            if ui.button("Plugins").clicked() {
-                                focus_or_add_tab(tabs, Tab::Plugins);
-                                ui.close_menu();
-                            }
-                            if ui.button("Console").clicked() {
-                                focus_or_add_tab(tabs, Tab::Console);
-                                ui.close_menu();
-                            }
-                            if ui.button("Codes").clicked() {
-                                focus_or_add_tab(tabs, Tab::Codes);
-                                ui.close_menu();
-                            }
-                            if ui.button("Systems").clicked() {
-                                focus_or_add_tab(tabs, Tab::Systems);
-                                ui.close_menu();
-                            }
-                            if ui.button("Filters").clicked() {
-                                focus_or_add_tab(tabs, Tab::Filters);
-                                ui.close_menu();
-                            }
-                            if ui.button("Rendering").clicked() {
-                                focus_or_add_tab(tabs, Tab::Rendering);
-                                ui.close_menu();
-                            }
-                            if ui.button("Main").clicked() {
-                                focus_or_add_tab(tabs, Tab::Main);
-                                ui.close_menu();
-                            }
-                        });
-                    });
-                });
-                egui_dock::DockArea::new(dock_state).show(cx, &mut AppModel { world, window })
+        for tick in ticks {
+            self.tick(ClockStep {
+                now: tick,
+                step: tick - last,
             });
+            last = tick;
         }
-
-        // Run actions encoded by UI.
-        self.world.run_deferred();
 
         filter_subprocesses();
+
+        let until = self.clock.stamp_instant(self.limiter.next_tick().unwrap());
+        events.set_control_flow(ControlFlow::WaitUntil(until));
     }
 
-    pub fn render(&mut self) {
-        Main::render(&mut self.world);
+    pub fn tick(&mut self, clock: ClockStep) {
+        self.plugins
+            .tick(&mut self.container, &mut self.project, &self.data);
+    }
 
-        if self.world.view_mut::<With<Viewport>>().into_iter().count() == 0 {
-            return;
+    /// Runs rendering.
+    pub fn handle_event(&mut self, window_id: WindowId, event: &WindowEvent) {
+        for view in &mut self.views {
+            if view.window.id() == window_id {
+                let Ok(event) = ViewportInput::try_from(event) else {
+                    return;
+                };
+
+                self.ui.handle_event(&mut view.viewport, &event);
+                break;
+            }
         }
-
-        render(
-            &mut self.graph,
-            &self.device,
-            &mut self.queue.lock(),
-            &self.blink,
-            None,
-            &mut self.world,
-            &mut self.resources,
-        );
     }
 
-    pub fn should_quit(&self) -> bool {
-        self.should_quit
+    /// Update UI.
+    pub fn update_ui(&mut self, window_id: WindowId) {
+        for view in &mut self.views {
+            if view.window.id() == window_id {
+                let device = self.queue.device().clone();
+
+                self.ui.run(
+                    &mut view.viewport,
+                    &mut self.clipboard,
+                    &view.window,
+                    self.clock.now(),
+                    |cx, textures| {
+                        let tabs = view.dock_state.main_surface_mut();
+                        TopBottomPanel::top("Menu").show(cx, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.menu_button("File", |ui| {
+                                    if ui.button("Exit").clicked() {
+                                        self.should_quit = true;
+                                        ui.close_menu();
+                                    }
+                                });
+                                ui.menu_button("View", |ui| {
+                                    if ui.button("Plugins").clicked() {
+                                        focus_or_add_tab(tabs, Tab::Plugins);
+                                        ui.close_menu();
+                                    }
+                                    if ui.button("Console").clicked() {
+                                        focus_or_add_tab(tabs, Tab::Console);
+                                        ui.close_menu();
+                                    }
+                                    if ui.button("Codes").clicked() {
+                                        focus_or_add_tab(tabs, Tab::Codes);
+                                        ui.close_menu();
+                                    }
+                                    if ui.button("Systems").clicked() {
+                                        focus_or_add_tab(tabs, Tab::Systems);
+                                        ui.close_menu();
+                                    }
+                                    if ui.button("Filters").clicked() {
+                                        focus_or_add_tab(tabs, Tab::Filters);
+                                        ui.close_menu();
+                                    }
+                                    if ui.button("Rendering").clicked() {
+                                        focus_or_add_tab(tabs, Tab::Rendering);
+                                        ui.close_menu();
+                                    }
+                                    if ui.button("Main").clicked() {
+                                        focus_or_add_tab(tabs, Tab::Main);
+                                        ui.close_menu();
+                                    }
+                                });
+                            });
+                        });
+
+                        let mut model = AppModel {
+                            window: &view.window,
+                            linked: self.container.as_ref(),
+                            project: &mut self.project,
+                            data: &mut self.data,
+                            plugins: &mut self.plugins,
+                            console: &mut self.console,
+                            systems: &mut self.systems,
+                            filters: &mut self.filters,
+                            codes: &mut self.codes,
+                            rendering: &mut self.rendering,
+                            main: &mut self.main,
+                            sample: &self.image_sample,
+                            device: &device,
+                            textures,
+                        };
+
+                        egui_dock::DockArea::new(&mut view.dock_state).show(cx, &mut model);
+                    },
+                );
+
+                view.window.request_redraw();
+
+                break;
+            }
+        }
+    }
+
+    /// Runs rendering.
+    pub fn render(&mut self, window_id: WindowId) {
+        for view in &mut self.views {
+            if view.window.id() == window_id {
+                // let mut render_view = |view: &mut AppView| {
+                let surface = match &mut view.surface {
+                    Some(surface) => surface,
+                    slot => match self.queue.new_surface(&view.window, &view.window) {
+                        Ok(surface) => slot.get_or_insert(surface),
+                        Err(err) => {
+                            tracing::error!("Failed to create surface: {err}");
+                            return;
+                        }
+                    },
+                };
+
+                let frame = match surface.next_frame() {
+                    Ok(frame) => frame,
+                    Err(err) => {
+                        tracing::error!("Failed to acquire frame: {err}");
+                        view.surface = None;
+                        return;
+                    }
+                };
+
+                self.ui.render(&mut view.viewport, frame, &mut self.queue);
+
+                if self.ui.has_requested_repaint_for(&view.viewport) {
+                    view.window.request_redraw();
+                }
+
+                break;
+            }
+        }
     }
 }
 
@@ -363,22 +323,33 @@ fn focus_or_add_tab(tabs: &mut Tree<Tab>, tab: Tab) {
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
-struct AppWindowState {
+struct AppViewState {
     pos: dpi::LogicalPosition<f64>,
     size: dpi::LogicalSize<f64>,
     maximized: bool,
     dock_state: DockState<Tab>,
 }
 
-#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize)]
 struct AppState {
-    windows: Vec<AppWindowState>,
-    tab_idgen: IdGen,
+    views: Vec<AppViewState>,
 }
 
 struct AppModel<'a> {
-    world: &'a WorldLocal,
     window: &'a Window,
+    linked: Option<&'a Container>,
+    project: &'a mut Project,
+    data: &'a mut ProjectData,
+    plugins: &'a mut Plugins,
+    console: &'a mut Console,
+    systems: &'a mut Systems,
+    filters: &'a mut Filters,
+    codes: &'a mut Codes,
+    rendering: &'a mut Rendering,
+    main: &'a mut Main,
+    sample: &'a ImageSample,
+    device: &'a mev::Device,
+    textures: UserTextures<'a>,
 }
 
 impl TabViewer for AppModel<'_> {
@@ -388,16 +359,24 @@ impl TabViewer for AppModel<'_> {
         Id::new(*tab)
     }
 
-    fn ui(&mut self, ui: &mut Ui, tab: &mut Tab) {
+    fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Tab) {
         match *tab {
-            Tab::Plugins => Plugins::show(self.world, ui),
-            Tab::Console => Console::show(self.world, ui),
-            Tab::Systems => Systems::show(self.world, ui),
-            Tab::Filters => Filters::show(self.world, ui),
-            Tab::Codes => Codes::show(self.world, ui),
-            Tab::Rendering => Rendering::show(self.world, ui),
-            Tab::Main => Main::show(self.world, ui, self.window.id()),
-            Tab::Inspector => Inspector::show(self.world, ui),
+            Tab::Plugins => self.plugins.show(self.linked, self.project, self.data, ui),
+            Tab::Console => self.console.show(ui),
+            Tab::Systems => self.systems.show(self.project, self.data, ui),
+            Tab::Filters => self.filters.show(self.project, self.data, ui),
+            Tab::Codes => self.codes.show(self.project, self.data, ui),
+            Tab::Rendering => {}
+            // self.rendering.show(
+            //     self.project,
+            //     self.sample,
+            //     self.data,
+            //     ui,
+            //     self.device,
+            //     self.textures,
+            // ),
+            Tab::Main => {}      //Main::show(self.world, ui, self.window.id()),
+            Tab::Inspector => {} //Inspector::show(self.world, ui),
         }
     }
 
@@ -453,4 +432,122 @@ fn load_app_state() -> Option<AppState> {
 fn save_app_state(state: &AppState) -> Option<()> {
     let mut file = std::fs::File::create(app_state_path(true)?).ok()?;
     bincode::serialize_into(&mut file, state).ok()
+}
+
+impl winit::application::ApplicationHandler<UserEvent> for App {
+    fn resumed(&mut self, events: &ActiveEventLoop) {
+        let state = load_app_state();
+
+        match state {
+            None => {
+                let builder = Window::default_attributes().with_title("Ed");
+
+                let window = events
+                    .create_window(builder)
+                    .map_err(|err| miette::miette!("Failed to create Ed window: {err:?}"))
+                    .unwrap();
+
+                let size = window.inner_size();
+
+                let viewport = self.ui.new_viewport(
+                    egui::vec2(size.width as f32, size.height as f32),
+                    window.scale_factor() as f32,
+                );
+
+                self.views.push(AppView {
+                    window,
+                    surface: None,
+                    dock_state: DockState::new(vec![]),
+                    viewport,
+                });
+            }
+            Some(state) => {
+                for view in state.views {
+                    let builder = Window::default_attributes()
+                        .with_title("Ed")
+                        .with_position(view.pos)
+                        .with_inner_size(view.size);
+
+                    let window: Window = events
+                        .create_window(builder)
+                        .map_err(|err| miette::miette!("Failed to create Ed window: {err:?}"))
+                        .unwrap();
+
+                    if view.maximized {
+                        window.set_maximized(true);
+                    }
+
+                    let size = window.inner_size();
+
+                    let viewport = self.ui.new_viewport(
+                        egui::vec2(size.width as f32, size.height as f32),
+                        window.scale_factor() as f32,
+                    );
+
+                    let view = AppView {
+                        window,
+                        surface: None,
+                        dock_state: view.dock_state,
+                        viewport,
+                    };
+
+                    self.views.push(view);
+                }
+            }
+        };
+    }
+
+    fn suspended(&mut self, _events: &ActiveEventLoop) {
+        let state = AppState {
+            views: self
+                .views
+                .iter_mut()
+                .map(|view| {
+                    let scale_factor = view.window.scale_factor();
+                    AppViewState {
+                        pos: view
+                            .window
+                            .inner_position()
+                            .unwrap_or_default()
+                            .to_logical(scale_factor),
+                        size: view.window.inner_size().to_logical(scale_factor),
+                        dock_state: std::mem::replace(&mut view.dock_state, DockState::new(vec![])),
+                        maximized: view.window.is_maximized(),
+                    }
+                })
+                .collect(),
+        };
+
+        self.views.clear();
+        let _ = save_app_state(&state);
+    }
+
+    fn new_events(&mut self, events: &ActiveEventLoop, _cause: winit::event::StartCause) {
+        self.try_tick(events);
+    }
+
+    fn window_event(&mut self, events: &ActiveEventLoop, window_id: WindowId, event: WindowEvent) {
+        self.handle_event(window_id, &event);
+
+        if self.should_quit {
+            events.exit();
+        }
+
+        match event {
+            WindowEvent::CloseRequested => {
+                self.views.retain(|view| view.window.id() != window_id);
+
+                if self.views.is_empty() {
+                    self.should_quit = true;
+                }
+            }
+            WindowEvent::RedrawRequested => {
+                self.update_ui(window_id);
+                self.render(window_id);
+            }
+            _ => {}
+        }
+
+        self.try_tick(events);
+    }
 }

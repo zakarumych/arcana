@@ -327,7 +327,8 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-arcana = {{ workspace = true, features = ["dynamic"] }}
+arcana = {{ workspace = true }}
+#arcana = {{ workspace = true, features = ["dynamic"] }}
 arcana-ed = {{ workspace = true }}
 "#,
         gh_issue = github_autogen_issue_template("plugins/Cargo.toml")

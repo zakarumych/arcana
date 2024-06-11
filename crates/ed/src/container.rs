@@ -163,7 +163,7 @@ impl fmt::Debug for Container {
 }
 
 impl Container {
-    /// Create a new container with the given plugins enabled.
+    /// Create a new container from same library with the given plugins enabled.
     pub fn with_plugins(&self, enabled_plugins: &HashSet<Ident>) -> Self {
         let active_plugins = get_active_plugins(&self.loaded, enabled_plugins);
         Container {
@@ -189,6 +189,30 @@ impl Container {
         self.active_plugins.iter().copied()
     }
 }
+
+impl PartialEq for Container {
+    fn eq(&self, other: &Self) -> bool {
+        if !Arc::ptr_eq(&self.loaded, &other.loaded) {
+            return false;
+        }
+
+        if self.active_plugins.len() != other.active_plugins.len() {
+            return false;
+        }
+
+        for ((name, _), (other_name, _)) in
+            self.active_plugins.iter().zip(other.active_plugins.iter())
+        {
+            if name != other_name {
+                return false;
+            }
+        }
+
+        true
+    }
+}
+
+impl Eq for Container {}
 
 /// Sort plugins placing dependencies first.
 /// Errors if there are circular dependencies or missing dependencies.
@@ -349,7 +373,7 @@ fn find_tmp_path(path: &Path) -> miette::Result<PathBuf> {
         })
         .wrap_err("Failed to open dylib file")?;
 
-    let hash = arcana::stable_hash_read(file)
+    let hash = arcana::hash::stable_hash_read(file)
         .map_err(|source| FileReadError {
             path: path.to_owned(),
             source,
@@ -357,7 +381,7 @@ fn find_tmp_path(path: &Path) -> miette::Result<PathBuf> {
         .wrap_err("Failed to hash dylib file")?;
 
     let mut new_filename = file_stem.to_owned();
-    new_filename.push(format!("-{:x}", hash));
+    new_filename.push(format!("-{}", hash));
 
     if let Some(ext) = ext {
         new_filename.push(".");

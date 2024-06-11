@@ -1,0 +1,14 @@
+[package]
+name = "arcana-dyn"
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+license.workspace = true
+version.workspace = true
+description = "Arcana Engine"
+
+[lib]
+crate-type = ["dylib"]
+
+[dependencies]
+arcana-runtime = { path = "../runtime" }

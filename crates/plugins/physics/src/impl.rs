@@ -91,21 +91,21 @@ pub enum CollisionEvent {
 }
 
 impl From<CollisionStarted> for CollisionEvent {
-    #[cfg_attr(inline_more, inline(always))]
+    #[cfg_attr(feature = "inline-more", inline(always))]
     fn from(event: CollisionStarted) -> Self {
         CollisionEvent::CollisionStarted(event)
     }
 }
 
 impl From<CollisionStopped> for CollisionEvent {
-    #[cfg_attr(inline_more, inline(always))]
+    #[cfg_attr(feature = "inline-more", inline(always))]
     fn from(event: CollisionStopped) -> Self {
         CollisionEvent::CollisionStopped(event)
     }
 }
 
 impl From<ContactForce> for CollisionEvent {
-    #[cfg_attr(inline_more, inline(always))]
+    #[cfg_attr(feature = "inline-more", inline(always))]
     fn from(event: ContactForce) -> Self {
         CollisionEvent::ContactForce(event)
     }
@@ -587,7 +587,7 @@ impl CollisionEvents {
         self.queue.pop_front()
     }
 
-    #[cfg_attr(inline_more, inline)]
+    #[cfg_attr(feature = "inline-more", inline)]
     pub fn poll_deque(&mut self, cx: &mut Context) -> Poll<CollisionEvent> {
         if let Some(collision) = self.queue.pop_front() {
             Poll::Ready(collision)
@@ -632,7 +632,7 @@ impl ContactForceEvents {
         self.queue.pop_front()
     }
 
-    #[cfg_attr(inline_more, inline)]
+    #[cfg_attr(feature = "inline-more", inline)]
     pub fn poll_deque(&mut self, cx: &mut Context) -> Poll<ContactForce> {
         if let Some(contact) = self.queue.pop_front() {
             Poll::Ready(contact)
@@ -651,13 +651,13 @@ pub trait FlowEntityExt {
 }
 
 impl FlowEntityExt for FlowEntity<'_> {
-    #[cfg_attr(inline_more, inline(always))]
+    #[cfg_attr(feature = "inline-more", inline(always))]
     async fn next_collision_event(&mut self) -> CollisionEvent {
         self.poll_view_mut::<&mut CollisionEvents, _, _>(|events, cx| events.poll_deque(cx))
             .await
     }
 
-    #[cfg_attr(inline_more, inline(always))]
+    #[cfg_attr(feature = "inline-more", inline(always))]
     async fn next_contact_force_event(&mut self) -> ContactForce {
         self.poll_view_mut::<&mut ContactForceEvents, _, _>(|events, cx| events.poll_deque(cx))
             .await
@@ -853,7 +853,7 @@ fn run_simulation(
         };
     }
 
-    res.query_pipeline.update(&res.bodies, &res.colliders);
+    res.query_pipeline.update(&res.colliders);
 }
 
 fn update_active(mut res: ResMut<PhysicsResource>, mut dynamic_bodies: View<&mut Global>) {

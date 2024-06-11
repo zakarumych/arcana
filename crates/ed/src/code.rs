@@ -7,12 +7,9 @@ use arcana::{
         AsyncContinueQueue, Code, CodeDesc, CodeId, CodeValues, Continuation, FlowCode, PureCode,
         ValueId,
     },
-    edict::{
-        self,
-        flow::FlowEntity,
-        world::{World, WorldLocal},
-    },
+    edict::{self, flow::FlowEntity, world::World},
     events::{EventId, Events},
+    flow::FlowWorld,
     hash_id,
     plugin::{CodeInfo, EventInfo, PluginsHub},
     project::Project,
@@ -383,10 +380,13 @@ fn run_async_continations(
 ) {
     queue.extend(&mut world.expect_resource_mut::<AsyncContinueQueue>());
 
-    let guard = edict::tls::Guard::new(world);
+    let _guard = edict::tls::Guard::new(world.local());
+
+    // Safety: Safe to do once under tls guard.
+    let world = unsafe { FlowWorld::make_mut() };
 
     for c in queue.drain() {
-        let Ok(entity) = guard.entity(c.entity) else {
+        let Ok(entity) = world.flow_entity(c.entity) else {
             continue;
         };
 
@@ -475,9 +475,10 @@ pub fn handle_code_events(
 
             drop(events);
 
-            let guard = edict::tls::Guard::new(world);
+            let _guard = edict::tls::Guard::new(world);
+            let world = unsafe { FlowWorld::make_mut() };
 
-            let Ok(entity) = guard.entity(entity) else {
+            let Ok(entity) = world.flow_entity(entity) else {
                 return;
             };
 
@@ -809,28 +810,25 @@ impl Codes {
         }
     }
 
-    pub fn show(world: &WorldLocal, ui: &mut Ui) {
-        let mut codes = world.expect_resource_mut::<Codes>();
-        let mut data = world.expect_resource_mut::<ProjectData>();
-
+    pub fn show(&mut self, project: &Project, data: &mut ProjectData, ui: &mut Ui) {
         let mut cbox = egui::ComboBox::from_id_source("selected-code");
-        if let Some(selected) = codes.selected {
+        if let Some(selected) = self.selected {
             if let Some(code) = data.codes.get(&selected) {
                 cbox = cbox.selected_text(code.name.to_string());
             } else {
-                codes.selected = None;
+                self.selected = None;
             }
         }
 
         ui.vertical(|ui| {
             ui.horizontal(|ui| {
-                ui.text_edit_singleline(&mut codes.new_code_name);
+                ui.text_edit_singleline(&mut self.new_code_name);
 
                 let r = ui.small_button(egui_phosphor::regular::PLUS);
                 if r.clicked_by(PointerButton::Primary) {
-                    match Name::from_str(&codes.new_code_name) {
+                    match Name::from_str(&self.new_code_name) {
                         Ok(name) => {
-                            codes.new_code_name.clear();
+                            self.new_code_name.clear();
 
                             let new_code = CodeGraph {
                                 name,
@@ -840,13 +838,13 @@ impl Codes {
 
                             let id = hash_id!(name);
                             data.codes.insert(id, new_code);
-                            codes.selected = Some(id);
+                            self.selected = Some(id);
                         }
                         Err(err) => {
                             tracing::error!(
                                 "Failed to create code: {}. with name {}",
                                 err,
-                                codes.new_code_name
+                                self.new_code_name
                             );
                         }
                     }
@@ -855,17 +853,17 @@ impl Codes {
                 cbox.show_ui(ui, |ui| {
                     for (&id, code) in data.codes.iter() {
                         let r =
-                            ui.selectable_label(Some(id) == codes.selected, code.name.to_string());
+                            ui.selectable_label(Some(id) == self.selected, code.name.to_string());
 
                         if r.clicked_by(PointerButton::Primary) {
-                            codes.selected = Some(id);
+                            self.selected = Some(id);
                             ui.close_menu();
                         }
                     }
                 });
             });
 
-            let Some(id) = codes.selected else {
+            let Some(id) = self.selected else {
                 return;
             };
 
@@ -875,8 +873,8 @@ impl Codes {
 
             code.snarl.show(
                 &mut CodeViewer {
-                    available_events: &codes.available_events,
-                    available_codes: &codes.available_codes,
+                    available_events: &self.available_events,
+                    available_codes: &self.available_codes,
                 },
                 &SnarlStyle::default(),
                 "code-viwer",
@@ -884,7 +882,6 @@ impl Codes {
             );
         });
 
-        let project = world.expect_resource::<Project>();
         try_log_err!(data.sync(&project));
     }
 }

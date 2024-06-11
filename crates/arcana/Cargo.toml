@@ -5,11 +5,53 @@ authors.workspace = true
 readme.workspace = true
 license.workspace = true
 version.workspace = true
-description = "Arcana Engine"
+description = "Arcana Engine Runtime"
+
+[lib]
+crate-type = ["rlib", "dylib"]
 
 [features]
-dynamic = ["dep:arcana-dyn"]
+# Inline more functions
+inline-more = []
 
 [dependencies]
-arcana-impl = { path = "impl" }
-arcana-dyn = { path = "dyn", optional = true }
+arcana-importers = { path = "../importers" }
+arcana-names = { path = "../names" }
+arcana-proc = { path = "../proc" }
+arcana-project = { path = "../project" }
+
+ahash.workspace = true
+approx.workspace = true
+argosy.workspace = true
+argosy-store.workspace = true
+base64.workspace = true
+blink-alloc.workspace = true
+bit-vec.workspace = true
+bytemuck.workspace = true
+cint.workspace = true
+const-random.workspace = true
+dirs.workspace = true
+dunce.workspace = true
+edict.workspace = true
+flume.workspace = true
+futures.workspace = true
+gametime.workspace = true
+gilrs.workspace = true
+hashbrown.workspace = true
+mev.workspace = true
+na.workspace = true
+ordered-float.workspace = true
+palette.workspace = true
+parking_lot.workspace = true
+rand.workspace = true
+rapid-qoi.workspace = true
+serde.workspace = true
+slab.workspace = true
+smallvec.workspace = true
+sha2.workspace = true
+simba.workspace = true
+thiserror.workspace = true
+tiny-fn.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+winit.workspace = true
