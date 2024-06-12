@@ -348,7 +348,6 @@ impl WorkGraph {
 
     pub fn run(
         &mut self,
-        device: &mev::Device,
         queue: &mut mev::Queue,
         world: &mut World,
         hub: &mut PluginsHub,
@@ -369,7 +368,7 @@ impl WorkGraph {
             job.plan(
                 &mut self.hub,
                 &mut self.selected_jobs,
-                device.clone(),
+                queue.device().clone(),
                 world,
                 hub,
             );
@@ -379,14 +378,7 @@ impl WorkGraph {
             if !self.selected_jobs.contains(&job.idx) {
                 continue;
             }
-            job.exec(
-                &mut self.hub,
-                device.clone(),
-                queue,
-                &self.cbufs,
-                world,
-                hub,
-            );
+            job.exec(&mut self.hub, queue, &self.cbufs, world, hub);
         }
 
         queue.submit(self.cbufs.drain().filter_map(|e| e.finish().ok()), true)
@@ -700,12 +692,13 @@ impl JobNode {
     fn exec(
         &mut self,
         hub: &mut TargetHub,
-        device: mev::Device,
         queue: &mut mev::Queue,
         cbufs: &Arena<mev::CommandEncoder>,
         world: &mut World,
         plugins: &mut PluginsHub,
     ) {
+        let device = queue.device().clone();
+
         let commands = CommandStream {
             queue: RefCell::new(queue),
             cbufs,

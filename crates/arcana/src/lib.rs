@@ -78,7 +78,7 @@ extern crate self as arcana;
 
 // Re-exports
 pub use {
-    arcana_names::{ident, name, Ident, Name},
+    arcana_names::{ident, name, Ident, IdentError, Name, NameError},
     arcana_proc::{stable_hash_tokens, with_stid, WithStid},
     arcana_project as project,
     blink_alloc::{self, Blink, BlinkAlloc},
@@ -91,6 +91,7 @@ pub use {
 use code::init_codes;
 use events::init_events;
 use flow::init_flows;
+use gametime::{TimeSpan, TimeStamp};
 pub use mev;
 pub mod arena;
 pub mod assets;
@@ -229,4 +230,8 @@ pub fn init_world(world: &mut World) {
     init_flows(world);
     init_events(world);
     init_codes(world);
+    world.insert_resource(ClockStep {
+        now: TimeStamp::start(),
+        step: TimeSpan::ZERO,
+    });
 }

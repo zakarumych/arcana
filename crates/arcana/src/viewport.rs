@@ -90,7 +90,6 @@ impl Viewport {
 
     pub fn next_frame(
         &mut self,
-        device: &mev::Device,
         queue: &mut mev::Queue,
         before: mev::PipelineStages,
     ) -> Result<Option<(mev::Image, Option<mev::Frame>)>, mev::SurfaceError> {
@@ -105,7 +104,7 @@ impl Viewport {
                     let s = match surface {
                         Some(surface) => surface,
                         None => {
-                            let new_surface = device.new_surface(&*window, &*window)?;
+                            let new_surface = queue.device().new_surface(&*window, &*window)?;
                             surface.get_or_insert(new_surface)
                         }
                     };

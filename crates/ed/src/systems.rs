@@ -36,6 +36,13 @@ pub struct Schedule {
 }
 
 impl Schedule {
+    pub fn new() -> Self {
+        Schedule {
+            fix_schedule: Vec::new(),
+            var_schedule: Vec::new(),
+        }
+    }
+
     /// Run systems in dependency order.
     /// Reschedules systems if graph is modified.
     pub fn run(&self, category: Category, world: &mut World, hub: &mut PluginsHub) {
@@ -93,19 +100,20 @@ fn order_systems(snarl: &Snarl<SystemNode>, category: Category) -> Vec<SystemId>
 }
 
 pub struct Systems {
-    schedule: Schedule,
+    modification: u64,
     available: Vec<SystemNode>,
 }
 
 impl Systems {
     pub fn new() -> Self {
         Systems {
-            schedule: Schedule {
-                fix_schedule: Vec::new(),
-                var_schedule: Vec::new(),
-            },
+            modification: 1,
             available: Vec::new(),
         }
+    }
+
+    pub fn modification(&self) -> u64 {
+        self.modification
     }
 
     pub fn show(&mut self, project: &Project, data: &mut ProjectData, ui: &mut Ui) {
@@ -119,10 +127,11 @@ impl Systems {
         data.systems.snarl.show(&mut viewer, &STYLE, "systems", ui);
 
         if viewer.modified {
-            self.schedule.fix_schedule = order_systems(&data.systems.snarl, Category::Fix);
-            self.schedule.var_schedule = order_systems(&data.systems.snarl, Category::Var);
-
             try_log_err!(data.sync(&project));
+        }
+
+        if viewer.modified {
+            self.modification += 1;
         }
     }
 
@@ -153,10 +162,8 @@ impl Systems {
 
         self.available = new_systems;
         self.available.sort_by_cached_key(|node| node.name.clone());
-    }
 
-    pub fn schedule(&self) -> &Schedule {
-        &self.schedule
+        self.modification += 1;
     }
 }
 
@@ -170,6 +177,13 @@ impl SystemGraph {
     pub fn new() -> Self {
         SystemGraph {
             snarl: Snarl::new(),
+        }
+    }
+
+    pub fn make_schedule(&self) -> Schedule {
+        Schedule {
+            fix_schedule: order_systems(&self.snarl, Category::Fix),
+            var_schedule: order_systems(&self.snarl, Category::Var),
         }
     }
 }

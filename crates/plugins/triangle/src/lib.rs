@@ -13,7 +13,7 @@ use arcana::{
     model::{ColorModel, ColorValue, Model, Value},
     name,
     work::{Exec, Image2D, Job, JobDesc, JobIdx, Planner},
-    Component,
+    Component, Res, View,
 };
 
 #[derive(mev::Arguments)]
@@ -62,7 +62,7 @@ impl Job for DrawTriangle {
             return;
         };
 
-        let speed = world.view::<Cpy<Speed>>().into_iter().next().unwrap().0;
+        let angle = world.view::<Cpy<Angle>>().into_iter().next().unwrap().0;
 
         let constants = self.constants.entry(idx).or_insert(DTConstants {
             angle: 0.0,
@@ -70,7 +70,7 @@ impl Job for DrawTriangle {
             height: 0,
         });
 
-        constants.angle += world.expect_resource::<ClockStep>().step.as_secs_f32() * speed;
+        constants.angle = angle;
 
         while constants.angle > 1.0 {
             constants.angle = constants.angle.fract();
@@ -147,7 +147,7 @@ impl Job for DrawTriangle {
                 .new_buffer(mev::BufferDesc {
                     size: size_of::<[f32; 12]>(),
                     name: "colors",
-                    usage: mev::BufferUsage::UNIFORM,
+                    usage: mev::BufferUsage::UNIFORM | mev::BufferUsage::TRANSFER_DST,
                     memory: mev::Memory::Shared,
                 })
                 .unwrap();
@@ -180,6 +180,12 @@ impl Job for DrawTriangle {
         encoder.barrier(
             mev::PipelineStages::TRANSFER,
             mev::PipelineStages::FRAGMENT_SHADER,
+        );
+
+        encoder.init_image(
+            mev::PipelineStages::all(),
+            mev::PipelineStages::FRAGMENT_SHADER,
+            &target,
         );
 
         let mut render = encoder.render(mev::RenderPassDesc {
@@ -323,6 +329,14 @@ fn x2(_: FlowEntity, a: &f32) -> (f32,) {
     (a * 2.0,)
 }
 
+fn mul(_: FlowEntity, a: &f32, b: &f32) -> (f32,) {
+    (a * b,)
+}
+
+fn add(_: FlowEntity, a: &f32, b: &f32) -> (f32,) {
+    (a + b,)
+}
+
 async fn wait(e: FlowEntity<'_>) {
     tracing::info!("Sleeping for a second");
     sleep(TimeSpan::SECOND, e.get_world()).await;
@@ -341,30 +355,62 @@ fn get_angle_speed(e: FlowEntity) -> (f32,) {
     (e.get_cloned::<Speed>().unwrap().0,)
 }
 
+#[derive(Clone, Copy, Component)]
+struct Angle(f32);
+
+fn set_angle(mut e: FlowEntity, angle: &f32) {
+    tracing::info!("Setting triangle angle to {}", angle);
+    let mut angle = *angle;
+
+    if angle >= 1.0 {
+        angle = angle.fract();
+    }
+
+    let _ = e.set(Angle(angle));
+}
+
+fn get_angle(e: FlowEntity) -> (f32,) {
+    (e.get_cloned::<Angle>().unwrap().0,)
+}
+
+fn rotate_system(view: View<(&mut Angle, &Speed)>, clock: Res<ClockStep>) {
+    for (angle, speed) in view {
+        angle.0 += speed.0 * clock.step.as_secs_f32();
+
+        if angle.0 >= 1.0 {
+            angle.0 = angle.0.fract();
+        }
+    }
+}
+
 arcana::export_arcana_plugin! {
     TrianglePlugin {
         // List dependencies
         dependencies: [dummy ...],
+
+        // List systems
+        systems: [rotate_system],
 
         // List jobs
         jobs: [DrawTriangle, op: OpJob::desc() => OpJob::new()],
 
         events: [Start],
 
-        pure_codes: [x2, get_angle_speed],
-        flow_codes: [wait, set_angle_speed],
+        pure_codes: [x2, mul, add, get_angle_speed, get_angle],
+        flow_codes: [wait, set_angle_speed, set_angle],
 
         // Init block
         in world => {
             let e = world.spawn((
-                Speed(0.01),
+                Speed(std::f32::consts::FRAC_1_PI * 0.5),
+                Angle(0.0),
                 Code {
                     code_id: hash_id!("speedup"),
                 }
             )).id();
 
             spawn_block!(in world -> {
-                for _ in 0..5 {
+                for _ in 0..1 {
                     emit_event(world, Event::new(local_name_hash_id!(Start), e));
                     sleep(TimeSpan::SECOND, world).await;
                 }

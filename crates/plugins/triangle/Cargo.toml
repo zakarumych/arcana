@@ -8,3 +8,4 @@ publish = false
 arcana = { path = "../../arcana" }
 dummy = { path = "../dummy" }
 tracing.workspace = true
+palette.workspace = true

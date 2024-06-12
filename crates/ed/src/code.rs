@@ -13,7 +13,7 @@ use arcana::{
     hash_id,
     plugin::{CodeInfo, EventInfo, PluginsHub},
     project::Project,
-    Ident, Name, Stid,
+    Ident, Name, NameError, Stid,
 };
 use egui::{epaint::PathShape, Color32, Painter, PointerButton, Rect, Shape, Stroke, Ui};
 use egui_snarl::{
@@ -279,7 +279,7 @@ fn execute_flow(
                 continuation,
             );
 
-            tracing::info!("Next is {:?}", next);
+            tracing::debug!("Next is {:?}", next);
 
             next
         }
@@ -425,12 +425,12 @@ pub fn handle_code_events(
 
         while let Some(event) = events.next(start) {
             let Ok(Some(Code { code_id, .. })) = world.try_get_cloned::<Code>(event.entity) else {
-                tracing::error!("Entity {:?} was despawned", event.entity);
+                tracing::debug!("Entity {:?} was despawned", event.entity);
                 continue;
             };
 
             let Some(graph) = codes.get(&code_id) else {
-                tracing::error!("Code {code_id:?} is not found");
+                tracing::debug!("Code {code_id:?} is not found");
                 continue;
             };
 
@@ -472,6 +472,8 @@ pub fn handle_code_events(
             }
 
             let entity = event.entity;
+
+            tracing::debug!("Running code {:?} for event {:?}", code_id, event.id);
 
             drop(events);
 
@@ -515,6 +517,12 @@ impl CodeContext {
             cache: OutputCache::new(),
             next_event: 0,
         }
+    }
+
+    pub fn reset(&mut self) {
+        self.queue.clear();
+        self.cache.map.clear();
+        self.next_event = 0;
     }
 
     pub fn execute(&mut self, hub: &PluginsHub, data: &ProjectData, world: &mut World) {
@@ -793,10 +801,10 @@ impl Codes {
         }
     }
 
-    pub fn update_plugins(&mut self, _data: &mut ProjectData, container: &Container) {
+    pub fn update_plugins(&mut self, _data: &mut ProjectData, new: &Container) {
         self.available_codes.clear();
 
-        for (name, plugin) in container.plugins() {
+        for (name, plugin) in new.plugins() {
             let codes = self.available_codes.entry(name).or_insert(plugin.codes());
 
             codes.sort_by_key(|node| node.name);
@@ -804,7 +812,7 @@ impl Codes {
 
         self.available_events.clear();
 
-        for (name, plugin) in container.plugins() {
+        for (name, plugin) in new.plugins() {
             let events = self.available_events.entry(name).or_insert(plugin.events());
             events.sort_by_key(|node| node.name);
         }
@@ -840,11 +848,14 @@ impl Codes {
                             data.codes.insert(id, new_code);
                             self.selected = Some(id);
                         }
-                        Err(err) => {
+                        Err(NameError::Empty) => {
+                            tracing::error!("Failed to create code with empty name");
+                        }
+                        Err(NameError::Bad(c)) => {
                             tracing::error!(
-                                "Failed to create code: {}. with name {}",
-                                err,
-                                self.new_code_name
+                                "Failed to create code with name \"{}\". Bad character '{}'",
+                                self.new_code_name,
+                                c,
                             );
                         }
                     }

@@ -556,8 +556,9 @@ macro_rules! export_arcana_plugin {
 }
 
 #[doc(hidden)]
-pub static GLOBAL_LINK_CHECK: AtomicBool = AtomicBool::new(false);
+static GLOBAL_LINK_CHECK: AtomicBool = AtomicBool::new(false);
 
+// Re-exported as `arcana_linked` from plugins lib.
 #[doc(hidden)]
 pub fn running_arcana_instance_check(check: &AtomicBool) -> bool {
     (check as *const _ == &GLOBAL_LINK_CHECK as *const _)
@@ -565,7 +566,13 @@ pub fn running_arcana_instance_check(check: &AtomicBool) -> bool {
 }
 
 #[doc(hidden)]
+pub fn check_arcana_instance(arcana_linked: fn(check: &AtomicBool) -> bool) -> bool {
+    arcana_linked(&GLOBAL_LINK_CHECK)
+}
+
+#[doc(hidden)]
 pub fn set_running_arcana_instance() {
+    tracing::info!("Arcana instance is running");
     let old = GLOBAL_LINK_CHECK.swap(true, ::core::sync::atomic::Ordering::SeqCst);
     assert!(!old, "Arcana instance is already running");
 }

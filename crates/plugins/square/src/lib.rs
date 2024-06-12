@@ -100,6 +100,13 @@ impl Job for DrawSquare {
         });
 
         let encoder = runner.new_encoder();
+
+        encoder.init_image(
+            mev::PipelineStages::all(),
+            mev::PipelineStages::FRAGMENT_SHADER,
+            &target,
+        );
+
         let mut render = encoder.render(mev::RenderPassDesc::new().color_attachments(&[
             mev::AttachmentDesc::new(&target).clear(mev::ClearColor(1.0, 0.5, 0.3, 0.0)),
         ]));

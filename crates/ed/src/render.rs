@@ -147,6 +147,8 @@ impl Rendering {
                 .snarl
                 .insert_node(egui::Pos2::new(0.0, 0.0), WorkGraphNode::MainPresent);
         }
+
+        self.modification += 1;
     }
 
     pub fn show(

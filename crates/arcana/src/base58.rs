@@ -1,7 +1,5 @@
 //! Base58 encoding and decoding functions.
 
-use std::io::BufRead;
-
 const BASE58: &[u8; 58] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
 #[rustfmt::skip]

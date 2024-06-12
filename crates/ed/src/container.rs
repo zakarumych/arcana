@@ -21,7 +21,11 @@ use std::{
     sync::{atomic::AtomicBool, Arc},
 };
 
-use arcana::{plugin::ArcanaPlugin, project::Dependency, Ident};
+use arcana::{
+    plugin::{check_arcana_instance, ArcanaPlugin},
+    project::Dependency,
+    Ident,
+};
 use hashbrown::{hash_map::RawEntryMut, HashMap, HashSet};
 use miette::{Context, Diagnostic, Severity};
 use thiserror::Error;
@@ -520,7 +524,7 @@ fn load_lib(path: &Path, new_path: PathBuf) -> miette::Result<Loaded> {
         .into());
     }
 
-    if !arcana_linked(&arcana::plugin::GLOBAL_LINK_CHECK) {
+    if !check_arcana_instance(*arcana_linked) {
         return Err(PluginsLibraryEngineUnlinked.into());
     }
 

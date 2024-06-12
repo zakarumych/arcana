@@ -1,13 +1,9 @@
-use std::{hash::Hash, path::PathBuf, time::Instant};
+use std::{hash::Hash, path::PathBuf};
 
 use arboard::Clipboard;
 use arcana::{
-    blink_alloc::BlinkAlloc,
-    gametime::{FrequencyNumExt, TimeStamp},
-    input::ViewportInput,
-    mev,
-    project::Project,
-    Clock, ClockStep, FrequencyTicker,
+    blink_alloc::BlinkAlloc, gametime::FrequencyNumExt, input::ViewportInput, mev,
+    project::Project, Clock, ClockStep, FrequencyTicker,
 };
 use egui::{Id, TopBottomPanel, WidgetText};
 use egui_dock::{DockState, NodeIndex, TabIndex, TabViewer, Tree};
@@ -109,12 +105,13 @@ impl App {
         let codes = Codes::new();
         let main = Main::new();
 
+        let clock = Clock::new();
+
         let clipboard = Clipboard::new().unwrap();
 
         let views = Vec::new();
 
-        let clock = Clock::new();
-        let limiter = clock.ticker(20.hz());
+        let limiter = clock.ticker(120.hz());
 
         App {
             project,
@@ -147,17 +144,12 @@ impl App {
     }
 
     pub fn try_tick(&mut self, events: &ActiveEventLoop) {
-        let mut last = self.clock.now();
         let step = self.clock.step();
 
         let ticks = self.limiter.ticks(step.step);
 
-        for tick in ticks {
-            self.tick(ClockStep {
-                now: tick,
-                step: tick - last,
-            });
-            last = tick;
+        for clock in ticks {
+            self.tick(clock);
         }
 
         filter_subprocesses();
@@ -166,20 +158,38 @@ impl App {
         events.set_control_flow(ControlFlow::WaitUntil(until));
     }
 
-    pub fn tick(&mut self, clock: ClockStep) {
-        self.plugins
-            .tick(&mut self.container, &mut self.project, &self.data);
+    pub fn tick(&mut self, step: ClockStep) {
+        let update = self
+            .plugins
+            .tick(&mut self.project, &self.data, self.container.is_none());
+
+        if let Some(c) = update {
+            self.systems.update_plugins(&mut self.data, &c);
+            self.filters.update_plugins(&mut self.data, &c);
+            self.codes.update_plugins(&mut self.data, &c);
+            self.rendering.update_plugins(&mut self.data, &c);
+            self.main.update_plugins(&c);
+
+            self.container = Some(c);
+        }
+
+        self.main.tick(&self.data, &self.systems, step);
     }
 
     /// Runs rendering.
     pub fn handle_event(&mut self, window_id: WindowId, event: &WindowEvent) {
+        if self.main.handle_event(&self.data, window_id, event) {
+            return;
+        }
+
         for view in &mut self.views {
             if view.window.id() == window_id {
                 let Ok(event) = ViewportInput::try_from(event) else {
                     return;
                 };
 
-                self.ui.handle_event(&mut view.viewport, &event);
+                self.ui
+                    .handle_event(&mut view.viewport, &mut self.clipboard, &event);
                 break;
             }
         }
@@ -294,13 +304,16 @@ impl App {
 
                 self.ui.render(&mut view.viewport, frame, &mut self.queue);
 
-                if self.ui.has_requested_repaint_for(&view.viewport) {
-                    view.window.request_redraw();
-                }
-
                 break;
             }
         }
+
+        self.main.render(
+            &self.data,
+            &mut self.rendering,
+            &mut self.ui.textures(),
+            &mut self.queue,
+        );
     }
 }
 
@@ -366,16 +379,16 @@ impl TabViewer for AppModel<'_> {
             Tab::Systems => self.systems.show(self.project, self.data, ui),
             Tab::Filters => self.filters.show(self.project, self.data, ui),
             Tab::Codes => self.codes.show(self.project, self.data, ui),
-            Tab::Rendering => {}
-            // self.rendering.show(
-            //     self.project,
-            //     self.sample,
-            //     self.data,
-            //     ui,
-            //     self.device,
-            //     self.textures,
-            // ),
-            Tab::Main => {}      //Main::show(self.world, ui, self.window.id()),
+            Tab::Rendering => self.rendering.show(
+                self.project,
+                self.data,
+                self.sample,
+                self.device,
+                self.main,
+                &mut self.textures,
+                ui,
+            ),
+            Tab::Main => self.main.show(self.window.id(), &mut self.textures, ui),
             Tab::Inspector => {} //Inspector::show(self.world, ui),
         }
     }

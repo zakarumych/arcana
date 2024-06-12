@@ -458,7 +458,7 @@ impl Events {
 
         let pos = self.events.len() - idx as usize - 1;
 
-        let event = self.events.get(pos)?;
+        let event = &self.events[pos];
         let payload = self.storages[&event.payload_id].get(event.payload_idx);
         Some(Event {
             id: event.id,
@@ -505,8 +505,9 @@ impl Events {
             return None;
         }
 
-        let idx = idx as usize;
-        let event = &self.events[idx];
+        let pos = self.events.len() - idx as usize - 1;
+
+        let event = &self.events[pos];
         let payload = self.storages[&event.payload_id].get(event.payload_idx);
         *start += 1;
         Some(Event {

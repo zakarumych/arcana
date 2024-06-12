@@ -1,24 +1,19 @@
 //! Running instance of the project.
 
-use std::sync::Arc;
-
 use arcana::{
     code::builtin::emit_code_start,
-    edict::world::WorldLocal,
     flow::{wake_flows, Flows},
-    gametime::{ClockRate, FrequencyNumExt, TimeSpan},
+    gametime::{ClockRate, FrequencyNumExt, TimeSpan, TimeStamp},
     init_world,
     input::{DeviceId, Input, KeyCode, PhysicalKey, ViewportInput},
     mev,
     plugin::PluginsHub,
-    texture::Texture,
     viewport::Viewport,
     work::{CommandStream, HookId, Image2D, Image2DInfo, PinId, Target, WorkGraph},
-    Blink, ClockStep, EntityId, FrequencyTicker, World,
+    Blink, ClockStep, FrequencyTicker, World,
 };
 use egui::Ui;
 use hashbrown::{HashMap, HashSet};
-use parking_lot::Mutex;
 use winit::{event::WindowEvent, window::WindowId};
 
 use crate::{
@@ -28,6 +23,7 @@ use crate::{
     filters::Funnel,
     render::Rendering,
     systems::{self, Schedule, Systems},
+    ui::UserTextures,
 };
 
 /// Instance of the project.
@@ -44,7 +40,7 @@ pub struct Instance {
     fix: FrequencyTicker,
 
     /// Limits variable updates.
-    lim: FrequencyTicker,
+    limiter: FrequencyTicker,
 
     /// Instance rate.
     rate: ClockRate,
@@ -58,6 +54,9 @@ pub struct Instance {
     /// Work graph.
     workgraph: WorkGraph,
 
+    /// Systems schedule.
+    schedule: Schedule,
+
     /// Which pin to present to viewport.
     present: Option<PinId>,
 
@@ -69,24 +68,36 @@ pub struct Instance {
 }
 
 impl Instance {
-    pub fn update_plugins(&mut self, c: &Container) {
+    pub fn update_plugins(&mut self, new: &Container) {
+        tracing::info!("Updating plugins container");
+
         match self.container.take() {
             None => {
-                for (_, p) in c.plugins() {
+                self.container = Some(new.clone());
+
+                for (_, p) in new.plugins() {
                     p.init(&mut self.world, &mut self.hub);
                 }
-                self.container = Some(c.clone());
             }
-            Some(_old) => {
+            Some(old) => {
                 self.world = World::new();
                 init_world(&mut self.world);
 
+                self.rate.reset();
+                self.code.reset();
+                self.workgraph = WorkGraph::new(HashMap::new(), HashSet::new()).unwrap();
+                self.present = None;
                 self.hub = PluginsHub::new();
-                self.container = Some(c.clone());
+                self.container = Some(new.clone());
+                self.blink.reset();
+                self.fix = FrequencyTicker::new(20.hz(), self.rate.now());
+                self.limiter = FrequencyTicker::new(120.hz(), TimeStamp::start());
 
-                for (_, p) in c.plugins() {
+                for (_, p) in new.plugins() {
                     p.init(&mut self.world, &mut self.hub);
                 }
+
+                drop(old);
             }
         }
     }
@@ -99,23 +110,23 @@ impl Instance {
         &mut self.rate
     }
 
-    pub fn tick(&mut self, span: TimeSpan, schedule: &Schedule, data: &ProjectData) {
+    pub fn tick(&mut self, span: TimeSpan, data: &ProjectData) {
+        // tracing::error!("Tick {}", span);
+
         emit_code_start(&mut self.world);
 
-        let last_now = self.rate.now();
         let step = self.rate.step(span);
 
-        self.fix.with_ticks(step.step, |fix_now| {
-            self.world.insert_resource(ClockStep {
-                now: fix_now,
-                step: fix_now - last_now,
-            });
-            schedule.run(systems::Category::Fix, &mut self.world, &mut self.hub);
+        self.fix.with_ticks(step.step, |fix| {
+            self.world.insert_resource(fix);
+            self.schedule
+                .run(systems::Category::Fix, &mut self.world, &mut self.hub);
         });
 
         self.world.insert_resource(step);
-        if self.lim.tick_count(step.step) > 0 {
-            schedule.run(systems::Category::Var, &mut self.world, &mut self.hub);
+        if self.limiter.tick_count(span) > 0 {
+            self.schedule
+                .run(systems::Category::Var, &mut self.world, &mut self.hub);
         }
 
         self.code.execute(&self.hub, data, &mut self.world);
@@ -131,55 +142,17 @@ impl Instance {
         funnel.filter(&mut self.hub, &self.blink, &mut self.world, event)
     }
 
-    pub fn render(
+    /// Render to texture.
+    pub fn render_to_texture(
         &mut self,
-        device: &mev::Device,
-        queue: &mut mev::Queue,
-    ) -> Result<(), mev::SurfaceError> {
-        let Some(pin) = self.present else {
-            return Ok(());
-        };
-
-        let (image, frame) =
-            match self
-                .viewport
-                .next_frame(device, queue, mev::PipelineStages::all())?
-            {
-                Some((image, frame)) => (image, frame),
-                None => return Ok(()),
-            };
-
-        let info = Image2DInfo::from_image(&image);
-        let target = Image2D(image);
-
-        self.workgraph.set_sink(pin, target, info);
-
-        self.workgraph
-            .run(device, queue, &mut self.world, &mut self.hub)
-            .unwrap();
-
-        if let Some(frame) = frame {
-            let mut encoder = queue.new_command_encoder().unwrap();
-            encoder.present(frame, mev::PipelineStages::all());
-            let buffer = encoder.finish().unwrap();
-
-            queue.submit(std::iter::once(buffer), true).unwrap();
-        }
-
-        Ok(())
-    }
-
-    /// Makes this instance render into a texture.
-    ///
-    /// Returns image to which main presentation happens.
-    pub fn set_texture(
-        &mut self,
-        world: &World,
         extent: mev::Extent2,
-    ) -> Result<mev::Image, mev::OutOfMemory> {
+        queue: &mut mev::Queue,
+    ) -> Result<Option<mev::Image>, mev::SurfaceError> {
         #[cold]
-        fn new_image(extent: mev::Extent2, world: &World) -> Result<mev::Image, mev::OutOfMemory> {
-            let device = world.expect_resource::<mev::Device>();
+        fn new_image(
+            extent: mev::Extent2,
+            device: &mev::Device,
+        ) -> Result<mev::Image, mev::OutOfMemory> {
             let image = device.new_image(mev::ImageDesc {
                 dimensions: extent.into(),
                 format: mev::PixelFormat::Rgba8Srgb,
@@ -193,25 +166,50 @@ impl Instance {
             Ok(image)
         }
 
+        let Some(pin) = self.present else {
+            return Ok(None);
+        };
+
         if self
             .viewport
             .get_image()
             .map_or(true, |i| i.dimensions() != extent)
         {
+            let new_image = new_image(extent, queue)?;
+
             tracing::debug!("Creating new image for viewport");
-            self.viewport.set_image(new_image(extent, world)?);
+            self.viewport.set_image(new_image);
         }
 
-        Ok(self.viewport.get_image().unwrap().clone())
+        let image = match self
+            .viewport
+            .next_frame(queue, mev::PipelineStages::all())?
+        {
+            Some((image, None)) => image,
+            _ => unreachable!(),
+        };
+
+        let info = Image2DInfo::from_image(&image);
+        let target = Image2D(image.clone());
+
+        self.workgraph.set_sink(pin, target, info);
+
+        self.workgraph
+            .run(queue, &mut self.world, &mut self.hub)
+            .unwrap();
+
+        Ok(Some(image))
     }
 }
 
 pub struct Main {
     instance: Instance,
     rendering_modifications: u64,
+    systems_modifications: u64,
 
     focused: bool,
-    view_id: Option<EntityId>,
+    view_id: Option<egui::TextureId>,
+    view_extent: mev::Extent2,
 
     // Rect of the widget.
     rect: egui::Rect,
@@ -233,12 +231,14 @@ impl Main {
         let blink = Blink::new();
 
         let rate = ClockRate::new();
-        let fix = FrequencyTicker::new(60.hz(), rate.now());
-        let lim = FrequencyTicker::new(60.hz(), rate.now());
+        let fix = FrequencyTicker::new(20.hz(), rate.now());
+        let limiter = FrequencyTicker::new(120.hz(), TimeStamp::start());
 
         let flows = Flows::new();
         let code = CodeContext::new();
         let workgraph = WorkGraph::new(HashMap::new(), HashSet::new()).unwrap();
+
+        let schedule = Schedule::new();
 
         let present = None;
         let viewport = Viewport::new_image();
@@ -250,11 +250,12 @@ impl Main {
             blink,
             hub,
             fix,
-            lim,
+            limiter,
             rate,
             flows,
             code,
             workgraph,
+            schedule,
             present,
             viewport,
             container: None,
@@ -263,8 +264,10 @@ impl Main {
         Main {
             instance,
             rendering_modifications: 0,
+            systems_modifications: 0,
             focused: false,
             view_id: None,
+            view_extent: mev::Extent2::ZERO,
             rect: egui::Rect::NOTHING,
             pixel_per_point: 1.0,
             contains_cursors: HashSet::new(),
@@ -272,29 +275,27 @@ impl Main {
         }
     }
 
-    pub fn show(world: &WorldLocal, ui: &mut Ui, window: WindowId) {
-        let mut main = world.get_resource_mut::<Main>().unwrap();
-
+    pub fn show(&mut self, window: WindowId, textures: &mut UserTextures, ui: &mut Ui) {
         ui.horizontal_top(|ui| {
             let r = ui.button(egui_phosphor::regular::PLAY);
             if r.clicked() {
-                main.instance.rate_mut().set_rate(1.0);
+                self.instance.rate_mut().set_rate(1.0);
             }
             let r = ui.button(egui_phosphor::regular::PAUSE);
             if r.clicked() {
-                main.instance.rate_mut().pause();
+                self.instance.rate_mut().pause();
             }
             let r = ui.button(egui_phosphor::regular::FAST_FORWARD);
             if r.clicked() {
-                main.instance.rate_mut().set_rate(2.0);
+                self.instance.rate_mut().set_rate(2.0);
             }
 
-            let mut rate = main.instance.rate().rate();
+            let mut rate = self.instance.rate().rate();
 
             let value = egui::Slider::new(&mut rate, 0.0..=10.0).clamp_to_range(false);
             let r = ui.add(value);
             if r.changed() {
-                main.instance.rate_mut().set_rate(rate as f32);
+                self.instance.rate_mut().set_rate(rate as f32);
             }
         });
 
@@ -302,7 +303,7 @@ impl Main {
             .rounding(egui::Rounding::same(5.0))
             .stroke(egui::Stroke::new(
                 1.0,
-                if main.focused {
+                if self.focused {
                     egui::Color32::LIGHT_GRAY
                 } else {
                     egui::Color32::DARK_GRAY
@@ -312,31 +313,23 @@ impl Main {
 
         game_frame.show(ui, |ui| {
             let size = ui.available_size();
-            let extent = mev::Extent2::new(size.x as u32, size.y as u32);
-            let Ok(image) = main.instance.set_texture(world, extent) else {
-                ui.centered_and_justified(|ui| {
-                    ui.label("GPU OOM");
-                });
-                return;
-            };
+            self.view_extent = mev::Extent2::new(size.x as u32, size.y as u32);
 
-            let view_id = *main.view_id.get_or_insert_with(|| world.allocate().id());
-
-            world.insert_defer(view_id, Texture { image });
+            let view_id = *self.view_id.get_or_insert_with(|| textures.new_id());
 
             let image = egui::Image::new(egui::load::SizedTexture {
-                id: egui::TextureId::User(view_id.bits()),
+                id: view_id,
                 size: size.into(),
             });
 
             let r = ui.add(image.sense(egui::Sense::click()));
 
-            if main.focused {
+            if self.focused {
                 if !r.has_focus() {
-                    main.focused = false;
+                    self.focused = false;
                 } else {
-                    main.rect = r.rect;
-                    main.pixel_per_point = ui.ctx().pixels_per_point();
+                    self.rect = r.rect;
+                    self.pixel_per_point = ui.ctx().pixels_per_point();
                 }
             } else {
                 if r.has_focus() {
@@ -346,24 +339,25 @@ impl Main {
                 let mut make_focused = false;
                 if r.clicked() {
                     r.request_focus();
-                    make_focused = !main.focused
+                    make_focused = !self.focused
                 }
 
                 if make_focused {
-                    main.rect = r.rect;
-                    main.pixel_per_point = ui.ctx().pixels_per_point();
-                    main.window = Some(window);
+                    self.rect = r.rect;
+                    self.pixel_per_point = ui.ctx().pixels_per_point();
+                    self.window = Some(window);
                 }
             }
         });
     }
 
-    pub fn handle_event(world: &mut World, window: WindowId, event: &WindowEvent) -> bool {
-        let world = world.local();
-        let mut main = world.get_resource_mut::<Main>().unwrap();
-        let data = world.expect_resource::<ProjectData>();
-
-        if main.window != Some(window) {
+    pub fn handle_event(
+        &mut self,
+        data: &ProjectData,
+        window: WindowId,
+        event: &WindowEvent,
+    ) -> bool {
+        if self.window != Some(window) {
             return false;
         }
 
@@ -374,15 +368,15 @@ impl Main {
                 ViewportInput::CursorEntered { .. } => return false,
                 ViewportInput::CursorLeft { .. } => return false,
                 ViewportInput::CursorMoved { device_id, x, y } => {
-                    let px = x / main.pixel_per_point;
-                    let py = y / main.pixel_per_point;
+                    let px = x / self.pixel_per_point;
+                    let py = y / self.pixel_per_point;
 
-                    let gx = px - main.rect.min.x;
-                    let gy = py - main.rect.min.y;
+                    let gx = px - self.rect.min.x;
+                    let gy = py - self.rect.min.y;
 
-                    if main.rect.contains(egui::pos2(px, py)) {
-                        if main.contains_cursors.insert(device_id) {
-                            main.instance.on_input(
+                    if self.rect.contains(egui::pos2(px, py)) {
+                        if self.contains_cursors.insert(device_id) {
+                            self.instance.on_input(
                                 &data.funnel,
                                 &Input::ViewportInput {
                                     input: ViewportInput::CursorEntered { device_id },
@@ -390,7 +384,7 @@ impl Main {
                             );
                         }
 
-                        main.instance.on_input(
+                        self.instance.on_input(
                             &data.funnel,
                             &Input::ViewportInput {
                                 input: ViewportInput::CursorMoved {
@@ -403,8 +397,8 @@ impl Main {
                     } else {
                         consume = false;
 
-                        if main.contains_cursors.remove(&device_id) {
-                            main.instance.on_input(
+                        if self.contains_cursors.remove(&device_id) {
+                            self.instance.on_input(
                                 &data.funnel,
                                 &Input::ViewportInput {
                                     input: ViewportInput::CursorLeft { device_id },
@@ -414,12 +408,12 @@ impl Main {
                     }
                 }
                 ViewportInput::MouseWheel { device_id, .. }
-                    if !main.contains_cursors.contains(&device_id) =>
+                    if !self.contains_cursors.contains(&device_id) =>
                 {
                     consume = false;
                 }
                 ViewportInput::MouseInput { device_id, .. }
-                    if !main.contains_cursors.contains(&device_id) =>
+                    if !self.contains_cursors.contains(&device_id) =>
                 {
                     consume = false;
                 }
@@ -429,12 +423,12 @@ impl Main {
                 ViewportInput::KeyboardInput { event, .. }
                     if event.physical_key == PhysicalKey::Code(KeyCode::Escape) =>
                 {
-                    main.focused = false;
+                    self.focused = false;
                 }
                 ViewportInput::KeyboardInput {
                     device_id, event, ..
-                } if main.focused => {
-                    main.instance.on_input(
+                } if self.focused => {
+                    self.instance.on_input(
                         &data.funnel,
                         &Input::ViewportInput {
                             input: ViewportInput::KeyboardInput { device_id, event },
@@ -450,34 +444,45 @@ impl Main {
         false
     }
 
-    pub fn tick(world: &mut World, step: ClockStep) {
-        let world = world.local();
-        let mut main = world.expect_resource_mut::<Main>();
-        let systems = world.expect_resource::<Systems>();
-        let data = world.expect_resource::<ProjectData>();
-        main.instance.tick(step.step, systems.schedule(), &data);
+    pub fn tick(&mut self, data: &ProjectData, systems: &Systems, step: ClockStep) {
+        if systems.modification() > self.systems_modifications {
+            self.instance.schedule = data.systems.make_schedule();
+            self.systems_modifications = systems.modification();
+        }
+
+        self.instance.tick(step.step, &data);
     }
 
-    pub fn render(world: &mut World) {
-        let world = world.local();
-        let mut main = world.expect_resource_mut::<Main>();
-        let device = world.expect_resource::<mev::Device>();
-        let queue = world.expect_resource_mut::<Arc<Mutex<mev::Queue>>>();
-        let rendering = world.expect_resource::<Rendering>();
-        let data = world.expect_resource::<ProjectData>();
+    pub fn render(
+        &mut self,
+        data: &ProjectData,
+        rendering: &Rendering,
+        textures: &mut UserTextures,
+        queue: &mut mev::Queue,
+    ) {
+        let Some(view_id) = self.view_id else {
+            return;
+        };
 
-        if rendering.modification() > main.rendering_modifications {
+        if rendering.modification() > self.rendering_modifications {
             match data.workgraph.make_workgraph() {
-                Ok(workgraph) => main.instance.workgraph = workgraph,
+                Ok(workgraph) => self.instance.workgraph = workgraph,
                 Err(err) => {
                     tracing::error!("Failed to make workgraph: {err:?}");
                 }
             }
-            main.instance.present = data.workgraph.get_present();
-            main.rendering_modifications = rendering.modification();
+            self.instance.present = data.workgraph.get_present();
+            self.rendering_modifications = rendering.modification();
         }
 
-        main.instance.render(&device, &mut queue.lock()).unwrap();
+        let image = self
+            .instance
+            .render_to_texture(self.view_extent, queue)
+            .unwrap();
+
+        if let Some(image) = image {
+            textures.set(view_id, image, crate::ui::Sampler::NearestNearest);
+        }
     }
 
     pub fn update_plugins(&mut self, c: &Container) {

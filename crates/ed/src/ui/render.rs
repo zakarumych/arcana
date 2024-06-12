@@ -495,24 +495,27 @@ impl Render {
                                     ((primitive.clip_rect.height() * pixels_per_point) as u32)
                                         .min(dims.height() as u32 - offset.y() as u32),
                                 );
-                                render.with_scissor(offset, extent);
 
-                                let (ref image, sampler) = textures[&mesh.texture_id];
+                                if let Some((image, sampler)) = textures.get(&mesh.texture_id) {
+                                    render.with_scissor(offset, extent);
 
-                                render.with_arguments(
-                                    0,
-                                    &EguiArguments {
-                                        sampler: samplers[sampler as usize].clone(),
-                                        texture: image.clone(),
-                                    },
-                                );
+                                    render.with_arguments(
+                                        0,
+                                        &EguiArguments {
+                                            sampler: samplers[*sampler as usize].clone(),
+                                            texture: image.clone(),
+                                        },
+                                    );
 
-                                render.bind_vertex_buffers(
-                                    0,
-                                    &[vertex_buffer.slice(vertex_buffer_offset..)],
-                                );
-                                render.bind_index_buffer(index_buffer.slice(index_buffer_offset..));
-                                render.draw_indexed(0, 0..mesh.indices.len() as u32, 0..1);
+                                    render.bind_vertex_buffers(
+                                        0,
+                                        &[vertex_buffer.slice(vertex_buffer_offset..)],
+                                    );
+                                    render.bind_index_buffer(
+                                        index_buffer.slice(index_buffer_offset..),
+                                    );
+                                    render.draw_indexed(0, 0..mesh.indices.len() as u32, 0..1);
+                                }
 
                                 next_mesh!();
                             }

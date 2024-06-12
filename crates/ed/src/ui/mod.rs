@@ -1,5 +1,5 @@
 use arboard::Clipboard;
-use arcana::{edict::view, gametime::TimeStamp, mev};
+use arcana::{gametime::TimeStamp, mev};
 use hashbrown::HashMap;
 use render::Render;
 use winit::window::Window;
@@ -131,6 +131,13 @@ impl Ui {
             scale_factor,
             size,
             shapes: Vec::new(),
+        }
+    }
+
+    pub fn textures(&mut self) -> UserTextures {
+        UserTextures {
+            textures: &mut self.textures,
+            next_user_texture_id: &mut self.next_user_texture_id,
         }
     }
 

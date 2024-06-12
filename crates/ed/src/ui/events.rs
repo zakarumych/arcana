@@ -1,3 +1,4 @@
+use arboard::Clipboard;
 use arcana::input::{
     ElementState, KeyCode, ModifiersState, MouseButton, MouseScrollDelta, PhysicalKey,
     ViewportInput,
@@ -10,7 +11,12 @@ impl Ui {
         self.cx.has_requested_repaint_for(&viewport.id)
     }
 
-    pub fn handle_event(&mut self, viewport: &mut UiViewport, event: &ViewportInput) -> bool {
+    pub fn handle_event(
+        &mut self,
+        viewport: &mut UiViewport,
+        clipboard: &mut Clipboard,
+        event: &ViewportInput,
+    ) -> bool {
         match *event {
             ViewportInput::Resized { width, height } => {
                 viewport.size = egui::vec2(width as f32, height as f32);
@@ -41,22 +47,46 @@ impl Ui {
                     let pressed = event.state == ElementState::Pressed;
 
                     if let Some(key) = translate_key_code(keycode) {
-                        viewport.raw_input.events.push(egui::Event::Key {
-                            key,
-                            pressed,
-                            repeat: false, // egui will fill this in for us!
-                            modifiers: viewport.raw_input.modifiers,
-                            physical_key: None,
-                        });
-                    }
-                }
+                        if pressed && is_cut_command(viewport.raw_input.modifiers, key) {
+                            viewport.raw_input.events.push(egui::Event::Cut);
+                        } else if pressed && is_copy_command(viewport.raw_input.modifiers, key) {
+                            viewport.raw_input.events.push(egui::Event::Copy);
+                        } else if pressed && is_paste_command(viewport.raw_input.modifiers, key) {
+                            match clipboard.get_text() {
+                                Ok(content) => {
+                                    viewport.raw_input.events.push(egui::Event::Text(content))
+                                }
+                                Err(err) => {
+                                    tracing::error!("Failed to get text from clipboard: {:?}", err);
+                                }
+                            }
+                        } else {
+                            viewport.raw_input.events.push(egui::Event::Key {
+                                key,
+                                pressed,
+                                repeat: false, // egui will fill this in for us!
+                                modifiers: viewport.raw_input.modifiers,
+                                physical_key: None,
+                            });
 
-                // TODO: Check if `logical_key` matched to `Character` is better here.
-                if let Some(text) = &event.text {
-                    viewport
-                        .raw_input
-                        .events
-                        .push(egui::Event::Text(text.to_string()));
+                            if pressed {
+                                let is_cmd = viewport.raw_input.modifiers.ctrl
+                                    || viewport.raw_input.modifiers.command
+                                    || viewport.raw_input.modifiers.mac_cmd;
+
+                                if !is_cmd {
+                                    if let Some(text) = &event.text {
+                                        if text.chars().all(is_printable_char) {
+                                            viewport
+                                                .raw_input
+                                                .events
+                                                .push(egui::Event::Text(text.to_string()));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
 
                 self.cx.wants_keyboard_input()
@@ -258,4 +288,30 @@ fn translate_key_code(key: KeyCode) -> Option<egui::Key> {
             return None;
         }
     })
+}
+
+fn is_printable_char(chr: char) -> bool {
+    let is_in_private_use_area = '\u{e000}' <= chr && chr <= '\u{f8ff}'
+        || '\u{f0000}' <= chr && chr <= '\u{ffffd}'
+        || '\u{100000}' <= chr && chr <= '\u{10fffd}';
+
+    !is_in_private_use_area && !chr.is_ascii_control()
+}
+
+fn is_cut_command(modifiers: egui::Modifiers, keycode: egui::Key) -> bool {
+    keycode == egui::Key::Cut
+        || (modifiers.command && keycode == egui::Key::X)
+        || (cfg!(target_os = "windows") && modifiers.shift && keycode == egui::Key::Delete)
+}
+
+fn is_copy_command(modifiers: egui::Modifiers, keycode: egui::Key) -> bool {
+    keycode == egui::Key::Copy
+        || (modifiers.command && keycode == egui::Key::C)
+        || (cfg!(target_os = "windows") && modifiers.ctrl && keycode == egui::Key::Insert)
+}
+
+fn is_paste_command(modifiers: egui::Modifiers, keycode: egui::Key) -> bool {
+    keycode == egui::Key::Paste
+        || (modifiers.command && keycode == egui::Key::V)
+        || (cfg!(target_os = "windows") && modifiers.shift && keycode == egui::Key::Insert)
 }

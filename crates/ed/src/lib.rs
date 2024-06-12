@@ -4,16 +4,11 @@
 use std::{hash::Hash, io::ErrorKind, path::Path};
 
 use arcana::{
-    gametime::FrequencyNumExt,
     mev,
     project::{Profile, Project},
-    Clock,
 };
 use data::ProjectData;
-use winit::{
-    event::Event,
-    event_loop::{ControlFlow, EventLoop},
-};
+use winit::event_loop::EventLoop;
 
 #[cfg(windows)]
 use winit::platform::windows::EventLoopBuilderExtWindows;
@@ -79,7 +74,7 @@ pub fn run(path: &Path) {
 fn _run(path: &Path) -> miette::Result<()> {
     // Marks the running instance of Arcana library.
     // This flag is checked in plugins to ensure they are linked to this arcana.
-    arcana::plugin::GLOBAL_LINK_CHECK.store(true, std::sync::atomic::Ordering::SeqCst);
+    arcana::plugin::set_running_arcana_instance();
 
     // `path` is `<project-dir>/crates/ed`
     let mut path = path.to_owned();

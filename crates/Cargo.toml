@@ -60,8 +60,8 @@ eframe = { version = "0.27" }
 flume = "0.11"
 figa = { version = "0.3" }
 futures = "0.3"
-gametime = "0.4.1"
-# gametime = { path = "../../gametime" }
+# gametime = "0.5"
+gametime = { path = "../../gametime" }
 gilrs = { version = "0.10" }
 gpu-alloc = { version = "0.6" }
 hashbrown = { version = "=0.14", features = ["nightly", "serde"] }

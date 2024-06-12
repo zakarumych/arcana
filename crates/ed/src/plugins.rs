@@ -94,10 +94,10 @@ impl Plugins {
 
     pub fn tick(
         &mut self,
-        linked: &mut Option<Container>,
         project: &mut Project,
         data: &ProjectData,
-    ) {
+        need_build: bool,
+    ) -> Option<Container> {
         if let Some(mut build) = self.build.take() {
             match build.finished() {
                 Ok(false) => self.build = Some(build),
@@ -149,7 +149,7 @@ impl Plugins {
                             self.failure = Some(err);
 
                             if rebuild {
-                                try_log_err!(project.sync());
+                                try_log_err!(project.sync(); None);
 
                                 match project.build_plugins_library(self.profile) {
                                     Ok(build) => {
@@ -172,7 +172,7 @@ impl Plugins {
 
         match self.pending.take() {
             None => {
-                if linked.is_none() && self.failure.is_none() && self.build.is_none() {
+                if need_build && self.failure.is_none() && self.build.is_none() {
                     tracing::info!("Make initial plugins library build");
 
                     match project.build_plugins_library(self.profile) {
@@ -184,10 +184,11 @@ impl Plugins {
                         }
                     }
                 }
+                None
             }
             Some(c) => {
                 tracing::info!("New plugins container version linked. {c:#?}");
-                *linked = Some(c);
+                Some(c)
             }
         }
     }

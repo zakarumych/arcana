@@ -121,7 +121,7 @@ impl<'a> Continuation<'a> {
         F: FnOnce(T, &[ValueId], &mut CodeValues) -> usize + Send + 'static,
         Fut: Future<Output = T> + Send + 'static,
     {
-        tracing::info!("Delaying continuation");
+        tracing::debug!("Delaying continuation");
 
         let outputs = SmallVec::<[_; 8]>::from_slice(self.outputs);
         let mut values = self.values.take().unwrap();
@@ -129,11 +129,11 @@ impl<'a> Continuation<'a> {
         let code = self.code;
 
         spawn_block!(for entity -> {
-            tracing::info!("Waiting for delayed continuation");
+            tracing::debug!("Waiting for delayed continuation");
             let res = fut.await;
             let outflow = f(res, &outputs, &mut values);
 
-            tracing::info!("Continuing delayed continuation");
+            tracing::debug!("Continuing delayed continuation");
             enque_async_continue(entity.id(), code, node, outflow, values, entity.get_world())
         });
     }
@@ -434,6 +434,10 @@ impl AsyncContinueQueue {
 
     pub fn drain(&mut self) -> impl Iterator<Item = AsyncContinue> + '_ {
         self.queue.drain(..)
+    }
+
+    pub fn clear(&mut self) {
+        self.queue.clear();
     }
 }
 
