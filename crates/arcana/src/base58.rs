@@ -133,7 +133,7 @@ pub fn base58_enc_io(read: impl std::io::Read, write: impl std::io::Write) -> st
     let mut read = read;
     let mut write = write;
 
-    let mut buf = [0u8; 1024];
+    let mut buf = [0u8; 1 << 16];
     let mut start = 0;
     let mut end = 0;
 
@@ -309,7 +309,7 @@ pub fn base58_dec_io(read: impl std::io::Read, write: impl std::io::Write) -> st
     let mut read = read;
     let mut write = write;
 
-    let mut buf = [0u8; 1024];
+    let mut buf = [0u8; 1 << 16];
     let mut start = 0;
     let mut end = 0;
 
@@ -444,6 +444,50 @@ mod test_base58 {
             base58_dec_vec(encoded.as_bytes(), &mut decoded).unwrap();
 
             assert_eq!(data, decoded);
+        }
+    }
+
+    #[test]
+    fn test_roundtrip_io_base58() {
+        for _ in 0..10 {
+            let size = rand::thread_rng().gen_range(124141..15121523);
+
+            let mut data = Vec::new();
+            data.resize(size, 0);
+            rand::thread_rng().fill_bytes(&mut data);
+
+            let mut encoded = Vec::new();
+            base58_enc_io(FussyReader { data: &data[..] }, &mut encoded).unwrap();
+
+            let mut decoded = Vec::new();
+            base58_dec_io(FussyReader { data: &encoded[..] }, &mut decoded).unwrap();
+
+            assert_eq!(data, decoded);
+        }
+    }
+
+    struct FussyReader<'a> {
+        data: &'a [u8],
+    }
+
+    impl std::io::Read for FussyReader<'_> {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            if rand::thread_rng().gen_bool(0.3) {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Interrupted,
+                    "interrupted",
+                ));
+            }
+
+            if self.data.is_empty() {
+                return Ok(0);
+            }
+
+            let read = 1 + rand::thread_rng().gen_range(0..buf.len().min(self.data.len()));
+
+            buf[..read].copy_from_slice(&self.data[..read]);
+            self.data = &self.data[read..];
+            Ok(read)
         }
     }
 }
