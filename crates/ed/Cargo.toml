@@ -7,6 +7,9 @@ license.workspace = true
 version.workspace = true
 description = "Arcana Engine Editor"
 
+[lib]
+crate-type = ["dylib"]
+
 [dependencies]
 arcana = { path = "../arcana" }
 arboard.workspace = true

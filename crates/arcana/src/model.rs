@@ -10,7 +10,7 @@ use edict::EntityId;
 use hashbrown::HashMap;
 use palette::IntoColor;
 
-use crate::Stid;
+use crate::{base58, Stid};
 
 #[derive(
     Copy, Clone, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
@@ -261,6 +261,7 @@ pub enum Value {
     Unit,
     Bool(bool),
     Int(i64),
+    Uint(u64),
     Float(f64),
     String(String),
     Color(ColorValue),
@@ -294,6 +295,7 @@ impl Value {
             Value::Unit => "Unit",
             Value::Bool(_) => "Bool",
             Value::Int(_) => "Int",
+            Value::Uint(_) => "Uint",
             Value::Float(_) => "Float",
             Value::String(_) => "String",
             Value::Color(_) => "Color",
@@ -313,29 +315,29 @@ impl Value {
 }
 
 #[derive(Clone, Debug, thiserror::Error)]
-pub enum DeValueError {
+pub enum ValueError {
     Custom(String),
 }
 
-impl fmt::Display for DeValueError {
+impl fmt::Display for ValueError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            DeValueError::Custom(msg) => write!(f, "{}", msg),
+            ValueError::Custom(msg) => write!(f, "{}", msg),
         }
     }
 }
 
-impl serde::de::Error for DeValueError {
+impl serde::de::Error for ValueError {
     fn custom<T>(msg: T) -> Self
     where
         T: std::fmt::Display,
     {
-        DeValueError::Custom(msg.to_string())
+        ValueError::Custom(msg.to_string())
     }
 }
 
 impl<'de> serde::de::VariantAccess<'de> for ColorValue {
-    type Error = DeValueError;
+    type Error = ValueError;
 
     fn unit_variant(self) -> Result<(), Self::Error> {
         Ok(())
@@ -459,7 +461,7 @@ impl<'de> serde::de::VariantAccess<'de> for ColorValue {
 }
 
 impl<'de> serde::de::EnumAccess<'de> for ColorValue {
-    type Error = DeValueError;
+    type Error = ValueError;
     type Variant = Self;
 
     fn variant_seed<V>(self, seed: V) -> Result<(V::Value, Self::Variant), Self::Error>
@@ -483,10 +485,73 @@ impl<'de> serde::de::EnumAccess<'de> for ColorValue {
     }
 }
 
-impl<'de> serde::de::Deserializer<'de> for Value {
-    type Error = DeValueError;
+impl<'de> serde::de::IntoDeserializer<'de, ValueError> for Value {
+    type Deserializer = Self;
 
-    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    #[inline]
+    fn into_deserializer(self) -> Self {
+        self
+    }
+}
+
+struct Variant {
+    name: Name,
+    value: Box<Value>,
+}
+
+impl<'de> serde::de::EnumAccess<'de> for Variant {
+    type Error = ValueError;
+    type Variant = Value;
+
+    fn variant_seed<V>(self, seed: V) -> Result<(V::Value, Value), ValueError>
+    where
+        V: serde::de::DeserializeSeed<'de>,
+    {
+        let variant = V::deserialize(seed, serde::de::value::StrDeserializer::new(&self.name))?;
+        Ok((variant, *self.value))
+    }
+}
+
+impl<'de> serde::de::VariantAccess<'de> for Value {
+    type Error = ValueError;
+
+    fn unit_variant(self) -> Result<(), ValueError> {
+        match self {
+            Value::Unit => Ok(()),
+            _ => Err(serde::de::Error::custom("expected unit")),
+        }
+    }
+
+    fn newtype_variant_seed<T>(self, seed: T) -> Result<T::Value, ValueError>
+    where
+        T: serde::de::DeserializeSeed<'de>,
+    {
+        T::deserialize(seed, self)
+    }
+
+    fn tuple_variant<V>(self, _len: usize, visitor: V) -> Result<V::Value, ValueError>
+    where
+        V: serde::de::Visitor<'de>,
+    {
+        serde::de::Deserializer::deserialize_any(self, visitor)
+    }
+
+    fn struct_variant<V>(
+        self,
+        _fields: &'static [&'static str],
+        visitor: V,
+    ) -> Result<V::Value, ValueError>
+    where
+        V: serde::de::Visitor<'de>,
+    {
+        serde::de::Deserializer::deserialize_any(self, visitor)
+    }
+}
+
+impl<'de> serde::de::Deserializer<'de> for Value {
+    type Error = ValueError;
+
+    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, ValueError>
     where
         V: serde::de::Visitor<'de>,
     {
@@ -494,6 +559,7 @@ impl<'de> serde::de::Deserializer<'de> for Value {
             Value::Unit => visitor.visit_unit(),
             Value::Bool(value) => visitor.visit_bool(value),
             Value::Int(value) => visitor.visit_i64(value),
+            Value::Uint(value) => visitor.visit_u64(value),
             Value::Float(value) => visitor.visit_f64(value),
             Value::String(value) => visitor.visit_string(value),
             Value::Color(color) => visitor.visit_enum(color),
@@ -506,7 +572,32 @@ impl<'de> serde::de::Deserializer<'de> for Value {
             Value::Vec4(vec) => visitor.visit_seq(serde::de::value::SeqDeserializer::new(
                 [vec.x, vec.y, vec.z, vec.w].into_iter(),
             )),
-            _ => todo!(),
+            Value::Mat2(mat) => visitor.visit_seq(serde::de::value::SeqDeserializer::new(
+                [mat.m11, mat.m12, mat.m21, mat.m22].into_iter(),
+            )),
+            Value::Mat3(mat) => visitor.visit_seq(serde::de::value::SeqDeserializer::new(
+                [
+                    mat.m11, mat.m12, mat.m13, mat.m21, mat.m22, mat.m23, mat.m31, mat.m32, mat.m33,
+                ]
+                .into_iter(),
+            )),
+            Value::Mat4(mat) => visitor.visit_seq(serde::de::value::SeqDeserializer::new(
+                [
+                    mat.m11, mat.m12, mat.m13, mat.m14, mat.m21, mat.m22, mat.m23, mat.m24,
+                    mat.m31, mat.m32, mat.m33, mat.m34, mat.m41, mat.m42, mat.m43, mat.m44,
+                ]
+                .into_iter(),
+            )),
+            Value::Option(None) => visitor.visit_none(),
+            Value::Option(Some(value)) => visitor.visit_some(*value),
+            Value::Entity(entity) => visitor.visit_u64(entity.bits()),
+            Value::Array(array) => {
+                visitor.visit_seq(serde::de::value::SeqDeserializer::new(array.into_iter()))
+            }
+            Value::Map(map) => {
+                visitor.visit_map(serde::de::value::MapDeserializer::new(map.into_iter()))
+            }
+            Value::Enum(name, value) => visitor.visit_enum(Variant { name, value: value }),
         }
     }
 
@@ -538,37 +629,100 @@ impl<'de> serde::de::Deserializer<'de> for Value {
         self.deserialize_any(visitor)
     }
 
-    serde::forward_to_deserialize_any! {
-        bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str
-        string bytes byte_buf option unit unit_struct newtype_struct seq
-        tuple tuple_struct map enum identifier ignored_any
-    }
-}
-
-impl<'de> serde::de::Deserializer<'de> for &'de Value {
-    type Error = DeValueError;
-
-    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_bytes<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: serde::de::Visitor<'de>,
     {
-        match *self {
-            Value::Unit => visitor.visit_unit(),
-            Value::Bool(value) => visitor.visit_bool(value),
-            Value::Int(value) => visitor.visit_i64(value),
-            Value::Float(value) => visitor.visit_f64(value),
-            Value::String(ref value) => visitor.visit_str(value),
-            Value::Color(color) => visitor.visit_enum(color),
+        match self {
+            Value::String(value) => {
+                let mut bytes = Vec::new();
+                if let Err(err) = base58::base58_dec_vec(value.as_bytes(), &mut bytes) {
+                    return Err(ValueError::Custom(err.to_string()));
+                }
+                visitor.visit_byte_buf(bytes)
+            }
             _ => todo!(),
         }
     }
 
+    #[inline]
+    fn deserialize_byte_buf<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: serde::de::Visitor<'de>,
+    {
+        self.deserialize_bytes(visitor)
+    }
+
     serde::forward_to_deserialize_any! {
         bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str
-        string bytes byte_buf option unit unit_struct newtype_struct seq
-        tuple tuple_struct map struct enum identifier ignored_any
+        string option unit unit_struct newtype_struct seq
+        tuple tuple_struct map enum identifier ignored_any
     }
 }
+
+// impl serde::ser::Serializer for ValueSerializer {
+//     type Ok = Value;
+
+//     type Error = ValueError;
+
+//     fn serialize_bool(self, v: bool) -> Result<Value, ValueError> {
+//         Ok(Value::Bool(v))
+//     }
+
+//     fn serialize_i8(self, v: i8) -> Result<Self::Ok, Self::Error> {
+//         Ok(Value::Int(v as i64))
+//     }
+
+//     fn serialize_i16(self, v: i16) -> Result<Self::Ok, Self::Error> {
+//         Ok(Value::Int(v as i64))
+//     }
+
+//     fn serialize_i32(self, v: i32) -> Result<Self::Ok, Self::Error> {
+//         Ok(Value::Int(v as i64))
+//     }
+
+//     fn serialize_i64(self, v: i64) -> Result<Self::Ok, Self::Error> {
+//         Ok(Value::Int(v))
+//     }
+
+//     fn serialize_u8(self, v: u8) -> Result<Self::Ok, Self::Error> {
+//         Ok(Value::UInt(v as u64))
+//     }
+
+//     fn serialize_u16(self, v: u16) -> Result<Self::Ok, Self::Error> {
+//         Ok(Value::UInt(v as u64))
+//     }
+
+//     fn serialize_u32(self, v: u32) -> Result<Self::Ok, Self::Error> {
+//         Ok(Value::UInt(v as u64))
+//     }
+
+//     fn serialize_u64(self, v: u64) -> Result<Self::Ok, Self::Error> {
+//         Ok(Value::UInt(v as u64))
+//     }
+
+//     fn serialize_f32(self, v: f32) -> Result<Self::Ok, Self::Error> {
+//         Ok(Value::Float(v as f64))
+//     }
+
+//     fn serialize_f64(self, v: f64) -> Result<Self::Ok, Self::Error> {
+//         Ok(Value::Float(v))
+//     }
+
+//     fn serialize_char(self, v: char) -> Result<Self::Ok, Self::Error> {
+//         Ok(Value::String(v.to_string()))
+//     }
+
+//     fn serialize_str(self, v: &str) -> Result<Self::Ok, Self::Error> {
+//         Ok(Value::String(v.to_string()))
+//     }
+
+//     fn serialize_bytes(self, v: &[u8]) -> Result<Self::Ok, Self::Error> {
+//         let mut s = String::new();
+//         base58::base58_enc_str(v, &mut s);
+//         Ok(Value::String(s))
+//     }
+// }
 
 /// Trait for types that matches some data model.
 pub trait TypeModel {

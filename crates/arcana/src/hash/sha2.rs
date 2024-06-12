@@ -27,7 +27,11 @@ pub fn sha256_io(mut reader: impl Read) -> io::Result<Hash256> {
     let mut sratch = [0; 1024];
     let mut cursor = 0;
     loop {
-        let bytes_read = reader.read(&mut sratch[cursor..])?;
+        let bytes_read = match reader.read(&mut sratch[cursor..]) {
+            Ok(n) => n,
+            Err(ref e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+        };
         if bytes_read == 0 {
             break;
         }
@@ -66,7 +70,11 @@ pub fn sha512_io(mut reader: impl Read) -> io::Result<Hash512> {
     let mut sratch = [0; 1024];
     let mut cursor = 0;
     loop {
-        let bytes_read = reader.read(&mut sratch[cursor..])?;
+        let bytes_read = match reader.read(&mut sratch[cursor..]) {
+            Ok(n) => n,
+            Err(ref e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+        };
         if bytes_read == 0 {
             break;
         }
