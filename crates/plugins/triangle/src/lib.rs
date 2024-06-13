@@ -227,6 +227,7 @@ pub struct OpConstants {
     pub op: u32,
 }
 
+#[arcana::job(op)]
 pub struct OpJob {
     pipeline: Option<mev::ComputePipeline>,
 }
@@ -376,6 +377,7 @@ fn get_angle(e: FlowEntity) -> (f32,) {
     (e.get_cloned::<Angle>().unwrap().0,)
 }
 
+#[arcana::system]
 fn rotate_system(view: View<(&mut Angle, &Speed)>, clock: Res<ClockStep>) {
     for (angle, speed) in view {
         angle.0 += speed.0 * clock.step.as_secs_f32();

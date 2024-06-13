@@ -5,6 +5,8 @@ use arcana::{
     work::{Exec, Image2D, Job, JobDesc, Planner},
 };
 
+arcana::plugin_declare!();
+
 #[derive(mev::Arguments)]
 pub struct DSArguments {
     #[mev(vertex)]
@@ -18,6 +20,7 @@ pub struct DSConstants {
     pub height: u32,
 }
 
+#[arcana::job]
 pub struct DrawSquare {
     pipeline: Option<mev::RenderPipeline>,
     arguments: Option<DSArguments>,
@@ -165,34 +168,34 @@ impl Job for DrawSquare {
     }
 }
 
-arcana::export_arcana_plugin! {
-    SquarePlugin {
-        // List dependencies
-        dependencies: [dummy ...],
+// arcana::export_arcana_plugin! {
+//     SquarePlugin {
+//         // List dependencies
+//         dependencies: [dummy ...],
 
-        // List jobs
-        jobs: [DrawSquare],
+//         // List jobs
+//         jobs: [DrawSquare],
 
-        // // Init block
-        // in world => {
-        //     let world = world.local();
+//         // // Init block
+//         // in world => {
+//         //     let world = world.local();
 
-        //     // let window = world.expect_resource::<Window>().id();
+//         //     // let window = world.expect_resource::<Window>().id();
 
-        //     let mut graph = world.expect_resource_mut::<RenderGraph>();
-        //     // Create main pass.
-        //     // It returns target id that it renders to.
-        //     let target = MainPass::build(&mut graph);
+//         //     let mut graph = world.expect_resource_mut::<RenderGraph>();
+//         //     // Create main pass.
+//         //     // It returns target id that it renders to.
+//         //     let target = MainPass::build(&mut graph);
 
-        //     // let id = world.spawn_one(Egui::new()).id();
+//         //     // let id = world.spawn_one(Egui::new()).id();
 
-        //     // if world.get_resource::<EguiResource>().is_some() {
-        //     //     target = EguiRender::build_overlay(id, target, &mut graph);
-        //     // }
+//         //     // if world.get_resource::<EguiResource>().is_some() {
+//         //     //     target = EguiRender::build_overlay(id, target, &mut graph);
+//         //     // }
 
-        //     // Use window's surface for the render target.
-        //     graph.present(target);
-        //     drop(graph);
-        // }
-    }
-}
+//         //     // Use window's surface for the render target.
+//         //     graph.present(target);
+//         //     drop(graph);
+//         // }
+//     }
+// }

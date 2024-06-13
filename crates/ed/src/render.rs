@@ -4,7 +4,7 @@ use arcana::{
     edict::world::WorldLocal,
     mev,
     model::Value,
-    plugin::JobInfo,
+    plugin::{JobInfo, Location},
     project::Project,
     texture::Texture,
     work::{Edge, HookId, Image2D, JobDesc, JobId, JobIdx, PinId},
@@ -18,7 +18,7 @@ use egui_snarl::{
 use hashbrown::HashMap;
 
 use crate::{
-    container::Container, data::ProjectData, hue_hash, instance::Main, model::ValueProbe,
+    container::Container, data::ProjectData, hue_hash, ide::Ide, instance::Main, model::ValueProbe,
     sample::ImageSample, ui::UserTextures,
 };
 
@@ -114,9 +114,9 @@ impl Rendering {
         for (name, plugin) in container.plugins() {
             let jobs = self.available.entry(name).or_default();
 
-            for job in plugin.jobs() {
-                all_jobs.insert(job.id, job.desc.clone());
-                jobs.push(job);
+            for info in plugin.jobs() {
+                all_jobs.insert(info.id, info.clone());
+                jobs.push(info);
             }
 
             jobs.sort_by_key(|node| node.name);
@@ -126,14 +126,20 @@ impl Rendering {
         for node in data.workgraph.snarl.nodes_mut() {
             match node {
                 WorkGraphNode::Job {
-                    job, desc, active, ..
+                    job,
+                    desc,
+                    location,
+                    active,
+                    ..
                 } => {
-                    if let Some(new_job_desc) = all_jobs.get(&*job) {
+                    if let Some(info) = all_jobs.get(&*job) {
                         *active = true;
 
-                        if *desc != *new_job_desc {
-                            *desc = new_job_desc.clone();
+                        if *desc != info.desc {
+                            *desc = info.desc.clone();
                         }
+
+                        *location = info.location.clone();
                     }
                 }
                 WorkGraphNode::MainPresent => {
@@ -159,6 +165,7 @@ impl Rendering {
         device: &mev::Device,
         main: &mut Main,
         textures: &mut UserTextures,
+        ide: Option<&dyn Ide>,
         ui: &mut Ui,
     ) {
         let preview = self.preview.get_or_insert_with(|| {
@@ -210,6 +217,7 @@ impl Rendering {
             main,
             sample: &sample,
             preview,
+            ide,
         };
 
         data.workgraph
@@ -233,6 +241,9 @@ pub enum WorkGraphNode {
         params: HashMap<Name, Value>,
 
         #[serde(skip)]
+        location: Option<Location>,
+
+        #[serde(skip)]
         active: bool,
     },
     MainPresent,
@@ -244,6 +255,7 @@ pub struct WorkGraphViewer<'a> {
     main: &'a mut Main,
     sample: &'a ImageSample,
     preview: &'a Rc<RefCell<Preview>>,
+    ide: Option<&'a dyn Ide>,
 }
 
 impl SnarlViewer<WorkGraphNode> for WorkGraphViewer<'_> {
@@ -269,6 +281,7 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer<'_> {
             WorkGraphNode::Job {
                 ref name,
                 ref plugin,
+                ref location,
                 ..
             } => {
                 ui.vertical(|ui| {
@@ -284,6 +297,40 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer<'_> {
                         r.on_hover_ui(|ui| {
                             ui.label("Remove job from graph");
                         });
+
+                        let r = ui.add_enabled(
+                            location.is_some() && self.ide.is_some(),
+                            egui::Button::new(egui_phosphor::regular::CODE).small(),
+                        );
+
+                        let r = r.on_hover_ui(|ui| {
+                            ui.label("Open system in IDE");
+
+                            if self.ide.is_none() {
+                                ui.weak("No IDE configured");
+                            }
+
+                            if location.is_none() {
+                                ui.weak("No location information");
+                            }
+                        });
+
+                        let r = r.on_disabled_hover_ui(|ui| {
+                            ui.label("Open system in IDE");
+
+                            if self.ide.is_none() {
+                                ui.weak("No IDE configured");
+                            }
+
+                            if location.is_none() {
+                                ui.weak("No location information");
+                            }
+                        });
+
+                        if r.clicked() {
+                            let loc = location.as_ref().unwrap();
+                            self.ide.unwrap().open(loc.file.as_ref(), Some(loc.line));
+                        }
                     });
                 });
             }
@@ -504,6 +551,7 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer<'_> {
                             plugin,
                             desc: job.desc.clone(),
                             params: job.desc.default_params(),
+                            location: job.location.clone(),
                             active: true,
                         },
                     );
@@ -579,6 +627,7 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer<'_> {
                             plugin,
                             desc: job.desc.clone(),
                             params: job.desc.default_params(),
+                            location: job.location.clone(),
                             active: true,
                         },
                     );

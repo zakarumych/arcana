@@ -531,6 +531,7 @@ impl TabViewer for AppModel<'_> {
                 self.device,
                 self.main,
                 &mut self.textures,
+                self.ide,
                 ui,
             ),
             Tab::Main => self.main.show(self.window.id(), &mut self.textures, ui),
