@@ -4,8 +4,8 @@ use std::{collections::BTreeMap, hash::Hash, ops::Range};
 
 use arcana::{
     code::{
-        AsyncContinueQueue, Code, CodeDesc, CodeId, CodeValues, Continuation, FlowCode, PureCode,
-        ValueId,
+        AsyncContinueQueue, CodeDesc, CodeId, CodeValues, Codes, CodesId, Continuation, FlowCode,
+        PureCode, ValueId,
     },
     edict::{self, flow::FlowEntity, world::World},
     events::{EventId, Events},
@@ -32,7 +32,7 @@ struct OutputCacheEntry {
 
 #[derive(Default)]
 pub struct OutputCache {
-    map: HashMap<CodeId, OutputCacheEntry>,
+    map: HashMap<CodesId, OutputCacheEntry>,
 }
 
 impl OutputCache {
@@ -42,13 +42,13 @@ impl OutputCache {
         }
     }
 
-    pub fn grab(&mut self, code: CodeId) -> CodeValues {
-        let entry = self.map.entry(code).or_default();
+    pub fn grab(&mut self, codes: CodesId) -> CodeValues {
+        let entry = self.map.entry(codes).or_default();
         entry.queue.pop().unwrap_or_default()
     }
 
-    pub fn cache(&mut self, code: CodeId, values: CodeValues) {
-        let entry = self.map.entry(code).or_default();
+    pub fn cache(&mut self, codes: CodesId, values: CodeValues) {
+        let entry = self.map.entry(codes).or_default();
         entry.queue.push(values);
     }
 }
@@ -197,7 +197,7 @@ fn execute_pure(
 
 /// Execute specific flow code.
 fn execute_flow(
-    code: CodeId,
+    codes: CodesId,
     snarl: &Snarl<CodeNode>,
     cache: &mut OutputCache,
     pures: &HashMap<CodeId, PureCode>,
@@ -268,8 +268,8 @@ fn execute_flow(
                 .collect::<SmallVec<[_; 8]>>();
 
             let mut next = None;
-            values.get_or_insert_with(|| cache.grab(code));
-            let continuation = Continuation::new(pin.node.0, code, values, &mut next, &outputs);
+            values.get_or_insert_with(|| cache.grab(codes));
+            let continuation = Continuation::new(pin.node.0, codes, values, &mut next, &outputs);
 
             flow_code(
                 pin.input,
@@ -281,6 +281,8 @@ fn execute_flow(
 
             tracing::debug!("Next is {:?}", next);
 
+            assert_ne!(next.is_some(), values.is_some());
+
             next
         }
         _ => {
@@ -290,8 +292,8 @@ fn execute_flow(
     }
 }
 
-fn run_code(
-    code: CodeId,
+fn run_codes(
+    codes: CodesId,
     snarl: &Snarl<CodeNode>,
     cache: &mut OutputCache,
     pures: &HashMap<CodeId, PureCode>,
@@ -340,10 +342,10 @@ fn run_code(
 
         let inflow = outpin.remotes[0];
 
-        values.get_or_insert_with(|| cache.grab(code));
+        values.get_or_insert_with(|| cache.grab(codes));
 
         let next = execute_flow(
-            code,
+            codes,
             snarl,
             cache,
             pures,
@@ -365,7 +367,7 @@ fn run_code(
     }
 
     if let Some(values) = values {
-        cache.cache(code, values);
+        cache.cache(codes, values);
     }
 }
 
@@ -374,7 +376,7 @@ fn run_async_continations(
     world: &mut World,
     queue: &mut AsyncContinueQueue,
     cache: &mut OutputCache,
-    codes: &HashMap<CodeId, CodeGraph>,
+    codes: &HashMap<CodesId, CodeGraph>,
     pures: &HashMap<CodeId, PureCode>,
     flows: &HashMap<CodeId, FlowCode>,
 ) {
@@ -390,12 +392,12 @@ fn run_async_continations(
             continue;
         };
 
-        let Some(graph) = codes.get(&c.code) else {
+        let Some(graph) = codes.get(&c.codes) else {
             continue;
         };
 
-        run_code(
-            c.code,
+        run_codes(
+            c.codes,
             &graph.snarl,
             cache,
             pures,
@@ -413,7 +415,7 @@ fn run_async_continations(
 pub fn handle_code_events(
     world: &mut World,
     cache: &mut OutputCache,
-    codes: &HashMap<CodeId, CodeGraph>,
+    codes: &HashMap<CodesId, CodeGraph>,
     pures: &HashMap<CodeId, PureCode>,
     flows: &HashMap<CodeId, FlowCode>,
     start: &mut u64,
@@ -424,13 +426,13 @@ pub fn handle_code_events(
         let events = world.expect_resource::<Events>();
 
         while let Some(event) = events.next(start) {
-            let Ok(Some(Code { code_id, .. })) = world.try_get_cloned::<Code>(event.entity) else {
-                tracing::debug!("Entity {:?} was despawned", event.entity);
+            let Ok(Some(Codes { codes_id, .. })) = world.try_get_cloned(event.entity) else {
+                tracing::debug!("Entity {} was despawned", event.entity);
                 continue;
             };
 
-            let Some(graph) = codes.get(&code_id) else {
-                tracing::debug!("Code {code_id:?} is not found");
+            let Some(graph) = codes.get(&codes_id) else {
+                tracing::debug!("Code {codes_id} is not found");
                 continue;
             };
 
@@ -459,7 +461,7 @@ pub fn handle_code_events(
                 continue;
             }
 
-            let mut values = cache.grab(code_id);
+            let mut values = cache.grab(codes_id);
 
             // Collect outputs.
             for idx in 0..outputs.len() {
@@ -473,7 +475,7 @@ pub fn handle_code_events(
 
             let entity = event.entity;
 
-            tracing::debug!("Running code {:?} for event {:?}", code_id, event.id);
+            tracing::debug!("Running code {:?} for event {:?}", codes_id, event.id);
 
             drop(events);
 
@@ -486,8 +488,8 @@ pub fn handle_code_events(
 
             let outflow = OutPinId { node, output: 0 };
 
-            run_code(
-                code_id,
+            run_codes(
+                codes_id,
                 &graph.snarl,
                 cache,
                 &pures,
@@ -784,16 +786,16 @@ fn flow_pin() -> PinInfo {
     )))
 }
 
-pub struct Codes {
-    selected: Option<CodeId>,
+pub struct CodeTool {
+    selected: Option<CodesId>,
     new_code_name: String,
     available_events: BTreeMap<Ident, Vec<EventInfo>>,
     available_codes: BTreeMap<Ident, Vec<CodeInfo>>,
 }
 
-impl Codes {
+impl CodeTool {
     pub fn new() -> Self {
-        Codes {
+        CodeTool {
             selected: None,
             new_code_name: String::new(),
             available_events: BTreeMap::new(),

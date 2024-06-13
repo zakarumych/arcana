@@ -1,7 +1,12 @@
 // extern crate proc_macro;
 
+// mod plugin;
+mod filter;
+mod init;
+mod job;
 mod stable_hasher;
 mod stid;
+mod system;
 
 use proc_macro::TokenStream;
 use stid::WithStid;
@@ -82,3 +87,52 @@ pub fn stable_hash_tokens(tokens: TokenStream) -> TokenStream {
     let hash = stable_hasher::stable_hash(&tokens.to_string());
     quote::quote!(#hash).into()
 }
+
+/// Exports function as filter.
+#[proc_macro_attribute]
+pub fn filter(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let item = syn::parse_macro_input!(item as syn::ItemFn);
+    match filter::filter(attr, item) {
+        Ok(output) => output.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
+}
+
+/// Exports function as system.
+#[proc_macro_attribute]
+pub fn system(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let item = syn::parse_macro_input!(item as syn::ItemFn);
+    match system::system(attr, item) {
+        Ok(output) => output.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
+}
+
+/// Exports function as system.
+#[proc_macro_attribute]
+pub fn job(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let item = syn::parse_macro_input!(item as syn::ItemStruct);
+    match job::job(attr, item) {
+        Ok(output) => output.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
+}
+
+/// Exports function as system.
+#[proc_macro_attribute]
+pub fn init(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let item = syn::parse_macro_input!(item as syn::ItemFn);
+    match init::init(attr, item) {
+        Ok(output) => output.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
+}
+
+// /// Exports function as filter.
+// #[proc_macro]
+// pub fn plugin(_tokens: TokenStream) -> TokenStream {
+//     match plugin::plugin() {
+//         Ok(output) => output.into(),
+//         Err(err) => err.to_compile_error().into(),
+//     }
+// }

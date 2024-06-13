@@ -1,32 +1,35 @@
 use arcana::{
     input::{FilterId, Input},
-    plugin::PluginsHub,
+    plugin::{Location, PluginsHub},
     project::Project,
     Blink, Ident, Name, World,
 };
 use egui::{Color32, Ui, WidgetText};
 use hashbrown::HashMap;
 
-use crate::{container::Container, data::ProjectData};
+use crate::{container::Container, data::ProjectData, ide::Ide};
 
 #[derive(Clone, Debug, Hash, serde::Serialize, serde::Deserialize)]
-struct FilterInfo {
+struct Filter {
     plugin: Ident,
     name: Name,
     id: FilterId,
     enabled: bool,
 
     #[serde(skip)]
+    location: Option<Location>,
+
+    #[serde(skip)]
     active: bool,
 }
 
 pub struct Filters {
-    available: Vec<FilterInfo>,
+    available: Vec<Filter>,
 }
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Funnel {
-    filters: Vec<FilterInfo>,
+    filters: Vec<Filter>,
 }
 
 impl Funnel {
@@ -58,13 +61,19 @@ impl Filters {
         }
     }
 
-    pub fn show(&mut self, project: &Project, data: &mut ProjectData, ui: &mut Ui) {
+    pub fn show(
+        &mut self,
+        project: &Project,
+        data: &mut ProjectData,
+        ide: Option<&dyn Ide>,
+        ui: &mut Ui,
+    ) {
         let mut sync = false;
         let mut add_filter = None;
 
         ui.menu_button(egui_phosphor::regular::PLUS, |ui| {
             if self.available.is_empty() {
-                ui.weak("No available systems");
+                ui.weak("No available filters");
             }
 
             for (idx, filter) in self.available.iter().enumerate() {
@@ -123,6 +132,40 @@ impl Filters {
                     if ui.button(egui_phosphor::regular::TRASH).clicked() {
                         remove_filter = Some(state.index);
                     }
+
+                    let r = ui.add_enabled(
+                        filter.location.is_some() && ide.is_some(),
+                        egui::Button::new(egui_phosphor::regular::CODE).small(),
+                    );
+
+                    let r = r.on_hover_ui(|ui| {
+                        ui.label("Open system in IDE");
+
+                        if ide.is_none() {
+                            ui.weak("No IDE configured");
+                        }
+
+                        if filter.location.is_none() {
+                            ui.weak("No location information");
+                        }
+                    });
+
+                    let r = r.on_disabled_hover_ui(|ui| {
+                        ui.label("Open system in IDE");
+
+                        if ide.is_none() {
+                            ui.weak("No IDE configured");
+                        }
+
+                        if filter.location.is_none() {
+                            ui.weak("No location information");
+                        }
+                    });
+
+                    if r.clicked() {
+                        let loc = filter.location.as_ref().unwrap();
+                        ide.unwrap().open(loc.file.as_ref(), Some(loc.line));
+                    }
                 });
             },
         );
@@ -152,22 +195,28 @@ impl Filters {
         let mut all_filters = HashMap::new();
 
         for (name, plugin) in container.plugins() {
-            for filter in plugin.filters() {
-                all_filters.insert(filter.id, (name, filter.name));
+            for info in plugin.filters() {
+                all_filters.insert(info.id, (name, info));
             }
         }
 
-        for info in data.funnel.filters.iter_mut() {
-            info.active = all_filters.remove(&info.id).is_some();
+        for filter in data.funnel.filters.iter_mut() {
+            if let Some((_, info)) = all_filters.remove(&filter.id) {
+                filter.location = info.location;
+                filter.active = true;
+            } else {
+                filter.active = false;
+            }
         }
 
         let new_filters = all_filters
             .into_iter()
-            .map(|(id, (plugin, name))| FilterInfo {
-                name,
+            .map(|(id, (plugin, info))| Filter {
+                name: info.name,
                 plugin: plugin.to_owned(),
                 id,
                 enabled: false,
+                location: info.location,
                 active: true,
             })
             .collect::<Vec<_>>();

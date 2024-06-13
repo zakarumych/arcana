@@ -112,7 +112,7 @@ pub struct PluginsError {
 struct Loaded {
     /// List of plugins loaded from the library.
     /// In dependency-first order.
-    plugins: Vec<(Ident, &'static dyn ArcanaPlugin)>,
+    plugins: Arc<[(Ident, Box<dyn ArcanaPlugin>)]>,
 
     /// Linked library.
     /// It is only used to keep the library loaded.
@@ -131,7 +131,7 @@ impl Drop for Loaded {
 
 #[derive(Clone)]
 pub struct Container {
-    active_plugins: Arc<[(Ident, &'static dyn ArcanaPlugin)]>,
+    active_plugins: HashSet<Ident>,
 
     // Unload library last.
     loaded: Arc<Loaded>,
@@ -139,16 +139,19 @@ pub struct Container {
 
 impl fmt::Debug for Container {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        struct Plugins<'a> {
-            plugins: &'a [(Ident, &'a dyn ArcanaPlugin)],
+        struct Plugins<I> {
+            plugins: I,
         }
 
-        impl fmt::Debug for Plugins<'_> {
+        impl<'a, I> fmt::Debug for Plugins<I>
+        where
+            I: Iterator<Item = (Ident, &'a dyn ArcanaPlugin)> + Clone,
+        {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 let mut list = f.debug_list();
 
-                for (name, _) in self.plugins {
-                    list.entry(name);
+                for (name, _) in self.plugins.clone() {
+                    list.entry(&name);
                 }
 
                 list.finish()
@@ -159,7 +162,7 @@ impl fmt::Debug for Container {
             .field(
                 "plugins",
                 &Plugins {
-                    plugins: &self.active_plugins,
+                    plugins: self.plugins(),
                 },
             )
             .finish()
@@ -172,7 +175,7 @@ impl Container {
         let active_plugins = get_active_plugins(&self.loaded, enabled_plugins);
         Container {
             loaded: self.loaded.clone(),
-            active_plugins: active_plugins.into(),
+            active_plugins,
         }
     }
 
@@ -181,7 +184,7 @@ impl Container {
     }
 
     pub fn is_active(&self, name: Ident) -> bool {
-        self.active_plugins.iter().any(|(n, _)| *n == name)
+        self.active_plugins.contains(&name)
     }
 
     // pub fn get(&self, name: Ident) -> Option<&dyn ArcanaPlugin> {
@@ -189,8 +192,16 @@ impl Container {
     //     Some(*p)
     // }
 
-    pub fn plugins<'a>(&'a self) -> impl Iterator<Item = (Ident, &'a dyn ArcanaPlugin)> + 'a {
-        self.active_plugins.iter().copied()
+    pub fn plugins<'a>(
+        &'a self,
+    ) -> impl Iterator<Item = (Ident, &'a dyn ArcanaPlugin)> + Clone + 'a {
+        self.loaded.plugins.iter().filter_map(|(name, plugin)| {
+            if self.active_plugins.contains(name) {
+                Some((*name, &**plugin))
+            } else {
+                None
+            }
+        })
     }
 }
 
@@ -200,16 +211,8 @@ impl PartialEq for Container {
             return false;
         }
 
-        if self.active_plugins.len() != other.active_plugins.len() {
+        if self.active_plugins != other.active_plugins {
             return false;
-        }
-
-        for ((name, _), (other_name, _)) in
-            self.active_plugins.iter().zip(other.active_plugins.iter())
-        {
-            if name != other_name {
-                return false;
-            }
         }
 
         true
@@ -220,89 +223,86 @@ impl Eq for Container {}
 
 /// Sort plugins placing dependencies first.
 /// Errors if there are circular dependencies or missing dependencies.
-fn sort_plugins<'a>(
-    plugins: &[(Ident, &'a dyn ArcanaPlugin)],
-) -> Result<Vec<(Ident, &'a dyn ArcanaPlugin)>, PluginsError> {
-    let mut queue = VecDeque::new();
+fn sort_plugins<'a>(plugins: &mut [(Ident, Box<dyn ArcanaPlugin>)]) -> Result<(), PluginsError> {
+    let mut order = Vec::new();
 
-    for (name, _) in plugins {
-        queue.push_back(*name);
-    }
+    {
+        let plugins = &*plugins;
+        let mut queue = VecDeque::new();
 
-    let has = |name: Ident| -> bool { plugins.iter().any(|(n, _)| *n == name) };
-
-    let get = |name: Ident| -> &'a dyn ArcanaPlugin {
-        plugins.iter().find(|(n, _)| *n == name).unwrap().1
-    };
-
-    let get_pair = |name: Ident| -> (Ident, &'a dyn ArcanaPlugin) {
-        *plugins.iter().find(|(n, _)| *n == name).unwrap()
-    };
-
-    let mut circular_dependencies = Vec::new();
-    let mut missing_dependencies = Vec::new();
-
-    let mut pending = HashSet::new();
-    let mut sorted = HashSet::new();
-    let mut result = Vec::new();
-
-    while let Some(name) = queue.pop_front() {
-        if sorted.contains(&name) {
-            continue;
+        for (name, _) in plugins {
+            queue.push_back(*name);
         }
-        pending.insert(name);
 
-        let plugin = get(name);
+        let has = |name: Ident| -> bool { plugins.iter().any(|(n, _)| *n == name) };
 
-        let mut defer = false;
-        for (dep_name, dependency) in plugin.dependencies() {
-            if sorted.contains(&dep_name) {
+        let get = |name: Ident| -> &dyn ArcanaPlugin {
+            &*plugins.iter().find(|(n, _)| *n == name).unwrap().1
+        };
+
+        let mut circular_dependencies = Vec::new();
+        let mut missing_dependencies = Vec::new();
+
+        let mut pending = HashSet::new();
+        let mut sorted = HashSet::new();
+
+        while let Some(name) = queue.pop_front() {
+            if sorted.contains(&name) {
                 continue;
             }
+            pending.insert(name);
 
-            if pending.contains(&dep_name) {
-                circular_dependencies.push(CircularDependency(name, dep_name));
-                continue;
+            let plugin = get(name);
+
+            let mut defer = false;
+            for (dep_name, dependency) in plugin.dependencies() {
+                if sorted.contains(&dep_name) {
+                    continue;
+                }
+
+                if pending.contains(&dep_name) {
+                    circular_dependencies.push(CircularDependency(name, dep_name));
+                    continue;
+                }
+
+                if !has(dep_name) {
+                    missing_dependencies.push(MissingDependency {
+                        plugin: dep_name,
+                        dependency: dependency.clone(),
+                    });
+                    continue;
+                };
+
+                if !defer {
+                    defer = true;
+                    queue.push_front(name);
+                }
+
+                queue.push_front(dep_name);
             }
-
-            if !has(dep_name) {
-                missing_dependencies.push(MissingDependency {
-                    plugin: dep_name,
-                    dependency: dependency.clone(),
-                });
-                continue;
-            };
 
             if !defer {
-                defer = true;
-                queue.push_front(name);
+                sorted.insert(name);
+                order.push(name);
             }
-
-            queue.push_front(dep_name);
         }
 
-        if !defer {
-            sorted.insert(name);
-            result.push(name);
+        if !circular_dependencies.is_empty() || !missing_dependencies.is_empty() {
+            return Err(PluginsError {
+                circular_dependencies,
+                missing_dependencies,
+            });
         }
     }
 
-    if !circular_dependencies.is_empty() || !missing_dependencies.is_empty() {
-        return Err(PluginsError {
-            circular_dependencies,
-            missing_dependencies,
-        });
-    }
+    plugins.sort_by_key(|(name, _)| {
+        order
+            .iter()
+            .position(|n| n == name)
+            .expect("Plugin not found in sorted list")
+    });
 
-    let mut sorted_plugins = Vec::new();
-
-    for name in result {
-        let (name, plugin) = get_pair(name);
-        sorted_plugins.push((name, plugin));
-    }
-
-    assert_eq!(plugins.len(), sorted_plugins.len());
-    Ok(sorted_plugins)
+    Ok(())
 }
 
 struct TmpPath {
@@ -445,14 +445,10 @@ impl Loader {
 /// Activate plugins based on enabled plugins.
 ///
 /// Plugin is activated if it is enabled and all its dependencies are active.
-fn get_active_plugins(
-    loaded: &Loaded,
-    enabled_plugins: &HashSet<Ident>,
-) -> Vec<(Ident, &'static dyn ArcanaPlugin)> {
-    let mut active_plugins = Vec::new();
+fn get_active_plugins(loaded: &Loaded, enabled_plugins: &HashSet<Ident>) -> HashSet<Ident> {
     let mut active_set = HashSet::new();
 
-    'a: for &(name, plugin) in &loaded.plugins {
+    'a: for &(name, ref plugin) in loaded.plugins.iter() {
         if !enabled_plugins.contains(&name) {
             continue;
         }
@@ -464,10 +460,9 @@ fn get_active_plugins(
         }
 
         active_set.insert(name);
-        active_plugins.push((name, plugin));
     }
 
-    active_plugins
+    active_set
 }
 
 fn load_lib(path: &Path, new_path: PathBuf) -> miette::Result<Loaded> {
@@ -489,7 +484,7 @@ fn load_lib(path: &Path, new_path: PathBuf) -> miette::Result<Loaded> {
 
     type ArcanaVersionFn = fn() -> &'static str;
     type ArcanaLinkedFn = fn(&AtomicBool) -> bool;
-    type ArcanaPluginsFn = fn() -> Vec<(Ident, &'static dyn ArcanaPlugin)>;
+    type ArcanaPluginsFn = fn() -> Vec<(Ident, Box<dyn ArcanaPlugin>)>;
 
     let arcana_version =
         unsafe { lib.get::<ArcanaVersionFn>(b"arcana_version\0") }.map_err(|source| {
@@ -528,10 +523,11 @@ fn load_lib(path: &Path, new_path: PathBuf) -> miette::Result<Loaded> {
         return Err(PluginsLibraryEngineUnlinked.into());
     }
 
-    let plugins = sort_plugins(&arcana_plugins())?;
+    let mut plugins = arcana_plugins();
+    sort_plugins(&mut plugins)?;
 
     Ok(Loaded {
-        plugins,
+        plugins: plugins.into(),
         _lib: lib,
         _tmp: tmp,
     })

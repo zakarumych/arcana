@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 use arcana::{
-    plugin::{PluginsHub, SystemId},
+    plugin::{Location, PluginsHub, SystemId},
     project::Project,
     ActionBufferSliceExt, Ident, Name, World,
 };
@@ -12,7 +12,7 @@ use egui_snarl::{
 };
 use hashbrown::{HashMap, HashSet};
 
-use crate::{container::Container, data::ProjectData, toggle_ui};
+use crate::{container::Container, data::ProjectData, ide::Ide, toggle_ui};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Category {
@@ -116,12 +116,19 @@ impl Systems {
         self.modification
     }
 
-    pub fn show(&mut self, project: &Project, data: &mut ProjectData, ui: &mut Ui) {
+    pub fn show(
+        &mut self,
+        project: &Project,
+        data: &mut ProjectData,
+        ide: Option<&dyn Ide>,
+        ui: &mut Ui,
+    ) {
         const STYLE: SnarlStyle = SnarlStyle::new();
 
         let mut viewer = SystemViewer {
             modified: false,
             available: &mut self.available,
+            ide,
         };
 
         data.systems.snarl.show(&mut viewer, &STYLE, "systems", ui);
@@ -139,24 +146,28 @@ impl Systems {
         let mut all_systems = HashMap::new();
 
         for (name, plugin) in container.plugins() {
-            for system in plugin.systems() {
-                all_systems.insert(system.id, (name, system.name));
+            for info in plugin.systems() {
+                all_systems.insert(info.id, (name, info));
             }
         }
 
         for node in data.systems.snarl.nodes_mut() {
-            node.active = all_systems.remove(&node.system).is_some();
+            if let Some((_, info)) = all_systems.remove(&node.system) {
+                node.location = info.location;
+                node.active = true;
+            }
         }
 
         let new_systems = all_systems
             .into_iter()
-            .map(|(id, (plugin, system))| SystemNode {
+            .map(|(id, (plugin, info))| SystemNode {
                 system: id,
-                name: system,
+                name: info.name,
                 plugin,
                 active: true,
-                enabled: false,
                 category: Category::Fix,
+                location: info.location,
+                enabled: false,
             })
             .collect::<Vec<_>>();
 
@@ -203,12 +214,16 @@ struct SystemNode {
     category: Category,
 
     #[serde(skip)]
+    location: Option<Location>,
+
+    #[serde(skip)]
     active: bool,
 }
 
 struct SystemViewer<'a> {
     modified: bool,
     available: &'a mut Vec<SystemNode>,
+    ide: Option<&'a dyn Ide>,
 }
 
 impl SnarlViewer<SystemNode> for SystemViewer<'_> {
@@ -247,6 +262,40 @@ impl SnarlViewer<SystemNode> for SystemViewer<'_> {
                 r.on_hover_ui(|ui| {
                     ui.label("Remove system from graph");
                 });
+
+                let r = ui.add_enabled(
+                    node.location.is_some() && self.ide.is_some(),
+                    egui::Button::new(egui_phosphor::regular::CODE).small(),
+                );
+
+                let r = r.on_hover_ui(|ui| {
+                    ui.label("Open system in IDE");
+
+                    if self.ide.is_none() {
+                        ui.weak("No IDE configured");
+                    }
+
+                    if node.location.is_none() {
+                        ui.weak("No location information");
+                    }
+                });
+
+                let r = r.on_disabled_hover_ui(|ui| {
+                    ui.label("Open system in IDE");
+
+                    if self.ide.is_none() {
+                        ui.weak("No IDE configured");
+                    }
+
+                    if node.location.is_none() {
+                        ui.weak("No location information");
+                    }
+                });
+
+                if r.clicked() {
+                    let loc = node.location.as_ref().unwrap();
+                    self.ide.unwrap().open(loc.file.as_ref(), Some(loc.line));
+                }
             });
 
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {

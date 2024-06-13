@@ -13,11 +13,12 @@ use crate::{
 };
 
 make_id!(pub CodeId);
+make_id!(pub CodesId);
 
 #[derive(Clone, Copy, Component)]
-#[edict(name = "Code")]
-pub struct Code {
-    pub code_id: CodeId,
+#[edict(name = "Codes")]
+pub struct Codes {
+    pub codes_id: CodesId,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -78,7 +79,7 @@ pub enum ContinuationProvider {}
 
 pub struct Continuation<'a> {
     node: usize,
-    code: CodeId,
+    codes: CodesId,
     values: &'a mut Option<CodeValues>,
     next: &'a mut Option<usize>,
     outputs: &'a [ValueId],
@@ -87,14 +88,16 @@ pub struct Continuation<'a> {
 impl<'a> Continuation<'a> {
     pub fn new(
         node: usize,
-        code: CodeId,
+        codes: CodesId,
         values: &'a mut Option<CodeValues>,
         next: &'a mut Option<usize>,
         outputs: &'a [ValueId],
     ) -> Self {
+        assert!(values.is_some());
+
         Continuation {
             node,
-            code,
+            codes,
             values,
             next,
             outputs,
@@ -126,7 +129,7 @@ impl<'a> Continuation<'a> {
         let outputs = SmallVec::<[_; 8]>::from_slice(self.outputs);
         let mut values = self.values.take().unwrap();
         let node = self.node;
-        let code = self.code;
+        let codes = self.codes;
 
         spawn_block!(for entity -> {
             tracing::debug!("Waiting for delayed continuation");
@@ -134,7 +137,7 @@ impl<'a> Continuation<'a> {
             let outflow = f(res, &outputs, &mut values);
 
             tracing::debug!("Continuing delayed continuation");
-            enque_async_continue(entity.id(), code, node, outflow, values, entity.get_world())
+            enque_async_continue(entity.id(), codes, node, outflow, values, entity.get_world())
         });
     }
 }
@@ -382,10 +385,10 @@ pub mod builtin {
         local_name_hash_id,
     };
 
-    use super::Code;
+    use super::Codes;
 
     /// Event emitted when entity gets `Code` component.
-    pub const CODE_START: EventId = local_name_hash_id!(CODE_START => EventId);
+    pub const CODES_START: EventId = local_name_hash_id!(CODES_START => EventId);
 
     #[derive(Clone, Copy)]
     struct CodeStarted;
@@ -401,11 +404,11 @@ pub mod builtin {
         let mut events = world.expect_resource_mut::<Events>();
         let view = world
             .view::<Entities>()
-            .with::<Code>()
+            .with::<Codes>()
             .without::<CodeStarted>();
 
         for entity in view {
-            events.emit(Event::new(CODE_START, entity));
+            events.emit(Event::new(CODES_START, entity));
             world.insert_defer(entity, CodeStarted);
         }
     }
@@ -413,7 +416,7 @@ pub mod builtin {
 
 pub struct AsyncContinue {
     pub entity: EntityId,
-    pub code: CodeId,
+    pub codes: CodesId,
     pub node: usize,
     pub outflow: usize,
     pub values: CodeValues,
@@ -443,17 +446,17 @@ impl AsyncContinueQueue {
 
 fn enque_async_continue(
     entity: EntityId,
-    code: CodeId,
+    codes: CodesId,
     node: usize,
     outflow: usize,
     values: CodeValues,
     world: &World,
 ) {
-    let mut code_after_schedule = world.expect_resource_mut::<AsyncContinueQueue>();
+    let mut codes_after_schedule = world.expect_resource_mut::<AsyncContinueQueue>();
 
-    code_after_schedule.queue.push(AsyncContinue {
+    codes_after_schedule.queue.push(AsyncContinue {
         entity,
-        code,
+        codes,
         node,
         outflow,
         values,

@@ -1,7 +1,7 @@
 use std::mem::size_of;
 
 use arcana::{
-    code::Code,
+    code::Codes,
     edict::{self, query::Cpy, spawn_block, World},
     events::{emit_event, Event},
     flow::{sleep, FlowEntity},
@@ -16,6 +16,8 @@ use arcana::{
     Component, Res, View,
 };
 
+arcana::plugin_declare!();
+
 #[derive(mev::Arguments)]
 pub struct DTArguments {
     #[mev(vertex)]
@@ -29,6 +31,7 @@ pub struct DTConstants {
     pub height: u32,
 }
 
+#[arcana::job]
 pub struct DrawTriangle {
     pipeline: Option<mev::RenderPipeline>,
     arguments: Option<DTArguments>,
@@ -383,38 +386,58 @@ fn rotate_system(view: View<(&mut Angle, &Speed)>, clock: Res<ClockStep>) {
     }
 }
 
-arcana::export_arcana_plugin! {
-    TrianglePlugin {
-        // List dependencies
-        dependencies: [dummy ...],
+#[arcana::init]
+fn init(world: &mut World) {
+    let e = world
+        .spawn((
+            Speed(std::f32::consts::FRAC_1_PI * 0.5),
+            Angle(0.0),
+            Codes {
+                codes_id: hash_id!("speedup"),
+            },
+        ))
+        .id();
 
-        // List systems
-        systems: [rotate_system],
-
-        // List jobs
-        jobs: [DrawTriangle, op: OpJob::desc() => OpJob::new()],
-
-        events: [Start],
-
-        pure_codes: [x2, mul, add, get_angle_speed, get_angle],
-        flow_codes: [wait, set_angle_speed, set_angle],
-
-        // Init block
-        in world => {
-            let e = world.spawn((
-                Speed(std::f32::consts::FRAC_1_PI * 0.5),
-                Angle(0.0),
-                Code {
-                    code_id: hash_id!("speedup"),
-                }
-            )).id();
-
-            spawn_block!(in world -> {
-                for _ in 0..1 {
-                    emit_event(world, Event::new(local_name_hash_id!(Start), e));
-                    sleep(TimeSpan::SECOND, world).await;
-                }
-            });
-        }
-    }
+    // spawn_block!(in world -> {
+    //     for _ in 0..1 {
+    //         emit_event(world, Event::new(local_name_hash_id!(Start), e));
+    //         sleep(TimeSpan::SECOND, world).await;
+    //     }
+    // });
 }
+
+// arcana::export_arcana_plugin! {
+//     TrianglePlugin {
+//         // List dependencies
+//         dependencies: [dummy ...],
+
+//         // List systems
+//         systems: [rotate_system],
+
+//         // List jobs
+//         jobs: [DrawTriangle, op: OpJob::desc() => OpJob::new()],
+
+//         events: [Start],
+
+//         pure_codes: [x2, mul, add, get_angle_speed, get_angle],
+//         flow_codes: [wait, set_angle_speed, set_angle],
+
+//         // Init block
+//         in world => {
+//             let e = world.spawn((
+//                 Speed(std::f32::consts::FRAC_1_PI * 0.5),
+//                 Angle(0.0),
+//                 Code {
+//                     code_id: hash_id!("speedup"),
+//                 }
+//             )).id();
+
+//             spawn_block!(in world -> {
+//                 for _ in 0..1 {
+//                     emit_event(world, Event::new(local_name_hash_id!(Start), e));
+//                     sleep(TimeSpan::SECOND, world).await;
+//                 }
+//             });
+//         }
+//     }
+// }

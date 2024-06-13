@@ -138,6 +138,13 @@ macro_rules! make_id {
             }
         }
 
+        impl ::core::fmt::Display for $name {
+            #[inline(always)]
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+                $crate::id::fmt_id(self.value.get(), stringify!($name), f)
+            }
+        }
+
         impl $name {
             #[inline(always)]
             pub const fn new(value: ::core::num::NonZeroU64) -> Self {

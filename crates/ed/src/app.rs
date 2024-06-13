@@ -1,4 +1,4 @@
-use std::{hash::Hash, path::PathBuf};
+use std::{borrow::Cow, hash::Hash, path::PathBuf};
 
 use arboard::Clipboard;
 use arcana::{
@@ -8,6 +8,7 @@ use arcana::{
 use egui::{Id, TopBottomPanel, WidgetText};
 use egui_dock::{DockState, NodeIndex, TabIndex, TabViewer, Tree};
 use egui_tracing::EventCollector;
+use miette::IntoDiagnostic;
 use winit::{
     dpi,
     event::WindowEvent,
@@ -16,11 +17,12 @@ use winit::{
 };
 
 use crate::{
-    code::Codes,
+    code::CodeTool,
     console::Console,
     container::Container,
     data::ProjectData,
     filters::Filters,
+    ide::{Ide, IdeType},
     init_mev,
     inspector::Inspector,
     instance::Main,
@@ -31,6 +33,11 @@ use crate::{
     systems::Systems,
     ui::{Ui, UiViewport, UserTextures},
 };
+
+#[derive(Clone, Default, egui_probe::EguiProbe, serde::Serialize, serde::Deserialize)]
+pub struct AppConfig {
+    ide: Option<IdeType>,
+}
 
 pub enum UserEvent {}
 
@@ -65,7 +72,7 @@ pub struct App {
 
     plugins: Plugins,
     console: Console,
-    codes: Codes,
+    code: CodeTool,
     systems: Systems,
     filters: Filters,
     rendering: Rendering,
@@ -77,6 +84,10 @@ pub struct App {
 
     clock: Clock,
     limiter: FrequencyTicker,
+    cfg: AppConfig,
+    show_preferences: bool,
+
+    ide: Option<Box<dyn Ide>>,
 }
 
 struct AppView {
@@ -84,12 +95,6 @@ struct AppView {
     surface: Option<mev::Surface>,
     dock_state: DockState<Tab>,
     viewport: UiViewport,
-}
-
-impl Drop for App {
-    fn drop(&mut self) {
-        kill_subprocesses();
-    }
 }
 
 impl App {
@@ -102,7 +107,7 @@ impl App {
         let filters = Filters::new();
         let rendering = Rendering::new();
         let image_sample = ImageSample::new(&device).unwrap();
-        let codes = Codes::new();
+        let code = CodeTool::new();
         let main = Main::new();
 
         let clock = Clock::new();
@@ -112,6 +117,19 @@ impl App {
         let views = Vec::new();
 
         let limiter = clock.ticker(120.hz());
+
+        let cfg: AppConfig = match load_app_cfg() {
+            Ok(cfg) => cfg,
+            Err(err) => {
+                tracing::warn!("Failed to load app cfg: {err:?}");
+                AppConfig::default()
+            }
+        };
+
+        let ide = match cfg.ide {
+            None => None,
+            Some(ide) => Some(ide.get()),
+        };
 
         App {
             project,
@@ -127,7 +145,7 @@ impl App {
 
             console,
             plugins,
-            codes,
+            code,
             systems,
             filters,
             rendering,
@@ -140,6 +158,10 @@ impl App {
 
             clock,
             limiter,
+            cfg,
+            show_preferences: false,
+
+            ide,
         }
     }
 
@@ -166,7 +188,7 @@ impl App {
         if let Some(c) = update {
             self.systems.update_plugins(&mut self.data, &c);
             self.filters.update_plugins(&mut self.data, &c);
-            self.codes.update_plugins(&mut self.data, &c);
+            self.code.update_plugins(&mut self.data, &c);
             self.rendering.update_plugins(&mut self.data, &c);
             self.main.update_plugins(&c);
 
@@ -211,6 +233,11 @@ impl App {
                         TopBottomPanel::top("Menu").show(cx, |ui| {
                             ui.horizontal(|ui| {
                                 ui.menu_button("File", |ui| {
+                                    if ui.button("Preferences").clicked() {
+                                        self.show_preferences = true;
+                                        ui.close_menu();
+                                    }
+
                                     if ui.button("Exit").clicked() {
                                         self.should_quit = true;
                                         ui.close_menu();
@@ -258,15 +285,36 @@ impl App {
                             console: &mut self.console,
                             systems: &mut self.systems,
                             filters: &mut self.filters,
-                            codes: &mut self.codes,
+                            code: &mut self.code,
                             rendering: &mut self.rendering,
                             main: &mut self.main,
                             sample: &self.image_sample,
                             device: &device,
                             textures,
+                            ide: self.ide.as_deref(),
                         };
 
                         egui_dock::DockArea::new(&mut view.dock_state).show(cx, &mut model);
+
+                        if self.show_preferences {
+                            egui::Window::new("Preferences")
+                                .collapsible(false)
+                                .title_bar(true)
+                                .resizable(false)
+                                .open(&mut self.show_preferences)
+                                .show(cx, |ui| {
+                                    egui_probe::Probe::new(&mut self.cfg).show(ui);
+
+                                    if let Err(err) = save_app_cfg(&self.cfg) {
+                                        tracing::error!("Failed to save app cfg: {err:?}");
+                                    }
+
+                                    match self.cfg.ide {
+                                        None => self.ide = None,
+                                        Some(ide) => self.ide = Some(ide.get()),
+                                    }
+                                });
+                        }
                     },
                 );
 
@@ -315,6 +363,102 @@ impl App {
             &mut self.queue,
         );
     }
+
+    fn save_state(&self) {
+        let state = AppState {
+            views: self
+                .views
+                .iter()
+                .map(|view| {
+                    let scale_factor = view.window.scale_factor();
+                    AppViewState {
+                        pos: view
+                            .window
+                            .inner_position()
+                            .unwrap_or_default()
+                            .to_logical(scale_factor),
+                        size: view.window.inner_size().to_logical(scale_factor),
+                        dock_state: Cow::Borrowed(&view.dock_state),
+                        maximized: view.window.is_maximized(),
+                    }
+                })
+                .collect(),
+        };
+
+        if let Err(err) = save_app_state(&state, &self.project.name()) {
+            tracing::error!("Failed to save app state: {err:?}");
+        }
+    }
+
+    fn load_state(&mut self, events: &ActiveEventLoop) {
+        let state = load_app_state(&self.project.name());
+
+        match state {
+            Err(err) => {
+                tracing::warn!("Failed to load app state: {err:?}");
+            }
+            Ok(state) => {
+                self.views.clear();
+
+                for view in state.views {
+                    let builder = Window::default_attributes()
+                        .with_title("Ed")
+                        .with_position(view.pos)
+                        .with_inner_size(view.size);
+
+                    let window: Window = events
+                        .create_window(builder)
+                        .map_err(|err| miette::miette!("Failed to create Ed window: {err:?}"))
+                        .unwrap();
+
+                    if view.maximized {
+                        window.set_maximized(true);
+                    }
+
+                    let size = window.inner_size();
+
+                    let viewport = self.ui.new_viewport(
+                        egui::vec2(size.width as f32, size.height as f32),
+                        window.scale_factor() as f32,
+                    );
+
+                    let view = AppView {
+                        window,
+                        surface: None,
+                        dock_state: view.dock_state.into_owned(),
+                        viewport,
+                    };
+
+                    self.views.push(view);
+                }
+            }
+        }
+
+        if self.views.is_empty() {
+            tracing::info!("Start from clean app state");
+
+            let builder = Window::default_attributes().with_title("Ed");
+
+            let window = events
+                .create_window(builder)
+                .map_err(|err| miette::miette!("Failed to create Ed window: {err:?}"))
+                .unwrap();
+
+            let size = window.inner_size();
+
+            let viewport = self.ui.new_viewport(
+                egui::vec2(size.width as f32, size.height as f32),
+                window.scale_factor() as f32,
+            );
+
+            self.views.push(AppView {
+                window,
+                surface: None,
+                dock_state: DockState::new(vec![]),
+                viewport,
+            });
+        }
+    }
 }
 
 fn find_tab(tabs: &Tree<Tab>, tab: Tab) -> Option<(NodeIndex, TabIndex)> {
@@ -336,16 +480,16 @@ fn focus_or_add_tab(tabs: &mut Tree<Tab>, tab: Tab) {
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
-struct AppViewState {
+struct AppViewState<'a> {
     pos: dpi::LogicalPosition<f64>,
     size: dpi::LogicalSize<f64>,
     maximized: bool,
-    dock_state: DockState<Tab>,
+    dock_state: Cow<'a, DockState<Tab>>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
-struct AppState {
-    views: Vec<AppViewState>,
+struct AppState<'a> {
+    views: Vec<AppViewState<'a>>,
 }
 
 struct AppModel<'a> {
@@ -357,12 +501,13 @@ struct AppModel<'a> {
     console: &'a mut Console,
     systems: &'a mut Systems,
     filters: &'a mut Filters,
-    codes: &'a mut Codes,
+    code: &'a mut CodeTool,
     rendering: &'a mut Rendering,
     main: &'a mut Main,
     sample: &'a ImageSample,
     device: &'a mev::Device,
     textures: UserTextures<'a>,
+    ide: Option<&'a dyn Ide>,
 }
 
 impl TabViewer for AppModel<'_> {
@@ -376,9 +521,9 @@ impl TabViewer for AppModel<'_> {
         match *tab {
             Tab::Plugins => self.plugins.show(self.linked, self.project, self.data, ui),
             Tab::Console => self.console.show(ui),
-            Tab::Systems => self.systems.show(self.project, self.data, ui),
-            Tab::Filters => self.filters.show(self.project, self.data, ui),
-            Tab::Codes => self.codes.show(self.project, self.data, ui),
+            Tab::Systems => self.systems.show(self.project, self.data, self.ide, ui),
+            Tab::Filters => self.filters.show(self.project, self.data, self.ide, ui),
+            Tab::Codes => self.code.show(self.project, self.data, ui),
             Tab::Rendering => self.rendering.show(
                 self.project,
                 self.data,
@@ -417,7 +562,7 @@ impl TabViewer for AppModel<'_> {
     }
 }
 
-fn app_state_path(create: bool) -> Option<PathBuf> {
+fn app_state_path(create: bool, name: &str) -> Option<PathBuf> {
     let mut path = match dirs::config_dir() {
         None => {
             let mut path = std::env::current_exe().ok()?;
@@ -426,6 +571,7 @@ fn app_state_path(create: bool) -> Option<PathBuf> {
         }
         Some(mut path) => {
             path.push("Arcana Engine");
+            path.push(name);
             if create {
                 std::fs::create_dir_all(&*path).ok()?;
             }
@@ -436,103 +582,70 @@ fn app_state_path(create: bool) -> Option<PathBuf> {
     Some(path)
 }
 
-fn load_app_state() -> Option<AppState> {
-    let mut file = std::fs::File::open(app_state_path(false)?).ok()?;
+fn load_app_state(name: &str) -> miette::Result<AppState<'static>> {
+    let path = app_state_path(true, name)
+        .ok_or_else(|| miette::miette!("Failed to get app state path"))?;
 
-    bincode::deserialize_from(&mut file).ok()
+    let mut file = std::fs::File::open(path).into_diagnostic()?;
+
+    let state = bincode::deserialize_from(&mut file).into_diagnostic()?;
+
+    Ok(state)
 }
 
-fn save_app_state(state: &AppState) -> Option<()> {
-    let mut file = std::fs::File::create(app_state_path(true)?).ok()?;
-    bincode::serialize_into(&mut file, state).ok()
+fn save_app_state(state: &AppState, name: &str) -> miette::Result<()> {
+    let path = app_state_path(true, name)
+        .ok_or_else(|| miette::miette!("Failed to get app state path"))?;
+    let mut file = std::fs::File::create(path).into_diagnostic()?;
+    bincode::serialize_into(&mut file, state).into_diagnostic()?;
+    Ok(())
+}
+
+fn app_cfg_path(create: bool) -> Option<PathBuf> {
+    let mut path = match dirs::config_dir() {
+        None => {
+            let mut path = std::env::current_exe().ok()?;
+            path.pop();
+            path
+        }
+        Some(mut path) => {
+            path.push("Arcana Engine");
+            path.push("Config");
+            if create {
+                std::fs::create_dir_all(&*path).ok()?;
+            }
+            path
+        }
+    };
+    path.push("ed.bin");
+    Some(path)
+}
+
+fn load_app_cfg() -> miette::Result<AppConfig> {
+    let path = app_cfg_path(true).ok_or_else(|| miette::miette!("Failed to get app cfg path"))?;
+
+    let mut file = std::fs::File::open(path).into_diagnostic()?;
+
+    let state = bincode::deserialize_from(&mut file).into_diagnostic()?;
+
+    Ok(state)
+}
+
+fn save_app_cfg(config: &AppConfig) -> miette::Result<()> {
+    let path = app_cfg_path(true).ok_or_else(|| miette::miette!("Failed to get app state path"))?;
+    let mut file = std::fs::File::create(path).into_diagnostic()?;
+    bincode::serialize_into(&mut file, config).into_diagnostic()?;
+    Ok(())
 }
 
 impl winit::application::ApplicationHandler<UserEvent> for App {
     fn resumed(&mut self, events: &ActiveEventLoop) {
-        let state = load_app_state();
-
-        match state {
-            None => {
-                let builder = Window::default_attributes().with_title("Ed");
-
-                let window = events
-                    .create_window(builder)
-                    .map_err(|err| miette::miette!("Failed to create Ed window: {err:?}"))
-                    .unwrap();
-
-                let size = window.inner_size();
-
-                let viewport = self.ui.new_viewport(
-                    egui::vec2(size.width as f32, size.height as f32),
-                    window.scale_factor() as f32,
-                );
-
-                self.views.push(AppView {
-                    window,
-                    surface: None,
-                    dock_state: DockState::new(vec![]),
-                    viewport,
-                });
-            }
-            Some(state) => {
-                for view in state.views {
-                    let builder = Window::default_attributes()
-                        .with_title("Ed")
-                        .with_position(view.pos)
-                        .with_inner_size(view.size);
-
-                    let window: Window = events
-                        .create_window(builder)
-                        .map_err(|err| miette::miette!("Failed to create Ed window: {err:?}"))
-                        .unwrap();
-
-                    if view.maximized {
-                        window.set_maximized(true);
-                    }
-
-                    let size = window.inner_size();
-
-                    let viewport = self.ui.new_viewport(
-                        egui::vec2(size.width as f32, size.height as f32),
-                        window.scale_factor() as f32,
-                    );
-
-                    let view = AppView {
-                        window,
-                        surface: None,
-                        dock_state: view.dock_state,
-                        viewport,
-                    };
-
-                    self.views.push(view);
-                }
-            }
-        };
+        self.load_state(events);
     }
 
     fn suspended(&mut self, _events: &ActiveEventLoop) {
-        let state = AppState {
-            views: self
-                .views
-                .iter_mut()
-                .map(|view| {
-                    let scale_factor = view.window.scale_factor();
-                    AppViewState {
-                        pos: view
-                            .window
-                            .inner_position()
-                            .unwrap_or_default()
-                            .to_logical(scale_factor),
-                        size: view.window.inner_size().to_logical(scale_factor),
-                        dock_state: std::mem::replace(&mut view.dock_state, DockState::new(vec![])),
-                        maximized: view.window.is_maximized(),
-                    }
-                })
-                .collect(),
-        };
-
+        self.save_state();
         self.views.clear();
-        let _ = save_app_state(&state);
     }
 
     fn new_events(&mut self, events: &ActiveEventLoop, _cause: winit::event::StartCause) {
@@ -548,10 +661,10 @@ impl winit::application::ApplicationHandler<UserEvent> for App {
 
         match event {
             WindowEvent::CloseRequested => {
-                self.views.retain(|view| view.window.id() != window_id);
-
-                if self.views.is_empty() {
+                if self.views.len() == 1 {
                     self.should_quit = true;
+                } else {
+                    self.views.retain(|view| view.window.id() != window_id);
                 }
             }
             WindowEvent::RedrawRequested => {
@@ -562,5 +675,10 @@ impl winit::application::ApplicationHandler<UserEvent> for App {
         }
 
         self.try_tick(events);
+    }
+
+    fn exiting(&mut self, _events: &ActiveEventLoop) {
+        self.save_state();
+        kill_subprocesses();
     }
 }

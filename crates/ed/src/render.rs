@@ -347,7 +347,8 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer<'_> {
                             let value = params.entry(name).or_insert_with(|| model.default_value());
 
                             let mut probe = ValueProbe::new(Some(model), value, name);
-                            self.modified |= egui_probe::Probe::new(name.as_str(), &mut probe)
+                            self.modified |= egui_probe::Probe::new(&mut probe)
+                                .with_header(name.as_str())
                                 .show(ui)
                                 .changed();
                         });

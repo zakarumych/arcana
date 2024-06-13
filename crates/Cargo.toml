@@ -39,6 +39,7 @@ clap = { version = "4.3", features = ["derive"] }
 codespan-reporting = "0.11"
 const-random = "0.1"
 core-graphics-types = { version = "0.1" }
+ctor = "0.2"
 cursor-icon = { version = "1.0" }
 denvars = { version = "0.3.2" }
 dirs = { version = "5" }
@@ -67,6 +68,7 @@ gpu-alloc = { version = "0.6" }
 hashbrown = { version = "=0.14", features = ["nightly", "serde"] }
 hidden-trait = "0.1"
 libloading = "0.8"
+linkme = "0.3"
 #mev = { git = "https://github.com/zakarumych/mev.git" }
 mev = { path = "../../mev" }
 miette = "7.0"
