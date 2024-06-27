@@ -7,9 +7,8 @@ use arcana::{
         AsyncContinueQueue, CodeDesc, CodeId, CodeValues, Codes, CodesId, Continuation, FlowCode,
         PureCode, ValueId,
     },
-    edict::{self, flow::FlowEntity, world::World},
+    edict::{self, flow::Entity, world::World},
     events::{EventId, Events},
-    flow::FlowWorld,
     hash_id,
     plugin::{CodeInfo, EventInfo, PluginsHub},
     project::Project,
@@ -146,7 +145,7 @@ fn schedule_pure_inputs(
 
 /// Execute specific pure code.
 fn execute_pure(
-    entity: FlowEntity,
+    entity: Entity,
     node: NodeId,
     snarl: &Snarl<CodeNode>,
     values: &mut CodeValues,
@@ -202,7 +201,7 @@ fn execute_flow(
     cache: &mut OutputCache,
     pures: &HashMap<CodeId, PureCode>,
     flows: &HashMap<CodeId, FlowCode>,
-    mut entity: FlowEntity,
+    mut entity: Entity,
     pin: InPinId,
     values: &mut Option<CodeValues>,
 ) -> Option<usize> {
@@ -298,7 +297,7 @@ fn run_codes(
     cache: &mut OutputCache,
     pures: &HashMap<CodeId, PureCode>,
     flows: &HashMap<CodeId, FlowCode>,
-    mut entity: FlowEntity,
+    mut entity: Entity,
     mut outflow: OutPinId,
     mut values: Option<CodeValues>,
 ) {
@@ -385,10 +384,10 @@ fn run_async_continations(
     let _guard = edict::tls::Guard::new(world.local());
 
     // Safety: Safe to do once under tls guard.
-    let world = unsafe { FlowWorld::make_mut() };
+    let world = unsafe { arcana::flow::World::make_mut() };
 
     for c in queue.drain() {
-        let Ok(entity) = world.flow_entity(c.entity) else {
+        let Ok(entity) = world.entity(c.entity) else {
             continue;
         };
 
@@ -480,9 +479,9 @@ pub fn handle_code_events(
             drop(events);
 
             let _guard = edict::tls::Guard::new(world);
-            let world = unsafe { FlowWorld::make_mut() };
+            let world = unsafe { arcana::flow::World::make_mut() };
 
-            let Ok(entity) = world.flow_entity(entity) else {
+            let Ok(entity) = world.entity(entity) else {
                 return;
             };
 

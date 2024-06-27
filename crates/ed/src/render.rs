@@ -2,7 +2,7 @@ use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 
 use arcana::{
     edict::world::WorldLocal,
-    mev,
+    make_id, mev,
     model::Value,
     plugin::{JobInfo, Location},
     project::Project,
@@ -22,19 +22,24 @@ use crate::{
     sample::ImageSample, ui::UserTextures,
 };
 
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
-#[serde(transparent)]
-pub struct WorkGraph {
-    snarl: Snarl<WorkGraphNode>,
+make_id!(pub RenderGraphId);
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct RenderGraph {
+    name: Name,
+    snarl: Snarl<RenderGraphNode>,
+
+    #[serde(skip)]
+    modification: u64,
 }
 
-impl WorkGraph {
+impl RenderGraph {
     pub fn make_workgraph(&self) -> Result<arcana::work::WorkGraph, arcana::work::Cycle> {
         let jobs = self
             .snarl
             .node_ids()
             .filter_map(|(id, node)| match node {
-                WorkGraphNode::Job {
+                RenderGraphNode::Job {
                     job, desc, params, ..
                 } => Some((JobIdx(id.0), (*job, desc.clone(), params.clone()))),
                 _ => None,
@@ -46,14 +51,14 @@ impl WorkGraph {
             .wires()
             .filter_map(|(from, to)| {
                 let from = match self.snarl.get_node(from.node) {
-                    Some(&WorkGraphNode::Job { .. }) => PinId {
+                    Some(&RenderGraphNode::Job { .. }) => PinId {
                         job: JobIdx(from.node.0),
                         pin: from.output,
                     },
                     _ => return None,
                 };
                 let to = match self.snarl.get_node(to.node) {
-                    Some(&WorkGraphNode::Job { .. }) => PinId {
+                    Some(&RenderGraphNode::Job { .. }) => PinId {
                         job: JobIdx(to.node.0),
                         pin: to.input,
                     },
@@ -68,8 +73,8 @@ impl WorkGraph {
 
     pub fn get_present(&self) -> Option<PinId> {
         for (from, to) in self.snarl.wires() {
-            if let Some(WorkGraphNode::MainPresent) = self.snarl.get_node(to.node) {
-                if let Some(&WorkGraphNode::Job { .. }) = self.snarl.get_node(from.node) {
+            if let Some(RenderGraphNode::MainPresent) = self.snarl.get_node(to.node) {
+                if let Some(&RenderGraphNode::Job { .. }) = self.snarl.get_node(from.node) {
                     return Some(PinId {
                         job: JobIdx(from.node.0),
                         pin: from.output,
@@ -88,23 +93,31 @@ struct Preview {
     size: Option<mev::Extent2>,
 }
 
+struct Selection {
+    rendergraph: RenderGraphId,
+    viewport: Option<EntityId>,
+}
+
 pub struct Rendering {
     available: BTreeMap<Ident, Vec<JobInfo>>,
-    modification: u64,
     preview: Option<Rc<RefCell<Preview>>>,
+    selected: Option<Selection>,
 }
 
 impl Rendering {
     pub fn new() -> Self {
         Rendering {
             available: BTreeMap::new(),
-            modification: 1,
             preview: None,
+            selected: None,
         }
     }
 
-    pub fn modification(&self) -> u64 {
-        self.modification
+    pub fn modification(&self, data: &ProjectData, id: RenderGraphId) -> u64 {
+        data.rendergraphs
+            .get(&id)
+            .map(|graph| graph.modification)
+            .unwrap_or(0)
     }
 
     pub fn update_plugins(&mut self, data: &mut ProjectData, container: &Container) {
@@ -122,39 +135,40 @@ impl Rendering {
             jobs.sort_by_key(|node| node.name);
         }
 
-        let mut add_present_node = true;
-        for node in data.workgraph.snarl.nodes_mut() {
-            match node {
-                WorkGraphNode::Job {
-                    job,
-                    desc,
-                    location,
-                    active,
-                    ..
-                } => {
-                    if let Some(info) = all_jobs.get(&*job) {
-                        *active = true;
+        for rendergraph in data.rendergraphs.values_mut() {
+            let mut add_present_node = true;
+            for node in rendergraph.snarl.nodes_mut() {
+                match node {
+                    RenderGraphNode::Job {
+                        job,
+                        desc,
+                        location,
+                        active,
+                        ..
+                    } => {
+                        if let Some(info) = all_jobs.get(&*job) {
+                            *active = true;
 
-                        if *desc != info.desc {
-                            *desc = info.desc.clone();
+                            if *desc != info.desc {
+                                *desc = info.desc.clone();
+                            }
+
+                            *location = info.location.clone();
                         }
-
-                        *location = info.location.clone();
+                    }
+                    RenderGraphNode::MainPresent => {
+                        add_present_node = false;
                     }
                 }
-                WorkGraphNode::MainPresent => {
-                    add_present_node = false;
-                }
             }
-        }
 
-        if add_present_node {
-            data.workgraph
-                .snarl
-                .insert_node(egui::Pos2::new(0.0, 0.0), WorkGraphNode::MainPresent);
+            if add_present_node {
+                rendergraph
+                    .snarl
+                    .insert_node(egui::Pos2::new(0.0, 0.0), RenderGraphNode::MainPresent);
+            }
+            rendergraph.modification += 1;
         }
-
-        self.modification += 1;
     }
 
     pub fn show(
@@ -168,71 +182,87 @@ impl Rendering {
         ide: Option<&dyn Ide>,
         ui: &mut Ui,
     ) {
-        let preview = self.preview.get_or_insert_with(|| {
-            let id = textures.new_id();
-
-            Rc::new(RefCell::new(Preview {
-                image: None,
-                id,
-                hook: None,
-                size: None,
-            }))
-        });
-
-        {
-            let mut preview = preview.borrow_mut();
-
-            if let Some(size) = preview.size {
-                if let Some(image) = &preview.image {
-                    if size != image.dimensions().expect_2d() {
-                        preview.image = None;
+        ui.vertical(|ui| {
+            ui.horizontal(|ui| {
+                let mut cbox = egui::ComboBox::from_id_source("selected");
+                if let Some(selected) = self.selected {
+                    if let Some(rendergraph) = data.rendergraphs.get(&selected) {
+                        cbox = cbox.selected_text(rendergraph.name.to_string());
+                    } else {
+                        self.selected = None;
                     }
                 }
+            });
 
-                let id = preview.id;
-                preview.image.get_or_insert_with(|| {
-                    let image = device
-                        .new_image(mev::ImageDesc {
-                            dimensions: size.into(),
-                            format: mev::PixelFormat::Rgba8Srgb,
-                            usage: mev::ImageUsage::TARGET | mev::ImageUsage::SAMPLED,
-                            layers: 1,
-                            levels: 1,
-                            name: "preview",
-                        })
-                        .unwrap();
+            let preview = self.preview.get_or_insert_with(|| {
+                let id = textures.new_id();
 
-                    textures.set(id, image.clone(), crate::ui::Sampler::LinearLinear);
+                Rc::new(RefCell::new(Preview {
+                    image: None,
+                    id,
+                    hook: None,
+                    size: None,
+                }))
+            });
 
-                    image
-                });
+            {
+                let mut preview = preview.borrow_mut();
+
+                if let Some(size) = preview.size {
+                    if let Some(image) = &preview.image {
+                        if size != image.dimensions().expect_2d() {
+                            preview.image = None;
+                        }
+                    }
+
+                    let id = preview.id;
+                    preview.image.get_or_insert_with(|| {
+                        let image = device
+                            .new_image(mev::ImageDesc {
+                                dimensions: size.into(),
+                                format: mev::PixelFormat::Rgba8Srgb,
+                                usage: mev::ImageUsage::TARGET | mev::ImageUsage::SAMPLED,
+                                layers: 1,
+                                levels: 1,
+                                name: "preview",
+                            })
+                            .unwrap();
+
+                        textures.set(id, image.clone(), crate::ui::Sampler::LinearLinear);
+
+                        image
+                    });
+                }
             }
-        }
 
-        const STYLE: SnarlStyle = SnarlStyle::new();
+            let mut viewer = RenderGraphViewer {
+                modified: false,
+                available: &mut self.available,
+                main,
+                sample: &sample,
+                preview,
+                ide,
+            };
 
-        let mut viewer = WorkGraphViewer {
-            modified: false,
-            available: &mut self.available,
-            main,
-            sample: &sample,
-            preview,
-            ide,
-        };
+            let style = SnarlStyle {
+                wire_style: Some(egui_snarl::ui::WireStyle::AxisAligned { corner_radius: 5.0 }),
+                ..SnarlStyle::new()
+            };
 
-        data.workgraph
-            .snarl
-            .show(&mut viewer, &STYLE, "work-graph", ui);
+            data.workgraph
+                .snarl
+                .show(&mut viewer, &style, "work-graph", ui);
 
-        if viewer.modified {
-            self.modification += 1;
-            try_log_err!(data.sync(&project));
-        }
+            if viewer.modified {
+                self.modification += 1;
+                try_log_err!(data.sync(&project));
+            }
+        });
     }
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub enum WorkGraphNode {
+pub enum RenderGraphNode {
     Job {
         job: JobId,
         name: Name,
@@ -249,7 +279,7 @@ pub enum WorkGraphNode {
     MainPresent,
 }
 
-pub struct WorkGraphViewer<'a> {
+pub struct RenderGraphViewer<'a> {
     modified: bool,
     available: &'a mut BTreeMap<Ident, Vec<JobInfo>>,
     main: &'a mut Main,
@@ -258,11 +288,11 @@ pub struct WorkGraphViewer<'a> {
     ide: Option<&'a dyn Ide>,
 }
 
-impl SnarlViewer<WorkGraphNode> for WorkGraphViewer<'_> {
-    fn title(&mut self, node: &WorkGraphNode) -> String {
+impl SnarlViewer<RenderGraphNode> for RenderGraphViewer<'_> {
+    fn title(&mut self, node: &RenderGraphNode) -> String {
         match *node {
-            WorkGraphNode::Job { ref name, .. } => name.as_str().to_owned(),
-            WorkGraphNode::MainPresent => "Present".to_owned(),
+            RenderGraphNode::Job { ref name, .. } => name.as_str().to_owned(),
+            RenderGraphNode::MainPresent => "Present".to_owned(),
         }
     }
 
@@ -273,12 +303,12 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer<'_> {
         _: &[egui_snarl::OutPin],
         ui: &mut egui::Ui,
         _: f32,
-        snarl: &mut egui_snarl::Snarl<WorkGraphNode>,
+        snarl: &mut egui_snarl::Snarl<RenderGraphNode>,
     ) {
         let mut remove = false;
 
         match snarl[id] {
-            WorkGraphNode::Job {
+            RenderGraphNode::Job {
                 ref name,
                 ref plugin,
                 ref location,
@@ -334,7 +364,7 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer<'_> {
                     });
                 });
             }
-            WorkGraphNode::MainPresent => {
+            RenderGraphNode::MainPresent => {
                 ui.label("Present");
             }
         }
@@ -345,17 +375,17 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer<'_> {
         }
     }
 
-    fn inputs(&mut self, node: &WorkGraphNode) -> usize {
+    fn inputs(&mut self, node: &RenderGraphNode) -> usize {
         match *node {
-            WorkGraphNode::Job { ref desc, .. } => desc.input_count(),
-            WorkGraphNode::MainPresent => 1,
+            RenderGraphNode::Job { ref desc, .. } => desc.input_count(),
+            RenderGraphNode::MainPresent => 1,
         }
     }
 
-    fn outputs(&mut self, node: &WorkGraphNode) -> usize {
+    fn outputs(&mut self, node: &RenderGraphNode) -> usize {
         match *node {
-            WorkGraphNode::Job { ref desc, .. } => desc.output_count(),
-            WorkGraphNode::MainPresent => 0,
+            RenderGraphNode::Job { ref desc, .. } => desc.output_count(),
+            RenderGraphNode::MainPresent => 0,
         }
     }
 
@@ -364,10 +394,10 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer<'_> {
         pin: &InPin,
         ui: &mut egui::Ui,
         _scale: f32,
-        snarl: &mut Snarl<WorkGraphNode>,
+        snarl: &mut Snarl<RenderGraphNode>,
     ) -> PinInfo {
         match snarl[pin.id.node] {
-            WorkGraphNode::Job {
+            RenderGraphNode::Job {
                 ref desc,
                 ref mut params,
                 ..
@@ -404,7 +434,7 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer<'_> {
                     a => unreachable!("{a:?}"),
                 }
             }
-            WorkGraphNode::MainPresent => {
+            RenderGraphNode::MainPresent => {
                 ui.label("presents");
                 PinInfo::circle().with_fill(present_pin_color())
             }
@@ -416,10 +446,10 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer<'_> {
         pin: &OutPin,
         ui: &mut egui::Ui,
         _scale: f32,
-        snarl: &mut Snarl<WorkGraphNode>,
+        snarl: &mut Snarl<RenderGraphNode>,
     ) -> PinInfo {
         match snarl[pin.id.node] {
-            WorkGraphNode::Job { ref desc, .. } => {
+            RenderGraphNode::Job { ref desc, .. } => {
                 if pin.id.output >= desc.output_count() {
                     unreachable!()
                 }
@@ -466,19 +496,19 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer<'_> {
                     _ => unreachable!(),
                 }
             }
-            WorkGraphNode::MainPresent => {
+            RenderGraphNode::MainPresent => {
                 unreachable!()
             }
         }
     }
 
-    fn connect(&mut self, from: &OutPin, to: &InPin, snarl: &mut Snarl<WorkGraphNode>) {
+    fn connect(&mut self, from: &OutPin, to: &InPin, snarl: &mut Snarl<RenderGraphNode>) {
         let from_node = &snarl[from.id.node];
         let to_node = &snarl[to.id.node];
         match (from_node, to_node) {
             (
-                WorkGraphNode::Job { desc: from_job, .. },
-                WorkGraphNode::Job { desc: to_job, .. },
+                RenderGraphNode::Job { desc: from_job, .. },
+                RenderGraphNode::Job { desc: to_job, .. },
             ) => {
                 if from_job.output_type(from.id.output) == to_job.input_type(to.id.input) {
                     debug_assert!(to.remotes.len() <= 1);
@@ -489,7 +519,7 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer<'_> {
                     self.modified = true;
                 }
             }
-            (WorkGraphNode::Job { desc: from_job, .. }, WorkGraphNode::MainPresent) => {
+            (RenderGraphNode::Job { desc: from_job, .. }, RenderGraphNode::MainPresent) => {
                 if from_job.output_type(from.id.output) == present_kind() {
                     debug_assert!(to.remotes.len() <= 1);
                     for &r in &to.remotes {
@@ -503,14 +533,14 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer<'_> {
         }
     }
 
-    fn disconnect(&mut self, from: &OutPin, to: &InPin, snarl: &mut Snarl<WorkGraphNode>) {
+    fn disconnect(&mut self, from: &OutPin, to: &InPin, snarl: &mut Snarl<RenderGraphNode>) {
         snarl.disconnect(from.id, to.id);
         self.modified = true;
     }
 
     /// Checks if the snarl has something to show in context menu if wire drag is stopped at `pos`.
     #[inline(always)]
-    fn has_dropped_wire_menu(&mut self, _: AnyPins, _: &mut Snarl<WorkGraphNode>) -> bool {
+    fn has_dropped_wire_menu(&mut self, _: AnyPins, _: &mut Snarl<RenderGraphNode>) -> bool {
         true
     }
 
@@ -523,7 +553,7 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer<'_> {
         ui: &mut Ui,
         _scale: f32,
         src_pins: AnyPins,
-        snarl: &mut Snarl<WorkGraphNode>,
+        snarl: &mut Snarl<RenderGraphNode>,
     ) {
         ui.label("Add job");
 
@@ -545,7 +575,7 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer<'_> {
                 if ui.button(job.name.as_str()).clicked() {
                     let new_node = snarl.insert_node(
                         pos,
-                        WorkGraphNode::Job {
+                        RenderGraphNode::Job {
                             job: job.id,
                             name: job.name,
                             plugin,
@@ -591,7 +621,7 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer<'_> {
     }
 
     #[inline(always)]
-    fn has_graph_menu(&mut self, _: egui::Pos2, _: &mut Snarl<WorkGraphNode>) -> bool {
+    fn has_graph_menu(&mut self, _: egui::Pos2, _: &mut Snarl<RenderGraphNode>) -> bool {
         true
     }
 
@@ -600,7 +630,7 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer<'_> {
         pos: egui::Pos2,
         ui: &mut Ui,
         _scale: f32,
-        snarl: &mut Snarl<WorkGraphNode>,
+        snarl: &mut Snarl<RenderGraphNode>,
     ) {
         ui.label("Add job");
 
@@ -621,7 +651,7 @@ impl SnarlViewer<WorkGraphNode> for WorkGraphViewer<'_> {
                 if ui.button(job.name.as_str()).clicked() {
                     snarl.insert_node(
                         pos,
-                        WorkGraphNode::Job {
+                        RenderGraphNode::Job {
                             job: job.id,
                             name: job.name,
                             plugin,

@@ -6,7 +6,12 @@ use std::io::Write;
 use arcana::{code::CodesId, project::Project, Ident};
 use hashbrown::{HashMap, HashSet};
 
-use crate::{code::CodeGraph, filters::Funnel, render::WorkGraph, systems::SystemGraph};
+use crate::{
+    code::CodeGraph,
+    filters::Funnel,
+    render::{RenderGraph, RenderGraphId},
+    systems::SystemGraph,
+};
 
 /// In combination with `ProjectManifest` this defines the project completely.
 /// This includes enabled plugins, filter chain, system graph, asset collections, etc
@@ -23,8 +28,8 @@ pub struct ProjectData {
     /// Event funnel.
     pub funnel: Funnel,
 
-    /// Work graph.
-    pub workgraph: WorkGraph,
+    /// Render graphs.
+    pub rendergraphs: HashMap<RenderGraphId, RenderGraph>,
 
     /// Code graphs.
     pub codes: HashMap<CodesId, CodeGraph>,
