@@ -3,16 +3,22 @@ use std::{any::Any, sync::atomic::AtomicBool};
 
 use arcana_names::{Ident, Name};
 use arcana_project::Dependency;
-use edict::{IntoSystem, System, World};
+use edict::{
+    system::{IntoSystem, System},
+    world::World,
+};
 use hashbrown::HashMap;
 
-use crate::code::{CodeDesc, CodeId, FlowCode, PureCode};
+use crate::code::{CodeDesc, CodeNodeId, FlowCode, PureCode};
 use crate::events::EventId;
 use crate::input::{FilterId, InputFilter, IntoInputFilter};
 use crate::work::{Job, JobDesc, JobId};
 use crate::{make_id, Stid};
 
-make_id!(pub SystemId);
+make_id! {
+    /// ID of the ECS system.
+    pub SystemId;
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Location {
@@ -67,7 +73,7 @@ pub struct JobInfo {
 #[derive(Clone)]
 pub struct CodeInfo {
     /// Unique identified of the code.
-    pub id: CodeId,
+    pub id: CodeNodeId,
 
     /// Name of the code.
     pub name: Name,
@@ -102,8 +108,8 @@ pub struct PluginsHub {
     pub systems: HashMap<SystemId, Box<dyn System + Send>>,
     pub filters: HashMap<FilterId, Box<dyn InputFilter>>,
     pub jobs: HashMap<JobId, Box<dyn Job>>,
-    pub pure_fns: HashMap<CodeId, PureCode>,
-    pub flow_fns: HashMap<CodeId, FlowCode>,
+    pub pure_fns: HashMap<CodeNodeId, PureCode>,
+    pub flow_fns: HashMap<CodeNodeId, FlowCode>,
 }
 
 impl PluginsHub {
@@ -140,12 +146,12 @@ impl PluginsHub {
     }
 
     /// Adds a pure fn from a plugin to the hub.
-    pub fn add_pure_fn(&mut self, id: CodeId, code: PureCode) {
+    pub fn add_pure_fn(&mut self, id: CodeNodeId, code: PureCode) {
         self.pure_fns.insert(id, code);
     }
 
     /// Adds a flow fn from a plugin to the hub.
-    pub fn add_flow_fn(&mut self, id: CodeId, code: FlowCode) {
+    pub fn add_flow_fn(&mut self, id: CodeNodeId, code: FlowCode) {
         self.flow_fns.insert(id, code);
     }
 }

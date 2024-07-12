@@ -27,7 +27,7 @@ impl Sampler {
 }
 
 pub struct UiViewport {
-    id: egui::ViewportId,
+    id: egui::ViewId,
     raw_input: egui::RawInput,
     mouse_pos: egui::Pos2,
     scale_factor: f32,
@@ -94,20 +94,20 @@ impl Ui {
     }
 
     pub fn new_viewport(&mut self, size: egui::Vec2, scale_factor: f32) -> UiViewport {
-        let id: egui::ViewportId = egui::ViewportId(self.next_id);
+        let id: egui::ViewId = egui::ViewId(self.next_id);
         self.next_id = self.next_id.with("next_id");
 
         self._new_viewport(id, size, scale_factor)
     }
 
     pub fn main_viewport(&mut self, size: egui::Vec2, scale_factor: f32) -> UiViewport {
-        let id: egui::ViewportId = egui::ViewportId::ROOT;
+        let id: egui::ViewId = egui::ViewId::ROOT;
         self._new_viewport(id, size, scale_factor)
     }
 
     fn _new_viewport(
         &mut self,
-        id: egui::ViewportId,
+        id: egui::ViewId,
         size: egui::Vec2,
         scale_factor: f32,
     ) -> UiViewport {

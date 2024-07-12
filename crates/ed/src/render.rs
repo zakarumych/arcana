@@ -6,6 +6,7 @@ use arcana::{
     model::Value,
     plugin::{JobInfo, Location},
     project::Project,
+    render::RenderGraphId,
     texture::Texture,
     work::{Edge, HookId, Image2D, JobDesc, JobId, JobIdx, PinId},
     EntityId, Ident, Name, Stid, WithStid,
@@ -22,15 +23,13 @@ use crate::{
     sample::ImageSample, ui::UserTextures,
 };
 
-make_id!(pub RenderGraphId);
-
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct RenderGraph {
-    name: Name,
-    snarl: Snarl<RenderGraphNode>,
+    pub name: Name,
+    pub snarl: Snarl<RenderGraphNode>,
 
     #[serde(skip)]
-    modification: u64,
+    pub modification: u64,
 }
 
 impl RenderGraph {
@@ -94,7 +93,7 @@ struct Preview {
 }
 
 struct Selection {
-    rendergraph: RenderGraphId,
+    render_graph: RenderGraphId,
     viewport: Option<EntityId>,
 }
 
@@ -114,7 +113,7 @@ impl Rendering {
     }
 
     pub fn modification(&self, data: &ProjectData, id: RenderGraphId) -> u64 {
-        data.rendergraphs
+        data.render_graphs
             .get(&id)
             .map(|graph| graph.modification)
             .unwrap_or(0)
@@ -135,9 +134,9 @@ impl Rendering {
             jobs.sort_by_key(|node| node.name);
         }
 
-        for rendergraph in data.rendergraphs.values_mut() {
+        for render_graph in data.render_graphs.values_mut() {
             let mut add_present_node = true;
-            for node in rendergraph.snarl.nodes_mut() {
+            for node in render_graph.snarl.nodes_mut() {
                 match node {
                     RenderGraphNode::Job {
                         job,
@@ -163,11 +162,11 @@ impl Rendering {
             }
 
             if add_present_node {
-                rendergraph
+                render_graph
                     .snarl
                     .insert_node(egui::Pos2::new(0.0, 0.0), RenderGraphNode::MainPresent);
             }
-            rendergraph.modification += 1;
+            render_graph.modification += 1;
         }
     }
 
@@ -186,8 +185,8 @@ impl Rendering {
             ui.horizontal(|ui| {
                 let mut cbox = egui::ComboBox::from_id_source("selected");
                 if let Some(selected) = self.selected {
-                    if let Some(rendergraph) = data.rendergraphs.get(&selected) {
-                        cbox = cbox.selected_text(rendergraph.name.to_string());
+                    if let Some(render_graph) = data.render_graphs.get(&selected) {
+                        cbox = cbox.selected_text(render_graph.name.to_string());
                     } else {
                         self.selected = None;
                     }

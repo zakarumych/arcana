@@ -6,25 +6,26 @@ use std::{
     task::{Poll, Waker},
 };
 
-pub use edict::flow::*;
+pub use edict::flow::FlowWorld;
 use gametime::{ClockStep, TimeSpan, TimeStamp};
 
 /// Causes flow to sleep for the specified duration.
-pub async fn sleep(duration: TimeSpan, world: &World) {
+pub async fn sleep(duration: TimeSpan, world: FlowWorld) {
     if duration == TimeSpan::ZERO {
         return;
     }
 
-    let now = world.expect_resource::<ClockStep>().now;
+    let now = world.map(|world| world.expect_resource::<ClockStep>().now);
+
     let deadline = now + duration;
 
     sleep_until(deadline, world).await;
 }
 
 /// Causes flow to sleep untile specified time.
-pub async fn sleep_until(deadline: TimeStamp, world: &World) {
+pub async fn sleep_until(deadline: TimeStamp, world: FlowWorld) {
     world
-        .poll_fn(|world, cx| {
+        .poll(|world, cx| {
             let now = world.expect_resource::<ClockStep>().now;
 
             if now >= deadline {
@@ -106,12 +107,11 @@ impl Timers {
     }
 }
 
-pub fn init_flows(world: &mut edict::World) {
-    Flows::init(world);
+pub fn init_flows(world: &mut edict::world::World) {
     world.insert_resource(Timers::new());
 }
 
-pub fn wake_flows(world: &mut edict::World) {
+pub fn wake_flows(world: &mut edict::world::World) {
     let mut times = world.expect_resource_mut::<Timers>();
     let clocks = world.expect_resource::<ClockStep>();
 

@@ -1,6 +1,6 @@
 use arcana::input::{
     ElementState, KeyCode, ModifiersState, MouseButton, MouseScrollDelta, PhysicalKey,
-    ViewportInput,
+    ViewInput,
 };
 use egui::{pos2, vec2, MouseWheelUnit};
 
@@ -170,9 +170,9 @@ fn translate_key_code(key: KeyCode) -> Option<egui::Key> {
 // }
 
 impl Egui {
-    pub fn handle_event(&mut self, event: &ViewportInput) -> bool {
+    pub fn handle_event(&mut self, event: &ViewInput) -> bool {
         match *event {
-            ViewportInput::Resized { width, height } => {
+            ViewInput::Resized { width, height } => {
                 self.size = vec2(width as f32, height as f32);
                 let rect =
                     egui::Rect::from_min_size(egui::Pos2::ZERO, self.size / self.scale_factor);
@@ -184,7 +184,7 @@ impl Egui {
                     .inner_rect = Some(rect);
                 false
             }
-            ViewportInput::ScaleFactorChanged { scale_factor } => {
+            ViewInput::ScaleFactorChanged { scale_factor } => {
                 self.scale_factor = scale_factor;
                 self.raw_input.screen_rect = Some(egui::Rect::from_min_size(
                     egui::Pos2::ZERO,
@@ -197,7 +197,7 @@ impl Egui {
                     .native_pixels_per_point = Some(scale_factor);
                 false
             }
-            ViewportInput::KeyboardInput { ref event, .. } => {
+            ViewInput::KeyboardInput { ref event, .. } => {
                 if let PhysicalKey::Code(keycode) = event.physical_key {
                     let pressed = event.state == ElementState::Pressed;
 
@@ -221,7 +221,7 @@ impl Egui {
 
                 self.cx.wants_keyboard_input()
             }
-            ViewportInput::ModifiersChanged(modifiers) => {
+            ViewInput::ModifiersChanged(modifiers) => {
                 self.raw_input.modifiers = egui::Modifiers {
                     alt: modifiers.state().contains(ModifiersState::ALT),
                     ctrl: modifiers.state().contains(ModifiersState::CONTROL),
@@ -236,19 +236,19 @@ impl Egui {
                 };
                 false
             }
-            ViewportInput::CursorMoved { x, y, .. } => {
+            ViewInput::CursorMoved { x, y, .. } => {
                 self.mouse_pos = pos2(x as f32 / self.scale_factor, y as f32 / self.scale_factor);
                 self.raw_input
                     .events
                     .push(egui::Event::PointerMoved(self.mouse_pos));
                 false
             }
-            ViewportInput::CursorEntered { .. } => false,
-            ViewportInput::CursorLeft { .. } => {
+            ViewInput::CursorEntered { .. } => false,
+            ViewInput::CursorLeft { .. } => {
                 self.raw_input.events.push(egui::Event::PointerGone);
                 false
             }
-            ViewportInput::MouseWheel { delta, .. } => {
+            ViewInput::MouseWheel { delta, .. } => {
                 {
                     let (unit, delta) = match delta {
                         MouseScrollDelta::LineDelta(x, y) => {
@@ -293,7 +293,7 @@ impl Egui {
 
                 self.cx.wants_pointer_input()
             }
-            ViewportInput::MouseInput { state, button, .. } => {
+            ViewInput::MouseInput { state, button, .. } => {
                 if let Some(button) = translate_mouse_button(button) {
                     let pressed = state == ElementState::Pressed;
 

@@ -5,7 +5,7 @@ use std::{
 };
 
 use arcana_names::Name;
-use edict::World;
+use edict::world::World;
 use hashbrown::{hash_map::Entry, HashMap, HashSet};
 use slab::Slab;
 
@@ -334,9 +334,9 @@ impl WorkGraph {
         HookId { hook: idx, pin }
     }
 
-    pub fn has_hook(&mut self, id: HookId) -> bool {
+    pub fn has_hook(&self, id: HookId) -> bool {
         let order = self.idx_to_order[&id.pin.job];
-        let job = &mut self.plan[order];
+        let job = &self.plan[order];
         job.hooks.contains(id.hook)
     }
 

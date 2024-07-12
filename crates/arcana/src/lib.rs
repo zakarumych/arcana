@@ -108,6 +108,7 @@ pub mod model;
 mod num2name;
 pub mod plugin;
 pub mod refl;
+pub mod render;
 pub mod serde_with;
 mod stid;
 mod tany;

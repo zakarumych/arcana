@@ -20,7 +20,7 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "My egui App",
         native_options,
-        Box::new(|cc| Box::new(App::new(cc))),
+        Box::new(|cc| Ok(Box::new(App::new(cc)))),
     )
 }
 
@@ -107,7 +107,9 @@ impl eframe::App for App {
         let mut run_editor = None;
 
         egui::TopBottomPanel::top("Menu").show(cx, |ui| {
-            ui.set_enabled(self.dialog.is_none() && self.child.is_none());
+            if self.dialog.is_some() || self.child.is_some() {
+                ui.disable();
+            }
 
             ui.menu_button("File", |ui| {
                 let r = ui.button("New Project");
@@ -152,7 +154,9 @@ impl eframe::App for App {
         });
 
         egui::TopBottomPanel::top("Controls").show(cx, |ui| {
-            ui.set_enabled(self.dialog.is_none() && self.child.is_none());
+            if self.dialog.is_some() || self.child.is_some() {
+                ui.disable();
+            }
 
             ui.horizontal(|ui| {
                 if ui
@@ -173,7 +177,9 @@ impl eframe::App for App {
         let mut remove_recent = None;
 
         egui::CentralPanel::default().show(cx, |ui| {
-            ui.set_enabled(self.dialog.is_none());
+            if self.dialog.is_some() {
+                ui.disable();
+            }
 
             let recent = self.start.recent();
 
@@ -443,8 +449,8 @@ enum AppChild {
 }
 
 impl AppChild {
-    fn is_none(&self) -> bool {
-        matches!(self, AppChild::None)
+    fn is_some(&self) -> bool {
+        !matches!(self, AppChild::None)
     }
 }
 
@@ -553,7 +559,9 @@ impl NewProject {
             .default_pos(egui::pos2(50.0, 50.0))
             .collapsible(false)
             .show(cx, |ui| {
-                ui.set_enabled(self.dialog.is_none());
+                if self.dialog.is_some() {
+                    ui.disable();
+                }
 
                 egui::Grid::new("new-project-settings")
                     .num_columns(2)

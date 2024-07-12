@@ -4,15 +4,19 @@ use std::{collections::BTreeMap, hash::Hash, ops::Range};
 
 use arcana::{
     code::{
-        AsyncContinueQueue, CodeDesc, CodeId, CodeValues, Codes, CodesId, Continuation, FlowCode,
+        AsyncContinueQueue, CodeDesc, CodeGraphId, CodeNodeId, CodeValues, Continuation, FlowCode,
         PureCode, ValueId,
     },
-    edict::{self, flow::Entity, world::World},
+    edict::{
+        flow::{FlowEntity, Flows},
+        query::Cpy,
+        world::World,
+    },
     events::{EventId, Events},
     hash_id,
     plugin::{CodeInfo, EventInfo, PluginsHub},
     project::Project,
-    Ident, Name, NameError, Stid,
+    Ident, Name, NameError, NoSuchEntity, Stid,
 };
 use egui::{epaint::PathShape, Color32, Painter, PointerButton, Rect, Shape, Stroke, Ui};
 use egui_snarl::{
@@ -31,7 +35,7 @@ struct OutputCacheEntry {
 
 #[derive(Default)]
 pub struct OutputCache {
-    map: HashMap<CodesId, OutputCacheEntry>,
+    map: HashMap<CodeGraphId, OutputCacheEntry>,
 }
 
 impl OutputCache {
@@ -41,12 +45,12 @@ impl OutputCache {
         }
     }
 
-    pub fn grab(&mut self, codes: CodesId) -> CodeValues {
+    pub fn grab(&mut self, codes: CodeGraphId) -> CodeValues {
         let entry = self.map.entry(codes).or_default();
         entry.queue.pop().unwrap_or_default()
     }
 
-    pub fn cache(&mut self, codes: CodesId, values: CodeValues) {
+    pub fn cache(&mut self, codes: CodeGraphId, values: CodeValues) {
         let entry = self.map.entry(codes).or_default();
         entry.queue.push(values);
     }
@@ -61,7 +65,7 @@ pub enum CodeNode {
     },
     /// Pure node gets executed every type its output is required.
     Pure {
-        id: CodeId,
+        id: CodeNodeId,
         name: Name,
         inputs: Vec<Stid>,
         outputs: Vec<Stid>,
@@ -69,7 +73,7 @@ pub enum CodeNode {
 
     /// Flow node that gets executed when triggered by connected inflow.
     Flow {
-        id: CodeId,
+        id: CodeNodeId,
         name: Name,
         inflows: usize,
         outflows: usize,
@@ -145,11 +149,11 @@ fn schedule_pure_inputs(
 
 /// Execute specific pure code.
 fn execute_pure(
-    entity: Entity,
+    entity: FlowEntity,
     node: NodeId,
     snarl: &Snarl<CodeNode>,
     values: &mut CodeValues,
-    pures: &HashMap<CodeId, PureCode>,
+    pures: &HashMap<CodeNodeId, PureCode>,
 ) {
     let Some(code_node) = snarl.get_node(node) else {
         tracing::error!("Pure node {node:?} was not found");
@@ -196,12 +200,12 @@ fn execute_pure(
 
 /// Execute specific flow code.
 fn execute_flow(
-    codes: CodesId,
+    codes: CodeGraphId,
     snarl: &Snarl<CodeNode>,
     cache: &mut OutputCache,
-    pures: &HashMap<CodeId, PureCode>,
-    flows: &HashMap<CodeId, FlowCode>,
-    mut entity: Entity,
+    pures: &HashMap<CodeNodeId, PureCode>,
+    flows: &HashMap<CodeNodeId, FlowCode>,
+    entity: FlowEntity,
     pin: InPinId,
     values: &mut Option<CodeValues>,
 ) -> Option<usize> {
@@ -232,13 +236,7 @@ fn execute_flow(
 
             // Execute pure deps.
             for node in schedule {
-                execute_pure(
-                    entity.reborrow(),
-                    node,
-                    snarl,
-                    values.as_mut().unwrap(),
-                    pures,
-                );
+                execute_pure(entity, node, snarl, values.as_mut().unwrap(), pures);
             }
 
             // Collect outputs.
@@ -270,13 +268,7 @@ fn execute_flow(
             values.get_or_insert_with(|| cache.grab(codes));
             let continuation = Continuation::new(pin.node.0, codes, values, &mut next, &outputs);
 
-            flow_code(
-                pin.input,
-                entity.reborrow(),
-                &inputs,
-                &outputs,
-                continuation,
-            );
+            flow_code(pin.input, entity, &inputs, &outputs, continuation);
 
             tracing::debug!("Next is {:?}", next);
 
@@ -292,12 +284,12 @@ fn execute_flow(
 }
 
 fn run_codes(
-    codes: CodesId,
+    codes: CodeGraphId,
     snarl: &Snarl<CodeNode>,
     cache: &mut OutputCache,
-    pures: &HashMap<CodeId, PureCode>,
-    flows: &HashMap<CodeId, FlowCode>,
-    mut entity: Entity,
+    pures: &HashMap<CodeNodeId, PureCode>,
+    flows: &HashMap<CodeNodeId, FlowCode>,
+    entity: FlowEntity,
     mut outflow: OutPinId,
     mut values: Option<CodeValues>,
 ) {
@@ -349,7 +341,7 @@ fn run_codes(
             cache,
             pures,
             flows,
-            entity.reborrow(),
+            entity,
             inflow,
             &mut values,
         );
@@ -371,52 +363,49 @@ fn run_codes(
 }
 
 /// Run scheduled [`CodeAfter`]
-fn run_async_continations(
+fn run_async_continuations(
     world: &mut World,
     queue: &mut AsyncContinueQueue,
     cache: &mut OutputCache,
-    codes: &HashMap<CodesId, CodeGraph>,
-    pures: &HashMap<CodeId, PureCode>,
-    flows: &HashMap<CodeId, FlowCode>,
+    codes: &HashMap<CodeGraphId, CodeGraph>,
+    pures: &HashMap<CodeNodeId, PureCode>,
+    flows: &HashMap<CodeNodeId, FlowCode>,
 ) {
     queue.extend(&mut world.expect_resource_mut::<AsyncContinueQueue>());
 
-    let _guard = edict::tls::Guard::new(world.local());
+    Flows::enter(world, |world| {
+        for c in queue.drain() {
+            let Ok(entity) = world.entity(c.entity) else {
+                continue;
+            };
 
-    // Safety: Safe to do once under tls guard.
-    let world = unsafe { arcana::flow::World::make_mut() };
+            let Some(graph) = codes.get(&c.codes) else {
+                continue;
+            };
 
-    for c in queue.drain() {
-        let Ok(entity) = world.entity(c.entity) else {
-            continue;
-        };
-
-        let Some(graph) = codes.get(&c.codes) else {
-            continue;
-        };
-
-        run_codes(
-            c.codes,
-            &graph.snarl,
-            cache,
-            pures,
-            flows,
-            entity,
-            OutPinId {
-                node: NodeId(c.node),
-                output: c.outflow,
-            },
-            Some(c.values),
-        )
-    }
+            run_codes(
+                c.codes,
+                &graph.snarl,
+                cache,
+                pures,
+                flows,
+                entity,
+                OutPinId {
+                    node: NodeId(c.node),
+                    output: c.outflow,
+                },
+                Some(c.values),
+            )
+        }
+    });
 }
 
 pub fn handle_code_events(
     world: &mut World,
     cache: &mut OutputCache,
-    codes: &HashMap<CodesId, CodeGraph>,
-    pures: &HashMap<CodeId, PureCode>,
-    flows: &HashMap<CodeId, FlowCode>,
+    codes: &HashMap<CodeGraphId, CodeGraph>,
+    pures: &HashMap<CodeNodeId, PureCode>,
+    flows: &HashMap<CodeNodeId, FlowCode>,
     start: &mut u64,
 ) {
     let world = world.local();
@@ -425,9 +414,19 @@ pub fn handle_code_events(
         let events = world.expect_resource::<Events>();
 
         while let Some(event) = events.next(start) {
-            let Ok(Some(Codes { codes_id, .. })) = world.try_get_cloned(event.entity) else {
-                tracing::debug!("Entity {} was despawned", event.entity);
-                continue;
+            let codes_id = match world
+                .try_view_one::<Cpy<CodeGraphId>>(event.entity)
+                .map(|v| v.get())
+            {
+                Err(NoSuchEntity) => {
+                    tracing::debug!("Entity {} was despawned", event.entity);
+                    continue;
+                }
+                Ok(None) => {
+                    tracing::debug!("Entity {} does not have `Codes`", event.entity);
+                    continue;
+                }
+                Ok(Some(codes_id)) => codes_id,
             };
 
             let Some(graph) = codes.get(&codes_id) else {
@@ -478,25 +477,24 @@ pub fn handle_code_events(
 
             drop(events);
 
-            let _guard = edict::tls::Guard::new(world);
-            let world = unsafe { arcana::flow::World::make_mut() };
+            Flows::enter(world, |world| {
+                let Ok(entity) = world.entity(entity) else {
+                    return;
+                };
 
-            let Ok(entity) = world.entity(entity) else {
-                return;
-            };
+                let outflow = OutPinId { node, output: 0 };
 
-            let outflow = OutPinId { node, output: 0 };
-
-            run_codes(
-                codes_id,
-                &graph.snarl,
-                cache,
-                &pures,
-                &flows,
-                entity,
-                outflow,
-                None,
-            );
+                run_codes(
+                    codes_id,
+                    &graph.snarl,
+                    cache,
+                    &pures,
+                    &flows,
+                    entity,
+                    outflow,
+                    None,
+                );
+            });
 
             continue 'outer;
         }
@@ -527,7 +525,7 @@ impl CodeContext {
     }
 
     pub fn execute(&mut self, hub: &PluginsHub, data: &ProjectData, world: &mut World) {
-        run_async_continations(
+        run_async_continuations(
             world,
             &mut self.queue,
             &mut self.cache,
@@ -775,7 +773,7 @@ fn draw_flow_pin(painter: &Painter, rect: Rect) {
         points: vec![rect.left_top(), rect.right_center(), rect.left_bottom()],
         closed: true,
         fill: Color32::WHITE,
-        stroke: Stroke::new(1.0, Color32::WHITE),
+        stroke: Stroke::new(1.0, Color32::WHITE).into(),
     }));
 }
 
@@ -786,7 +784,7 @@ fn flow_pin() -> PinInfo {
 }
 
 pub struct CodeTool {
-    selected: Option<CodesId>,
+    selected: Option<CodeGraphId>,
     new_code_name: String,
     available_events: BTreeMap<Ident, Vec<EventInfo>>,
     available_codes: BTreeMap<Ident, Vec<CodeInfo>>,

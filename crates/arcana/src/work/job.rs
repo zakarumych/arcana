@@ -1,5 +1,5 @@
 use arcana_names::Name;
-use edict::World;
+use edict::world::World;
 use hashbrown::HashMap;
 
 use crate::{
@@ -11,7 +11,10 @@ use crate::{
 
 use super::graph::{Exec, Planner};
 
-make_id!(pub JobId);
+make_id! {
+    /// ID of the render job.
+    pub JobId;
+}
 
 /// Descroption of job creating a target.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]

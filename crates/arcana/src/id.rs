@@ -121,8 +121,8 @@ macro_rules! local_name_hash_id {
 #[macro_export]
 macro_rules! make_id {
     (
-        $(#[$meta:meta])*
-        $vis:vis $name:ident $(;)?
+        $(#[$meta:meta])+
+        $vis:vis $name:ident;
     ) => {
         $(#[$meta])*
         #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

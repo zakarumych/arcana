@@ -6,7 +6,7 @@
 use std::fmt;
 
 use arcana_names::Name;
-use edict::EntityId;
+use edict::entity::EntityId;
 use hashbrown::HashMap;
 use palette::IntoColor;
 

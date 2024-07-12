@@ -2,8 +2,8 @@ use std::{borrow::Cow, hash::Hash, path::PathBuf};
 
 use arboard::Clipboard;
 use arcana::{
-    blink_alloc::BlinkAlloc, gametime::FrequencyNumExt, input::ViewportInput, mev,
-    project::Project, Clock, ClockStep, FrequencyTicker,
+    blink_alloc::BlinkAlloc, gametime::FrequencyNumExt, input::ViewInput, mev, project::Project,
+    Clock, ClockStep, FrequencyTicker,
 };
 use egui::{Id, TopBottomPanel, WidgetText};
 use egui_dock::{DockState, NodeIndex, TabIndex, TabViewer, Tree};
@@ -18,14 +18,12 @@ use winit::{
 
 use crate::{
     code::CodeTool,
-    console::Console,
+    // console::Console,
     container::Container,
     data::ProjectData,
     filters::Filters,
     ide::{Ide, IdeType},
     init_mev,
-    inspector::Inspector,
-    instance::Main,
     plugins::Plugins,
     render::Rendering,
     sample::ImageSample,
@@ -45,7 +43,7 @@ pub enum UserEvent {}
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 enum Tab {
     Plugins,
-    Console,
+    // Console,
     Systems,
     Filters,
     Rendering,
@@ -71,7 +69,7 @@ pub struct App {
     queue: mev::Queue,
 
     plugins: Plugins,
-    console: Console,
+    // console: Console,
     code: CodeTool,
     systems: Systems,
     filters: Filters,
@@ -98,11 +96,11 @@ struct AppView {
 }
 
 impl App {
-    pub fn new(event_collector: EventCollector, project: Project, data: ProjectData) -> Self {
+    pub fn new(_event_collector: EventCollector, project: Project, data: ProjectData) -> Self {
         let (device, queue) = init_mev();
 
         let plugins = Plugins::new();
-        let console = Console::new(event_collector);
+        // let console = Console::new(event_collector);
         let systems = Systems::new();
         let filters = Filters::new();
         let rendering = Rendering::new();
@@ -143,7 +141,7 @@ impl App {
             blink: BlinkAlloc::new(),
             queue,
 
-            console,
+            // console,
             plugins,
             code,
             systems,
@@ -206,7 +204,7 @@ impl App {
 
         for view in &mut self.views {
             if view.window.id() == window_id {
-                let Ok(event) = ViewportInput::try_from(event) else {
+                let Ok(event) = ViewInput::try_from(event) else {
                     return;
                 };
 
@@ -248,10 +246,10 @@ impl App {
                                         focus_or_add_tab(tabs, Tab::Plugins);
                                         ui.close_menu();
                                     }
-                                    if ui.button("Console").clicked() {
-                                        focus_or_add_tab(tabs, Tab::Console);
-                                        ui.close_menu();
-                                    }
+                                    // if ui.button("Console").clicked() {
+                                    //     focus_or_add_tab(tabs, Tab::Console);
+                                    //     ui.close_menu();
+                                    // }
                                     if ui.button("Codes").clicked() {
                                         focus_or_add_tab(tabs, Tab::Codes);
                                         ui.close_menu();
@@ -282,7 +280,7 @@ impl App {
                             project: &mut self.project,
                             data: &mut self.data,
                             plugins: &mut self.plugins,
-                            console: &mut self.console,
+                            // console: &mut self.console,
                             systems: &mut self.systems,
                             filters: &mut self.filters,
                             code: &mut self.code,
@@ -498,7 +496,7 @@ struct AppModel<'a> {
     project: &'a mut Project,
     data: &'a mut ProjectData,
     plugins: &'a mut Plugins,
-    console: &'a mut Console,
+    // console: &'a mut Console,
     systems: &'a mut Systems,
     filters: &'a mut Filters,
     code: &'a mut CodeTool,
@@ -520,7 +518,7 @@ impl TabViewer for AppModel<'_> {
     fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Tab) {
         match *tab {
             Tab::Plugins => self.plugins.show(self.linked, self.project, self.data, ui),
-            Tab::Console => self.console.show(ui),
+            // Tab::Console => self.console.show(ui),
             Tab::Systems => self.systems.show(self.project, self.data, self.ide, ui),
             Tab::Filters => self.filters.show(self.project, self.data, self.ide, ui),
             Tab::Codes => self.code.show(self.project, self.data, ui),
@@ -542,7 +540,7 @@ impl TabViewer for AppModel<'_> {
     fn title(&mut self, tab: &mut Tab) -> WidgetText {
         match *tab {
             Tab::Plugins => "Plugins".into(),
-            Tab::Console => "Console".into(),
+            // Tab::Console => "Console".into(),
             Tab::Systems => "Systems".into(),
             Tab::Filters => "Filters".into(),
             Tab::Codes => "Codes".into(),
@@ -554,7 +552,7 @@ impl TabViewer for AppModel<'_> {
 
     fn scroll_bars(&self, tab: &Tab) -> [bool; 2] {
         match tab {
-            Tab::Console => [false, false],
+            // Tab::Console => [false, false],
             Tab::Systems => [false, false],
             Tab::Codes => [false, false],
             Tab::Rendering => [false, false],

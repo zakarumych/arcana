@@ -7,7 +7,10 @@ use std::{
     mem::size_of,
 };
 
-use edict::{Entity, EntityId, World};
+use edict::{
+    entity::{Entity, EntityId},
+    world::World,
+};
 
 use crate::{
     hash::{no_hash_map, NoHashMap},
@@ -27,7 +30,7 @@ make_id! {
     /// Listeners can listen to specific event IDs.
     ///
     /// Events with same ID should be emitted with the same payload type.
-    pub EventId
+    pub EventId;
 }
 
 pub struct Event<T: ?Sized = dyn Any> {

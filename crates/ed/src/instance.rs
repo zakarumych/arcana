@@ -2,15 +2,17 @@
 
 use arcana::{
     code::builtin::emit_code_start,
-    flow::{wake_flows, Flows},
+    edict::{flow::Flows, query::Cpy, view},
+    flow::wake_flows,
     gametime::{ClockRate, FrequencyNumExt, TimeSpan, TimeStamp},
     init_world,
-    input::{DeviceId, Input, KeyCode, PhysicalKey, ViewportInput},
-    mev,
+    input::{DeviceId, Input, KeyCode, PhysicalKey, ViewInput},
+    make_id, mev,
     plugin::PluginsHub,
-    viewport::Viewport,
+    render::{RenderGraphId, Renderer},
+    viewport::{ViewId, Viewport},
     work::{CommandStream, HookId, Image2D, Image2DInfo, PinId, Target, WorkGraph},
-    Blink, ClockStep, FrequencyTicker, World,
+    Blink, ClockStep, EntityId, FrequencyTicker, World,
 };
 use egui::Ui;
 use hashbrown::{HashMap, HashSet};
@@ -21,10 +23,54 @@ use crate::{
     container::Container,
     data::ProjectData,
     filters::Funnel,
-    render::Rendering,
     systems::{self, Schedule, Systems},
     ui::UserTextures,
 };
+
+make_id! {
+    /// ID of the instance.
+    pub InstanceId;
+}
+
+struct InstanceView {
+    viewport: Viewport,
+
+    /// Chosen renderer.
+    renderer: Option<EntityId>,
+
+    /// Current render graph id.
+    render_graph: RenderGraphId,
+
+    /// Modification id of the render graph.
+    render_modification: u64,
+
+    /// View work graph.
+    work_graph: WorkGraph,
+
+    /// Pin that presents to the view.
+    present: Option<PinId>,
+
+    // Which window shows this view.
+    window: Option<WindowId>,
+
+    /// Current view extent.
+    extent: mev::Extent2,
+
+    /// Which egui texture references this view.
+    texture_id: Option<egui::TextureId>,
+
+    /// Is view focused.
+    focused: bool,
+
+    // Rect of the widget.
+    rect: egui::Rect,
+
+    // Pixel per point of the widget.
+    pixel_per_point: f32,
+
+    // Set of devices that have cursor inside the widget area.
+    contains_cursors: HashSet<DeviceId>,
+}
 
 /// Instance of the project.
 pub struct Instance {
@@ -51,23 +97,52 @@ pub struct Instance {
     /// Flows to run on each tick.
     flows: Flows,
 
-    /// Work graph.
-    workgraph: WorkGraph,
+    /// Container in which plugins reside.
+    container: Option<Container>,
+
+    /// Modification id of the systems graph.
+    systems_modification: u64,
 
     /// Systems schedule.
     schedule: Schedule,
 
-    /// Which pin to present to viewport.
-    present: Option<PinId>,
-
-    /// Viewport to render into.
-    viewport: Viewport,
-
-    /// Container in which plugins reside.
-    container: Option<Container>,
+    /// Instance views.
+    views: HashMap<ViewId, InstanceView>,
 }
 
 impl Instance {
+    pub fn new() -> Self {
+        let mut world = World::new();
+        let hub = PluginsHub::new();
+        let blink = Blink::new();
+
+        let rate = ClockRate::new();
+        let fix = FrequencyTicker::new(20.hz(), rate.now());
+        let limiter = FrequencyTicker::new(120.hz(), TimeStamp::start());
+
+        let flows = Flows::new();
+        let code: CodeContext = CodeContext::new();
+
+        let schedule = Schedule::new();
+
+        init_world(&mut world);
+
+        Instance {
+            world,
+            blink,
+            hub,
+            fix,
+            limiter,
+            rate,
+            flows,
+            code,
+            systems_modification: 0,
+            schedule,
+            container: None,
+            views: HashMap::new(),
+        }
+    }
+
     pub fn update_plugins(&mut self, new: &Container) {
         tracing::info!("Updating plugins container");
 
@@ -85,8 +160,13 @@ impl Instance {
 
                 self.rate.reset();
                 self.code.reset();
-                self.workgraph = WorkGraph::new(HashMap::new(), HashSet::new()).unwrap();
-                self.present = None;
+
+                for view in self.views.values_mut() {
+                    view.work_graph = WorkGraph::new(HashMap::new(), HashSet::new()).unwrap();
+                    view.present = None;
+                    view.render_modification = 0;
+                }
+
                 self.hub = PluginsHub::new();
                 self.container = Some(new.clone());
                 self.blink.reset();
@@ -110,12 +190,15 @@ impl Instance {
         &mut self.rate
     }
 
-    pub fn tick(&mut self, span: TimeSpan, data: &ProjectData) {
-        // tracing::error!("Tick {}", span);
+    pub fn tick(&mut self, data: &ProjectData, systems: &Systems, step: ClockStep) {
+        if self.systems_modification < systems.modification() {
+            self.schedule = data.systems.make_schedule();
+            self.systems_modification = systems.modification();
+        }
 
         emit_code_start(&mut self.world);
 
-        let step = self.rate.step(span);
+        let step = self.rate.step(step.step);
 
         self.fix.with_ticks(step.step, |fix| {
             self.world.insert_resource(fix);
@@ -124,7 +207,7 @@ impl Instance {
         });
 
         self.world.insert_resource(step);
-        if self.limiter.tick_count(span) > 0 {
+        if self.limiter.tick_count(step.step) > 0 {
             self.schedule
                 .run(systems::Category::Var, &mut self.world, &mut self.hub);
         }
@@ -138,16 +221,15 @@ impl Instance {
         self.world.execute_received_actions();
     }
 
-    pub fn on_input(&mut self, funnel: &Funnel, event: &Input) -> bool {
-        funnel.filter(&mut self.hub, &self.blink, &mut self.world, event)
-    }
-
-    /// Render to texture.
-    pub fn render_to_texture(
+    /// Render instance view to a texture.
+    pub fn render(
         &mut self,
+        view: ViewId,
         extent: mev::Extent2,
         queue: &mut mev::Queue,
-    ) -> Result<Option<mev::Image>, mev::SurfaceError> {
+        data: &ProjectData,
+        textures: &mut UserTextures,
+    ) -> Result<(), mev::SurfaceError> {
         #[cold]
         fn new_image(
             extent: mev::Extent2,
@@ -166,11 +248,46 @@ impl Instance {
             Ok(image)
         }
 
-        let Some(pin) = self.present else {
-            return Ok(None);
+        let Some(view) = self.views.get_mut(&view) else {
+            // View is not found.
+            return Ok(());
         };
 
-        if self
+        let Some(renderer) = view.renderer else {
+            // View does not have a renderer
+            return Ok(());
+        };
+
+        let Ok(renderer) = self.world.get::<Cpy<Renderer>>(renderer) else {
+            // View renderer is not found
+            return Ok(());
+        };
+
+        let Some(render_graph) = data.render_graphs.get(&renderer.graph) else {
+            // View render graph is not found
+            return Ok(());
+        };
+
+        if renderer.graph != view.render_graph
+            || view.render_modification < render_graph.modification
+        {
+            match render_graph.make_workgraph() {
+                Ok(work_graph) => view.work_graph = work_graph,
+                Err(err) => {
+                    tracing::error!("Failed to make work graph: {err:?}");
+                    return Ok(());
+                }
+            }
+
+            view.present = render_graph.get_present();
+        }
+
+        let Some(pin) = view.present else {
+            // View does not have a present pin
+            return Ok(());
+        };
+
+        if view
             .viewport
             .get_image()
             .map_or(true, |i| i.dimensions() != extent)
@@ -178,10 +295,10 @@ impl Instance {
             let new_image = new_image(extent, queue)?;
 
             tracing::debug!("Creating new image for viewport");
-            self.viewport.set_image(new_image);
+            view.viewport.set_image(new_image);
         }
 
-        let image = match self
+        let image = match view
             .viewport
             .next_frame(queue, mev::PipelineStages::all())?
         {
@@ -192,110 +309,191 @@ impl Instance {
         let info = Image2DInfo::from_image(&image);
         let target = Image2D(image.clone());
 
-        self.workgraph.set_sink(pin, target, info);
+        view.work_graph.set_sink(pin, target, info);
 
-        self.workgraph
+        view.work_graph
             .run(queue, &mut self.world, &mut self.hub)
             .unwrap();
 
-        Ok(Some(image))
+        if let Some(texture_id) = view.texture_id {
+            textures.set(texture_id, image, crate::ui::Sampler::NearestNearest);
+        }
+
+        Ok(())
     }
-}
 
-pub struct Main {
-    instance: Instance,
-    rendering_modifications: u64,
-    systems_modifications: u64,
-
-    focused: bool,
-    view_id: Option<egui::TextureId>,
-    view_extent: mev::Extent2,
-
-    // Rect of the widget.
-    rect: egui::Rect,
-
-    // Pixel per point of the widget.
-    pixel_per_point: f32,
-
-    // Set of devices that have cursor inside the widget area.
-    contains_cursors: HashSet<DeviceId>,
-
-    // Which window shows this widget.
-    window: Option<WindowId>,
-}
-
-impl Main {
-    pub fn new() -> Self {
-        let mut world = World::new();
-        let hub = PluginsHub::new();
-        let blink = Blink::new();
-
-        let rate = ClockRate::new();
-        let fix = FrequencyTicker::new(20.hz(), rate.now());
-        let limiter = FrequencyTicker::new(120.hz(), TimeStamp::start());
-
-        let flows = Flows::new();
-        let code = CodeContext::new();
-        let workgraph = WorkGraph::new(HashMap::new(), HashSet::new()).unwrap();
-
-        let schedule = Schedule::new();
-
-        let present = None;
-        let viewport = Viewport::new_image();
-
-        init_world(&mut world);
-
-        let instance = Instance {
-            world,
-            blink,
-            hub,
-            fix,
-            limiter,
-            rate,
-            flows,
-            code,
-            workgraph,
-            schedule,
-            present,
-            viewport,
-            container: None,
+    pub fn handle_event(
+        &mut self,
+        data: &ProjectData,
+        window: WindowId,
+        event: &WindowEvent,
+    ) -> bool {
+        let Ok(event) = ViewInput::try_from(event) else {
+            return false;
         };
 
-        Main {
-            instance,
-            rendering_modifications: 0,
-            systems_modifications: 0,
-            focused: false,
-            view_id: None,
-            view_extent: mev::Extent2::ZERO,
-            rect: egui::Rect::NOTHING,
-            pixel_per_point: 1.0,
-            contains_cursors: HashSet::new(),
-            window: None,
+        for (&view_id, view) in self.views.iter_mut() {
+            if view.window != Some(window) {
+                continue;
+            }
+
+            match event {
+                ViewInput::CursorEntered { .. } => return false,
+                ViewInput::CursorLeft { .. } => return false,
+                ViewInput::CursorMoved { device_id, x, y } => {
+                    let px = x / view.pixel_per_point;
+                    let py = y / view.pixel_per_point;
+
+                    let gx = px - view.rect.min.x;
+                    let gy = py - view.rect.min.y;
+
+                    if view.rect.contains(egui::pos2(px, py)) {
+                        if view.contains_cursors.insert(device_id) {
+                            data.funnel.filter(
+                                &mut self.hub,
+                                &self.blink,
+                                &mut self.world,
+                                &Input::ViewInput {
+                                    id: view_id,
+                                    input: ViewInput::CursorEntered { device_id },
+                                },
+                            );
+                        }
+
+                        data.funnel.filter(
+                            &mut self.hub,
+                            &self.blink,
+                            &mut self.world,
+                            &Input::ViewInput {
+                                id: view_id,
+                                input: ViewInput::CursorMoved {
+                                    device_id,
+                                    x: gx,
+                                    y: gy,
+                                },
+                            },
+                        );
+                    } else {
+                        if view.contains_cursors.remove(&device_id) {
+                            data.funnel.filter(
+                                &mut self.hub,
+                                &self.blink,
+                                &mut self.world,
+                                &Input::ViewInput {
+                                    id: view_id,
+                                    input: ViewInput::CursorLeft { device_id },
+                                },
+                            );
+                        }
+                    }
+                }
+
+                ViewInput::Resized { .. } | ViewInput::ScaleFactorChanged { .. } => {}
+
+                ViewInput::MouseInput { device_id, .. }
+                | ViewInput::MouseWheel { device_id, .. }
+                    if view.focused && view.contains_cursors.contains(&device_id) =>
+                {
+                    data.funnel.filter(
+                        &mut self.hub,
+                        &self.blink,
+                        &mut self.world,
+                        &Input::ViewInput {
+                            id: view_id,
+                            input: event,
+                        },
+                    );
+
+                    return true;
+                }
+
+                ViewInput::KeyboardInput { ref event, .. }
+                    if view.focused && event.physical_key == PhysicalKey::Code(KeyCode::Escape) =>
+                {
+                    view.focused = false;
+                }
+
+                ViewInput::KeyboardInput { .. } if view.focused => {
+                    data.funnel.filter(
+                        &mut self.hub,
+                        &self.blink,
+                        &mut self.world,
+                        &Input::ViewInput {
+                            id: view_id,
+                            input: event,
+                        },
+                    );
+
+                    return true;
+                }
+                _ => {}
+            }
+        }
+
+        false
+    }
+
+    pub fn add_workgraph_hook<T>(
+        &mut self,
+        view: ViewId,
+        pin: PinId,
+        hook: impl FnMut(&T, &mev::Device, &CommandStream) + 'static,
+    ) -> Option<HookId>
+    where
+        T: Target,
+    {
+        if let Some(view) = self.views.get_mut(&view) {
+            Some(view.work_graph.add_hook::<T>(pin, hook))
+        } else {
+            None
         }
     }
 
-    pub fn show(&mut self, window: WindowId, textures: &mut UserTextures, ui: &mut Ui) {
+    pub fn has_workgraph_hook(&self, view: ViewId, hook: HookId) -> bool {
+        self.views
+            .get(&view)
+            .map_or(false, |view| view.work_graph.has_hook(hook))
+    }
+
+    pub fn remove_workgraph_hook(&mut self, view: ViewId, hook: HookId) {
+        if let Some(view) = self.views.get_mut(&view) {
+            view.work_graph.remove_hook(hook);
+        }
+    }
+}
+
+pub struct Simulation {
+    viewport: ViewId,
+}
+
+impl Simulation {
+    pub fn show(
+        &mut self,
+        instance: &mut Instance,
+        window: WindowId,
+        textures: &mut UserTextures,
+        ui: &mut Ui,
+    ) {
         ui.horizontal_top(|ui| {
             let r = ui.button(egui_phosphor::regular::PLAY);
             if r.clicked() {
-                self.instance.rate_mut().set_rate(1.0);
+                instance.rate.set_rate(1.0);
             }
             let r = ui.button(egui_phosphor::regular::PAUSE);
             if r.clicked() {
-                self.instance.rate_mut().pause();
+                instance.rate.pause();
             }
             let r = ui.button(egui_phosphor::regular::FAST_FORWARD);
             if r.clicked() {
-                self.instance.rate_mut().set_rate(2.0);
+                instance.rate.set_rate(2.0);
             }
 
-            let mut rate = self.instance.rate().rate();
+            let mut rate = instance.rate.rate();
 
             let value = egui::Slider::new(&mut rate, 0.0..=10.0).clamp_to_range(false);
             let r = ui.add(value);
             if r.changed() {
-                self.instance.rate_mut().set_rate(rate as f32);
+                instance.rate.set_rate(rate as f32);
             }
         });
 
@@ -303,7 +501,7 @@ impl Main {
             .rounding(egui::Rounding::same(5.0))
             .stroke(egui::Stroke::new(
                 1.0,
-                if self.focused {
+                if instance.focused {
                     egui::Color32::LIGHT_GRAY
                 } else {
                     egui::Color32::DARK_GRAY
@@ -349,162 +547,5 @@ impl Main {
                 }
             }
         });
-    }
-
-    pub fn handle_event(
-        &mut self,
-        data: &ProjectData,
-        window: WindowId,
-        event: &WindowEvent,
-    ) -> bool {
-        if self.window != Some(window) {
-            return false;
-        }
-
-        if let Ok(event) = ViewportInput::try_from(event) {
-            let mut consume = true;
-
-            match event {
-                ViewportInput::CursorEntered { .. } => return false,
-                ViewportInput::CursorLeft { .. } => return false,
-                ViewportInput::CursorMoved { device_id, x, y } => {
-                    let px = x / self.pixel_per_point;
-                    let py = y / self.pixel_per_point;
-
-                    let gx = px - self.rect.min.x;
-                    let gy = py - self.rect.min.y;
-
-                    if self.rect.contains(egui::pos2(px, py)) {
-                        if self.contains_cursors.insert(device_id) {
-                            self.instance.on_input(
-                                &data.funnel,
-                                &Input::ViewportInput {
-                                    input: ViewportInput::CursorEntered { device_id },
-                                },
-                            );
-                        }
-
-                        self.instance.on_input(
-                            &data.funnel,
-                            &Input::ViewportInput {
-                                input: ViewportInput::CursorMoved {
-                                    device_id,
-                                    x: gx,
-                                    y: gy,
-                                },
-                            },
-                        );
-                    } else {
-                        consume = false;
-
-                        if self.contains_cursors.remove(&device_id) {
-                            self.instance.on_input(
-                                &data.funnel,
-                                &Input::ViewportInput {
-                                    input: ViewportInput::CursorLeft { device_id },
-                                },
-                            );
-                        }
-                    }
-                }
-                ViewportInput::MouseWheel { device_id, .. }
-                    if !self.contains_cursors.contains(&device_id) =>
-                {
-                    consume = false;
-                }
-                ViewportInput::MouseInput { device_id, .. }
-                    if !self.contains_cursors.contains(&device_id) =>
-                {
-                    consume = false;
-                }
-                ViewportInput::Resized { .. } | ViewportInput::ScaleFactorChanged { .. } => {
-                    consume = false;
-                }
-                ViewportInput::KeyboardInput { event, .. }
-                    if event.physical_key == PhysicalKey::Code(KeyCode::Escape) =>
-                {
-                    self.focused = false;
-                }
-                ViewportInput::KeyboardInput {
-                    device_id, event, ..
-                } if self.focused => {
-                    self.instance.on_input(
-                        &data.funnel,
-                        &Input::ViewportInput {
-                            input: ViewportInput::KeyboardInput { device_id, event },
-                        },
-                    );
-                }
-                _ => {}
-            }
-
-            return consume;
-        }
-
-        false
-    }
-
-    pub fn tick(&mut self, data: &ProjectData, systems: &Systems, step: ClockStep) {
-        if systems.modification() > self.systems_modifications {
-            self.instance.schedule = data.systems.make_schedule();
-            self.systems_modifications = systems.modification();
-        }
-
-        self.instance.tick(step.step, &data);
-    }
-
-    pub fn render(
-        &mut self,
-        data: &ProjectData,
-        rendering: &Rendering,
-        textures: &mut UserTextures,
-        queue: &mut mev::Queue,
-    ) {
-        let Some(view_id) = self.view_id else {
-            return;
-        };
-
-        if rendering.modification() > self.rendering_modifications {
-            match data.workgraph.make_workgraph() {
-                Ok(workgraph) => self.instance.workgraph = workgraph,
-                Err(err) => {
-                    tracing::error!("Failed to make workgraph: {err:?}");
-                }
-            }
-            self.instance.present = data.workgraph.get_present();
-            self.rendering_modifications = rendering.modification();
-        }
-
-        let image = self
-            .instance
-            .render_to_texture(self.view_extent, queue)
-            .unwrap();
-
-        if let Some(image) = image {
-            textures.set(view_id, image, crate::ui::Sampler::NearestNearest);
-        }
-    }
-
-    pub fn update_plugins(&mut self, c: &Container) {
-        self.instance.update_plugins(c);
-    }
-
-    pub fn add_workgraph_hook<T>(
-        &mut self,
-        pin: PinId,
-        hook: impl FnMut(&T, &mev::Device, &CommandStream) + 'static,
-    ) -> HookId
-    where
-        T: Target,
-    {
-        self.instance.workgraph.add_hook::<T>(pin, hook)
-    }
-
-    pub fn has_workgraph_hook(&mut self, hook: HookId) -> bool {
-        self.instance.workgraph.has_hook(hook)
-    }
-
-    pub fn remove_workgraph_hook(&mut self, hook: HookId) {
-        self.instance.workgraph.remove_hook(hook)
     }
 }

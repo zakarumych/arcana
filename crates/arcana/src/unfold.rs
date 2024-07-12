@@ -10,8 +10,12 @@
 use std::any::TypeId;
 
 use edict::{
-    query::QueryItem, system::QueryArg, ActionBuffer, ActionBufferSliceExt, ActionEncoder,
-    Component, IntoSystem, State, System, View, World,
+    action::{ActionBuffer, ActionBufferSliceExt, ActionEncoder},
+    component::Component,
+    query::QueryItem,
+    system::{IntoSystem, QueryArg, State, System},
+    view::View,
+    world::World,
 };
 use hashbrown::HashSet;
 

@@ -3,7 +3,7 @@
 use std::fmt;
 
 use blink_alloc::Blink;
-use edict::World;
+use edict::world::World;
 use winit::event::WindowEvent;
 
 pub use winit::{
@@ -12,9 +12,12 @@ pub use winit::{
     window::CursorIcon,
 };
 
-use crate::make_id;
+use crate::{make_id, viewport::ViewId};
 
-make_id!(pub FilterId);
+make_id! {
+    /// ID of the input filter
+    pub FilterId;
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum DeviceIdKind {
@@ -58,7 +61,7 @@ impl DeviceId {
 #[derive(Clone)]
 pub enum Input {
     /// Event emitted from a viewport.
-    ViewportInput { input: ViewportInput },
+    ViewInput { id: ViewId, input: ViewInput },
 
     /// Event emitted from a device.
     DeviceInput {
@@ -68,7 +71,7 @@ pub enum Input {
 }
 
 #[derive(Clone)]
-pub enum ViewportInput {
+pub enum ViewInput {
     Resized {
         width: u32,
         height: u32,
@@ -105,7 +108,7 @@ pub enum ViewportInput {
 
 pub struct UnsupportedEvent;
 
-impl TryFrom<&WindowEvent> for ViewportInput {
+impl TryFrom<&WindowEvent> for ViewInput {
     type Error = UnsupportedEvent;
 
     fn try_from(event: &WindowEvent) -> Result<Self, UnsupportedEvent> {
@@ -113,10 +116,10 @@ impl TryFrom<&WindowEvent> for ViewportInput {
             WindowEvent::Resized(size) => {
                 let width = size.width;
                 let height = size.height;
-                Ok(ViewportInput::Resized { width, height })
+                Ok(ViewInput::Resized { width, height })
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                Ok(ViewportInput::ScaleFactorChanged {
+                Ok(ViewInput::ScaleFactorChanged {
                     scale_factor: scale_factor as f32,
                 })
             }
@@ -126,14 +129,12 @@ impl TryFrom<&WindowEvent> for ViewportInput {
                 ..
             } => {
                 let device_id = DeviceId::from(device_id);
-                Ok(ViewportInput::KeyboardInput {
+                Ok(ViewInput::KeyboardInput {
                     device_id,
                     event: event.clone(),
                 })
             }
-            WindowEvent::ModifiersChanged(modifiers) => {
-                Ok(ViewportInput::ModifiersChanged(modifiers))
-            }
+            WindowEvent::ModifiersChanged(modifiers) => Ok(ViewInput::ModifiersChanged(modifiers)),
             WindowEvent::CursorMoved {
                 device_id,
                 position,
@@ -142,15 +143,15 @@ impl TryFrom<&WindowEvent> for ViewportInput {
                 let device_id = DeviceId::from(device_id);
                 let x = position.x as f32;
                 let y = position.y as f32;
-                Ok(ViewportInput::CursorMoved { device_id, x, y })
+                Ok(ViewInput::CursorMoved { device_id, x, y })
             }
             WindowEvent::CursorEntered { device_id } => {
                 let device_id = DeviceId::from(device_id);
-                Ok(ViewportInput::CursorEntered { device_id })
+                Ok(ViewInput::CursorEntered { device_id })
             }
             WindowEvent::CursorLeft { device_id } => {
                 let device_id = DeviceId::from(device_id);
-                Ok(ViewportInput::CursorLeft { device_id })
+                Ok(ViewInput::CursorLeft { device_id })
             }
             WindowEvent::MouseWheel {
                 device_id,
@@ -159,7 +160,7 @@ impl TryFrom<&WindowEvent> for ViewportInput {
             } => {
                 let device_id = DeviceId::from(device_id);
                 let delta = delta;
-                Ok(ViewportInput::MouseWheel { device_id, delta })
+                Ok(ViewInput::MouseWheel { device_id, delta })
             }
             WindowEvent::MouseInput {
                 device_id,
@@ -169,7 +170,7 @@ impl TryFrom<&WindowEvent> for ViewportInput {
                 let device_id = DeviceId::from(device_id);
                 let state = state;
                 let button = button;
-                Ok(ViewportInput::MouseInput {
+                Ok(ViewInput::MouseInput {
                     device_id,
                     state,
                     button,

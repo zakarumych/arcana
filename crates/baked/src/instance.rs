@@ -9,7 +9,7 @@ use arcana::{
     flow::{init_flows, wake_flows, Flows},
     gametime::{ClockRate, FrequencyNumExt, TimeSpan},
     init_world,
-    input::{DeviceId, Input, KeyCode, PhysicalKey, ViewportInput},
+    input::{DeviceId, Input, KeyCode, PhysicalKey, ViewInput},
     mev,
     plugin::PluginsHub,
     texture::Texture,
@@ -354,13 +354,13 @@ impl Main {
             return false;
         }
 
-        if let Ok(event) = ViewportInput::try_from(event) {
+        if let Ok(event) = ViewInput::try_from(event) {
             let mut consume = true;
 
             match event {
-                ViewportInput::CursorEntered { .. } => return false,
-                ViewportInput::CursorLeft { .. } => return false,
-                ViewportInput::CursorMoved { device_id, x, y } => {
+                ViewInput::CursorEntered { .. } => return false,
+                ViewInput::CursorLeft { .. } => return false,
+                ViewInput::CursorMoved { device_id, x, y } => {
                     let px = x / main.pixel_per_point;
                     let py = y / main.pixel_per_point;
 
@@ -371,16 +371,16 @@ impl Main {
                         if main.contains_cursors.insert(device_id) {
                             main.instance.on_input(
                                 &data.funnel,
-                                &Input::ViewportInput {
-                                    input: ViewportInput::CursorEntered { device_id },
+                                &Input::ViewInput {
+                                    input: ViewInput::CursorEntered { device_id },
                                 },
                             );
                         }
 
                         main.instance.on_input(
                             &data.funnel,
-                            &Input::ViewportInput {
-                                input: ViewportInput::CursorMoved {
+                            &Input::ViewInput {
+                                input: ViewInput::CursorMoved {
                                     device_id,
                                     x: gx,
                                     y: gy,
@@ -393,38 +393,38 @@ impl Main {
                         if main.contains_cursors.remove(&device_id) {
                             main.instance.on_input(
                                 &data.funnel,
-                                &Input::ViewportInput {
-                                    input: ViewportInput::CursorLeft { device_id },
+                                &Input::ViewInput {
+                                    input: ViewInput::CursorLeft { device_id },
                                 },
                             );
                         }
                     }
                 }
-                ViewportInput::MouseWheel { device_id, .. }
+                ViewInput::MouseWheel { device_id, .. }
                     if !main.contains_cursors.contains(&device_id) =>
                 {
                     consume = false;
                 }
-                ViewportInput::MouseInput { device_id, .. }
+                ViewInput::MouseInput { device_id, .. }
                     if !main.contains_cursors.contains(&device_id) =>
                 {
                     consume = false;
                 }
-                ViewportInput::Resized { .. } | ViewportInput::ScaleFactorChanged { .. } => {
+                ViewInput::Resized { .. } | ViewInput::ScaleFactorChanged { .. } => {
                     consume = false;
                 }
-                ViewportInput::KeyboardInput { event, .. }
+                ViewInput::KeyboardInput { event, .. }
                     if event.physical_key == PhysicalKey::Code(KeyCode::Escape) =>
                 {
                     main.focused = false;
                 }
-                ViewportInput::KeyboardInput {
+                ViewInput::KeyboardInput {
                     device_id, event, ..
                 } if main.focused => {
                     main.instance.on_input(
                         &data.funnel,
-                        &Input::ViewportInput {
-                            input: ViewportInput::KeyboardInput { device_id, event },
+                        &Input::ViewInput {
+                            input: ViewInput::KeyboardInput { device_id, event },
                         },
                     );
                 }

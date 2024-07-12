@@ -13,7 +13,10 @@ use crate::{
     type_id,
 };
 
-make_id!(pub TargetId);
+make_id! {
+    /// ID of the render target.
+    pub TargetId;
+}
 
 pub trait Target: WithStid + 'static {
     type Info: Eq + 'static;

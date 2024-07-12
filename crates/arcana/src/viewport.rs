@@ -1,7 +1,14 @@
 //! Contains logic for the viewports.
 
-use edict::Component;
+use edict::component::Component;
 use winit::window::Window;
+
+use crate::make_id;
+
+make_id! {
+    /// ID of the viewport.
+    pub ViewId;
+}
 
 /// Viewport is where content of the game is displayed.
 /// It is semi-opaque as users usually do not need care about what is behind it.

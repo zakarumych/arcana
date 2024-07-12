@@ -2,7 +2,7 @@
 
 use std::future::Future;
 
-use edict::{flow::Entity, spawn_block, Component, EntityId, World};
+use edict::{component::Component, entity::EntityId, flow::FlowEntity, world::World};
 use hashbrown::{hash_map::Entry, HashMap};
 use smallvec::SmallVec;
 
@@ -12,13 +12,20 @@ use crate::{
     Slot,
 };
 
-make_id!(pub CodeId);
-make_id!(pub CodesId);
+make_id! {
+    /// ID of the code node
+    pub CodeNodeId;
+}
 
-#[derive(Clone, Copy, Component)]
-#[edict(name = "Codes")]
-pub struct Codes {
-    pub codes_id: CodesId,
+make_id! {
+    /// ID of the code graph
+    pub CodeGraphId;
+}
+
+impl Component for CodeGraphId {
+    fn name() -> &'static str {
+        "CodeGraphId"
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -73,13 +80,13 @@ impl CodeValues {
 /// Generally it should not have any visible side effects.
 /// Its execution may occur at any point or not occur at all.
 pub type PureCode =
-    fn(entity: Entity, inputs: &[ValueId], outputs: &[ValueId], values: &mut CodeValues);
+    fn(entity: FlowEntity, inputs: &[ValueId], outputs: &[ValueId], values: &mut CodeValues);
 
 pub enum ContinuationProvider {}
 
 pub struct Continuation<'a> {
     node: usize,
-    codes: CodesId,
+    codes: CodeGraphId,
     values: &'a mut Option<CodeValues>,
     next: &'a mut Option<usize>,
     outputs: &'a [ValueId],
@@ -88,7 +95,7 @@ pub struct Continuation<'a> {
 impl<'a> Continuation<'a> {
     pub fn new(
         node: usize,
-        codes: CodesId,
+        codes: CodeGraphId,
         values: &'a mut Option<CodeValues>,
         next: &'a mut Option<usize>,
         outputs: &'a [ValueId],
@@ -119,7 +126,7 @@ impl<'a> Continuation<'a> {
         *self.next = Some(outflow);
     }
 
-    pub fn delay<T, F, Fut>(self, mut entity: Entity<'_>, fut: Fut, f: F)
+    pub fn delay<T, F, Fut>(self, entity: FlowEntity, fut: Fut, f: F)
     where
         F: FnOnce(T, &[ValueId], &mut CodeValues) -> usize + Send + 'static,
         Fut: Future<Output = T> + Send + 'static,
@@ -131,13 +138,16 @@ impl<'a> Continuation<'a> {
         let node = self.node;
         let codes = self.codes;
 
-        spawn_block!(for entity -> {
+        entity.spawn_flow(move |entity: FlowEntity| async move {
             tracing::debug!("Waiting for delayed continuation");
             let res = fut.await;
             let outflow = f(res, &outputs, &mut values);
 
             tracing::debug!("Continuing delayed continuation");
-            enque_async_continue(entity.id(), codes, node, outflow, values, entity.get_world())
+
+            entity.world().map(|world| {
+                enque_async_continue(entity.id(), codes, node, outflow, values, world)
+            });
         });
     }
 }
@@ -148,7 +158,7 @@ impl<'a> Continuation<'a> {
 /// It returns output flow index to trigger next flow function.
 pub type FlowCode = fn(
     inflow: usize,
-    entity: Entity,
+    entity: FlowEntity,
     inputs: &[ValueId],
     outputs: &[ValueId],
     continuation: Continuation,
@@ -180,7 +190,7 @@ macro_rules! into_pure_code {
     ($($a:ident)*, $($b:ident)*) => {
         impl<F $(,$b)* $(,$a)*> IntoPureCode<($($a,)*), ($($b,)*)> for F
         where
-            F: Fn(Entity, $(&$a,)*) -> ($($b,)*) + Copy,
+            F: Fn(FlowEntity, $(&$a,)*) -> ($($b,)*) + Copy,
             $($a: WithStid,)*
             $($b: WithStid + Send + Sync,)*
         {
@@ -198,7 +208,7 @@ macro_rules! into_pure_code {
                     outputs: vec![$(<$b as WithStid>::stid(),)*],
                 };
 
-                let code = |entity: Entity, inputs: &[ValueId], outputs: &[ValueId], values: &mut CodeValues| {
+                let code = |entity: FlowEntity, inputs: &[ValueId], outputs: &[ValueId], values: &mut CodeValues| {
                     let f: F = unsafe {
                         core::mem::MaybeUninit::<F>::uninit().assume_init()
                     };
@@ -238,7 +248,7 @@ macro_rules! into_flow_code {
     ($($a:ident)*, $($b:ident)*) => {
         impl<F $(,$b)* $(,$a)*> IntoFlowCode<($($a,)*), ($($b,)*)> for F
         where
-            F: Fn(Entity, $(&$a,)*) -> ($($b,)*) + Copy,
+            F: Fn(FlowEntity, $(&$a,)*) -> ($($b,)*) + Copy,
             $($a: WithStid,)*
             $($b: WithStid + Send + Sync,)*
         {
@@ -258,7 +268,7 @@ macro_rules! into_flow_code {
                     outputs: vec![$(<$b as WithStid>::stid(),)*],
                 };
 
-                let code = |inflow: usize, entity: Entity, inputs: &[ValueId], outputs: &[ValueId], mut continuation: Continuation| {
+                let code = |inflow: usize, entity: FlowEntity, inputs: &[ValueId], outputs: &[ValueId], mut continuation: Continuation| {
                     let f: F = unsafe {
                         core::mem::MaybeUninit::<F>::uninit().assume_init()
                     };
@@ -295,7 +305,7 @@ for_tuple_2x!(into_flow_code);
 pub trait IntoAsyncFlowCodeL<'a, I, O> {
     type Fut: Future<Output = O> + Send + 'a;
 
-    fn run(&self, entity: Entity<'a>, input: I) -> Self::Fut;
+    fn run(&self, entity: FlowEntity, input: I) -> Self::Fut;
 }
 
 pub trait IntoAsyncFlowCode<I, O>: for<'a> IntoAsyncFlowCodeL<'a, I, O> {
@@ -306,12 +316,12 @@ macro_rules! into_async_flow_code {
     ($($a:ident)*, $($b:ident)*) => {
         impl<'a, F, Fut $(,$b)* $(,$a)*> IntoAsyncFlowCodeL<'a, ($($a,)*), ($($b,)*)> for F
         where
-            F: Fn(Entity<'a>, $($a,)*) -> Fut + Copy,
+            F: Fn(FlowEntity, $($a,)*) -> Fut + Copy,
             Fut: Future<Output = ($($b,)*)> + Send + 'a,
         {
             type Fut = Fut;
 
-            fn run(&self, entity: Entity<'a>, input: ($($a,)*)) -> Fut {
+            fn run(&self, entity: FlowEntity, input: ($($a,)*)) -> Fut {
                 #![allow(unused, non_snake_case)]
                 let ($($a,)*) = input;
 
@@ -341,7 +351,7 @@ macro_rules! into_async_flow_code {
                     outputs: vec![$(<$b as WithStid>::stid(),)*],
                 };
 
-                let code = |inflow: usize, entity: Entity, inputs: &[ValueId], outputs: &[ValueId], mut continuation: Continuation| {
+                let code = |inflow: usize, entity: FlowEntity, inputs: &[ValueId], outputs: &[ValueId], mut continuation: Continuation| {
                     let f: F = unsafe {
                         core::mem::MaybeUninit::<F>::uninit().assume_init()
                     };
@@ -355,7 +365,7 @@ macro_rules! into_async_flow_code {
                         idx += 1;
                     )*
 
-                    let fut = f.run(unsafe { Entity::make(entity.id()) }, ($($a.clone(),)*));
+                    let fut = f.run(entity, ($($a.clone(),)*));
 
                     continuation.delay(entity, fut, |($($b,)*), outputs, values| {
                         let mut idx = 0;
@@ -378,14 +388,14 @@ macro_rules! into_async_flow_code {
 for_tuple_2x!(into_async_flow_code);
 
 pub mod builtin {
-    use edict::{Component, Entities, World};
+    use edict::{component::Component, query::Entities, world::World};
 
     use crate::{
         events::{Event, EventId, Events},
         local_name_hash_id,
     };
 
-    use super::Codes;
+    use super::CodeGraphId;
 
     /// Event emitted when entity gets `Code` component.
     pub const CODES_START: EventId = local_name_hash_id!(CODES_START => EventId);
@@ -404,7 +414,7 @@ pub mod builtin {
         let mut events = world.expect_resource_mut::<Events>();
         let view = world
             .view::<Entities>()
-            .with::<Codes>()
+            .with::<CodeGraphId>()
             .without::<CodeStarted>();
 
         for entity in view {
@@ -416,7 +426,7 @@ pub mod builtin {
 
 pub struct AsyncContinue {
     pub entity: EntityId,
-    pub codes: CodesId,
+    pub codes: CodeGraphId,
     pub node: usize,
     pub outflow: usize,
     pub values: CodeValues,
@@ -446,7 +456,7 @@ impl AsyncContinueQueue {
 
 fn enque_async_continue(
     entity: EntityId,
-    codes: CodesId,
+    codes: CodeGraphId,
     node: usize,
     outflow: usize,
     values: CodeValues,

@@ -1,6 +1,6 @@
 use std::future::{ready, Ready};
 
-use edict::Component;
+use edict::component::Component;
 
 use crate::assets::BobBuilder;
 

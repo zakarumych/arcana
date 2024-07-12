@@ -5,7 +5,7 @@ use arcana::{
     edict::{EntityId, NoSuchEntity, World},
     input::{
         DeviceId, ElementState, Input, InputFilter, KeyEvent, MouseButton, PhysicalKey,
-        ViewportInput,
+        ViewInput,
     },
 };
 use hashbrown::HashMap;
@@ -51,8 +51,8 @@ impl MyInputFilter {
 
     pub fn handle(&mut self, world: &mut World, event: &Input) -> bool {
         match *event {
-            Input::ViewportInput { ref input } => match *input {
-                ViewportInput::KeyboardInput {
+            Input::ViewInput { ref input } => match *input {
+                ViewInput::KeyboardInput {
                     device_id,
                     ref event,
                     ..

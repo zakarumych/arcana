@@ -722,7 +722,7 @@ impl InputFilter for EguiFilter {
     fn filter(&mut self, _blink: &Blink, world: &mut World, input: &arcana::input::Input) -> bool {
         let world = world.local();
 
-        if let arcana::input::Input::ViewportInput { input } = input {
+        if let arcana::input::Input::ViewInput { input } = input {
             if let Some(mut egui) = world.get_resource_mut::<Egui>() {
                 if egui.handle_event(input) {
                     // Egui consumed this input.

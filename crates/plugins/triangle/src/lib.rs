@@ -1,7 +1,7 @@
 use std::mem::size_of;
 
 use arcana::{
-    code::Codes,
+    code::CodeGraph,
     edict::{self, query::Cpy, spawn_block, World},
     events::{emit_event, Event},
     flow::{sleep, FlowEntity},
@@ -394,7 +394,7 @@ fn init(world: &mut World) {
         .spawn((
             Speed(std::f32::consts::FRAC_1_PI * 0.5),
             Angle(0.0),
-            Codes {
+            CodeGraph {
                 codes_id: hash_id!("speedup"),
             },
         ))
