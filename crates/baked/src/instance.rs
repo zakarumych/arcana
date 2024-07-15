@@ -454,7 +454,7 @@ impl Main {
         let data = world.expect_resource::<ProjectData>();
 
         if rendering.modification() > main.rendering_modifications {
-            match data.workgraph.make_workgraph() {
+            match data.workgraph.make_work_graph() {
                 Ok(workgraph) => main.instance.workgraph = workgraph,
                 Err(err) => {
                     tracing::error!("Failed to make workgraph: {err:?}");

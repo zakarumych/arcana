@@ -43,7 +43,6 @@ ctor = "0.2"
 cursor-icon = { version = "1.0" }
 denvars = { version = "0.3.2" }
 dirs = { version = "5" }
-dunce = "1"
 edict = { version = "1.0.0-rc5", path = "../../edict", features = ["serde"] }
 egui = { version = "0.28", features = ["bytemuck", "serde", "cint"] }
 egui_dnd = { version = "0.9" }
@@ -68,7 +67,6 @@ mev = { path = "../../mev" }
 miette = "7.0"
 na = { package = "nalgebra", version = "0.33", features = ["libm", "serde-serialize"] }
 naga = { version = "0.20", features = ["spv-in", "wgsl-in", "glsl-in"] }
-nucleo = { version = "0.5" }
 open = { version = "5.0" }
 ordered-float = { version = "4.2" }
 palette = { version = "0.7", features = ["serializing"] }

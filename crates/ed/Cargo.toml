@@ -29,7 +29,6 @@ egui_tracing.workspace = true
 hashbrown.workspace = true
 libloading.workspace = true
 miette = { workspace = true, features = ["fancy"] }
-nucleo.workspace = true
 open.workspace = true
 palette.workspace = true
 parking_lot.workspace = true

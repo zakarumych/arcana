@@ -6,6 +6,9 @@ use winit::window::Window;
 
 mod events;
 mod render;
+mod selector;
+
+pub use self::selector::Selector;
 
 #[derive(Clone, Copy)]
 pub enum Sampler {
@@ -27,7 +30,7 @@ impl Sampler {
 }
 
 pub struct UiViewport {
-    id: egui::ViewId,
+    id: egui::ViewportId,
     raw_input: egui::RawInput,
     mouse_pos: egui::Pos2,
     scale_factor: f32,
@@ -94,20 +97,20 @@ impl Ui {
     }
 
     pub fn new_viewport(&mut self, size: egui::Vec2, scale_factor: f32) -> UiViewport {
-        let id: egui::ViewId = egui::ViewId(self.next_id);
+        let id: egui::ViewportId = egui::ViewportId(self.next_id);
         self.next_id = self.next_id.with("next_id");
 
         self._new_viewport(id, size, scale_factor)
     }
 
     pub fn main_viewport(&mut self, size: egui::Vec2, scale_factor: f32) -> UiViewport {
-        let id: egui::ViewId = egui::ViewId::ROOT;
+        let id: egui::ViewportId = egui::ViewportId::ROOT;
         self._new_viewport(id, size, scale_factor)
     }
 
     fn _new_viewport(
         &mut self,
-        id: egui::ViewId,
+        id: egui::ViewportId,
         size: egui::Vec2,
         scale_factor: f32,
     ) -> UiViewport {

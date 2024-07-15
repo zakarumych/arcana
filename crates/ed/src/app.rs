@@ -18,12 +18,12 @@ use winit::{
 
 use crate::{
     code::CodeTool,
-    // console::Console,
     container::Container,
     data::ProjectData,
     filters::Filters,
     ide::{Ide, IdeType},
     init_mev,
+    instance::Instance,
     plugins::Plugins,
     render::Rendering,
     sample::ImageSample,
@@ -47,7 +47,7 @@ enum Tab {
     Systems,
     Filters,
     Rendering,
-    Main,
+    // Main,
     Codes,
     Inspector,
     // Custom(ToolId),
@@ -74,7 +74,7 @@ pub struct App {
     systems: Systems,
     filters: Filters,
     rendering: Rendering,
-    main: Main,
+    main: Instance,
 
     image_sample: ImageSample,
     clipboard: Clipboard,
@@ -106,7 +106,7 @@ impl App {
         let rendering = Rendering::new();
         let image_sample = ImageSample::new(&device).unwrap();
         let code = CodeTool::new();
-        let main = Main::new();
+        let main = Instance::new();
 
         let clock = Clock::new();
 
@@ -266,10 +266,10 @@ impl App {
                                         focus_or_add_tab(tabs, Tab::Rendering);
                                         ui.close_menu();
                                     }
-                                    if ui.button("Main").clicked() {
-                                        focus_or_add_tab(tabs, Tab::Main);
-                                        ui.close_menu();
-                                    }
+                                    // if ui.button("Main").clicked() {
+                                    //     focus_or_add_tab(tabs, Tab::Main);
+                                    //     ui.close_menu();
+                                    // }
                                 });
                             });
                         });
@@ -354,12 +354,8 @@ impl App {
             }
         }
 
-        self.main.render(
-            &self.data,
-            &mut self.rendering,
-            &mut self.ui.textures(),
-            &mut self.queue,
-        );
+        self.main
+            .render(&mut self.queue, &self.data, &mut self.ui.textures());
     }
 
     fn save_state(&self) {
@@ -501,7 +497,7 @@ struct AppModel<'a> {
     filters: &'a mut Filters,
     code: &'a mut CodeTool,
     rendering: &'a mut Rendering,
-    main: &'a mut Main,
+    main: &'a mut Instance,
     sample: &'a ImageSample,
     device: &'a mev::Device,
     textures: UserTextures<'a>,
@@ -532,7 +528,7 @@ impl TabViewer for AppModel<'_> {
                 self.ide,
                 ui,
             ),
-            Tab::Main => self.main.show(self.window.id(), &mut self.textures, ui),
+            // Tab::Main => self.main.show(self.window.id(), &mut self.textures, ui),
             Tab::Inspector => {} //Inspector::show(self.world, ui),
         }
     }
@@ -545,7 +541,7 @@ impl TabViewer for AppModel<'_> {
             Tab::Filters => "Filters".into(),
             Tab::Codes => "Codes".into(),
             Tab::Rendering => "Rendering".into(),
-            Tab::Main => "Main".into(),
+            // Tab::Main => "Main".into(),
             Tab::Inspector => "Inspector".into(),
         }
     }

@@ -14,7 +14,6 @@ ahash.workspace = true
 camino = { workspace = true, features = ["serde1"] }
 cargo_toml.workspace = true
 dirs.workspace = true
-dunce.workspace = true
 hashbrown.workspace = true
 miette.workspace = true
 parking_lot.workspace = true

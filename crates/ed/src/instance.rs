@@ -2,9 +2,9 @@
 
 use arcana::{
     code::builtin::emit_code_start,
-    edict::{flow::Flows, query::Cpy, view},
+    edict::{flow::Flows, query::Cpy},
     flow::wake_flows,
-    gametime::{ClockRate, FrequencyNumExt, TimeSpan, TimeStamp},
+    gametime::{ClockRate, FrequencyNumExt, TimeStamp},
     init_world,
     input::{DeviceId, Input, KeyCode, PhysicalKey, ViewInput},
     make_id, mev,
@@ -12,7 +12,7 @@ use arcana::{
     render::{RenderGraphId, Renderer},
     viewport::{ViewId, Viewport},
     work::{CommandStream, HookId, Image2D, Image2DInfo, PinId, Target, WorkGraph},
-    Blink, ClockStep, EntityId, FrequencyTicker, World,
+    Blink, ClockStep, EntityId, FrequencyTicker, Name, World,
 };
 use egui::Ui;
 use hashbrown::{HashMap, HashSet};
@@ -22,9 +22,8 @@ use crate::{
     code::CodeContext,
     container::Container,
     data::ProjectData,
-    filters::Funnel,
     systems::{self, Schedule, Systems},
-    ui::UserTextures,
+    ui::{Selector, UserTextures},
 };
 
 make_id! {
@@ -33,6 +32,8 @@ make_id! {
 }
 
 struct InstanceView {
+    name: Name,
+
     viewport: Viewport,
 
     /// Chosen renderer.
@@ -222,10 +223,15 @@ impl Instance {
     }
 
     /// Render instance view to a texture.
+    pub fn set_view_extent(&mut self, view: ViewId, extent: mev::Extent2) {
+        if let Some(view) = self.views.get_mut(&view) {
+            view.extent = extent;
+        }
+    }
+
+    /// Render instance view to a texture.
     pub fn render(
         &mut self,
-        view: ViewId,
-        extent: mev::Extent2,
         queue: &mut mev::Queue,
         data: &ProjectData,
         textures: &mut UserTextures,
@@ -248,75 +254,77 @@ impl Instance {
             Ok(image)
         }
 
-        let Some(view) = self.views.get_mut(&view) else {
-            // View is not found.
-            return Ok(());
-        };
-
-        let Some(renderer) = view.renderer else {
-            // View does not have a renderer
-            return Ok(());
-        };
-
-        let Ok(renderer) = self.world.get::<Cpy<Renderer>>(renderer) else {
-            // View renderer is not found
-            return Ok(());
-        };
-
-        let Some(render_graph) = data.render_graphs.get(&renderer.graph) else {
-            // View render graph is not found
-            return Ok(());
-        };
-
-        if renderer.graph != view.render_graph
-            || view.render_modification < render_graph.modification
-        {
-            match render_graph.make_workgraph() {
-                Ok(work_graph) => view.work_graph = work_graph,
-                Err(err) => {
-                    tracing::error!("Failed to make work graph: {err:?}");
-                    return Ok(());
-                }
+        for view in self.views.values_mut() {
+            if view.extent.width() == 0 || view.extent.height() == 0 {
+                // View has ZERO extent.
+                return Ok(());
             }
 
-            view.present = render_graph.get_present();
-        }
+            let Some(renderer) = view.renderer else {
+                // View does not have a renderer
+                return Ok(());
+            };
 
-        let Some(pin) = view.present else {
-            // View does not have a present pin
-            return Ok(());
-        };
+            let Ok(renderer) = self.world.get::<Cpy<Renderer>>(renderer) else {
+                // View renderer is not found
+                return Ok(());
+            };
 
-        if view
-            .viewport
-            .get_image()
-            .map_or(true, |i| i.dimensions() != extent)
-        {
-            let new_image = new_image(extent, queue)?;
+            let Some(render_graph) = data.render_graphs.get(&renderer.graph) else {
+                // View render graph is not found
+                return Ok(());
+            };
 
-            tracing::debug!("Creating new image for viewport");
-            view.viewport.set_image(new_image);
-        }
+            if renderer.graph != view.render_graph
+                || view.render_modification < render_graph.modification
+            {
+                match render_graph.make_work_graph() {
+                    Ok(work_graph) => view.work_graph = work_graph,
+                    Err(err) => {
+                        tracing::error!("Failed to make work graph: {err:?}");
+                        return Ok(());
+                    }
+                }
 
-        let image = match view
-            .viewport
-            .next_frame(queue, mev::PipelineStages::all())?
-        {
-            Some((image, None)) => image,
-            _ => unreachable!(),
-        };
+                view.present = render_graph.get_present();
+            }
 
-        let info = Image2DInfo::from_image(&image);
-        let target = Image2D(image.clone());
+            let Some(pin) = view.present else {
+                // View does not have a present pin
+                return Ok(());
+            };
 
-        view.work_graph.set_sink(pin, target, info);
+            if view
+                .viewport
+                .get_image()
+                .map_or(true, |i| i.dimensions() != view.extent)
+            {
+                let new_image = new_image(view.extent, queue)?;
 
-        view.work_graph
-            .run(queue, &mut self.world, &mut self.hub)
-            .unwrap();
+                tracing::debug!("Creating new image for viewport");
+                view.viewport.set_image(new_image);
+            }
 
-        if let Some(texture_id) = view.texture_id {
-            textures.set(texture_id, image, crate::ui::Sampler::NearestNearest);
+            let image = match view
+                .viewport
+                .next_frame(queue, mev::PipelineStages::all())?
+            {
+                Some((image, None)) => image,
+                _ => unreachable!(),
+            };
+
+            let info = Image2DInfo::from_image(&image);
+            let target = Image2D(image.clone());
+
+            view.work_graph.set_sink(pin, target, info);
+
+            view.work_graph
+                .run(queue, &mut self.world, &mut self.hub)
+                .unwrap();
+
+            if let Some(texture_id) = view.texture_id {
+                textures.set(texture_id, image, crate::ui::Sampler::NearestNearest);
+            }
         }
 
         Ok(())
@@ -463,7 +471,7 @@ impl Instance {
 }
 
 pub struct Simulation {
-    viewport: ViewId,
+    view: Option<ViewId>,
 }
 
 impl Simulation {
@@ -475,33 +483,48 @@ impl Simulation {
         ui: &mut Ui,
     ) {
         ui.horizontal_top(|ui| {
-            let r = ui.button(egui_phosphor::regular::PLAY);
-            if r.clicked() {
-                instance.rate.set_rate(1.0);
-            }
-            let r = ui.button(egui_phosphor::regular::PAUSE);
-            if r.clicked() {
-                instance.rate.pause();
-            }
-            let r = ui.button(egui_phosphor::regular::FAST_FORWARD);
-            if r.clicked() {
-                instance.rate.set_rate(2.0);
-            }
+            // let r = ui.button(egui_phosphor::regular::PLAY);
+            // if r.clicked() {
+            //     instance.rate.set_rate(1.0);
+            // }
+            // let r = ui.button(egui_phosphor::regular::PAUSE);
+            // if r.clicked() {
+            //     instance.rate.pause();
+            // }
+            // let r = ui.button(egui_phosphor::regular::FAST_FORWARD);
+            // if r.clicked() {
+            //     instance.rate.set_rate(2.0);
+            // }
 
-            let mut rate = instance.rate.rate();
+            // let mut rate = instance.rate.rate();
 
-            let value = egui::Slider::new(&mut rate, 0.0..=10.0).clamp_to_range(false);
-            let r = ui.add(value);
-            if r.changed() {
-                instance.rate.set_rate(rate as f32);
-            }
+            // let value = egui::Slider::new(&mut rate, 0.0..=10.0).clamp_to_range(false);
+            // let r = ui.add(value);
+            // if r.changed() {
+            //     instance.rate.set_rate(rate as f32);
+            // }
+
+            let selector =
+                Selector::<_, InstanceView>::new("Simulation view", |_, view| view.name.as_str());
+            selector.show(&mut self.view, instance.views.iter(), ui);
         });
+
+        let view = match self.view {
+            Some(id) => match instance.views.get_mut(&id) {
+                Some(view) => view,
+                None => {
+                    return;
+                }
+            },
+            None => return,
+        };
+        view.window = Some(window);
 
         let game_frame = egui::Frame::none()
             .rounding(egui::Rounding::same(5.0))
             .stroke(egui::Stroke::new(
                 1.0,
-                if instance.focused {
+                if view.focused {
                     egui::Color32::LIGHT_GRAY
                 } else {
                     egui::Color32::DARK_GRAY
@@ -511,23 +534,23 @@ impl Simulation {
 
         game_frame.show(ui, |ui| {
             let size = ui.available_size();
-            self.view_extent = mev::Extent2::new(size.x as u32, size.y as u32);
+            view.extent = mev::Extent2::new(size.x as u32, size.y as u32);
 
-            let view_id = *self.view_id.get_or_insert_with(|| textures.new_id());
+            let texture_id = *view.texture_id.get_or_insert_with(|| textures.new_id());
 
             let image = egui::Image::new(egui::load::SizedTexture {
-                id: view_id,
+                id: texture_id,
                 size: size.into(),
             });
 
             let r = ui.add(image.sense(egui::Sense::click()));
 
-            if self.focused {
+            if view.focused {
                 if !r.has_focus() {
-                    self.focused = false;
+                    view.focused = false;
                 } else {
-                    self.rect = r.rect;
-                    self.pixel_per_point = ui.ctx().pixels_per_point();
+                    view.rect = r.rect;
+                    view.pixel_per_point = ui.ctx().pixels_per_point();
                 }
             } else {
                 if r.has_focus() {
@@ -537,13 +560,12 @@ impl Simulation {
                 let mut make_focused = false;
                 if r.clicked() {
                     r.request_focus();
-                    make_focused = !self.focused
+                    make_focused = !view.focused
                 }
 
                 if make_focused {
-                    self.rect = r.rect;
-                    self.pixel_per_point = ui.ctx().pixels_per_point();
-                    self.window = Some(window);
+                    view.rect = r.rect;
+                    view.pixel_per_point = ui.ctx().pixels_per_point();
                 }
             }
         });

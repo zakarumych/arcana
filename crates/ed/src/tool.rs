@@ -11,7 +11,10 @@ pub trait Tool {
     fn load(&mut self, state: serde_json::Value);
 }
 
-arcana::make_id!(pub ToolId);
+arcana::make_id! {
+    /// ID of registered tool.
+    pub ToolId;
+}
 
 struct BoxedTool {
     plugin: Ident,

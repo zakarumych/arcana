@@ -140,30 +140,33 @@ impl Ui {
                     });
                 }
 
-                let delta = match delta {
-                    MouseScrollDelta::LineDelta(x, y) => {
-                        let points_per_scroll_line = 50.0; // Scroll speed decided by consensus: https://github.com/emilk/egui/issues/461
-                        egui::vec2(x, y) * points_per_scroll_line
-                    }
-                    MouseScrollDelta::PixelDelta(delta) => {
-                        egui::vec2(delta.x as f32, delta.y as f32) / viewport.scale_factor
-                    }
-                };
+                // let delta = match delta {
+                //     MouseScrollDelta::LineDelta(x, y) => {
+                //         let points_per_scroll_line = 50.0; // Scroll speed decided by consensus: https://github.com/emilk/egui/issues/461
+                //         egui::vec2(x, y) * points_per_scroll_line
+                //     }
+                //     MouseScrollDelta::PixelDelta(delta) => {
+                //         egui::vec2(delta.x as f32, delta.y as f32) / viewport.scale_factor
+                //     }
+                // };
 
-                if viewport.raw_input.modifiers.ctrl || viewport.raw_input.modifiers.command {
-                    // Treat as zoom instead:
-                    let factor = (delta.y / 200.0).exp();
-                    viewport.raw_input.events.push(egui::Event::Zoom(factor));
-                } else if viewport.raw_input.modifiers.shift {
-                    // Treat as horizontal scrolling.
-                    // Note: one Mac we already get horizontal scroll events when shift is down.
-                    viewport
-                        .raw_input
-                        .events
-                        .push(egui::Event::Scroll(egui::vec2(delta.x + delta.y, 0.0)));
-                } else {
-                    viewport.raw_input.events.push(egui::Event::Scroll(delta));
-                }
+                // if viewport.raw_input.modifiers.ctrl || viewport.raw_input.modifiers.command {
+                //     // Treat as zoom instead:
+                //     let factor = (delta.y / 200.0).exp();
+                //     viewport.raw_input.events.push(egui::Event::Zoom(factor));
+                // } else if viewport.raw_input.modifiers.shift {
+                //     // Treat as horizontal scrolling.
+                //     // Note: one Mac we already get horizontal scroll events when shift is down.
+                //     viewport
+                //         .raw_input
+                //         .events
+                //         .push(egui::Event::Scroll(egui::vec2(delta.x + delta.y, 0.0)));
+                // } else {
+                //     viewport
+                //         .raw_input
+                //         .events
+                //         .push(egui::Event::MouseWheel(delta));
+                // }
 
                 self.cx.wants_pointer_input()
             }

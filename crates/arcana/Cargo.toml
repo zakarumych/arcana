@@ -32,7 +32,6 @@ cint.workspace = true
 const-random.workspace = true
 ctor.workspace = true
 dirs.workspace = true
-dunce.workspace = true
 edict.workspace = true
 flume.workspace = true
 futures.workspace = true

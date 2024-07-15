@@ -1,9 +1,10 @@
 use std::collections::VecDeque;
 
 use arcana::{
+    edict::action::ActionBufferSliceExt,
     plugin::{Location, PluginsHub, SystemId},
     project::Project,
-    ActionBufferSliceExt, Ident, Name, World,
+    Ident, Name, World,
 };
 use egui::{Color32, Ui};
 use egui_snarl::{

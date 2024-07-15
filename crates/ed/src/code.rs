@@ -26,7 +26,7 @@ use egui_snarl::{
 use hashbrown::{HashMap, HashSet};
 use smallvec::SmallVec;
 
-use crate::{container::Container, data::ProjectData, hue_hash};
+use crate::{container::Container, data::ProjectData, hue_hash, ui::Selector};
 
 #[derive(Default)]
 struct OutputCacheEntry {
@@ -818,14 +818,7 @@ impl CodeTool {
     }
 
     pub fn show(&mut self, project: &Project, data: &mut ProjectData, ui: &mut Ui) {
-        let mut cbox = egui::ComboBox::from_id_source("selected-code");
-        if let Some(selected) = self.selected {
-            if let Some(code) = data.codes.get(&selected) {
-                cbox = cbox.selected_text(code.name.to_string());
-            } else {
-                self.selected = None;
-            }
-        }
+        let selector = Selector::<_, CodeGraph>::new("selected-code", |_, code| code.name.as_str());
 
         ui.vertical(|ui| {
             ui.horizontal(|ui| {
@@ -860,17 +853,7 @@ impl CodeTool {
                     }
                 }
 
-                cbox.show_ui(ui, |ui| {
-                    for (&id, code) in data.codes.iter() {
-                        let r =
-                            ui.selectable_label(Some(id) == self.selected, code.name.to_string());
-
-                        if r.clicked_by(PointerButton::Primary) {
-                            self.selected = Some(id);
-                            ui.close_menu();
-                        }
-                    }
-                });
+                selector.show(&mut self.selected, data.codes.iter(), ui);
             });
 
             let Some(id) = self.selected else {
