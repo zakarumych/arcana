@@ -2,10 +2,9 @@ use std::collections::VecDeque;
 
 use arcana::{
     blink_alloc::Blink,
-    edict::{EntityId, NoSuchEntity, World},
+    edict::{entity::EntityId, world::World, NoSuchEntity},
     input::{
-        DeviceId, ElementState, Input, InputFilter, KeyEvent, MouseButton, PhysicalKey,
-        ViewInput,
+        DeviceId, ElementState, Input, InputFilter, KeyEvent, MouseButton, PhysicalKey, ViewInput,
     },
 };
 use hashbrown::HashMap;
@@ -51,7 +50,7 @@ impl MyInputFilter {
 
     pub fn handle(&mut self, world: &mut World, event: &Input) -> bool {
         match *event {
-            Input::ViewInput { ref input } => match *input {
+            Input::ViewInput { ref input, .. } => match *input {
                 ViewInput::KeyboardInput {
                     device_id,
                     ref event,

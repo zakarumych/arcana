@@ -691,9 +691,9 @@ fn present_pin_color() -> egui::Color32 {
 //         r.on_hover_ui(|ui| {
 //             let mut hook = match preview.borrow().hook {
 //                 None => None,
-//                 Some(hook) if hook.pin == pin && main.has_workgraph_hook(hook) => Some(hook),
+//                 Some(hook) if hook.pin == pin && main.has_work_graph_hook(hook) => Some(hook),
 //                 Some(hook) => {
-//                     main.remove_workgraph_hook(hook);
+//                     main.remove_work_graph_hook(hook);
 //                     None
 //                 }
 //             };
@@ -703,7 +703,7 @@ fn present_pin_color() -> egui::Color32 {
 //                 let preview = preview.clone();
 
 //                 let new_hook =
-//                     main.add_workgraph_hook::<Image2D>(pin, move |target, _device, commands| {
+//                     main.add_work_graph_hook::<Image2D>(pin, move |target, _device, commands| {
 //                         let mut target_size = target.dimensions().expect_2d();
 //                         if target_size.width() == 0 || target_size.height() == 0 {
 //                             return;

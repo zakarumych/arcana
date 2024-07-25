@@ -9,10 +9,10 @@ use arcana::{
     input::{DeviceId, Input, KeyCode, PhysicalKey, ViewInput},
     make_id, mev,
     plugin::PluginsHub,
-    render::{RenderGraphId, Renderer},
+    render::{CurrentRenderer, RenderGraphId, Renderer},
     viewport::{ViewId, Viewport},
     work::{CommandStream, HookId, Image2D, Image2DInfo, PinId, Target, WorkGraph},
-    Blink, ClockStep, EntityId, FrequencyTicker, Name, World,
+    Blink, ClockStep, EntityId, FrequencyTicker, IdGen, Name, World,
 };
 use egui::Ui;
 use hashbrown::{HashMap, HashSet};
@@ -40,10 +40,10 @@ struct InstanceView {
     renderer: Option<EntityId>,
 
     /// Current render graph id.
-    render_graph: RenderGraphId,
+    last_render_graph: Option<RenderGraphId>,
 
     /// Modification id of the render graph.
-    render_modification: u64,
+    last_render_modification: u64,
 
     /// View work graph.
     work_graph: WorkGraph,
@@ -109,6 +109,8 @@ pub struct Instance {
 
     /// Instance views.
     views: HashMap<ViewId, InstanceView>,
+
+    view_id_gen: IdGen,
 }
 
 impl Instance {
@@ -141,6 +143,7 @@ impl Instance {
             schedule,
             container: None,
             views: HashMap::new(),
+            view_id_gen: IdGen::new(),
         }
     }
 
@@ -165,7 +168,7 @@ impl Instance {
                 for view in self.views.values_mut() {
                     view.work_graph = WorkGraph::new(HashMap::new(), HashSet::new()).unwrap();
                     view.present = None;
-                    view.render_modification = 0;
+                    view.last_render_modification = 0;
                 }
 
                 self.hub = PluginsHub::new();
@@ -181,6 +184,32 @@ impl Instance {
                 drop(old);
             }
         }
+    }
+
+    pub fn new_view(&mut self) -> ViewId {
+        let id = self.view_id_gen.next();
+
+        self.views.insert(
+            id,
+            InstanceView {
+                name: Name::from_str(&format!("New view {id}")).unwrap(),
+                viewport: Viewport::new_image(),
+                renderer: None,
+                last_render_graph: None,
+                last_render_modification: 0,
+                work_graph: WorkGraph::new(HashMap::new(), HashSet::new()).unwrap(),
+                present: None,
+                window: None,
+                extent: mev::Extent2::new(0, 0),
+                texture_id: None,
+                focused: false,
+                rect: egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(0.0, 0.0)),
+                pixel_per_point: 1.0,
+                contains_cursors: HashSet::new(),
+            },
+        );
+
+        id
     }
 
     pub fn rate(&self) -> &ClockRate {
@@ -223,13 +252,6 @@ impl Instance {
     }
 
     /// Render instance view to a texture.
-    pub fn set_view_extent(&mut self, view: ViewId, extent: mev::Extent2) {
-        if let Some(view) = self.views.get_mut(&view) {
-            view.extent = extent;
-        }
-    }
-
-    /// Render instance view to a texture.
     pub fn render(
         &mut self,
         queue: &mut mev::Queue,
@@ -260,12 +282,12 @@ impl Instance {
                 return Ok(());
             }
 
-            let Some(renderer) = view.renderer else {
+            let Some(renderer_id) = view.renderer else {
                 // View does not have a renderer
                 return Ok(());
             };
 
-            let Ok(renderer) = self.world.get::<Cpy<Renderer>>(renderer) else {
+            let Ok(renderer) = self.world.get::<Cpy<Renderer>>(renderer_id) else {
                 // View renderer is not found
                 return Ok(());
             };
@@ -275,18 +297,20 @@ impl Instance {
                 return Ok(());
             };
 
-            if renderer.graph != view.render_graph
-                || view.render_modification < render_graph.modification
+            if view.last_render_graph != Some(renderer.graph)
+                || view.last_render_modification < render_graph.modification
             {
-                match render_graph.make_work_graph() {
-                    Ok(work_graph) => view.work_graph = work_graph,
+                let work_graph = match render_graph.make_work_graph() {
+                    Ok(work_graph) => work_graph,
                     Err(err) => {
                         tracing::error!("Failed to make work graph: {err:?}");
                         return Ok(());
                     }
-                }
+                };
 
+                view.work_graph = work_graph;
                 view.present = render_graph.get_present();
+                view.last_render_graph = Some(renderer.graph);
             }
 
             let Some(pin) = view.present else {
@@ -317,6 +341,10 @@ impl Instance {
             let target = Image2D(image.clone());
 
             view.work_graph.set_sink(pin, target, info);
+
+            self.world.insert_resource(CurrentRenderer {
+                entity: renderer_id,
+            });
 
             view.work_graph
                 .run(queue, &mut self.world, &mut self.hub)
@@ -441,7 +469,7 @@ impl Instance {
         false
     }
 
-    pub fn add_workgraph_hook<T>(
+    pub fn add_work_graph_hook<T>(
         &mut self,
         view: ViewId,
         pin: PinId,
@@ -457,13 +485,13 @@ impl Instance {
         }
     }
 
-    pub fn has_workgraph_hook(&self, view: ViewId, hook: HookId) -> bool {
+    pub fn has_work_graph_hook(&self, view: ViewId, hook: HookId) -> bool {
         self.views
             .get(&view)
             .map_or(false, |view| view.work_graph.has_hook(hook))
     }
 
-    pub fn remove_workgraph_hook(&mut self, view: ViewId, hook: HookId) {
+    pub fn remove_work_graph_hook(&mut self, view: ViewId, hook: HookId) {
         if let Some(view) = self.views.get_mut(&view) {
             view.work_graph.remove_hook(hook);
         }
@@ -475,6 +503,10 @@ pub struct Simulation {
 }
 
 impl Simulation {
+    pub fn new() -> Self {
+        Simulation { view: None }
+    }
+
     pub fn show(
         &mut self,
         instance: &mut Instance,
@@ -483,41 +515,28 @@ impl Simulation {
         ui: &mut Ui,
     ) {
         ui.horizontal_top(|ui| {
-            // let r = ui.button(egui_phosphor::regular::PLAY);
-            // if r.clicked() {
-            //     instance.rate.set_rate(1.0);
-            // }
-            // let r = ui.button(egui_phosphor::regular::PAUSE);
-            // if r.clicked() {
-            //     instance.rate.pause();
-            // }
-            // let r = ui.button(egui_phosphor::regular::FAST_FORWARD);
-            // if r.clicked() {
-            //     instance.rate.set_rate(2.0);
-            // }
-
-            // let mut rate = instance.rate.rate();
-
-            // let value = egui::Slider::new(&mut rate, 0.0..=10.0).clamp_to_range(false);
-            // let r = ui.add(value);
-            // if r.changed() {
-            //     instance.rate.set_rate(rate as f32);
-            // }
-
             let selector =
-                Selector::<_, InstanceView>::new("Simulation view", |_, view| view.name.as_str());
+                Selector::<_, InstanceView>::new("Simulation view", |_, view| view.name.as_str())
+                    .pick_first();
             selector.show(&mut self.view, instance.views.iter(), ui);
+
+            if ui
+                .button(egui_phosphor::regular::PLUS)
+                .on_hover_text("Create new view")
+                .clicked()
+            {
+                self.view = Some(instance.new_view());
+            }
         });
 
         let view = match self.view {
             Some(id) => match instance.views.get_mut(&id) {
                 Some(view) => view,
-                None => {
-                    return;
-                }
+                None => unreachable!(),
             },
             None => return,
         };
+
         view.window = Some(window);
 
         let game_frame = egui::Frame::none()

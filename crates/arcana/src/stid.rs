@@ -22,7 +22,7 @@ crate::make_id! {
 }
 
 /// Trait for types that have stable identifier.
-/// Derive it, implementa manually or use `with_stid!` macro.
+/// Derive it, implement manually or use `with_stid!` macro.
 pub trait WithStid: 'static {
     fn stid() -> Stid
     where

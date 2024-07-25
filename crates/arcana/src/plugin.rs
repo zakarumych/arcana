@@ -267,6 +267,8 @@ pub fn set_running_arcana_instance() {
     assert!(!old, "Arcana instance is already running");
 }
 
+#[inline(never)]
+#[cold]
 pub fn unknown_dependency() -> ! {
     panic!("Unknown dependency")
 }

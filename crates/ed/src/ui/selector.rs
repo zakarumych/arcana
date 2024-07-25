@@ -1,10 +1,16 @@
 use std::hash::Hash;
 
+enum OnAbsent<K> {
+    Clear,
+    PickFirst,
+    Keep(Box<dyn Fn(&K) -> &str>),
+}
+
 /// Selector widget to pick element from available options.
 pub struct Selector<K, E> {
     id: egui::Id,
     get_text: Box<dyn for<'a> Fn(&'a K, &'a E) -> &'a str>,
-    keep_unavailable: Option<Box<dyn Fn(&K) -> &str>>,
+    on_absent: OnAbsent<K>,
 }
 
 impl<K, E> Selector<K, E> {
@@ -15,15 +21,20 @@ impl<K, E> Selector<K, E> {
         Selector {
             id: egui::Id::new(id_source),
             get_text: Box::new(get_text),
-            keep_unavailable: None,
+            on_absent: OnAbsent::Clear,
         }
     }
 
-    pub fn keep_unavailable<F>(mut self, get_text: F) -> Self
+    pub fn keep_absent<F>(mut self, get_text: F) -> Self
     where
         F: Fn(&K) -> &str + 'static,
     {
-        self.keep_unavailable = Some(Box::new(get_text));
+        self.on_absent = OnAbsent::Keep(Box::new(get_text));
+        self
+    }
+
+    pub fn pick_first(mut self) -> Self {
+        self.on_absent = OnAbsent::PickFirst;
         self
     }
 
@@ -41,11 +52,14 @@ impl<K, E> Selector<K, E> {
         let current_entry = options.clone().find(|(k, _)| Some(*k) == current.as_ref());
 
         match current_entry {
-            None => match self.keep_unavailable {
-                None => {
+            None => match self.on_absent {
+                OnAbsent::Clear => {
                     *current = None;
                 }
-                Some(get_text) => match current {
+                OnAbsent::PickFirst => {
+                    *current = options.clone().next().map(|(k, _)| k.clone());
+                }
+                OnAbsent::Keep(get_text) => match current {
                     None => {}
                     Some(k) => {
                         current_text = get_text(k);

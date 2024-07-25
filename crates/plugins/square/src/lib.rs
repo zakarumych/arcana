@@ -1,5 +1,5 @@
 use arcana::{
-    edict::World,
+    edict::world::World,
     gametime::ClockStep,
     mev::{self, Arguments, DeviceRepr},
     work::{Exec, Image2D, Job, JobDesc, Planner},

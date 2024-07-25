@@ -104,6 +104,7 @@ pub mod flow;
 pub mod hash;
 pub mod id;
 pub mod input;
+// pub mod layout;
 pub mod model;
 mod num2name;
 pub mod plugin;
@@ -131,7 +132,7 @@ pub fn version() -> &'static str {
 
 /// Triggers panic.
 /// Use when too large capacity is requested.
-#[inline(always)]
+#[inline(never)]
 #[cold]
 fn capacity_overflow() -> ! {
     panic!("capacity overflow");
@@ -144,6 +145,7 @@ fn alloc_guard(alloc_size: usize) {
     }
 }
 
+#[inline(always)]
 pub fn type_id<T: 'static>() -> std::any::TypeId {
     std::any::TypeId::of::<T>()
 }
@@ -168,22 +170,26 @@ macro_rules! static_assert {
 pub struct Slot(Option<TAny>);
 
 impl From<Option<TAny>> for Slot {
+    #[inline(always)]
     fn from(opt: Option<TAny>) -> Self {
         Slot(opt)
     }
 }
 
 impl From<TAny> for Slot {
+    #[inline(always)]
     fn from(boxed: TAny) -> Self {
         Slot(Some(boxed))
     }
 }
 
 impl Slot {
+    #[inline(always)]
     pub fn new() -> Self {
-        Self(None)
+        Slot(None)
     }
 
+    #[inline(always)]
     pub fn with_value<T>(value: T) -> Self
     where
         T: Send + Sync + 'static,
@@ -191,10 +197,12 @@ impl Slot {
         Self(Some(TAny::new(value)))
     }
 
+    #[inline(always)]
     pub fn into_inner(self) -> Option<TAny> {
         self.0
     }
 
+    #[inline(always)]
     pub fn set<T>(&mut self, value: T)
     where
         T: Send + Sync + 'static,
@@ -208,6 +216,7 @@ impl Slot {
         self.0 = Some(TAny::new(value));
     }
 
+    #[inline(always)]
     pub fn get<T: 'static>(&self) -> Option<&T> {
         if let Some(boxed) = &self.0 {
             return boxed.downcast_ref::<T>();
@@ -216,6 +225,7 @@ impl Slot {
         None
     }
 
+    #[inline(always)]
     pub fn take<T: 'static>(&mut self) -> Option<T> {
         if let Some(tany) = &self.0 {
             if tany.is::<T>() {

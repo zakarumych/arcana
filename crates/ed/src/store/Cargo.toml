@@ -1,0 +1,32 @@
+[package]
+name = "argosy-store"
+version = "0.1.0"
+edition = "2021"
+authors = ["Zakarum <zaq.dev@icloud.com>"]
+license = "MIT OR Apache-2.0"
+documentation = "https://docs.rs/argosy-store"
+homepage = "https://github.com/arcana-engine/argosy"
+repository = "https://github.com/arcana-engine/argosy"
+readme = "../README.md"
+keywords = ["assets", "gamedev"]
+categories = ["game-development"]
+description = "Argosy storage"
+
+[dependencies]
+argosy-import = { version = "=0.1.0", path = "../import", features = ["libloading"] }
+argosy-id = { version = "=0.1.0", path = "../id" }
+argosy = { version = "=0.1.0", path = ".." }
+
+base64 = "0.21"
+futures = "0.3"
+hashbrown = { version = "0.13", features = ["serde"] }
+rand = "0.8"
+serde = { version = "1.0", features = ["derive"] }
+sha2 = "0.10"
+url = { version = "2.2", features = ["serde"] }
+thiserror = "1.0"
+toml = "0.7"
+tracing = "0.1"
+dunce = "1.0"
+libloading = "0.8"
+parking_lot = "0.12"

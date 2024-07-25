@@ -57,7 +57,7 @@ pub struct Instance {
     flows: Flows,
 
     /// Work graph.
-    workgraph: WorkGraph,
+    work_graph: WorkGraph,
 
     /// Which pin to present to viewport.
     present: Option<PinId>,
@@ -153,9 +153,9 @@ impl Instance {
         let info = Image2DInfo::from_image(&image);
         let target = Image2D(image);
 
-        self.workgraph.set_sink(pin, target, info);
+        self.work_graph.set_sink(pin, target, info);
 
-        self.workgraph
+        self.work_graph
             .run(device, queue, &mut self.world, &mut self.hub)
             .unwrap();
 
@@ -225,7 +225,7 @@ impl Main {
 
         let flows = Flows::new();
         let code = CodeContext::new();
-        let workgraph = WorkGraph::new(HashMap::new(), HashSet::new()).unwrap();
+        let work_graph = WorkGraph::new(HashMap::new(), HashSet::new()).unwrap();
 
         let present = None;
         let viewport = Viewport::new_image();
@@ -241,7 +241,7 @@ impl Main {
             rate,
             flows,
             code,
-            workgraph,
+            work_graph,
             present,
             viewport,
             container: None,
@@ -454,13 +454,13 @@ impl Main {
         let data = world.expect_resource::<ProjectData>();
 
         if rendering.modification() > main.rendering_modifications {
-            match data.workgraph.make_work_graph() {
-                Ok(workgraph) => main.instance.workgraph = workgraph,
+            match data.work_graph.make_work_graph() {
+                Ok(work_graph) => main.instance.work_graph = work_graph,
                 Err(err) => {
-                    tracing::error!("Failed to make workgraph: {err:?}");
+                    tracing::error!("Failed to make work_graph: {err:?}");
                 }
             }
-            main.instance.present = data.workgraph.get_present();
+            main.instance.present = data.work_graph.get_present();
             main.rendering_modifications = rendering.modification();
         }
 
@@ -471,7 +471,7 @@ impl Main {
         self.instance.update_plugins(c);
     }
 
-    pub fn add_workgraph_hook<T>(
+    pub fn add_work_graph_hook<T>(
         &mut self,
         pin: PinId,
         hook: impl FnMut(&T, &mev::Device, &CommandStream) + 'static,
@@ -479,14 +479,14 @@ impl Main {
     where
         T: Target,
     {
-        self.instance.workgraph.add_hook::<T>(pin, hook)
+        self.instance.work_graph.add_hook::<T>(pin, hook)
     }
 
-    pub fn has_workgraph_hook(&mut self, hook: HookId) -> bool {
-        self.instance.workgraph.has_hook(hook)
+    pub fn has_work_graph_hook(&mut self, hook: HookId) -> bool {
+        self.instance.work_graph.has_hook(hook)
     }
 
-    pub fn remove_workgraph_hook(&mut self, hook: HookId) {
-        self.instance.workgraph.remove_hook(hook)
+    pub fn remove_work_graph_hook(&mut self, hook: HookId) {
+        self.instance.work_graph.remove_hook(hook)
     }
 }

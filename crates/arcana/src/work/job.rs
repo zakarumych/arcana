@@ -236,11 +236,15 @@ pub trait Job: 'static {
 }
 
 #[track_caller]
+#[inline(never)]
+#[cold]
 pub(super) fn invalid_input_pin(pin: usize) -> ! {
     panic!("Invalid input pin index: {}", pin)
 }
 
 #[track_caller]
+#[inline(never)]
+#[cold]
 pub(super) fn invalid_output_pin(pin: usize) -> ! {
     panic!("Invalid output pin index: {}", pin)
 }

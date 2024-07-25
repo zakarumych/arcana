@@ -1,6 +1,6 @@
 use edict::{component::Component, entity::EntityId};
 
-use crate::{make_id, work::PinId};
+use crate::make_id;
 
 make_id! {
     /// ID of the render graph.

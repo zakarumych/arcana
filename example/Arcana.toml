@@ -4,15 +4,8 @@ name = "aaa"
 path = "../crates/arcana"
 
 [[plugins]]
-name = "triangle"
+name = "scene"
 description = ""
 
 [plugins.dependency]
-path = '..\crates\plugins\triangle'
-
-[[plugins]]
-name = "square"
-description = ""
-
-[plugins.dependency]
-path = '..\crates\plugins\square'
+path = '..\crates\plugins\scene'
