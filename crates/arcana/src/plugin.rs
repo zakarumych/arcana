@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::{any::Any, sync::atomic::AtomicBool};
+use std::sync::atomic::AtomicBool;
 
 use arcana_names::{Ident, Name};
 use arcana_project::Dependency;
@@ -9,6 +9,7 @@ use edict::{
 };
 use hashbrown::HashMap;
 
+use crate::assets::import::{Importer, ImporterId};
 use crate::code::{CodeDesc, CodeNodeId, FlowCode, PureCode};
 use crate::events::EventId;
 use crate::input::{FilterId, InputFilter, IntoInputFilter};
@@ -101,6 +102,19 @@ pub struct EventInfo {
     pub location: Option<Location>,
 }
 
+/// System information declared by a plugin.
+#[derive(Clone, Debug)]
+pub struct ImporterInfo {
+    /// Unique identified of the importer.
+    pub id: ImporterId,
+
+    /// Name of the importer.
+    pub name: Name,
+
+    /// Location of the importer in the source code.
+    pub location: Option<Location>,
+}
+
 /// Active plugin hub contains
 /// systems, filters and jobs
 /// populated from plugins.
@@ -110,6 +124,7 @@ pub struct PluginsHub {
     pub jobs: HashMap<JobId, Box<dyn Job>>,
     pub pure_fns: HashMap<CodeNodeId, PureCode>,
     pub flow_fns: HashMap<CodeNodeId, FlowCode>,
+    pub importers: HashMap<ImporterId, Box<dyn Importer>>,
 }
 
 impl PluginsHub {
@@ -120,6 +135,7 @@ impl PluginsHub {
             jobs: HashMap::new(),
             pure_fns: HashMap::new(),
             flow_fns: HashMap::new(),
+            importers: HashMap::new(),
         }
     }
 
@@ -156,95 +172,6 @@ impl PluginsHub {
     }
 }
 
-/// Plugin protocol for Bob engine.
-/// It allows bundling systems and resources together into a single unit
-/// that can be initialized at once.
-///
-/// User may wish to use plugin protocol and wrap their systems and resources
-/// into plugins.
-/// Ed uses this protocol to load plugins from libraries.
-///
-/// A crate that defines a plugin must export a function `arcana_plugin` that
-/// returns plugin static reference to plugin instance.
-///
-/// The easiest way to do this is to use [`export_arcana_plugin!`](`export_arcana_plugin`) macro.
-pub trait ArcanaPlugin: Any + Sync {
-    /// Returns location of the plugin crate
-    fn location(&self) -> Option<PathBuf> {
-        None
-    }
-
-    /// Returns list of plugin names this plugin depends on.
-    /// Dependencies must be initialized first and deinitialized last.
-    fn dependencies(&self) -> Vec<(Ident, Dependency)> {
-        Vec::new()
-    }
-
-    /// Returns list of named event filters.
-    fn filters(&self) -> Vec<FilterInfo> {
-        Vec::new()
-    }
-
-    /// Returns list of systems.
-    fn systems(&self) -> Vec<SystemInfo> {
-        Vec::new()
-    }
-
-    /// Returns list of render jobs.
-    fn jobs(&self) -> Vec<JobInfo> {
-        Vec::new()
-    }
-
-    fn events(&self) -> Vec<EventInfo> {
-        Vec::new()
-    }
-
-    /// Returns list of codes.
-    fn codes(&self) -> Vec<CodeInfo> {
-        Vec::new()
-    }
-
-    /// Registers components and resources.
-    /// Perform any other initialization of the world.
-    /// Returns constructed systems and event filters.
-    fn init(&self, world: &mut World, hub: &mut PluginsHub) {
-        let _ = (world, hub);
-    }
-
-    /// De-initializes world.
-    /// Removes resources that belongs to this plugin.
-    /// This method is called when game instance is closed,
-    /// plugin is disabled or replaced with another version.
-    fn deinit(&self, world: &mut World) {
-        let _ = world;
-    }
-
-    /// Returns true if this plugin can be replaced with the `updated` plugin.
-    /// The updated plugin should typically be a newer version of the same plugin.
-    ///
-    /// Plugins may conservatively return `false` here.
-    /// And then they may not implement `dump` and `load` methods.
-    fn compatible(&self, updated: &dyn ArcanaPlugin) -> bool {
-        let _ = updated;
-        false
-    }
-
-    /// Dump state of the world known to this plugin.
-    /// This method is called when the plugin is reloaded with updated code
-    /// before `deinit` method.
-    /// New version, if compatible, will load the state from the dump.
-    fn dump(&self, world: &World, scratch: &mut [u8]) -> usize {
-        let _ = (world, scratch);
-        0
-    }
-
-    /// Load state of the world known to this plugin dumped by previous version.
-    fn load(&self, world: &mut World, scratch: &[u8]) {
-        let _ = (world, scratch);
-        unimplemented!()
-    }
-}
-
 #[doc(hidden)]
 static GLOBAL_LINK_CHECK: AtomicBool = AtomicBool::new(false);
 
@@ -273,120 +200,162 @@ pub fn unknown_dependency() -> ! {
     panic!("Unknown dependency")
 }
 
+/// Plugin for Arcana engine.
+/// It allows bundling systems and resources together into a single unit
+/// that can be initialized at once.
+///
+/// User may wish to use plugin and wrap their systems and resources
+/// into plugins.
+/// Ed uses this to load plugins from libraries.
+///
+/// A crate must use `declare_plugin!` macro to declare it is a plugin.
+#[derive(Default)]
+pub struct ArcanaPlugin {
+    location: Option<PathBuf>,
+    dependencies: Vec<(Ident, Dependency)>,
+    filters: Vec<FilterInfo>,
+    systems: Vec<SystemInfo>,
+    jobs: Vec<JobInfo>,
+    events: Vec<EventInfo>,
+    codes: Vec<CodeInfo>,
+    importers: Vec<ImporterInfo>,
+    fill_hub: Vec<fn(&mut PluginsHub)>,
+    init: Vec<fn(&mut World)>,
+}
+
+impl ArcanaPlugin {
+    pub fn new() -> Self {
+        ArcanaPlugin::default()
+    }
+
+    pub fn add_filter(&mut self, info: FilterInfo, add: fn(&mut PluginsHub)) {
+        self.filters.push(info);
+        self.fill_hub.push(add);
+    }
+
+    pub fn add_system(&mut self, info: SystemInfo, add: fn(&mut PluginsHub)) {
+        self.systems.push(info);
+        self.fill_hub.push(add);
+    }
+
+    pub fn add_job(&mut self, info: JobInfo, add: fn(&mut PluginsHub)) {
+        self.jobs.push(info);
+        self.fill_hub.push(add);
+    }
+
+    pub fn add_event(&mut self, info: EventInfo) {
+        self.events.push(info);
+    }
+
+    pub fn add_code(&mut self, info: CodeInfo, add: fn(&mut PluginsHub)) {
+        self.codes.push(info);
+        self.fill_hub.push(add);
+    }
+
+    pub fn add_importer(&mut self, info: ImporterInfo, add: fn(&mut PluginsHub)) {
+        self.importers.push(info);
+        self.fill_hub.push(add);
+    }
+
+    pub fn add_init(&mut self, add: fn(&mut World)) {
+        self.init.push(add);
+    }
+}
+
+impl ArcanaPlugin {
+    pub fn location(&self) -> Option<PathBuf> {
+        self.location.clone()
+    }
+
+    pub fn dependencies(&self) -> Vec<(Ident, Dependency)> {
+        self.dependencies.clone()
+    }
+
+    pub fn filters(&self) -> Vec<FilterInfo> {
+        self.filters.clone()
+    }
+
+    pub fn systems(&self) -> Vec<SystemInfo> {
+        self.systems.clone()
+    }
+
+    pub fn jobs(&self) -> Vec<JobInfo> {
+        self.jobs.clone()
+    }
+
+    pub fn events(&self) -> Vec<EventInfo> {
+        self.events.clone()
+    }
+
+    pub fn codes(&self) -> Vec<CodeInfo> {
+        self.codes.clone()
+    }
+
+    pub fn init(&self, world: &mut World, hub: &mut PluginsHub) {
+        for fill in &self.fill_hub {
+            fill(hub);
+        }
+
+        for init in &self.init {
+            init(world);
+        }
+    }
+}
+
+/// Plugin crate must use this macro at the root module to declare it is a plugin.
+#[doc(hidden)]
+#[macro_export]
+macro_rules! declare_plugin {
+    () => {
+        #[doc(hidden)]
+        pub mod arcana_plugin {
+            pub fn dependency() -> $crate::project::Dependency {
+                $crate::project::Dependency::Crates(env!("CARGO_PKG_VERSION").to_owned())
+            }
+
+            pub fn path_dependency() -> $crate::project::Dependency {
+                $crate::project::Dependency::from_path(env!("CARGO_MANIFEST_DIR")).unwrap()
+            }
+
+            pub fn get() -> $crate::plugin::ArcanaPlugin {
+                // Safety: This value is accessed mutably at cdylib load time.
+                // Afterwards it can only be accessed immutably here.
+                unsafe { ARCANA_PLUGIN_REGISTRY.plugin() }
+            }
+
+            static mut ARCANA_PLUGIN_REGISTRY: $crate::plugin::init::Registry =
+                ::arcana::plugin::init::Registry::new();
+        }
+    };
+}
+
 #[doc(hidden)]
 pub mod init {
     use super::*;
 
     pub use ::ctor::ctor;
 
-    #[derive(Default)]
-    pub struct PluginInfo {
-        location: Option<PathBuf>,
-        dependencies: Vec<(Ident, Dependency)>,
-        filters: Vec<FilterInfo>,
-        systems: Vec<SystemInfo>,
-        jobs: Vec<JobInfo>,
-        events: Vec<EventInfo>,
-        codes: Vec<CodeInfo>,
-        fill_hub: Vec<fn(&mut PluginsHub)>,
-        init: Vec<fn(&mut World)>,
-    }
-
-    impl PluginInfo {
-        pub fn new() -> Self {
-            PluginInfo::default()
-        }
-
-        pub fn add_filter(&mut self, info: FilterInfo, add: fn(&mut PluginsHub)) {
-            self.filters.push(info);
-            self.fill_hub.push(add);
-        }
-
-        pub fn add_system(&mut self, info: SystemInfo, add: fn(&mut PluginsHub)) {
-            self.systems.push(info);
-            self.fill_hub.push(add);
-        }
-
-        pub fn add_job(&mut self, info: JobInfo, add: fn(&mut PluginsHub)) {
-            self.jobs.push(info);
-            self.fill_hub.push(add);
-        }
-
-        pub fn add_event(&mut self, info: EventInfo) {
-            self.events.push(info);
-        }
-
-        pub fn add_code(&mut self, info: CodeInfo, add: fn(&mut PluginsHub)) {
-            self.codes.push(info);
-            self.fill_hub.push(add);
-        }
-
-        pub fn add_init(&mut self, add: fn(&mut World)) {
-            self.init.push(add);
-        }
-    }
-
-    impl ArcanaPlugin for PluginInfo {
-        fn location(&self) -> Option<PathBuf> {
-            self.location.clone()
-        }
-
-        fn dependencies(&self) -> Vec<(Ident, Dependency)> {
-            self.dependencies.clone()
-        }
-
-        fn filters(&self) -> Vec<FilterInfo> {
-            self.filters.clone()
-        }
-
-        fn systems(&self) -> Vec<SystemInfo> {
-            self.systems.clone()
-        }
-
-        fn jobs(&self) -> Vec<JobInfo> {
-            self.jobs.clone()
-        }
-
-        fn events(&self) -> Vec<EventInfo> {
-            self.events.clone()
-        }
-
-        fn codes(&self) -> Vec<CodeInfo> {
-            self.codes.clone()
-        }
-
-        fn init(&self, world: &mut World, hub: &mut PluginsHub) {
-            for init in &self.init {
-                init(world);
-            }
-
-            for fill in &self.fill_hub {
-                fill(hub);
-            }
-        }
-    }
-
     #[derive(Clone, Copy)]
     pub struct CtorNode {
-        ctor: fn(&mut PluginInfo),
+        ctor: fn(&mut ArcanaPlugin),
         next: Option<&'static CtorNode>,
     }
 
     impl CtorNode {
-        pub const fn new(ctor: fn(&mut PluginInfo)) -> Self {
+        pub const fn new(ctor: fn(&mut ArcanaPlugin)) -> Self {
             CtorNode { ctor, next: None }
         }
     }
 
     pub struct Registry {
-        mainfest_dir: &'static str,
+        manifest_dir: &'static str,
         list: Option<&'static CtorNode>,
     }
 
     impl Registry {
         pub const fn new() -> Self {
             Registry {
-                mainfest_dir: env!("CARGO_MANIFEST_DIR"),
+                manifest_dir: env!("CARGO_MANIFEST_DIR"),
                 list: None,
             }
         }
@@ -396,10 +365,10 @@ pub mod init {
             self.list = Some(node);
         }
 
-        pub fn plugin(&mut self) -> PluginInfo {
-            let mut plugin = PluginInfo::new();
+        pub fn plugin(&mut self) -> ArcanaPlugin {
+            let mut plugin = ArcanaPlugin::new();
 
-            plugin.location = Some(PathBuf::from(self.mainfest_dir));
+            plugin.location = Some(PathBuf::from(self.manifest_dir));
 
             let mut node = self.list;
             while let Some(n) = node {
@@ -428,45 +397,19 @@ pub mod init {
                 fn add() {
                     static mut CTOR_NODE: $crate::plugin::init::CtorNode =
                         $crate::plugin::init::CtorNode::new(
-                            |$plugin: &mut $crate::plugin::init::PluginInfo| {
+                            |$plugin: &mut $crate::plugin::init::ArcanaPlugin| {
+                                // At this point cdylib is initialized and any code can be executed.
                                 $($code)*
                             },
                         );
 
+                    // Safety: This code is executed at cdylib load time
+                    // sequentially with other ctors.
                     unsafe {
-                        crate::PLUGIN_REGISTRY.register(&mut CTOR_NODE);
+                        crate::arcana_plugin::ARCANA_PLUGIN_REGISTRY.register(&mut CTOR_NODE);
                     }
                 }
             };
-        };
-    }
-
-    #[doc(hidden)]
-    #[macro_export]
-    macro_rules! plugin_declare {
-        () => {
-            pub fn dependency() -> $crate::project::Dependency {
-                $crate::project::Dependency::Crates(env!("CARGO_PKG_VERSION").to_owned())
-            }
-
-            pub fn git_dependency(git: &str, branch: Option<&str>) -> $crate::project::Dependency {
-                $crate::project::Dependency::Git {
-                    git: git.to_owned(),
-                    branch: branch.map(str::to_owned),
-                }
-            }
-
-            pub fn path_dependency() -> $crate::project::Dependency {
-                $crate::project::Dependency::from_path(env!("CARGO_MANIFEST_DIR")).unwrap()
-            }
-
-            pub fn __arcana_plugin() -> Box<dyn $crate::plugin::ArcanaPlugin> {
-                let plugin = unsafe { crate::PLUGIN_REGISTRY.plugin() };
-                Box::new(plugin)
-            }
-
-            static mut PLUGIN_REGISTRY: $crate::plugin::init::Registry =
-                ::arcana::plugin::init::Registry::new();
         };
     }
 }

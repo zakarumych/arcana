@@ -1,5 +1,7 @@
 # Arcana Engine
 
+<img src="logo.svg" alt="logo" width="200"/>
+
 ## High Level overview
 
 Arcana is a microengine that provides only fundamental components and the rest
@@ -55,7 +57,7 @@ Main components of the engine are:
   They are dispatched in order after flows run.
   There are two ways to handle an event. Subscribe and Listen.
   - Subscribers are registered in event dispatcher as callbacks and executed
-    immediatelly when event is pushed there.
+    immediately when event is pushed there.
     Subscribers can't access ECS so their capabilities are limited.
 
   - Listeners fetch events when actively polled.

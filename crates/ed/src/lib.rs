@@ -43,21 +43,22 @@ macro_rules! try_log_err {
 }
 
 mod app;
+mod code;
 // mod console;
+mod container;
 mod data;
+mod error;
 mod filters;
 mod ide;
-mod render;
-// mod memory;
-mod code;
-mod container;
-mod error;
+mod inspector;
 mod instance;
+// mod memory;
 mod model;
 // mod monitor;
-mod inspector;
 mod plugins;
+mod render;
 mod sample;
+// mod store;
 mod subprocess;
 mod systems;
 mod tool;
@@ -98,6 +99,8 @@ fn _run(path: &Path) -> miette::Result<()> {
     ) {
         panic!("Failed to install tracing subscriber: {}", err);
     }
+
+    basis_universal::transcoder_init();
 
     let mut builder = EventLoop::<UserEvent>::with_user_event();
 

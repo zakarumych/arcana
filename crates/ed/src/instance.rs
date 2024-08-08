@@ -1,11 +1,11 @@
 //! Running instance of the project.
 
 use arcana::{
-    code::builtin::emit_code_start,
+    code::{builtin::emit_code_start, init_codes},
     edict::{flow::Flows, query::Cpy},
-    flow::wake_flows,
-    gametime::{ClockRate, FrequencyNumExt, TimeStamp},
-    init_world,
+    events::init_events,
+    flow::{init_flows, wake_flows},
+    gametime::{ClockRate, FrequencyNumExt, TimeSpan, TimeStamp},
     input::{DeviceId, Input, KeyCode, PhysicalKey, ViewInput},
     make_id, mev,
     plugin::PluginsHub,
@@ -589,4 +589,14 @@ impl Simulation {
             }
         });
     }
+}
+
+fn init_world(world: &mut World) {
+    init_flows(world);
+    init_events(world);
+    init_codes(world);
+    world.insert_resource(ClockStep {
+        now: TimeStamp::start(),
+        step: TimeSpan::ZERO,
+    });
 }

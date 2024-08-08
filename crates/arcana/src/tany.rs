@@ -102,8 +102,9 @@ struct VTable {
     as_mut: unsafe fn(&mut InlineStorage) -> *mut u8,
 }
 
-/// `dyn Any` with inlined storage.
-/// Small types are stored in-place, large types are boxed.
+/// `dyn Any` with fixed-size inlined storage.
+/// Types that fit in the storage are stored without allocation.
+/// Types that are too large are boxed.
 /// Does not require `Send` or `Sync`.
 /// For thread-safe version see [`TAny`].
 pub struct LTAny {
@@ -245,8 +246,9 @@ impl LTAny {
     }
 }
 
-/// `dyn Any` with inlined storage.
-/// Small types are stored in-place, large types are boxed.
+/// `dyn Any` with fixed-size inlined storage.
+/// Types that fit in the storage are stored without allocation.
+/// Types that are too large are boxed.
 /// Requires `Send` or `Sync`.
 /// For thread-local version see [`LTAny`].
 pub struct TAny {

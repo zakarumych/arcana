@@ -32,6 +32,17 @@
 
 mod asset;
 mod assets;
+mod build;
 mod error;
 mod id;
+pub mod import;
 mod loader;
+
+pub use self::{
+    asset::Asset,
+    assets::Assets,
+    build::{AssetBuildContext, AssetBuilder},
+    error::Error,
+    id::AssetId,
+    loader::{AssetData, Loader},
+};

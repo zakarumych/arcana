@@ -4,7 +4,6 @@
 use std::{
     any::{Any, TypeId},
     collections::VecDeque,
-    mem::size_of,
 };
 
 use edict::{
@@ -14,15 +13,10 @@ use edict::{
 
 use crate::{
     hash::{no_hash_map, NoHashMap},
-    make_id, static_assert, type_id, Slot,
+    make_id, type_id, Slot,
 };
 
 const MAX_EVENTS: usize = 65536;
-
-static_assert!(
-    size_of::<usize>() <= size_of::<u64>(),
-    "Unchecked cast from usize to u64 is performed in this module"
-);
 
 make_id! {
     /// Event ID type.

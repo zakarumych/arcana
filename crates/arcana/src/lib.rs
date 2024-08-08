@@ -91,9 +91,6 @@ pub use {
     hashbrown, na, parking_lot, tokio, tracing,
 };
 
-use code::init_codes;
-use events::init_events;
-use flow::init_flows;
 pub use mev;
 pub mod arena;
 pub mod assets;
@@ -108,11 +105,11 @@ pub mod input;
 pub mod model;
 mod num2name;
 pub mod plugin;
-pub mod refl;
 pub mod render;
 pub mod serde_with;
 mod stid;
 mod tany;
+pub mod task;
 pub mod texture;
 pub mod unfold;
 pub mod viewport;
@@ -239,12 +236,7 @@ impl Slot {
     }
 }
 
-pub fn init_world(world: &mut World) {
-    init_flows(world);
-    init_events(world);
-    init_codes(world);
-    world.insert_resource(ClockStep {
-        now: TimeStamp::start(),
-        step: TimeSpan::ZERO,
-    });
-}
+static_assert!(
+    size_of::<usize>() <= size_of::<u64>(),
+    "Unchecked cast from usize to u64 is performed in Arcana"
+);

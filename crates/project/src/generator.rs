@@ -129,25 +129,8 @@ arcana = {engine}
     #[rustfmt::skip]
     let lib_rs = format!(
 r#"
-use arcana::{{
-    edict::{{Scheduler, World}},
-    plugin::ArcanaPlugin,
-    export_arcana_plugin,
-}};
-
-export_arcana_plugin!(ThePlugin);
-
-pub struct ThePlugin;
-
-impl ArcanaPlugin for ThePlugin {{
-    fn name(&self) -> &'static str {{
-        "{name}"
-    }}
-
-    fn init(&self, _world: &mut World, _scheduler: &mut Scheduler) {{
-        unimplemented!()
-    }}
-}}
+// This line allows this crate to function as a plugin for Arcana Engine.
+arcana::declare_plugin!();
 "#
     );
 
@@ -334,7 +317,6 @@ crate-type = ["cdylib"]
 
 [dependencies]
 arcana = {{ workspace = true }}
-#arcana = {{ workspace = true, features = ["dynamic"] }}
 arcana-ed = {{ workspace = true }}
 "#,
         gh_issue = github_autogen_issue_template("plugins/Cargo.toml")
@@ -387,7 +369,7 @@ pub fn arcana_linked(check: &::core::sync::atomic::AtomicBool) -> bool {{
 }}
 
 #[no_mangle]
-pub fn arcana_plugins() -> Vec<(arcana::Ident, Box<dyn arcana::plugin::ArcanaPlugin>)> {{
+pub fn arcana_plugins() -> Vec<(arcana::Ident, arcana::plugin::ArcanaPlugin)> {{
     let plugins = vec!["#,
         gh_issue = github_autogen_issue_template("plugins/src/lib.rs"),
     );
@@ -397,7 +379,7 @@ pub fn arcana_plugins() -> Vec<(arcana::Ident, Box<dyn arcana::plugin::ArcanaPlu
 
         for plugin in plugins {
             lib_rs.push_str(&format!(
-                "        (arcana::ident!({name}), {name}::__arcana_plugin()),\n",
+                "        (arcana::ident!({name}), {name}::arcana_plugin::get()),\n",
                 name = &plugin.name
             ));
         }
@@ -493,7 +475,7 @@ arcana = {{ workspace = true }}
 //! [{gh_issue}]
 
 fn main() {{
-    const PLUGINS: [&'static dyn arcana::plugin::ArcanaPlugin; {plugins_count}] = ["#,
+    const PLUGINS: [arcana::plugin::ArcanaPlugin; {plugins_count}] = ["#,
         gh_issue = github_autogen_issue_template("game/src/main.rs"),
         plugins_count = plugins.len(),
     );
@@ -503,7 +485,7 @@ fn main() {{
 
         for plugin in plugins {
             main_rs.push_str(&format!(
-                "        {name}::__arcana_plugin(),\n",
+                "        {name}::arcana_plugin::get(),\n",
                 name = &plugin.name
             ));
         }
@@ -543,5 +525,5 @@ where
 }
 
 fn github_autogen_issue_template(file: &str) -> String {
-    format!("https://github.com/zakarumych/nothing/issues/new?body=%3C%21--%20Please%2C%20provide%20your%20reason%20to%20edit%20auto-generated%20{file}%20in%20Arcana%20project%20--%3E")
+    format!("https://github.com/zakarumych/arcana/issues/new?body=%3C%21--%20Please%2C%20provide%20your%20reason%20to%20edit%20auto-generated%20{file}%20in%20Arcana%20project%20--%3E")
 }

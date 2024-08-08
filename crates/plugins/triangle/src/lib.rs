@@ -16,7 +16,7 @@ use arcana::{
     Component, Res, View,
 };
 
-arcana::plugin_declare!();
+arcana::declare_plugin!();
 
 #[derive(mev::Arguments)]
 pub struct DTArguments {

@@ -25,6 +25,8 @@ amity = { version = "0.2" }
 approx = { version = "0.5" }
 arboard = { version = "3.4" }
 base64 = "0.22"
+basis-universal = "0.3.1"
+basis-universal-sys = "0.3.1"
 bincode = "1.3"
 bitflags = "2.0"
 bit-vec = { version = "0.7" }
@@ -58,13 +60,13 @@ gametime = { version = "0.5", path = "../../gametime" }
 gilrs = { version = "0.10" }
 hashbrown = { version = "=0.14", features = ["nightly", "serde"] }
 hidden-trait = "0.1"
+image = "0.25"
 libloading = "0.8"
 linkme = "0.3"
 #mev = { git = "https://github.com/zakarumych/mev.git" }
 mev = { path = "../../mev" }
 miette = "7.0"
 na = { package = "nalgebra", version = "0.33", features = ["libm", "serde-serialize"] }
-naga = { version = "0.20", features = ["spv-in", "wgsl-in", "glsl-in"] }
 open = { version = "5.0" }
 ordered-float = { version = "4.2" }
 palette = { version = "0.7", features = ["serializing"] }
@@ -72,7 +74,6 @@ parking_lot = "0.12"
 percent-encoding = "2.3"
 proc-macro2 = "1"
 rand = "0.8"
-rapid-qoi = "0.6"
 proc-easy = "0.3"
 quote = "1"
 raw-window-handle = "0.6"
@@ -100,30 +101,3 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 unicode-ident = "1"
 uuid = { version = "1.6" }
 winit = { version = "0.30" }
-
-[profile.dev.package.ahash]
-opt-level = 3
-
-[profile.dev.package.rapier2d]
-opt-level = 3
-
-[profile.dev.package.rapier3d]
-opt-level = 3
-
-[profile.dev.package.parry2d]
-opt-level = 3
-
-[profile.dev.package.parry3d]
-opt-level = 3
-
-[profile.dev.package.nalgebra]
-opt-level = 3
-
-[profile.dev.package.hashbrown]
-opt-level = 3
-
-[profile.dev.package.metal]
-opt-level = 3
-
-[profile.dev.package.ash]
-opt-level = 3

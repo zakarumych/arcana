@@ -5,6 +5,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+/// Starting length of prefix for content address.
+/// At this length collisions are rare and allowing to find non-occupied path quickly.
 pub(crate) const PREFIX_STARTING_LEN: usize = 8;
 
 /// Tries to find non-occupied path in given directory
@@ -50,7 +52,7 @@ pub(crate) fn with_path_candidates<T, E>(
         }
     }
 
-    unreachable!()
+    unreachable!("")
 }
 
 /// Stores copy of the content in the base directory.

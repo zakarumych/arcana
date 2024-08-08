@@ -32,6 +32,7 @@ pub struct AssetMeta {
     format: Option<String>,
 
     /// Minimal length of the hash prefix required to avoid collisions between files with same hash prefixes.
+    /// If larger than whole hash length, then it contains suffix.
     #[serde(skip_serializing_if = "prefix_is_default", default = "default_prefix")]
     path_len: u64,
 

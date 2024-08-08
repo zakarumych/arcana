@@ -14,9 +14,6 @@ crate-type = ["rlib", "dylib"]
 # Inline more functions
 inline-more = []
 
-# Adds inspection functionality
-inspect = []
-
 [dependencies]
 arcana-importers = { path = "../importers" }
 arcana-names = { path = "../names" }
@@ -27,6 +24,7 @@ ahash.workspace = true
 amity.workspace = true
 approx.workspace = true
 base64.workspace = true
+basis-universal.workspace = true
 blink-alloc.workspace = true
 bit-vec.workspace = true
 bytemuck.workspace = true
@@ -35,8 +33,8 @@ const-random.workspace = true
 ctor.workspace = true
 dirs.workspace = true
 edict.workspace = true
-egui = { workspace = true, optional = true }
-egui-probe = { workspace = true, optional = true }
+egui = { workspace = true }
+egui-probe = { workspace = true }
 flume.workspace = true
 futures.workspace = true
 gametime.workspace = true
@@ -49,7 +47,6 @@ ordered-float.workspace = true
 palette.workspace = true
 parking_lot.workspace = true
 rand.workspace = true
-rapid-qoi.workspace = true
 serde.workspace = true
 slab.workspace = true
 smallvec.workspace = true

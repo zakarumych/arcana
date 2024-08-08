@@ -13,6 +13,7 @@ crate-type = ["dylib"]
 [dependencies]
 arcana = { path = "../arcana" }
 arboard.workspace = true
+basis-universal.workspace = true
 bincode.workspace = true
 camino.workspace = true
 cint.workspace = true

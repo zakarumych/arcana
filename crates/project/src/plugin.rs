@@ -7,9 +7,9 @@ use crate::{dependency::Dependency, real_path, Ident, CARGO_TOML_NAME};
 /// Contains information about plugin.
 ///
 /// Plugins are libraries that export `ArcanaPlugin` via top-level `arcana_plugin` function.
-/// `ArcanaPlugin` provides runtime avaialable information about the plugin.
+/// `ArcanaPlugin` provides runtime available information about the plugin.
 ///
-/// Plugins initializaton consists of registering
+/// Plugins initialization consists of registering
 /// `Component`s,
 /// `Resource`s,
 /// `System`s,
@@ -22,7 +22,7 @@ use crate::{dependency::Dependency, real_path, Ident, CARGO_TOML_NAME};
 /// from which they are later fetched to be added to scheduler
 /// according to the order specified in the manifest.
 ///
-/// If manifest has enabled system not registed by plugin, game instance cannot be started.
+/// If manifest has enabled system not registered by plugin, game instance cannot be started.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct Plugin {
     pub name: Ident,
