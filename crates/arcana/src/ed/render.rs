@@ -1,16 +1,7 @@
 use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 
-use arcana::{
-    edict::world::WorldLocal,
-    make_id, mev,
-    model::Value,
-    plugin::{JobInfo, Location},
-    project::Project,
-    render::RenderGraphId,
-    texture::Texture,
-    work::{Edge, HookId, Image2D, JobDesc, JobId, JobIdx, PinId},
-    EntityId, Ident, Name, Stid, WithStid,
-};
+use arcana_names::{Ident, Name};
+use edict::entity::EntityId;
 use egui::Ui;
 use egui_snarl::{
     ui::{AnyPins, PinInfo, SnarlStyle, SnarlViewer},
@@ -19,6 +10,15 @@ use egui_snarl::{
 use hashbrown::HashMap;
 
 use crate::{
+    model::Value,
+    plugin::{JobInfo, Location},
+    project::Project,
+    render::RenderGraphId,
+    work::{Edge, HookId, Image2D, JobDesc, JobId, JobIdx, PinId},
+    Stid,
+};
+
+use super::{
     container::Container,
     data::ProjectData,
     hue_hash,
@@ -26,7 +26,7 @@ use crate::{
     instance::Instance,
     model::ValueProbe,
     sample::ImageSample,
-    ui::{Selector, UserTextures},
+    ui::{Sampler, Selector, UserTextures},
 };
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -207,7 +207,7 @@ impl Rendering {
 
                 if let Some(size) = preview.size {
                     if let Some(image) = &preview.image {
-                        if size != image.dimensions().expect_2d() {
+                        if size != image.extent().expect_2d() {
                             preview.image = None;
                         }
                     }
@@ -216,7 +216,7 @@ impl Rendering {
                     preview.image.get_or_insert_with(|| {
                         let image = device
                             .new_image(mev::ImageDesc {
-                                dimensions: size.into(),
+                                extent: size.into(),
                                 format: mev::PixelFormat::Rgba8Srgb,
                                 usage: mev::ImageUsage::TARGET | mev::ImageUsage::SAMPLED,
                                 layers: 1,
@@ -225,7 +225,7 @@ impl Rendering {
                             })
                             .unwrap();
 
-                        textures.set(id, image.clone(), crate::ui::Sampler::LinearLinear);
+                        textures.set(id, image.clone(), Sampler::LinearLinear);
 
                         image
                     });
@@ -704,7 +704,7 @@ fn present_pin_color() -> egui::Color32 {
 
 //                 let new_hook =
 //                     main.add_work_graph_hook::<Image2D>(pin, move |target, _device, commands| {
-//                         let mut target_size = target.dimensions().expect_2d();
+//                         let mut target_size = target.extent().expect_2d();
 //                         if target_size.width() == 0 || target_size.height() == 0 {
 //                             return;
 //                         }

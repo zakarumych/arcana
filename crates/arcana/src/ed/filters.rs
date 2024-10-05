@@ -7,7 +7,7 @@ use arcana::{
 use egui::{Color32, Ui, WidgetText};
 use hashbrown::HashMap;
 
-use crate::{container::Container, data::ProjectData, ide::Ide};
+use super::{container::Container, data::ProjectData, ide::Ide};
 
 #[derive(Clone, Debug, Hash, serde::Serialize, serde::Deserialize)]
 struct Filter {

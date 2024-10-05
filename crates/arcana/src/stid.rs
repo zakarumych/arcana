@@ -32,6 +32,7 @@ pub trait WithStid: 'static {
 }
 
 impl Stid {
+    /// Returns stable identifier of a type.
     pub fn of<T>() -> Self
     where
         T: WithStid,
@@ -39,6 +40,8 @@ impl Stid {
         T::stid()
     }
 
+    /// Returns stable identifier of a value's type.
+    /// This works for trait objects.
     pub fn of_val<T>(value: &T) -> Self
     where
         T: WithStid + ?Sized,

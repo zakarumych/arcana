@@ -6,7 +6,7 @@ use std::io::Write;
 use arcana::{code::CodeGraphId, project::Project, render::RenderGraphId, Ident};
 use hashbrown::{HashMap, HashSet};
 
-use crate::{code::CodeGraph, filters::Funnel, render::RenderGraph, systems::SystemGraph};
+use super::{code::CodeGraph, filters::Funnel, render::RenderGraph, systems::SystemGraph};
 
 /// In combination with `ProjectManifest` this defines the project completely.
 /// This includes enabled plugins, filter chain, system graph, asset collections, etc

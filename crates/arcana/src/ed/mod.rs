@@ -1,6 +1,3 @@
-#![forbid(unsafe_op_in_unsafe_fn)]
-#![feature(float_next_up_down)]
-
 use std::{hash::Hash, io::ErrorKind, path::Path};
 
 use arcana::{
@@ -12,8 +9,6 @@ use winit::event_loop::EventLoop;
 
 #[cfg(windows)]
 use winit::platform::windows::EventLoopBuilderExtWindows;
-
-use crate::app::UserEvent;
 
 /// Result::ok, but logs Err case.
 macro_rules! ok_log_err {
@@ -44,7 +39,6 @@ macro_rules! try_log_err {
 
 mod app;
 mod code;
-// mod console;
 mod container;
 mod data;
 mod error;
@@ -52,39 +46,28 @@ mod filters;
 mod ide;
 mod inspector;
 mod instance;
-// mod memory;
 mod model;
-// mod monitor;
 mod plugins;
 mod render;
 mod sample;
-// mod store;
 mod subprocess;
 mod systems;
 mod tool;
 mod ui;
 
 /// Runs the editor application
-pub fn run(path: &Path) {
-    if let Err(err) = _run(path) {
+pub fn run(project_path: impl AsRef<Path>) {
+    if let Err(err) = _run(project_path.as_ref()) {
         eprintln!("Error: {}", err);
     }
 }
 
-fn _run(path: &Path) -> miette::Result<()> {
+fn _run(project_path: &Path) -> miette::Result<()> {
     // Marks the running instance of Arcana library.
     // This flag is checked in plugins to ensure they are linked to this arcana.
-    arcana::plugin::set_running_arcana_instance();
+    crate::plugin::set_running_arcana_instance();
 
-    // `path` is `<project-dir>/crates/ed`
-    let mut path = path.to_owned();
-    assert!(path.file_name().unwrap() == "ed");
-    assert!(path.pop());
-    assert!(path.file_name().unwrap() == "crates");
-    assert!(path.pop());
-
-    // `path` is `<project-dir>`
-    let (project, data) = load_project(&path)?;
+    let (project, data) = load_project(project_path)?;
 
     let event_collector = egui_tracing::EventCollector::default();
 
@@ -102,7 +85,7 @@ fn _run(path: &Path) -> miette::Result<()> {
 
     basis_universal::transcoder_init();
 
-    let mut builder = EventLoop::<UserEvent>::with_user_event();
+    let mut builder = EventLoop::<app::UserEvent>::with_user_event();
 
     #[cfg(windows)]
     builder.with_any_thread(true);

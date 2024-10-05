@@ -70,14 +70,14 @@ impl Viewport {
                 let size = window.inner_size();
                 mev::Extent2::new(size.width as u32, size.height as u32)
             }
-            ViewportKind::Image { image: Some(image) } => image.dimensions().expect_2d(),
+            ViewportKind::Image { image: Some(image) } => image.extent().expect_2d(),
             ViewportKind::Image { .. } => mev::Extent2::ZERO,
         }
     }
 
     pub fn set_image(&mut self, image: mev::Image) {
         match &mut self.kind {
-            ViewportKind::Image { image: i } => match image.dimensions() {
+            ViewportKind::Image { image: i } => match image.extent() {
                 mev::ImageExtent::D1(_) => panic!("Cannot set 1D image to viewport"),
                 mev::ImageExtent::D2(_) => {
                     *i = Some(image);

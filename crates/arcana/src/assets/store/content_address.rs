@@ -5,8 +5,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-/// Starting length of prefix for content address.
-/// At this length collisions are rare and allowing to find non-occupied path quickly.
 pub(crate) const PREFIX_STARTING_LEN: usize = 8;
 
 /// Tries to find non-occupied path in given directory
@@ -52,7 +50,7 @@ pub(crate) fn with_path_candidates<T, E>(
         }
     }
 
-    unreachable!("")
+    unreachable!()
 }
 
 /// Stores copy of the content in the base directory.
@@ -73,10 +71,11 @@ pub(crate) fn store_data_with_content_address(
     base: &Path,
 ) -> std::io::Result<(PathBuf, u64)> {
     with_path_candidates(hex, base, move |path, len| match path.metadata() {
-        Err(_) => {
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
             std::fs::write(&path, data)?;
             Ok(Some((path, len)))
         }
+        Err(err) => Ok(None),
         Ok(metadata) if metadata.is_file() && metadata.len() == data.len() as u64 => {
             let mut file = std::fs::File::open(&path)?;
             let mut buf = [0u8; 4096];
@@ -189,14 +188,14 @@ fn files_eq(path1: &Path, path2: &Path) -> std::io::Result<bool> {
 
         if len1 == 0 {
             off1 = 0;
-        } else if len1 < 512 && buf1.len() - off1 - len1 < 512 {
+        } else if off1 > 512 && buf1.len() - off1 - len1 < 512 {
             buf1.copy_within(off1..off1 + len1, 0);
             off1 = 0;
         }
 
         if len2 == 0 {
             off2 = 0;
-        } else if len2 < 512 && buf2.len() - off2 - len2 < 512 {
+        } else if off2 > 512 && buf2.len() - off2 - len2 < 512 {
             buf2.copy_within(off2..off2 + len2, 0);
             off2 = 0;
         }

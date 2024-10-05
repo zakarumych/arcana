@@ -21,16 +21,17 @@ use std::{
     sync::{atomic::AtomicBool, Arc},
 };
 
-use arcana::{
-    plugin::{check_arcana_instance, ArcanaPlugin},
-    project::Dependency,
-    Ident,
-};
 use hashbrown::{hash_map::RawEntryMut, HashMap, HashSet};
 use miette::{Context, Diagnostic, Severity};
 use thiserror::Error;
 
-use crate::error::{FileCopyError, FileOpenError, FileReadError};
+use crate::{
+    plugin::{check_arcana_instance, ArcanaPlugin},
+    project::Dependency,
+    Ident,
+};
+
+use super::error::{FileCopyError, FileOpenError, FileReadError};
 
 #[derive(Diagnostic, Error, Debug)]
 #[error("Plugin not found")]
@@ -374,7 +375,7 @@ fn find_tmp_path(path: &Path) -> miette::Result<PathBuf> {
         })
         .wrap_err("Failed to open dylib file")?;
 
-    let hash = arcana::hash::stable_hash_read(file)
+    let hash = crate::hash::stable_hash_read(file)
         .map_err(|source| FileReadError {
             path: path.to_owned(),
             source,
@@ -509,9 +510,9 @@ fn load_lib(path: &Path, new_path: PathBuf) -> miette::Result<Loaded> {
         })?;
 
     let arcana_version = arcana_version();
-    if arcana_version != arcana::version() {
+    if arcana_version != crate::version() {
         return Err(PluginsLibraryEngineVersionMismatch {
-            expected: arcana::version(),
+            expected: crate::version(),
             found: arcana_version,
         }
         .into());

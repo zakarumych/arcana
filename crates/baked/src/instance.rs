@@ -182,7 +182,7 @@ impl Instance {
         fn new_image(extent: mev::Extent2, world: &World) -> Result<mev::Image, mev::OutOfMemory> {
             let device = world.expect_resource::<mev::Device>();
             let image = device.new_image(mev::ImageDesc {
-                dimensions: extent.into(),
+                extent: extent.into(),
                 format: mev::PixelFormat::Rgba8Srgb,
                 usage: mev::ImageUsage::TARGET
                     | mev::ImageUsage::SAMPLED
@@ -197,7 +197,7 @@ impl Instance {
         if self
             .viewport
             .get_image()
-            .map_or(true, |i| i.dimensions() != extent)
+            .map_or(true, |i| i.extent() != extent)
         {
             tracing::debug!("Creating new image for viewport");
             self.viewport.set_image(new_image(extent, world)?);

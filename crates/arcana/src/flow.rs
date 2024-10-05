@@ -6,7 +6,7 @@ use std::{
     task::{Poll, Waker},
 };
 
-pub use edict::flow::FlowWorld;
+pub use edict::flow::{FlowEntity, FlowWorld};
 use gametime::{ClockStep, TimeSpan, TimeStamp};
 
 /// Causes flow to sleep for the specified duration.

@@ -56,7 +56,10 @@ pub use self::{
 };
 
 /// Helper function to emit an error if sources or dependencies are missing.
-pub fn ensure(sources: Vec<String>, dependencies: Vec<AssetDependency>) -> Result<(), ImportError> {
+pub(crate) fn ensure(
+    sources: Vec<String>,
+    dependencies: Vec<AssetDependency>,
+) -> Result<(), ImportError> {
     if sources.is_empty() && dependencies.is_empty() {
         Ok(())
     } else {

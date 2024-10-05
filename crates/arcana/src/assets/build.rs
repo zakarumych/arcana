@@ -47,7 +47,7 @@ impl AssetBuildContext {
 
         if builder.needs_flush {
             let cbuf = builder.encoder.finish()?;
-            queue.submit([cbuf], false);
+            queue.submit([cbuf], false)?;
         } else {
             self.encoder = Some(builder.encoder);
         }

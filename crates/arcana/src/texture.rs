@@ -58,7 +58,7 @@ impl Asset for Texture {
         let image = builder
             .device()
             .new_image(mev::ImageDesc {
-                dimensions: loaded.extent.into(),
+                extent: loaded.extent.into(),
                 format: mev::PixelFormat::Rgba8Unorm,
                 usage: mev::ImageUsage::SAMPLED | mev::ImageUsage::TRANSFER_DST,
                 layers: 1,

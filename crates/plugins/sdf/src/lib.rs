@@ -186,7 +186,7 @@ impl Render for SdfRender {
                 .unwrap()
         });
 
-        let dims = target.dimensions().expect_2d();
+        let dims = target.extent().expect_2d();
 
         let camera = world
             .try_view_one::<(&Global, &Camera2)>(self.camera)

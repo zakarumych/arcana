@@ -66,7 +66,7 @@ impl ImageSample {
         dst: mev::Image,
         encoder: &mut mev::CommandEncoder,
     ) -> miette::Result<()> {
-        let dims = dst.dimensions().expect_2d();
+        let dims = dst.extent().expect_2d();
         let constants = ImageSampleConstants {
             extent: mev::vec2(dims.width() as f32, dims.height() as f32),
         };

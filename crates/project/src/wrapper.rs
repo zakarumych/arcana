@@ -18,8 +18,8 @@ pub enum Profile {
 }
 
 /// Construct a command to run ed for arcana project.
-pub fn run_editor(root: &Path, profile: Profile) -> Command {
-    let workspace = root.join(WORKSPACE_DIR_NAME);
+pub fn run_editor(root_path: &Path, manifest_path: &Path, profile: Profile) -> Command {
+    let workspace = root_path.join(WORKSPACE_DIR_NAME);
     let mut cmd = Command::new("cargo");
     cmd.arg("run").arg("--package=ed");
     match profile {
@@ -31,6 +31,10 @@ pub fn run_editor(root: &Path, profile: Profile) -> Command {
             cmd.env("ARCANA_PROFILE", "debug");
         }
     }
+
+    cmd.arg("--");
+    cmd.arg(manifest_path.as_os_str());
+
     // cmd.arg("--verbose")
     cmd.env("RUSTFLAGS", "-Zshare-generics=off -Cprefer-dynamic=yes")
         .current_dir(&workspace);

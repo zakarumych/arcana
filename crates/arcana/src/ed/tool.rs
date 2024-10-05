@@ -1,7 +1,8 @@
-use arcana::{Ident, World};
+use arcana_names::Ident;
+use edict::world::World;
 use hashbrown::HashMap;
 
-use crate::{container::Container, data::ProjectData};
+use super::{container::Container, data::ProjectData};
 
 pub trait Tool {
     fn show(&mut self, data: &mut ProjectData, world: &mut World) -> bool;

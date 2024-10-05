@@ -114,7 +114,7 @@ impl Job for DrawSquare {
             mev::AttachmentDesc::new(&target).clear(mev::ClearColor(1.0, 0.5, 0.3, 0.0)),
         ]));
 
-        let dims = target.dimensions().expect_2d();
+        let dims = target.extent().expect_2d();
 
         let arguments = self.arguments.get_or_insert_with(|| {
             let colors = runner

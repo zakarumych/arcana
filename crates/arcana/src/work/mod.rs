@@ -40,7 +40,7 @@ impl Image2DInfo {
     #[inline(always)]
     pub fn from_image(image: &mev::Image) -> Self {
         Image2DInfo {
-            extent: image.dimensions().expect_2d(),
+            extent: image.extent().expect_2d(),
             format: image.format(),
             usage: image.usage(),
         }
@@ -53,7 +53,7 @@ impl target::Target for Image2D {
     fn allocate(device: &mev::Device, name: &str, info: &Image2DInfo) -> Self {
         let image = device
             .new_image(mev::ImageDesc {
-                dimensions: info.extent.into(),
+                extent: info.extent.into(),
                 format: info.format,
                 usage: info.usage,
                 layers: 1,
@@ -97,7 +97,7 @@ impl target::Target for SampledImage2D {
     fn allocate(device: &mev::Device, name: &str, info: &SampledImage2DInfo) -> Self {
         let image = device
             .new_image(mev::ImageDesc {
-                dimensions: info.extent.into(),
+                extent: info.extent.into(),
                 format: info.format,
                 usage: info.usage,
                 layers: 1,

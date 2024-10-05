@@ -478,7 +478,7 @@ impl EguiProbe for ValueProbe<'_> {
                 ColorModel::Luma => match *self.value {
                     Value::Color(ColorValue::Luma(ref mut luma)) => {
                         egui::DragValue::new(&mut luma.luma)
-                            .clamp_range(0.0..=1.0)
+                            .range(0.0..=1.0)
                             .max_decimals(3)
                             .ui(ui)
                     }
@@ -534,12 +534,12 @@ impl EguiProbe for ValueProbe<'_> {
                         let mut r = ui
                             .vertical(|ui| {
                                 changed |= egui::DragValue::new(&mut lumaa.luma)
-                                    .clamp_range(0.0..=1.0)
+                                    .range(0.0..=1.0)
                                     .max_decimals(3)
                                     .ui(ui)
                                     .changed();
                                 changed |= egui::DragValue::new(&mut lumaa.alpha)
-                                    .clamp_range(0.0..=1.0)
+                                    .range(0.0..=1.0)
                                     .max_decimals(3)
                                     .ui(ui)
                                     .changed();

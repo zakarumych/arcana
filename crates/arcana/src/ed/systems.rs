@@ -1,11 +1,6 @@
 use std::collections::VecDeque;
 
-use arcana::{
-    edict::action::ActionBufferSliceExt,
-    plugin::{Location, PluginsHub, SystemId},
-    project::Project,
-    Ident, Name, World,
-};
+use edict::{action::ActionBufferSliceExt, world::World};
 use egui::{Color32, Ui};
 use egui_snarl::{
     ui::{AnyPins, PinInfo, PinShape, SnarlStyle, SnarlViewer},
@@ -13,7 +8,13 @@ use egui_snarl::{
 };
 use hashbrown::{HashMap, HashSet};
 
-use crate::{container::Container, data::ProjectData, ide::Ide, toggle_ui};
+use crate::{
+    plugin::{Location, PluginsHub, SystemId},
+    project::Project,
+    Ident, Name,
+};
+
+use super::{container::Container, data::ProjectData, ide::Ide, toggle_ui};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Category {

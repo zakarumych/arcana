@@ -228,6 +228,10 @@ impl ArcanaPlugin {
         ArcanaPlugin::default()
     }
 
+    pub fn add_dependency(&mut self, name: Ident, dep: Dependency) {
+        self.dependencies.push((name, dep));
+    }
+
     pub fn add_filter(&mut self, info: FilterInfo, add: fn(&mut PluginsHub)) {
         self.filters.push(info);
         self.fill_hub.push(add);
@@ -302,11 +306,37 @@ impl ArcanaPlugin {
     }
 }
 
+#[doc(hidden)]
+#[macro_export]
+macro_rules! plugin_dependency_kind {
+    ($name:ident) => {
+        $crate::ident!($name), $name::arcana_plugin::dependency()
+    };
+    ($name:ident path) => {
+        $name::arcana_plugin::path_dependency()
+    };
+    ($name:ident ...) => {
+        $name::arcana_plugin::path_dependency()
+    };
+    ($name:ident git = $git:literal) => {
+        $crate::project::Dependency::Git {
+            git: String::from($git),
+            branch: None,
+        }
+    };
+    ($name:ident { git = $git:literal, branch = $branch:literal }) => {
+        $crate::project::Dependency::Git {
+            git: String::from($git),
+            branch: Some(String::from($branch)),
+        }
+    };
+}
+
 /// Plugin crate must use this macro at the root module to declare it is a plugin.
 #[doc(hidden)]
 #[macro_export]
 macro_rules! declare_plugin {
-    () => {
+    ($([$($dependency:ident $($kind:tt)*)+])?) => {
         #[doc(hidden)]
         pub mod arcana_plugin {
             pub fn dependency() -> $crate::project::Dependency {
@@ -323,14 +353,24 @@ macro_rules! declare_plugin {
                 unsafe { ARCANA_PLUGIN_REGISTRY.plugin() }
             }
 
-            static mut ARCANA_PLUGIN_REGISTRY: $crate::plugin::init::Registry =
+            pub static mut ARCANA_PLUGIN_REGISTRY: $crate::plugin::init::Registry =
                 ::arcana::plugin::init::Registry::new();
         }
+
+        $(
+            $crate::plugin_ctor_add!(plugin => {
+                $(
+                    plugin.add_dependency($crate::ident!($dependency), $crate::plugin_dependency_kind!($dependency $($kind)*));
+                )+
+            });
+        )*
     };
 }
 
 #[doc(hidden)]
 pub mod init {
+    use std::collections::BTreeMap;
+
     use super::*;
 
     pub use ::ctor::ctor;
@@ -350,6 +390,7 @@ pub mod init {
     pub struct Registry {
         manifest_dir: &'static str,
         list: Option<&'static CtorNode>,
+        dependencies: BTreeMap<Ident, Dependency>,
     }
 
     impl Registry {
@@ -357,6 +398,7 @@ pub mod init {
             Registry {
                 manifest_dir: env!("CARGO_MANIFEST_DIR"),
                 list: None,
+                dependencies: BTreeMap::new(),
             }
         }
 
@@ -367,6 +409,11 @@ pub mod init {
 
         pub fn plugin(&mut self) -> ArcanaPlugin {
             let mut plugin = ArcanaPlugin::new();
+            plugin.dependencies = self
+                .dependencies
+                .iter()
+                .map(|(n, d)| (*n, d.clone()))
+                .collect();
 
             plugin.location = Some(PathBuf::from(self.manifest_dir));
 
@@ -397,7 +444,7 @@ pub mod init {
                 fn add() {
                     static mut CTOR_NODE: $crate::plugin::init::CtorNode =
                         $crate::plugin::init::CtorNode::new(
-                            |$plugin: &mut $crate::plugin::init::ArcanaPlugin| {
+                            |$plugin: &mut $crate::plugin::ArcanaPlugin| {
                                 // At this point cdylib is initialized and any code can be executed.
                                 $($code)*
                             },

@@ -18,7 +18,9 @@ use egui::Ui;
 use hashbrown::{HashMap, HashSet};
 use winit::{event::WindowEvent, window::WindowId};
 
-use crate::{
+use crate::ed::ui::Sampler;
+
+use super::{
     code::CodeContext,
     container::Container,
     data::ProjectData,
@@ -264,7 +266,7 @@ impl Instance {
             device: &mev::Device,
         ) -> Result<mev::Image, mev::OutOfMemory> {
             let image = device.new_image(mev::ImageDesc {
-                dimensions: extent.into(),
+                extent: extent.into(),
                 format: mev::PixelFormat::Rgba8Srgb,
                 usage: mev::ImageUsage::TARGET
                     | mev::ImageUsage::SAMPLED
@@ -321,7 +323,7 @@ impl Instance {
             if view
                 .viewport
                 .get_image()
-                .map_or(true, |i| i.dimensions() != view.extent)
+                .map_or(true, |i| i.extent() != view.extent)
             {
                 let new_image = new_image(view.extent, queue)?;
 
@@ -351,7 +353,7 @@ impl Instance {
                 .unwrap();
 
             if let Some(texture_id) = view.texture_id {
-                textures.set(texture_id, image, crate::ui::Sampler::NearestNearest);
+                textures.set(texture_id, image, Sampler::NearestNearest);
             }
         }
 

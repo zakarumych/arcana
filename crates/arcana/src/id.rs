@@ -39,7 +39,7 @@ macro_rules! hash_id {
         $crate::Id::new(::core::num::NonZeroU64::new(hash).unwrap())
     }};
     ($($value:expr),+ => $id:ty) => {{
-        let mut hasher = $crate::stable_hasher();
+        let mut hasher = $crate::hash::stable_hasher();
         $(::core::hash::Hash::hash(&{$value}, &mut hasher);)+
         let hash = ::core::hash::Hasher::finish(&hasher) | 0x8000_0000_0000_0000;
         <$id>::new(::core::num::NonZeroU64::new(hash).unwrap())
@@ -146,6 +146,7 @@ macro_rules! make_id {
         }
 
         impl $name {
+            #[allow(unused)]
             #[inline(always)]
             pub const fn new(value: ::core::num::NonZeroU64) -> Self {
                 $name {
@@ -153,11 +154,13 @@ macro_rules! make_id {
                 }
             }
 
+            #[allow(unused)]
             #[inline(always)]
             pub const fn get(self) -> u64 {
                 self.value.get()
             }
 
+            #[allow(unused)]
             #[inline(always)]
             pub const fn get_nonzero(self) -> ::core::num::NonZeroU64 {
                 self.value

@@ -6,7 +6,7 @@ use std::{
 };
 
 use amity::flip_queue::FlipQueue;
-use hashbrown::HashMap;
+use hashbrown::{HashMap, HashSet};
 use parking_lot::{Mutex, RwLock};
 
 use crate::type_id;
@@ -90,9 +90,8 @@ impl Assets {
     ///
     /// This function is not intended for game code.
     /// Editor will use it before switching plugins.
-    /// Only Engine-provided asset types should be kept.
     #[doc(hidden)]
-    pub fn drop_all_except(&self, keep: &[TypeId]) {
+    pub fn drop_all_except(&self, keep: &HashSet<TypeId>) {
         let mut types_write = self.inner.types.write();
         types_write.retain(|type_id, map| {
             if keep.contains(type_id) {

@@ -1,6 +1,6 @@
 use std::{path::PathBuf, process::Child};
 
-use arcana_launcher::{Dependency, Ident, Profile, Project, Start};
+use arcana_launcher::{validate_engine_path, Dependency, Ident, Profile, Project, Start};
 use egui_file::FileDialog;
 use hashbrown::HashMap;
 
@@ -125,8 +125,9 @@ impl eframe::App for App {
 
                 let r = ui.button("Open Project");
                 if r.clicked() {
-                    let mut dialog: FileDialog =
-                        FileDialog::select_folder(None).title("Open project");
+                    let mut dialog = FileDialog::open_file(None)
+                        .title("Open project")
+                        .show_new_folder(false);
                     dialog.open();
                     self.dialog = Some(AppDialog::OpenProject(dialog));
 
@@ -139,8 +140,9 @@ impl eframe::App for App {
 
                 let r = ui.button("Add Engine path");
                 if r.clicked() {
-                    let mut dialog: FileDialog =
-                        FileDialog::select_folder(None).title("Add engine");
+                    let mut dialog: FileDialog = FileDialog::select_folder(None)
+                        .title("Add engine")
+                        .show_new_folder(false);
                     dialog.open();
                     self.dialog = Some(AppDialog::AddEngine(dialog));
 
@@ -253,7 +255,7 @@ impl eframe::App for App {
 
                                         ui.vertical(|ui| {
                                             ui.label(project.name().as_str());
-                                            ui.label(project.root_path().display().to_string());
+                                            ui.label(project.manifest_path().display().to_string());
                                         });
 
                                         if r.clicked() {
@@ -317,7 +319,7 @@ impl eframe::App for App {
                                         }));
                                     }
                                     Ok(project) => {
-                                        let path = project.root_path().to_owned();
+                                        let path = project.manifest_path().to_owned();
                                         self.start.add_recent(path.clone());
 
                                         run_editor = Some(path.to_owned());
@@ -354,14 +356,14 @@ impl eframe::App for App {
                     }
                 }
                 Some(AppDialog::NewProject(ref mut new_project)) => {
-                    match new_project.show(&self.start, cx) {
+                    match new_project.show(&mut self.start, cx) {
                         None => {}
                         Some(None) => {
                             self.dialog = None;
                             cx.request_repaint();
                         }
                         Some(Some(project)) => {
-                            let path = project.root_path().to_owned();
+                            let path = project.manifest_path().to_owned();
                             self.recent.insert(path.clone(), Ok(project));
                             self.start.add_recent(path.clone());
 
@@ -506,7 +508,8 @@ impl App {
 
 enum NewProjectDialog {
     Error(ErrorDialog),
-    PickPath(FileDialog),
+    PickProjectPath(FileDialog),
+    PickEnginePath(FileDialog),
 }
 
 /// This widget is used to configure and create new project.
@@ -518,9 +521,8 @@ struct NewProject {
 
     /// Path to new project.
     /// This path is absolute and normalized.
-    ///
-    /// If empty, project may not be created.
-    path: String,
+    path: Option<PathBuf>,
+    path_string: String,
 
     /// If true, advanced options are shown.
     advanced: bool,
@@ -539,7 +541,8 @@ impl NewProject {
     fn new(engine: Option<Dependency>) -> Self {
         NewProject {
             name: String::new(),
-            path: String::new(),
+            path: None,
+            path_string: String::new(),
             advanced: false,
             engine,
             dialog: None,
@@ -547,10 +550,10 @@ impl NewProject {
     }
 
     fn can_create_project(&self) -> bool {
-        Ident::from_str(&self.name).is_ok() && !self.path.is_empty() && self.engine.is_some()
+        Ident::from_str(&self.name).is_ok() && self.path.is_some() && self.engine.is_some()
     }
 
-    fn show(&mut self, start: &Start, cx: &egui::Context) -> Option<Option<Project>> {
+    fn show(&mut self, start: &mut Start, cx: &egui::Context) -> Option<Option<Project>> {
         let mut create_project = false;
         let mut close_dialog = false;
 
@@ -574,13 +577,20 @@ impl NewProject {
 
                         ui.with_layout(cfg_name_layout, |ui| ui.label("Path"));
                         ui.horizontal(|ui| {
-                            ui.text_edit_singleline(&mut self.path);
+                            let r = ui.text_edit_singleline(&mut self.path_string);
+                            if r.changed() {
+                                if self.path_string.is_empty() {
+                                    self.path = None;
+                                } else {
+                                    self.path = Some(PathBuf::from(&self.path_string));
+                                }
+                            }
                             let r = ui.small_button(egui_phosphor::regular::DOTS_THREE);
                             if r.clicked() {
                                 let mut dialog =
                                     FileDialog::select_folder(None).title("Select project path");
                                 dialog.open();
-                                self.dialog = Some(NewProjectDialog::PickPath(dialog));
+                                self.dialog = Some(NewProjectDialog::PickProjectPath(dialog));
                             }
                         });
                         ui.end_row();
@@ -608,10 +618,11 @@ impl NewProject {
 
                             let r = ui.small_button(egui_phosphor::regular::DOTS_THREE);
                             if r.clicked() {
-                                let mut dialog =
-                                    FileDialog::select_folder(None).title("Select engine path");
+                                let mut dialog = FileDialog::select_folder(None)
+                                    .title("Select engine path")
+                                    .show_new_folder(false);
                                 dialog.open();
-                                self.dialog = Some(NewProjectDialog::PickPath(dialog));
+                                self.dialog = Some(NewProjectDialog::PickEnginePath(dialog));
                             }
 
                             ui.end_row();
@@ -634,7 +645,7 @@ impl NewProject {
                     self.dialog = None;
                 }
             }
-            Some(NewProjectDialog::PickPath(ref mut file_dialog)) => {
+            Some(NewProjectDialog::PickProjectPath(ref mut file_dialog)) => {
                 match file_dialog.show(cx).state() {
                     egui_file::State::Open => {}
                     egui_file::State::Closed | egui_file::State::Cancelled => {
@@ -642,9 +653,40 @@ impl NewProject {
                     }
                     egui_file::State::Selected => {
                         if let Some(path) = file_dialog.path() {
-                            self.path = path.display().to_string();
+                            self.path = Some(path.to_owned());
+                            self.path_string = path.display().to_string();
                         }
                         self.dialog = None;
+                    }
+                }
+            }
+            Some(NewProjectDialog::PickEnginePath(ref mut file_dialog)) => {
+                match file_dialog.show(cx).state() {
+                    egui_file::State::Open => {}
+                    egui_file::State::Closed | egui_file::State::Cancelled => {
+                        self.dialog = None;
+                    }
+                    egui_file::State::Selected => {
+                        if let Some(path) = file_dialog.path() {
+                            match validate_engine_path(path) {
+                                Ok(dep) => {
+                                    start.add_engine(dep.clone());
+                                    self.dialog = None;
+                                    self.engine = Some(dep);
+                                }
+                                Err(err) => {
+                                    self.dialog = Some(NewProjectDialog::Error(ErrorDialog {
+                                        title: format!(
+                                            "Failed to add engine from path '{}'",
+                                            path.display()
+                                        ),
+                                        message: err.to_string(),
+                                    }));
+                                }
+                            }
+                        } else {
+                            self.dialog = None;
+                        }
                     }
                 }
             }
@@ -657,7 +699,7 @@ impl NewProject {
         if create_project {
             let result = Project::new(
                 Ident::from_str(&self.name).unwrap(),
-                self.path.as_ref(),
+                &self.path.as_ref().unwrap().join(&self.name),
                 self.engine.clone().unwrap(),
                 true,
             );

@@ -2,21 +2,10 @@
 
 use std::{collections::BTreeMap, hash::Hash, ops::Range};
 
-use arcana::{
-    code::{
-        AsyncContinueQueue, CodeDesc, CodeGraphId, CodeNodeId, CodeValues, Continuation, FlowCode,
-        PureCode, ValueId,
-    },
-    edict::{
-        flow::{FlowEntity, Flows},
-        query::Cpy,
-        world::World,
-    },
-    events::{EventId, Events},
-    hash_id,
-    plugin::{CodeInfo, EventInfo, PluginsHub},
-    project::Project,
-    Ident, Name, NameError, NoSuchEntity, Stid,
+use edict::{
+    flow::{FlowEntity, Flows},
+    query::Cpy,
+    world::World,
 };
 use egui::{epaint::PathShape, Color32, Painter, PointerButton, Rect, Shape, Stroke, Ui};
 use egui_snarl::{
@@ -26,7 +15,19 @@ use egui_snarl::{
 use hashbrown::{HashMap, HashSet};
 use smallvec::SmallVec;
 
-use crate::{container::Container, data::ProjectData, hue_hash, ui::Selector};
+use crate::{
+    code::{
+        AsyncContinueQueue, CodeDesc, CodeGraphId, CodeNodeId, CodeValues, Continuation, FlowCode,
+        PureCode, ValueId,
+    },
+    events::{EventId, Events},
+    hash_id,
+    plugin::{CodeInfo, EventInfo, PluginsHub},
+    project::Project,
+    Ident, Name, NameError, NoSuchEntity, Stid,
+};
+
+use super::{container::Container, data::ProjectData, hue_hash, ui::Selector};
 
 #[derive(Default)]
 struct OutputCacheEntry {

@@ -10,7 +10,7 @@ use camino::Utf8PathBuf;
 use figa::Figa;
 
 pub use arcana_names::Ident;
-pub use arcana_project::{Dependency, Profile, Project};
+pub use arcana_project::{validate_engine_path, Dependency, Profile, Project};
 
 #[derive(Default, serde::Serialize, serde::Deserialize, figa::Figa)]
 struct Config {
@@ -162,11 +162,11 @@ impl Start {
     }
 
     pub fn init_workspace(&self, path: &Path) -> miette::Result<()> {
-        Project::find(&path)?.init_workspace()
+        Project::open(path)?.init_workspace()
     }
 
     pub fn run_ed(&self, path: &Path, profile: Profile) -> miette::Result<()> {
-        let p = Project::find(&path)?;
+        let p = Project::open(path)?;
         p.run_editor(profile)
     }
 
@@ -188,13 +188,13 @@ impl Start {
     }
 
     pub fn build_game(&self, path: &Path, profile: Profile) -> miette::Result<PathBuf> {
-        let p = Project::find(&path)?;
+        let p = Project::open(path)?;
         p.init_workspace()?;
         p.build_game(profile)
     }
 
     pub fn run_game(&self, path: &Path, profile: Profile) -> miette::Result<()> {
-        let p = Project::find(&path)?;
+        let p = Project::open(path)?;
         p.init_workspace()?;
         p.run_game(profile)
     }

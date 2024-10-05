@@ -9,7 +9,7 @@ use camino::{Utf8Path, Utf8PathBuf};
 use egui::{Color32, RichText, Ui};
 use egui_file::FileDialog;
 
-use crate::{
+use super::{
     container::{Container, Loader, PluginsError},
     data::ProjectData,
     get_profile,

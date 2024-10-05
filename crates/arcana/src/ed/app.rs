@@ -1,13 +1,11 @@
 use std::{borrow::Cow, hash::Hash, path::PathBuf};
 
 use arboard::Clipboard;
-use arcana::{
-    blink_alloc::BlinkAlloc, gametime::FrequencyNumExt, input::ViewInput, mev, project::Project,
-    Clock, ClockStep, FrequencyTicker,
-};
+use blink_alloc::BlinkAlloc;
 use egui::{Id, TopBottomPanel, WidgetText};
 use egui_dock::{DockState, NodeIndex, TabIndex, TabViewer, Tree};
 use egui_tracing::EventCollector;
+use gametime::{Clock, ClockStep, FrequencyNumExt, FrequencyTicker};
 use miette::IntoDiagnostic;
 use winit::{
     dpi,
@@ -16,7 +14,9 @@ use winit::{
     window::{Window, WindowId},
 };
 
-use crate::{
+use crate::{input::ViewInput, project::Project};
+
+use super::{
     code::CodeTool,
     container::Container,
     data::ProjectData,
@@ -24,6 +24,7 @@ use crate::{
     ide::{Ide, IdeType},
     init_mev,
     instance::Instance,
+    mev,
     plugins::Plugins,
     render::Rendering,
     sample::ImageSample,

@@ -2,7 +2,6 @@
 members = [
     "project",
     "arcana",
-    "ed",
     "launcher/cli",
     "launcher/gui",
     "plugins/*",

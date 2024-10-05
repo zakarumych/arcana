@@ -1,6 +1,6 @@
-//! Data model suitable for handling data in absense of types.
+//! Data model suitable for handling data in absence of types.
 //!
-//! It can be used to go from typeless to typed seemlessly with `serde`.
+//! It can be used to go from type-less to typed seamlessly with `serde`.
 //!
 
 use std::fmt;
@@ -100,7 +100,7 @@ pub enum Model {
     Opaque(Stid),
 }
 
-/// Returns default value that correspons to the model or `Unit` if model is not specified.
+/// Returns default value that corresponds to the model or `Unit` if model is not specified.
 pub fn default_value(model: Option<&Model>) -> Value {
     match model {
         None => Value::Unit,
@@ -109,7 +109,7 @@ pub fn default_value(model: Option<&Model>) -> Value {
 }
 
 impl Model {
-    /// Returns default value that correspons to the model.
+    /// Returns default value that corresponds to the model.
     pub fn default_value(&self) -> Value {
         match *self {
             Model::Unit => Value::Unit,

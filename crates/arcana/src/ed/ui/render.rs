@@ -150,8 +150,7 @@ impl Render {
                     match textures.entry(id) {
                         Entry::Vacant(entry) => {
                             let mut new_image = queue.new_image(mev::ImageDesc {
-                                dimensions: mev::Extent2::new(size[0] as u32, size[1] as u32)
-                                    .into(),
+                                extent: mev::Extent2::new(size[0] as u32, size[1] as u32).into(),
                                 format,
                                 usage: mev::ImageUsage::SAMPLED
                                     | mev::ImageUsage::TRANSFER_DST
@@ -182,12 +181,12 @@ impl Render {
                         Entry::Occupied(mut entry) => {
                             entry.get_mut().1 = Sampler::from_options(delta.options);
                             image = entry.get().0.clone();
-                            let extent = image.dimensions().expect_2d();
+                            let extent = image.extent().expect_2d();
                             if (extent.width() as usize) < size[0]
                                 || (extent.height() as usize) < size[1]
                             {
                                 let mut new_image = queue.new_image(mev::ImageDesc {
-                                    dimensions: mev::Extent2::new(size[0] as u32, size[1] as u32)
+                                    extent: mev::Extent2::new(size[0] as u32, size[1] as u32)
                                         .into(),
                                     format,
                                     usage: mev::ImageUsage::SAMPLED
@@ -220,7 +219,7 @@ impl Render {
                                     0,
                                     0,
                                     mev::Offset3::ZERO,
-                                    image.dimensions().into_3d(),
+                                    image.extent().into_3d(),
                                     1,
                                 );
 
@@ -448,7 +447,7 @@ impl Render {
 
                     drop(copy_encoder);
 
-                    let dims = target.dimensions().expect_2d();
+                    let dims = target.extent().expect_2d();
 
                     let mut render = encoder.render(mev::RenderPassDesc {
                         color_attachments: &[mev::AttachmentDesc::new(&target).no_load()],

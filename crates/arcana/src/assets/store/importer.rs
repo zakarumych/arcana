@@ -27,6 +27,23 @@ impl Importers {
         }
     }
 
+    /// Loads importers from dylib.
+    ///
+    /// # Safety
+    ///
+    /// There is no possible way to guarantee that dylib does not break safety contracts.
+    /// Some measures to ensure safety are taken.
+    /// Providing dylib from which importers will be successfully imported and then cause an UB should possible only on purpose.
+    pub unsafe fn load_dylib_importers(&mut self, lib_path: &Path) -> Result<(), LoadingError> {
+        let iter = argosy_import::loading::load_importers(lib_path)?;
+
+        for importer in iter {
+            self.add_importer(Box::new(importer));
+        }
+
+        Ok(())
+    }
+
     /// Try to guess importer by optionally provided format and extension or by target alone.
     pub fn guess(
         &self,

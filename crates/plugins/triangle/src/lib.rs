@@ -1,8 +1,8 @@
 use std::mem::size_of;
 
 use arcana::{
-    code::CodeGraph,
-    edict::{self, query::Cpy, spawn_block, World},
+    code::CodeGraphId,
+    edict::{self, query::Cpy, world::World},
     events::{emit_event, Event},
     flow::{sleep, FlowEntity},
     gametime::{ClockStep, TimeSpan},
@@ -16,7 +16,7 @@ use arcana::{
     Component, Res, View,
 };
 
-arcana::declare_plugin!();
+arcana::declare_plugin!([dummy ...]);
 
 #[derive(mev::Arguments)]
 pub struct DTArguments {
@@ -198,7 +198,7 @@ impl Job for DrawTriangle {
             ..Default::default()
         });
 
-        let dims = target.dimensions().expect_2d();
+        let dims = target.extent().expect_2d();
 
         render.with_pipeline(pipeline);
         render.with_arguments(0, arguments);
@@ -310,7 +310,7 @@ impl Job for OpJob {
 
         let mut compute = encoder.compute();
 
-        let dims = src.dimensions().expect_2d();
+        let dims = src.extent().expect_2d();
 
         compute.with_pipeline(pipeline);
         compute.with_arguments(
@@ -341,16 +341,16 @@ fn add(_: FlowEntity, a: &f32, b: &f32) -> (f32,) {
     (a + b,)
 }
 
-async fn wait(e: FlowEntity<'_>) {
+async fn wait(e: FlowEntity) {
     tracing::info!("Sleeping for a second");
-    sleep(TimeSpan::SECOND, e.get_world()).await;
+    sleep(TimeSpan::SECOND, e.world()).await;
     tracing::info!("One second passed");
 }
 
 #[derive(Clone, Copy, Component)]
 struct Speed(f32);
 
-fn set_angle_speed(mut e: FlowEntity, speed: &f32) {
+fn set_angle_speed(e: FlowEntity, speed: &f32) {
     tracing::info!("Setting triangle speed to {}", speed);
     let _ = e.set(Speed(*speed));
 }
@@ -394,9 +394,7 @@ fn init(world: &mut World) {
         .spawn((
             Speed(std::f32::consts::FRAC_1_PI * 0.5),
             Angle(0.0),
-            CodeGraph {
-                codes_id: hash_id!("speedup"),
-            },
+            hash_id!("speedup" => CodeGraphId),
         ))
         .id();
 
