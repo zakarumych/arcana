@@ -56,7 +56,7 @@ macro_rules! hash_id {
 #[macro_export]
 macro_rules! name_hash_id {
     ($ident:ident) => {{
-        let hash = $crate::stable_hash_tokens!($ident) | 0x8000_0000_0000_0000;
+        let hash = const { $crate::stable_hash_tokens!($ident) | 0x8000_0000_0000_0000 };
         $crate::Id::new(::core::num::NonZeroU64::new(hash).unwrap())
     }};
     ($ident:ident => $id:ty) => {

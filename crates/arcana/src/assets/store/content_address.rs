@@ -1,3 +1,11 @@
+//! Imported assets are stored in the store directory using content addressing scheme.
+//! This means that each asset is stored in a file named after its content hash.
+//! The hash may be truncated to avoid long file names, unless short name is already occupied
+//! by a different asset.
+//!
+//! If full-length hash name is occupied by a different asset with different content,
+//! then the new asset is stored using a suffix - a number starting from 0.
+
 use std::{
     cmp::min,
     fs::metadata,

@@ -1,4 +1,4 @@
-#![feature(allocator_api)]
+#![feature(allocator_api, maybe_uninit_slice)]
 #![deny(unsafe_op_in_unsafe_fn)]
 #![recursion_limit = "512"]
 
@@ -102,6 +102,7 @@ pub mod flow;
 pub mod hash;
 pub mod id;
 pub mod input;
+pub mod io;
 pub mod model;
 mod num2name;
 pub mod plugin;

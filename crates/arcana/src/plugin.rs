@@ -9,16 +9,24 @@ use edict::{
 };
 use hashbrown::HashMap;
 
-use crate::assets::import::{Importer, ImporterId};
-use crate::code::{CodeDesc, CodeNodeId, FlowCode, PureCode};
-use crate::events::EventId;
-use crate::input::{FilterId, InputFilter, IntoInputFilter};
-use crate::work::{Job, JobDesc, JobId};
-use crate::{make_id, Stid};
+use crate::{
+    assets::import::{Importer, ImporterId},
+    code::{CodeDesc, CodeNodeId, FlowCode, PureCode},
+    events::EventId,
+    input::{FilterId, InputFilter, IntoInputFilter},
+    work::{Job, JobDesc, JobId},
+    {make_id, Stid},
+};
 
 make_id! {
     /// ID of the ECS system.
     pub SystemId;
+}
+
+make_id! {
+    /// Type ID of registered plugin's types.
+    /// It is guaranteed to change each time the plugin is recompiled.
+    pub Vtid;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
