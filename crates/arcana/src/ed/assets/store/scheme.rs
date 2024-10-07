@@ -3,7 +3,7 @@ use std::str::FromStr;
 /// URL schemas supported by the store.
 /// Matches should use this enum instead of matching on strings.
 #[derive(Clone, Copy, Debug)]
-pub(crate) enum Scheme {
+pub(super) enum Scheme {
     File,
     Data,
 }

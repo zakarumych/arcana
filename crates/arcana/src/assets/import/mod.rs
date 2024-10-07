@@ -1,4 +1,4 @@
-//! Contains everything that is required to create argosy importers library.
+//! Contains everything that is required to create importers.
 //!
 //!
 //! # Usage
@@ -6,12 +6,12 @@
 //! ```
 //! struct FooImporter;
 //!
-//! impl argosy_import::Importer for FooImporter {
+//! impl Importer for FooImporter {
 //!     fn name(&self) -> &str {
 //!         "Foo importer"
 //!     }
 //!
-//!     fn formats(&self) -> &[&str] {
+//!     fn formats(&self) -> &[&str] {1
 //!         &["foo"]
 //!     }
 //!
@@ -27,21 +27,14 @@
 //!         &self,
 //!         source: &std::path::Path,
 //!         output: &std::path::Path,
-//!         _sources: &mut dyn argosy_import::Sources,
-//!         _dependencies: &mut dyn argosy_import::Dependencies,
-//!     ) -> Result<(), argosy_import::ImportError> {
+//!         _sources: &mut dyn Sources,
+//!         _dependencies: &mut dyn Dependencies,
+//!     ) -> Result<(), ImportError> {
 //!         match std::fs::copy(source, output) {
 //!           Ok(_) => Ok(()),
-//!           Err(err) => Err(argosy_import::ImportError::Other { reason: "SOMETHING WENT WRONG".to_owned() }),
+//!           Err(err) => Err(ImportError::Other { reason: "SOMETHING WENT WRONG".to_owned() }),
 //!         }
 //!     }
-//! }
-//!
-//!
-//! // Define all required exports.
-//! argosy_import::make_argosy_importers_library! {
-//!     // Each <expr;> must have type &'static I where I: Importer
-//!     &FooImporter;
 //! }
 //! ```
 

@@ -17,6 +17,7 @@ use winit::{
 use crate::{input::ViewInput, project::Project};
 
 use super::{
+    assets::Assets,
     code::CodeTool,
     container::Container,
     data::ProjectData,
@@ -24,7 +25,6 @@ use super::{
     ide::{Ide, IdeType},
     init_mev,
     instance::Instance,
-    mev,
     plugins::Plugins,
     render::Rendering,
     sample::ImageSample,
@@ -69,6 +69,7 @@ pub struct App {
 
     queue: mev::Queue,
 
+    assets: Assets,
     plugins: Plugins,
     // console: Console,
     code: CodeTool,
@@ -130,6 +131,8 @@ impl App {
             Some(ide) => Some(ide.get()),
         };
 
+        let assets = Assets::new(&project.root_path().join("Assets"));
+
         App {
             project,
             data,
@@ -142,7 +145,7 @@ impl App {
             blink: BlinkAlloc::new(),
             queue,
 
-            // console,
+            assets,
             plugins,
             code,
             systems,
@@ -356,7 +359,8 @@ impl App {
         }
 
         self.main
-            .render(&mut self.queue, &self.data, &mut self.ui.textures());
+            .render(&mut self.queue, &self.data, &mut self.ui.textures())
+            .unwrap();
     }
 
     fn save_state(&self) {

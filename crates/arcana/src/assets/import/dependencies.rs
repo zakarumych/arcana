@@ -1,3 +1,5 @@
+use arcana_names::Ident;
+
 use crate::assets::AssetId;
 
 /// Single dependency for a asset.
@@ -7,7 +9,7 @@ pub struct AssetDependency {
     pub source: String,
 
     /// Target format.
-    pub target: String,
+    pub target: Ident,
 }
 
 /// Provides access to asset dependencies.
@@ -15,7 +17,7 @@ pub struct AssetDependency {
 pub trait AssetDependencies {
     /// Returns dependency id.
     /// If dependency is not available, returns `None`.
-    fn get(&mut self, source: &str, target: &str) -> Option<AssetId>;
+    fn get(&mut self, source: &str, target: Ident) -> Option<AssetId>;
 
     /// Returns dependency id.
     /// If dependency is not available,
@@ -23,14 +25,14 @@ pub trait AssetDependencies {
     fn get_or_append(
         &mut self,
         source: &str,
-        target: &str,
+        target: Ident,
         missing: &mut Vec<AssetDependency>,
     ) -> Option<AssetId> {
         match self.get(source, target) {
             None => {
                 missing.push(AssetDependency {
                     source: source.to_owned(),
-                    target: target.to_owned(),
+                    target,
                 });
                 None
             }
@@ -43,7 +45,7 @@ impl<D: ?Sized> AssetDependencies for &mut D
 where
     D: AssetDependencies,
 {
-    fn get(&mut self, source: &str, target: &str) -> Option<AssetId> {
+    fn get(&mut self, source: &str, target: Ident) -> Option<AssetId> {
         (*self).get(source, target)
     }
 }

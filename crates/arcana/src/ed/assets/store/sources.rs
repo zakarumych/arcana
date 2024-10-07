@@ -12,7 +12,9 @@ use base64::{
 use hashbrown::{hash_map::RawEntryMut, HashMap};
 use url::Url;
 
-use crate::{content_address::store_data_with_content_address, sha256::Sha256Hash};
+use crate::hash::sha256;
+
+use super::content_address::store_data_with_content_address;
 
 #[derive(Debug, thiserror::Error)]
 pub enum SourcesError {
@@ -118,7 +120,7 @@ impl Sources {
                         data_str.as_bytes()
                     };
 
-                    let sha256 = Sha256Hash::hash(data);
+                    let sha256 = sha256(data);
                     let hex = format!("{:x}", sha256);
                     let (path, _) = store_data_with_content_address(&hex, data, temporaries)
                         .map_err(|error| SourcesError::FileError {

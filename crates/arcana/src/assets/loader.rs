@@ -21,5 +21,9 @@ pub trait Loader: Send + Sync + 'static {
     fn load<'a>(&'a self, id: AssetId) -> BoxFuture<'a, Result<AssetData, Error>>;
 
     /// Update asset data if newer is available.
-    fn update<'a>(&'a self, id: AssetId, version: u64) -> BoxFuture<'a, Result<AssetData, Error>>;
+    fn update<'a>(
+        &'a self,
+        id: AssetId,
+        version: u64,
+    ) -> BoxFuture<'a, Result<Option<AssetData>, Error>>;
 }

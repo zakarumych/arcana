@@ -49,6 +49,6 @@ where
     let hash = stable_hash(value);
 
     // Take middle 16 bits
-    let [_, _, num, _] = hash.as_u16();
+    let [_, _, num, _] = *hash.as_u16();
     num_to_name(num)
 }

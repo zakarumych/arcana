@@ -13,7 +13,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-pub(crate) const PREFIX_STARTING_LEN: usize = 8;
+pub(crate) const PREFIX_STARTING_LEN: usize = 16;
 
 /// Tries to find non-occupied path in given directory
 /// using hex-string representation of file hash.
@@ -83,7 +83,7 @@ pub(crate) fn store_data_with_content_address(
             std::fs::write(&path, data)?;
             Ok(Some((path, len)))
         }
-        Err(err) => Ok(None),
+        Err(err) => Err(err),
         Ok(metadata) if metadata.is_file() && metadata.len() == data.len() as u64 => {
             let mut file = std::fs::File::open(&path)?;
             let mut buf = [0u8; 4096];

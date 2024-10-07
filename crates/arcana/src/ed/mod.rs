@@ -1,14 +1,12 @@
 use std::{hash::Hash, io::ErrorKind, path::Path};
 
-use arcana::{
-    mev,
-    project::{Profile, Project},
-};
 use data::ProjectData;
 use winit::event_loop::EventLoop;
 
 #[cfg(windows)]
 use winit::platform::windows::EventLoopBuilderExtWindows;
+
+use crate::project::{Profile, Project};
 
 /// Result::ok, but logs Err case.
 macro_rules! ok_log_err {
@@ -38,6 +36,7 @@ macro_rules! try_log_err {
 }
 
 mod app;
+mod assets;
 mod code;
 mod container;
 mod data;

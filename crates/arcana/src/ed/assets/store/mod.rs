@@ -1,27 +1,40 @@
+//! Asset store can import assets, save imported assets on disk and load them on demand.
+
 use std::{
     collections::VecDeque,
     path::{Path, PathBuf},
     time::SystemTime,
 };
 
-use argosy_id::AssetId;
-use argosy_import::{loading::LoadingError, ImportError, Importer};
+use arcana_names::{Ident, Name};
+use arcana_project::real_path;
 use futures::future::BoxFuture;
 use hashbrown::{HashMap, HashSet};
 use parking_lot::RwLock;
 use url::Url;
 
-use crate::{
-    gen::Generator,
+use crate::assets::{
+    import::{AssetDependencies, AssetSources, ImportError, Importer},
+    AssetData, AssetId, Error, Loader, NotFound,
+};
+
+mod content_address;
+mod generator;
+mod importer;
+mod meta;
+mod scheme;
+mod sources;
+mod temp;
+
+use self::{
+    generator::Generator,
     importer::Importers,
     meta::{AssetMeta, MetaError, SourceMeta},
     sources::{Sources, SourcesError},
     temp::make_temporary,
 };
 
-pub const ARGOSY_META_NAME: &'static str = "argosy.toml";
-
-const DEFAULT_AUX: &'static str = "argosy";
+const DEFAULT_AUX: &'static str = "assets";
 const DEFAULT_ARTIFACTS: &'static str = "artifacts";
 const DEFAULT_EXTERNAL: &'static str = "external";
 const MAX_ITEM_ATTEMPTS: u32 = 1024;
@@ -34,24 +47,12 @@ pub struct StoreInfo {
     pub external: Option<PathBuf>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub temp: Option<PathBuf>,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub importers: Vec<PathBuf>,
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum OpenStoreError {
-    #[error("Failed to find current working directory. {error}")]
-    NoCwd { error: std::io::Error },
-
-    #[error("Failed to find store metadata file in ancestors of '{path}'")]
-    NotFound { path: PathBuf },
-
-    #[error("Error: '{error}' while trying to canonicalize path '{path}'")]
-    CanonError {
-        #[source]
-        error: std::io::Error,
-        path: PathBuf,
-    },
+    #[error("Failed to get real path of '{path}'")]
+    PathError { path: PathBuf },
 
     #[error("Failed to read store metadata file '{path}'. {error}")]
     MetaReadError {
@@ -83,52 +84,51 @@ pub enum SaveStoreError {
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
-    #[error("Failed to construct URL from base '{base}' and source '{url}'. {error}")]
+    #[error("Failed to construct asset URL from base '{base}' and source '{source}'. {error}")]
     InvalidSourceUrl {
+        #[source]
         error: url::ParseError,
         base: Url,
-        url: String,
+        source: String,
     },
 
     #[error(transparent)]
     MetaError(MetaError),
 
-    #[error("Failed to find importer '{url}':'{format:?}->{target}'")]
+    #[error("No importer found for '{url}' : '{format:?}->{target}'")]
     NoImporters {
+        target: Ident,
         format: Option<String>,
-        target: String,
         url: Url,
     },
 
-    #[error(
-        "Multiple importers may import '{url}' from different formats '{formats:?}' to target '{target}'"
-    )]
-    AmbiguousImporters {
-        formats: Vec<String>,
-        target: String,
+    #[error("Many importer found for '{url}' : '{format:?}->{target}'")]
+    ManyImporters {
+        target: Ident,
+        format: Option<String>,
         url: Url,
     },
 
     #[error(transparent)]
     SourcesError(SourcesError),
 
-    #[error("Failed to import asset '{url}':'{format:?}->{target}'. {reason}")]
+    #[error("Failed to import asset '{url}' by '{importer}'. {reason}")]
     ImportError {
-        format: Option<String>,
-        target: String,
+        importer: Name,
+        target: Ident,
         url: Url,
         reason: String,
     },
 
-    #[error("Too many attempts to import asset '{url}':'{format:?}->{target}'")]
+    #[error("Too many attempts to import asset '{url}' by '{importer}'")]
     TooManyAttempts {
-        format: Option<String>,
-        target: String,
+        importer: Name,
+        target: Ident,
         url: Url,
     },
 
-    #[error("Failed to create directory '{path}' to store import artifacts. {error}")]
-    FailedToCreateArtifactsDirectory {
+    #[error("Failed to save artifact '{path}'. {error}")]
+    FailedToSaveArtifact {
         error: std::io::Error,
         path: PathBuf,
     },
@@ -136,54 +136,20 @@ pub enum StoreError {
 
 impl Default for StoreInfo {
     fn default() -> Self {
-        StoreInfo::new(None, None, None, &[])
+        StoreInfo::new(None, None, None)
     }
 }
 
 impl StoreInfo {
-    pub fn write(&self, path: &Path) -> Result<(), SaveStoreError> {
-        let meta =
-            toml::to_string_pretty(self).map_err(|error| SaveStoreError::MetaSerializeError {
-                error,
-                path: path.to_owned(),
-            })?;
-        std::fs::write(path, &meta).map_err(|error| SaveStoreError::MetaWriteError {
-            error,
-            path: path.to_owned(),
-        })?;
-        Ok(())
-    }
-
-    pub fn read(path: &Path) -> Result<Self, OpenStoreError> {
-        let meta =
-            std::fs::read_to_string(path).map_err(|error| OpenStoreError::MetaReadError {
-                error,
-                path: path.to_owned(),
-            })?;
-        let meta: StoreInfo =
-            toml::from_str(&meta).map_err(|error| OpenStoreError::MetaDeserializeError {
-                error,
-                path: path.to_owned(),
-            })?;
-        Ok(meta)
-    }
-
-    pub fn new(
-        artifacts: Option<&Path>,
-        external: Option<&Path>,
-        temp: Option<&Path>,
-        importers: &[&Path],
-    ) -> Self {
+    pub fn new(artifacts: Option<&Path>, external: Option<&Path>, temp: Option<&Path>) -> Self {
         let artifacts = artifacts.map(Path::to_owned);
         let external = external.map(Path::to_owned);
         let temp = temp.map(Path::to_owned);
-        let importers = importers.iter().copied().map(|p| p.to_owned()).collect();
 
         StoreInfo {
             artifacts,
             external,
             temp,
-            importers,
         }
     }
 }
@@ -192,7 +158,7 @@ impl StoreInfo {
 struct AssetItem {
     source: Url,
     format: Option<String>,
-    target: String,
+    target: Ident,
 }
 
 pub struct Store {
@@ -209,75 +175,31 @@ pub struct Store {
 }
 
 impl Store {
-    /// Find and open store in ancestors of specified directory.
-    #[tracing::instrument]
-    pub fn find(path: &Path) -> Result<Self, OpenStoreError> {
-        let path = dunce::canonicalize(path).map_err(|error| OpenStoreError::CanonError {
-            error,
-            path: path.to_owned(),
-        })?;
-
-        let meta_path = find_argosy_info(&path).ok_or_else(|| OpenStoreError::NotFound { path })?;
-
-        Store::open(&meta_path)
-    }
-
-    /// Find and open store in ancestors of current directory.
-    #[tracing::instrument]
-    pub fn find_current() -> Result<Self, OpenStoreError> {
-        let cwd = std::env::current_dir().map_err(|error| OpenStoreError::NoCwd { error })?;
-        Store::find(&cwd)
-    }
-
-    /// Open store database at specified path.
-    #[tracing::instrument]
-    pub fn open(path: &Path) -> Result<Self, OpenStoreError> {
-        let meta = StoreInfo::read(path)?;
-        let base = path.parent().unwrap().to_owned();
-
-        Self::new(&base, meta)
-    }
-
     pub fn new(base: &Path, meta: StoreInfo) -> Result<Self, OpenStoreError> {
-        let base = dunce::canonicalize(base).map_err(|error| OpenStoreError::CanonError {
-            error,
+        let base = real_path(base).ok_or_else(|| OpenStoreError::PathError {
             path: base.to_owned(),
         })?;
+
         let base_url =
-            Url::from_directory_path(&base).expect("Canonical path must be convertible to URL");
+            Url::from_directory_path(&base).expect("Absolute path must be convertible to URL");
 
         let artifacts = base.join(
             meta.artifacts
-                .unwrap_or_else(|| Path::new(DEFAULT_AUX).join(DEFAULT_ARTIFACTS)),
+                .as_deref()
+                .unwrap_or_else(|| DEFAULT_ARTIFACTS.as_ref()),
         );
 
         let external = base.join(
             meta.external
-                .unwrap_or_else(|| Path::new(DEFAULT_AUX).join(DEFAULT_EXTERNAL)),
+                .as_deref()
+                .unwrap_or_else(|| DEFAULT_EXTERNAL.as_ref()),
         );
 
         let temp = meta
             .temp
             .map_or_else(std::env::temp_dir, |path| base.join(path));
 
-        let mut importers = Importers::new();
-
-        for lib_path in &meta.importers {
-            let lib_path = base.join(lib_path);
-
-            unsafe {
-                // # Safety: Nope.
-                // There is no way to make this safe.
-                // But it is unlikely to cause problems by accident.
-                if let Err(err) = importers.load_dylib_importers(&lib_path) {
-                    tracing::error!(
-                        "Failed to load importers from '{}'. {:#}",
-                        lib_path.display(),
-                        err
-                    );
-                }
-            }
-        }
+        let importers = Importers::new();
 
         Ok(Store {
             base,
@@ -298,13 +220,9 @@ impl Store {
         self.importers.add_importer(importer);
     }
 
-    /// Loads importers from dylib.
-    /// There is no possible way to guarantee that dylib does not break safety contracts.
-    /// Some measures to ensure safety are taken.
-    /// Providing dylib from which importers will be successfully loaded and then cause an UB should only be possible on purpose.
     #[tracing::instrument(skip(self))]
-    pub unsafe fn register_importers_lib(&mut self, lib_path: &Path) -> Result<(), LoadingError> {
-        self.importers.load_dylib_importers(lib_path)
+    pub fn purge_importers(&mut self) {
+        self.importers.clear();
     }
 
     /// Import an asset.
@@ -312,8 +230,8 @@ impl Store {
     pub async fn store(
         &self,
         source: &str,
+        target: Ident,
         format: Option<&str>,
-        target: &str,
     ) -> Result<(AssetId, PathBuf, SystemTime), StoreError> {
         let source = self
             .base_url
@@ -321,36 +239,33 @@ impl Store {
             .map_err(|error| StoreError::InvalidSourceUrl {
                 error,
                 base: self.base_url.clone(),
-                url: source.to_owned(),
+                source: source.to_owned(),
             })?;
 
-        self.store_url(source, format, target).await
+        self.store_from_url(source, target, format).await
     }
 
     /// Import an asset.
     #[tracing::instrument(skip(self))]
-    pub async fn store_url(
+    pub async fn store_from_url(
         &self,
         source: Url,
+        target: Ident,
         format: Option<&str>,
-        target: &str,
     ) -> Result<(AssetId, PathBuf, SystemTime), StoreError> {
         let mut sources = Sources::new();
 
         let base = &self.base;
         let artifacts_base = &self.artifacts_base;
         let external = &self.external;
-        let importers = &self.importers;
 
         struct StackItem {
             /// Source URL.
             source: Url,
 
-            /// Source format name.
-            format: Option<String>,
+            target: Ident,
 
-            /// Target format name.
-            target: String,
+            format: Option<String>,
 
             /// Attempt counter to break infinite loops.
             attempt: u32,
@@ -366,8 +281,8 @@ impl Store {
         let mut stack = Vec::new();
         stack.push(StackItem {
             source,
-            format: format.map(str::to_owned),
-            target: target.to_owned(),
+            target,
+            format: format.map(ToOwned::to_owned),
             attempt: 0,
             sources: HashMap::new(),
             dependencies: HashSet::new(),
@@ -380,23 +295,13 @@ impl Store {
             let mut meta = SourceMeta::new(&item.source, &self.base, &self.external)
                 .map_err(StoreError::MetaError)?;
 
-            if let Some(asset) = meta.get_asset(&item.target) {
+            if let Some(asset) = meta.get_asset(item.target) {
                 if asset.needs_reimport(&self.base_url) {
-                    tracing::debug!(
-                        "'{}' '{:?}' '{}' reimporting",
-                        item.source,
-                        item.format,
-                        item.target
-                    );
+                    tracing::debug!("'{}' as '{}' reimporting", item.source, item.target);
                 } else {
-                    match &item.format {
-                        None => tracing::debug!("{} @ '{}'", item.target, item.source),
-                        Some(format) => {
-                            tracing::debug!("{} as {} @ '{}'", item.target, format, item.source)
-                        }
-                    }
-
+                    tracing::debug!("Found '{}' as '{}'", item.source, item.target);
                     stack.pop().unwrap();
+
                     if stack.is_empty() {
                         let path = asset.artifact_path(&self.artifacts_base);
                         return Ok((asset.id(), path, asset.latest_modified()));
@@ -405,19 +310,28 @@ impl Store {
                 }
             }
 
-            let importer = importers
-                .guess(item.format.as_deref(), url_ext(&item.source), &item.target)
-                .map_err(|err| StoreError::AmbiguousImporters {
-                    formats: err.formats,
-                    target: err.target,
-                    url: item.source.clone(),
-                })?;
+            let extension = url_ext(&item.source);
 
-            let importer = importer.ok_or_else(|| StoreError::NoImporters {
-                format: item.format.clone(),
-                target: item.target.clone(),
-                url: item.source.clone(),
-            })?;
+            let importers =
+                self.importers
+                    .select(Some(item.target), item.format.as_deref(), extension);
+
+            if importers.is_empty() {
+                return Err(StoreError::NoImporters {
+                    format: item.format.clone(),
+                    target: item.target,
+                    url: item.source.clone(),
+                });
+            }
+            if importers.len() > 1 {
+                return Err(StoreError::ManyImporters {
+                    format: item.format.clone(),
+                    target: item.target,
+                    url: item.source.clone(),
+                });
+            }
+
+            let importer = importers[0];
 
             // Fetch source file.
             let (source_path, source_modified) = sources
@@ -430,7 +344,7 @@ impl Store {
 
             struct Fn<F>(F);
 
-            impl<F> argosy_import::Sources for Fn<F>
+            impl<F> AssetSources for Fn<F>
             where
                 F: FnMut(&str) -> Option<PathBuf>,
             {
@@ -439,11 +353,11 @@ impl Store {
                 }
             }
 
-            impl<F> argosy_import::Dependencies for Fn<F>
+            impl<F> AssetDependencies for Fn<F>
             where
-                F: FnMut(&str, &str) -> Option<AssetId>,
+                F: FnMut(&str, Ident) -> Option<AssetId>,
             {
-                fn get(&mut self, source: &str, target: &str) -> Option<AssetId> {
+                fn get(&mut self, source: &str, target: Ident) -> Option<AssetId> {
                     (self.0)(source, target)
                 }
             }
@@ -457,7 +371,7 @@ impl Store {
                     item.sources.insert(src, modified);
                     Some(path.to_owned())
                 }),
-                &mut Fn(|src: &str, target: &str| {
+                &mut Fn(|src: &str, target: Ident| {
                     let src = item.source.join(src).ok()?;
 
                     match SourceMeta::new(&src, base, external) {
@@ -478,8 +392,8 @@ impl Store {
                 Ok(()) => {}
                 Err(ImportError::Other { reason }) => {
                     return Err(StoreError::ImportError {
-                        format: item.format.clone(),
-                        target: item.target.clone(),
+                        importer: importer.name(),
+                        target: item.target,
                         url: item.source.clone(),
                         reason,
                     });
@@ -488,22 +402,25 @@ impl Store {
                     sources: srcs,
                     dependencies: deps,
                 }) => {
+                    // If we have too many attempts, we should stop.
                     if item.attempt >= MAX_ITEM_ATTEMPTS {
                         return Err(StoreError::TooManyAttempts {
-                            format: item.format.clone(),
-                            target: item.target.clone(),
+                            importer: importer.name(),
+                            target: item.target,
                             url: item.source.clone(),
                         });
                     }
-                    let item_source = item.source.clone();
 
+                    // Try to fulfill requirements.
+
+                    // Fetch required sources.
                     for src in srcs {
-                        match item_source.join(&src) {
+                        match item.source.join(&src) {
                             Err(error) => {
                                 return Err(StoreError::InvalidSourceUrl {
                                     error,
-                                    base: item_source,
-                                    url: src.clone(),
+                                    base: item.source.clone(),
+                                    source: src.clone(),
                                 });
                             }
                             Ok(url) => sources
@@ -513,13 +430,15 @@ impl Store {
                         };
                     }
 
+                    // Import dependencies.
+                    let item_source = item.source.clone();
                     for dep in deps {
                         match item_source.join(&dep.source) {
                             Err(error) => {
                                 return Err(StoreError::InvalidSourceUrl {
                                     error,
-                                    base: item_source,
-                                    url: dep.source.clone(),
+                                    base: item_source.clone(),
+                                    source: dep.source.clone(),
                                 });
                             }
                             Ok(url) => {
@@ -539,12 +458,9 @@ impl Store {
             }
 
             if !artifacts_base.exists() {
-                std::fs::create_dir_all(artifacts_base).map_err(|error| {
-                    StoreError::FailedToCreateArtifactsDirectory {
-                        error,
-                        path: artifacts_base.to_owned(),
-                    }
-                })?;
+                if let Err(err) = std::fs::create_dir_all(artifacts_base) {
+                    tracing::error!("Failed to create artifacts directory. {:#}", err);
+                }
 
                 if let Err(err) = std::fs::write(artifacts_base.join(".gitignore"), "*") {
                     tracing::error!(
@@ -555,7 +471,6 @@ impl Store {
             }
 
             let new_id = AssetId(self.id_gen.generate());
-
             let item = stack.pop().unwrap();
 
             let make_relative_source = |source| match self.base_url.make_relative(source) {
@@ -586,7 +501,7 @@ impl Store {
             let artifact_path = asset.artifact_path(artifacts_base);
 
             let latest_modified = asset.latest_modified();
-            meta.add_asset(item.target.clone(), asset, base, external)
+            meta.add_asset(item.target, asset, base, external)
                 .map_err(StoreError::MetaError)?;
 
             self.artifacts.write().insert(
@@ -633,7 +548,7 @@ impl Store {
         let item = self.artifacts.read().get(&id).cloned()?;
 
         let (_, path, modified) = self
-            .store_url(item.source, item.format.as_deref(), &item.target)
+            .store_from_url(item.source, item.target, item.format.as_deref())
             .await
             .ok()?;
 
@@ -644,7 +559,7 @@ impl Store {
     pub async fn find_asset(
         &self,
         source: &str,
-        target: &str,
+        target: Ident,
     ) -> Result<Option<AssetId>, StoreError> {
         let source_url =
             self.base_url
@@ -652,7 +567,7 @@ impl Store {
                 .map_err(|error| StoreError::InvalidSourceUrl {
                     error,
                     base: self.base_url.clone(),
-                    url: source.to_owned(),
+                    source: source.to_owned(),
                 })?;
 
         let meta = SourceMeta::new(&source_url, &self.base, &self.external)
@@ -661,7 +576,7 @@ impl Store {
         match meta.get_asset(target) {
             None => {
                 drop(meta);
-                match self.store(source, None, target).await {
+                match self.store(source, target, None).await {
                     Err(err) => {
                         tracing::warn!(
                             "Failed to store '{}' as '{}' on lookup. {:#}",
@@ -679,26 +594,20 @@ impl Store {
     }
 }
 
-pub fn find_argosy_info(path: &Path) -> Option<PathBuf> {
-    for path in path.ancestors() {
-        let candidate = path.join(ARGOSY_META_NAME);
-        if candidate.is_file() {
-            return Some(candidate);
-        }
-    }
-
-    None
-}
-
 fn url_ext(url: &Url) -> Option<&str> {
     let path = url.path();
     let dot = path.rfind('.')?;
-    let sep = path.rfind('/')?;
-    if dot == path.len() || dot <= sep + 1 {
-        None
-    } else {
-        Some(&path[dot + 1..])
+    if dot >= path.len() - 1 {
+        return None;
     }
+
+    if let Some(sep) = path.rfind('/') {
+        if dot < sep {
+            return None;
+        }
+    }
+
+    Some(&path[dot + 1..])
 }
 
 fn scan_external(
@@ -817,6 +726,7 @@ fn scan_local(
                 }
                 Ok(ft) => ft,
             };
+
             if ft.is_dir() {
                 queue.push_back(path);
             } else if ft.is_file() && SourceMeta::is_local_meta_path(&path) {
@@ -846,35 +756,18 @@ fn scan_local(
     }
 }
 
-impl argosy::Source for Store {
+impl Loader for Store {
     #[inline]
-    fn find<'a>(&'a self, key: &'a str, asset: &'a str) -> BoxFuture<'a, Option<AssetId>> {
-        Box::pin(async move {
-            match self.find_asset(&key, &asset).await {
-                Err(err) => {
-                    tracing::error!("Error while searching for asset '{asset} @ {key}': {err}");
-                    None
-                }
-                Ok(None) => None,
-                Ok(Some(id)) => Some(id),
-            }
-        })
-    }
-
-    #[inline]
-    fn load<'a>(
-        &'a self,
-        id: AssetId,
-    ) -> BoxFuture<'a, Result<Option<argosy::AssetData>, argosy::Error>> {
+    fn load<'a>(&'a self, id: AssetId) -> BoxFuture<'a, Result<AssetData, Error>> {
         Box::pin(async move {
             match self.fetch(id).await {
-                None => Ok(None),
+                None => Err(Error::new(NotFound)),
                 Some((path, modified)) => {
-                    let bytes = std::fs::read(&path).map_err(argosy::Error::new)?;
-                    Ok(Some(argosy::AssetData {
+                    let bytes = std::fs::read(&path).map_err(Error::new)?;
+                    Ok(AssetData {
                         bytes: bytes.into_boxed_slice(),
                         version: modified_to_version(modified),
-                    }))
+                    })
                 }
             }
         })
@@ -885,7 +778,7 @@ impl argosy::Source for Store {
         &'a self,
         id: AssetId,
         version: u64,
-    ) -> BoxFuture<'a, Result<Option<argosy::AssetData>, argosy::Error>> {
+    ) -> BoxFuture<'a, Result<Option<AssetData>, Error>> {
         Box::pin(async move {
             match self.fetch(id).await {
                 None => Ok(None),
@@ -893,8 +786,8 @@ impl argosy::Source for Store {
                     if modified_to_version(modified) <= version {
                         return Ok(None);
                     }
-                    let bytes = std::fs::read(&path).map_err(argosy::Error::new)?;
-                    Ok(Some(argosy::AssetData {
+                    let bytes = std::fs::read(&path).map_err(Error::new)?;
+                    Ok(Some(AssetData {
                         bytes: bytes.into_boxed_slice(),
                         version: modified_to_version(modified),
                     }))

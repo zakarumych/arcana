@@ -131,7 +131,7 @@ pub fn base58_enc_io(read: impl std::io::Read, write: impl std::io::Write) -> st
     let mut read = read;
     let mut write = write;
 
-    let mut buf = [0u8; 1 << 16];
+    let mut buf = [0u8; 1024];
     let mut start = 0;
     let mut end = 0;
 

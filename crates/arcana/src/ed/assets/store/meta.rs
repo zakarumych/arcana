@@ -3,20 +3,25 @@ use std::{
     time::SystemTime,
 };
 
-use argosy_id::AssetId;
+use arcana_names::Ident;
+use arcana_project::real_path;
 use hashbrown::HashMap;
 use url::Url;
 
 use crate::{
-    content_address::{move_file_with_content_address, with_path_candidates, PREFIX_STARTING_LEN},
-    scheme::Scheme,
-    sha256::Sha256Hash,
+    assets::AssetId,
+    hash::{sha256, sha256_file, Hash256},
 };
 
-const EXTENSION: &'static str = "argosy";
-const DOT_EXTENSION: &'static str = ".argosy";
+use super::{
+    content_address::{move_file_with_content_address, with_path_candidates, PREFIX_STARTING_LEN},
+    scheme::Scheme,
+};
 
-/// Metadata for single asset.
+const EXTENSION: &'static str = "arc";
+const DOT_EXTENSION: &'static str = ".arc";
+
+/// Metadata for a single asset.
 ///
 /// Contains information about asset file, source, format and dependencies.
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -25,7 +30,7 @@ pub struct AssetMeta {
     id: AssetId,
 
     /// Imported asset file hash.
-    sha256: Sha256Hash,
+    sha256: Hash256,
 
     /// Asset format if specified.
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -83,12 +88,8 @@ pub enum MetaError {
     #[error("Path '{path}' is occupied by non-file")]
     PathOccupiedByDirectory { path: PathBuf },
 
-    #[error("Error: '{error}' while trying to canonicalize path '{path}'")]
-    CanonError {
-        #[source]
-        error: std::io::Error,
-        path: PathBuf,
-    },
+    #[error("Failed to get real path of '{path}'")]
+    PathError { path: PathBuf },
 
     #[error("Failed to convert path '{path}' to URL")]
     UrlFromPathError { path: PathBuf },
@@ -147,7 +148,7 @@ impl AssetMeta {
         output: &Path,
         artifacts: &Path,
     ) -> Result<Self, MetaError> {
-        let sha256 = Sha256Hash::file_hash(output).map_err(|error| MetaError::HashError {
+        let sha256 = sha256_file(output).map_err(|error| MetaError::HashError {
             error,
             path: output.to_owned(),
         })?;
@@ -262,7 +263,7 @@ impl AssetMeta {
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct SourceMeta {
     url: Url,
-    assets: HashMap<String, AssetMeta>,
+    assets: HashMap<Ident, AssetMeta>,
 }
 
 impl SourceMeta {
@@ -361,17 +362,17 @@ impl SourceMeta {
         }
     }
 
-    pub fn get_asset(&self, target: &str) -> Option<&AssetMeta> {
-        self.assets.get(target)
+    pub fn get_asset(&self, target: Ident) -> Option<&AssetMeta> {
+        self.assets.get(&target)
     }
 
-    pub fn assets(&self) -> impl Iterator<Item = (&str, &AssetMeta)> + '_ {
-        self.assets.iter().map(|(target, meta)| (&**target, meta))
+    pub fn assets(&self) -> impl Iterator<Item = (Ident, &AssetMeta)> + '_ {
+        self.assets.iter().map(|(target, meta)| (*target, meta))
     }
 
     pub fn add_asset(
         &mut self,
-        target: String,
+        target: Ident,
         asset: AssetMeta,
         base: &Path,
         external: &Path,
@@ -419,11 +420,10 @@ fn get_meta_path(source: &Url, base: &Path, external: &Path) -> Result<(PathBuf,
     if source.scheme() == "file" {
         match source.to_file_path() {
             Ok(path) => {
-                let path = dunce::canonicalize(&path)
-                    .map_err(|err| MetaError::CanonError { error: err, path })?;
+                let path = real_path(&path).ok_or_else(|| MetaError::PathError { path })?;
 
                 if path.starts_with(base) {
-                    // Files inside `base` directory has meta attached to them as sibling file with `.argosy` extension added.
+                    // Files inside `base` directory has meta attached to them as sibling file with `.arc` extension added.
 
                     let mut filename = path.file_name().unwrap_or("".as_ref()).to_owned();
                     filename.push(DOT_EXTENSION);
@@ -441,7 +441,7 @@ fn get_meta_path(source: &Url, base: &Path, external: &Path) -> Result<(PathBuf,
         path: external.to_owned(),
     })?;
 
-    let hash = Sha256Hash::hash(source.as_str());
+    let hash = sha256(source.as_str().as_bytes());
     let hex = format!("{:x}", hash);
 
     let (path, _) = with_path_candidates(&hex, external, |path, _| {

@@ -41,7 +41,7 @@ where
 {
     let mut hasher = stable_hasher();
     value.hash(&mut hasher);
-    Hash64(hasher.finish().to_le_bytes())
+    Hash64::from_u8(hasher.finish().to_ne_bytes())
 }
 
 /// Compute stable hash of data form reader.
@@ -58,7 +58,7 @@ pub fn stable_hash_read<R: Read>(mut reader: R) -> std::io::Result<Hash64> {
         hasher.write(&buffer[..bytes_read]);
     }
 
-    Ok(Hash64(hasher.finish().to_le_bytes()))
+    Ok(Hash64::from_u8(hasher.finish().to_ne_bytes()))
 }
 
 /// Compute stable hash of file content.
@@ -73,7 +73,7 @@ pub fn rgb_hash<T>(value: &T) -> [u8; 3]
 where
     T: Hash + ?Sized,
 {
-    let [r, g, b, ..] = stable_hash(value).0;
+    let [r, g, b, ..] = *stable_hash(value).as_u8();
     [r, g, b]
 }
 
@@ -83,7 +83,7 @@ pub fn rgba_hash<T>(value: &T) -> [u8; 4]
 where
     T: Hash + ?Sized,
 {
-    let [r, g, b, a, ..] = stable_hash(value).0;
+    let [r, g, b, a, ..] = *stable_hash(value).as_u8();
     [r, g, b, a]
 }
 
@@ -93,7 +93,7 @@ pub fn rgba_premultiplied_hash<T>(value: &T) -> [u8; 4]
 where
     T: Hash + ?Sized,
 {
-    let [r, g, b, a, ..] = stable_hash(value).0;
+    let [r, g, b, a, ..] = *stable_hash(value).as_u8();
     let r = (r * a / 255) as u8;
     let g = (g * a / 255) as u8;
     let b = (b * a / 255) as u8;
@@ -107,7 +107,7 @@ pub fn hue_hash<T>(value: &T) -> [u8; 3]
 where
     T: Hash + ?Sized,
 {
-    let hash = stable_hash(value).as_u64();
+    let [hash] = *stable_hash(value).as_u64();
     let zone = (hash & 0xFFFFFFFF) % 6;
     let mag = (hash >> 32) as u8;
     match zone {

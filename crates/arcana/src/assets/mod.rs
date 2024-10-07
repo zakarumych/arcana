@@ -42,7 +42,7 @@ pub use self::{
     asset::Asset,
     assets::Assets,
     build::{AssetBuildContext, AssetBuilder},
-    error::Error,
+    error::{Error, NotFound},
     id::AssetId,
     loader::{AssetData, Loader},
 };

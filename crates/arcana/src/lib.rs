@@ -1,5 +1,5 @@
 #![feature(allocator_api, maybe_uninit_slice)]
-#![deny(unsafe_op_in_unsafe_fn)]
+#![deny(unsafe_op_in_unsafe_fn, unused_must_use)]
 #![recursion_limit = "512"]
 
 #[macro_export]

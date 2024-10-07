@@ -1,5 +1,7 @@
 use std::{any::Any, path::Path};
 
+use arcana_names::{Ident, Name};
+
 use crate::make_id;
 
 use super::{AssetDependencies, AssetDependency, AssetSources};
@@ -75,7 +77,7 @@ impl egui_probe::EguiProbe for EmptyConfig {
 /// Trait for an importer.
 pub trait Importer: Send + Sync {
     /// Returns name of the importer
-    fn name(&self) -> &str;
+    fn name(&self) -> Name;
 
     /// Returns source formats importer works with.
     fn formats(&self) -> &[&str];
@@ -84,7 +86,7 @@ pub trait Importer: Send + Sync {
     fn extensions(&self) -> &[&str];
 
     /// Returns target format importer produces.
-    fn target(&self) -> &str;
+    fn target(&self) -> Ident;
 
     /// Returns configuration value for this importer.
     fn config(&self) -> Box<dyn ImportConfig> {

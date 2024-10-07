@@ -98,5 +98,6 @@ tracing = "0.1"
 tracing-error = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 unicode-ident = "1"
+url = "2"
 uuid = { version = "1.6" }
 winit = { version = "0.30" }
