@@ -1,0 +1,9 @@
+[package]
+version = "0.0.0"
+name = "image"
+edition = "2021"
+publish = false
+
+[dependencies]
+arcana = { path = "..\\..\\arcana" }
+image = "0.25"

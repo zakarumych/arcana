@@ -1,10 +1,14 @@
+use core::f32;
+use std::path::{Path, PathBuf};
+
 use arcana::{
     project::{
-        new_plugin_crate, process_path_ident, BuildProcess, Dependency, Plugin, Profile, Project,
-        ProjectManifest,
+        new_plugin_crate, BuildProcess, Dependency, Plugin, Profile, Project, ProjectManifest,
     },
     Ident,
 };
+use arcana_names::validate_ident;
+use arcana_project::real_path;
 use camino::{Utf8Path, Utf8PathBuf};
 use egui::{Color32, RichText, Ui};
 use egui_file::FileDialog;
@@ -39,8 +43,17 @@ pub(super) struct Plugins {
 }
 
 enum PluginsDialog {
-    NewPlugin(FileDialog),
+    NewPlugin(NewPlugin),
     FindPlugin(FileDialog),
+}
+
+struct NewPlugin {
+    name: String,
+    path: String,
+    real_path: Utf8PathBuf,
+    path_dialog: Option<FileDialog>,
+    dirty: bool,
+    ready: bool,
 }
 
 impl Plugins {
@@ -242,9 +255,14 @@ impl Plugins {
                 let r = ui.button(egui_phosphor::regular::PLUS);
 
                 if r.clicked() {
-                    let mut dialog = FileDialog::select_folder(None);
-                    dialog.open();
-                    self.dialog = Some(PluginsDialog::NewPlugin(dialog));
+                    self.dialog = Some(PluginsDialog::NewPlugin(NewPlugin {
+                        name: String::new(),
+                        path: String::new(),
+                        real_path: Utf8PathBuf::new(),
+                        path_dialog: None,
+                        dirty: true,
+                        ready: false,
+                    }));
                 } else {
                     r.on_hover_ui(|ui| {
                         ui.label("New plugin");
@@ -361,66 +379,137 @@ impl Plugins {
                     }
                 },
             },
-            Some(PluginsDialog::NewPlugin(dialog)) => match dialog.show(ui.ctx()).state() {
-                egui_file::State::Open => {}
-                egui_file::State::Closed | egui_file::State::Cancelled => {
-                    self.dialog = None;
-                }
-                egui_file::State::Selected => match dialog.path() {
-                    None => {
-                        self.dialog = None;
+            Some(PluginsDialog::NewPlugin(new_plugin)) => {
+                let mut close = false;
+
+                if let Some(path_dialog) = &mut new_plugin.path_dialog {
+                    match path_dialog.show(ui.ctx()).state() {
+                        egui_file::State::Open => {}
+                        egui_file::State::Closed | egui_file::State::Cancelled => {
+                            new_plugin.path_dialog = None;
+                        }
+                        egui_file::State::Selected => match path_dialog.path() {
+                            None => {
+                                new_plugin.path_dialog = None;
+                            }
+                            Some(path) => {
+                                if let Some(path) = Utf8Path::from_path(path) {
+                                    new_plugin.path = path.to_string();
+                                } else {
+                                    tracing::error!("Invalid plugin path '{}'", path.display());
+                                }
+                                new_plugin.path_dialog = None;
+                            }
+                        },
                     }
-                    Some(path) => {
-                        match Utf8Path::from_path(path) {
-                            Some(path) => match process_path_ident(path.as_std_path(), None) {
-                                Ok((path, name)) => match Utf8PathBuf::from_path_buf(path) {
-                                    Ok(path) => {
-                                        match new_plugin_crate(
-                                            &name,
-                                            &path,
-                                            project.engine().clone(),
-                                            Some(project.root_path()),
-                                        ) {
-                                            Ok(plugin) => match project.add_plugin(plugin) {
-                                                Ok(true) => {
-                                                    sync = true;
-                                                    rebuild = true;
-                                                }
-                                                Ok(false) => {
-                                                    tracing::warn!("Plugin already exists");
-                                                }
-                                                Err(err) => {
-                                                    tracing::error!(
-                                                        "Failed to add plugin. {err:?}"
-                                                    );
-                                                }
-                                            },
-                                            Err(err) => {
-                                                tracing::error!(
-                                                    "Failed to create new plugin. {err:?}"
+                }
+
+                egui::Window::new("New Plugin")
+                    .auto_sized()
+                    .show(ui.ctx(), |ui| {
+                        let o = egui::TextEdit::singleline(&mut new_plugin.name)
+                            .hint_text("Plugin name")
+                            .clip_text(false)
+                            .show(ui);
+
+                        if o.response.changed() {
+                            new_plugin.dirty = true;
+                        }
+
+                        ui.horizontal(|ui| {
+                            let o = egui::TextEdit::singleline(&mut new_plugin.path)
+                                .hint_text("Path to plugin")
+                                .clip_text(false)
+                                .show(ui);
+
+                            if o.response.changed() {
+                                new_plugin.dirty = true;
+                            }
+
+                            let r = ui.add_enabled(
+                                new_plugin.path_dialog.is_none(),
+                                egui::Button::new(egui_phosphor::regular::DOTS_THREE).small(),
+                            );
+
+                            if r.clicked() {
+                                let initial_path = if new_plugin.path.is_empty() {
+                                    None
+                                } else {
+                                    Some(PathBuf::from(&new_plugin.path))
+                                };
+
+                                let mut dialog = FileDialog::select_folder(initial_path);
+                                dialog.open();
+                                new_plugin.path_dialog = Some(dialog);
+                            }
+                        });
+
+                        if new_plugin.dirty {
+                            new_plugin.ready = validate_ident(&new_plugin.name).is_ok();
+
+                            if new_plugin.ready {
+                                match real_path(Path::new(&new_plugin.path)) {
+                                    None => new_plugin.ready = false,
+                                    Some(real_path) => {
+                                        match Utf8PathBuf::from_path_buf(real_path) {
+                                            Err(_) => {
+                                                new_plugin.ready = false;
+                                            }
+                                            Ok(real_path) => {
+                                                new_plugin.real_path = real_path;
+                                                new_plugin.real_path.push(&new_plugin.name);
+                                                new_plugin.ready = arcana_project::is_available(
+                                                    new_plugin.real_path.as_std_path(),
                                                 );
                                             }
                                         }
                                     }
-                                    Err(path) => {
-                                        tracing::error!(
-                                            "Plugin path is not UTF-8: {}",
-                                            path.display()
-                                        );
-                                    }
-                                },
-                                Err(err) => {
-                                    tracing::error!("Failed to process plugin path. {err:?}");
-                                }
-                            },
-                            None => {
-                                tracing::error!("Invalid plugin path '{}'", path.display());
+                                };
                             }
                         }
-                        self.dialog = None;
-                    }
-                },
-            },
+
+                        ui.horizontal(|ui| {
+                            if ui
+                                .add_enabled(new_plugin.ready, egui::Button::new("OK"))
+                                .clicked()
+                            {
+                                match new_plugin_crate(
+                                    &new_plugin.name,
+                                    &new_plugin.real_path,
+                                    project.engine().clone(),
+                                    Some(project.root_path()),
+                                ) {
+                                    Ok(plugin) => {
+                                        close = true;
+                                        match project.add_plugin(plugin) {
+                                            Ok(true) => {
+                                                sync = true;
+                                                rebuild = true;
+                                            }
+                                            Ok(false) => {
+                                                tracing::warn!("Plugin already exists");
+                                            }
+                                            Err(err) => {
+                                                tracing::error!("Failed to add plugin. {err:?}");
+                                            }
+                                        }
+                                    }
+                                    Err(err) => {
+                                        tracing::error!("Failed to create new plugin. {err:?}");
+                                    }
+                                }
+                            }
+
+                            if ui.button("Cancel").clicked() {
+                                close = true;
+                            }
+                        });
+                    });
+
+                if close {
+                    self.dialog = None;
+                }
+            }
         }
 
         assert!(sync || !rebuild, "Rebuild without sync");

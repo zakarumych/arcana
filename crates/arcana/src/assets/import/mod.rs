@@ -44,7 +44,7 @@ mod sources;
 
 pub use self::{
     dependencies::{AssetDependencies, AssetDependency},
-    importer::{ImportError, Importer, ImporterId},
+    importer::{EmptyConfig, ImportConfig, ImportError, Importer, ImporterId},
     sources::AssetSources,
 };
 

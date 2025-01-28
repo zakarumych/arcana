@@ -20,7 +20,7 @@ proc_easy::easy_parse! {
 }
 
 proc_easy::easy_parse! {
-    pub struct WithStid {
+    pub struct HasStid {
         ty: syn::Type,
         assign: proc_easy::EasyMaybe<AssignStid>,
     }
@@ -102,14 +102,14 @@ pub fn with_stid(stid: Option<StidValue>, input: &syn::DeriveInput) -> syn::Resu
         for tp in input.generics.type_params() {
             let ident = &tp.ident;
             where_clause.predicates.push(syn::parse_quote! {
-                #ident: ::arcana::stid::WithStid
+                #ident: ::arcana::stid::HasStid
             });
         }
 
         let ids = input.generics.type_params().map(|tp| {
             let ident = &tp.ident;
             quote::quote! {
-                <#ident as ::arcana::stid::WithStid>::stid().get()
+                <#ident as ::arcana::stid::HasStid>::stid().get()
             }
         });
 
@@ -127,7 +127,7 @@ pub fn with_stid(stid: Option<StidValue>, input: &syn::DeriveInput) -> syn::Resu
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
 
     let output = quote::quote! {
-        impl #impl_generics ::arcana::stid::WithStid for #name #ty_generics #where_clause {
+        impl #impl_generics ::arcana::stid::HasStid for #name #ty_generics #where_clause {
             #[inline(always)]
             fn stid() -> ::arcana::stid::Stid {
                 let id = #combined_ids;
@@ -136,7 +136,7 @@ pub fn with_stid(stid: Option<StidValue>, input: &syn::DeriveInput) -> syn::Resu
 
             #[inline(always)]
             fn stid_dyn(&self) -> ::arcana::stid::Stid {
-                <Self as ::arcana::stid::WithStid>::stid()
+                <Self as ::arcana::stid::HasStid>::stid()
             }
         }
     };
@@ -144,7 +144,7 @@ pub fn with_stid(stid: Option<StidValue>, input: &syn::DeriveInput) -> syn::Resu
     Ok(output)
 }
 
-pub fn with_stid_fn(input: WithStid) -> syn::Result<TokenStream> {
+pub fn with_stid_fn(input: HasStid) -> syn::Result<TokenStream> {
     let stid = match input.assign {
         EasyMaybe::Nothing => None,
         EasyMaybe::Just(AssignStid { assign: _, stid }) => Some(stid),
@@ -169,7 +169,7 @@ pub fn with_stid_fn(input: WithStid) -> syn::Result<TokenStream> {
     };
 
     let output = quote::quote! {
-        impl ::arcana::stid::WithStid for #ty {
+        impl ::arcana::stid::HasStid for #ty {
             #[inline(always)]
             fn stid() -> ::arcana::stid::Stid {
                 ::arcana::stid::Stid::new(::core::num::NonZeroU64::new(#base_id).unwrap())

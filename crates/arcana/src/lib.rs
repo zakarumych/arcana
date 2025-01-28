@@ -79,7 +79,7 @@ extern crate self as arcana;
 // Re-exports
 pub use {
     arcana_names::{ident, name, Ident, IdentError, Name, NameError},
-    arcana_proc::{filter, init, job, stable_hash_tokens, system, with_stid, WithStid},
+    arcana_proc::{filter, importer, init, job, stable_hash_tokens, system, with_stid, HasStid},
     arcana_project as project,
     blink_alloc::{self, Blink, BlinkAlloc},
     bytemuck,
@@ -119,7 +119,7 @@ pub mod work;
 pub use self::{
     id::{BaseId, Id, IdGen},
     num2name::{hash_to_name, num_to_name},
-    stid::{Stid, WithStid},
+    stid::{HasStid, Stid},
     tany::{LTAny, TAny},
 };
 

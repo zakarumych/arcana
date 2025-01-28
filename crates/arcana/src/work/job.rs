@@ -5,7 +5,7 @@ use hashbrown::HashMap;
 use crate::{
     make_id,
     model::{Model, Value},
-    stid::WithStid,
+    stid::HasStid,
     Stid,
 };
 
@@ -27,7 +27,7 @@ pub struct TargetCreateDesc {
 }
 
 impl TargetCreateDesc {
-    pub fn new<T: WithStid>(name: Name) -> Self {
+    pub fn new<T: HasStid>(name: Name) -> Self {
         TargetCreateDesc {
             name,
             ty: T::stid(),
@@ -45,7 +45,7 @@ pub struct TargetUpdateDesc {
 }
 
 impl TargetUpdateDesc {
-    pub fn new<T: WithStid>(name: Name) -> Self {
+    pub fn new<T: HasStid>(name: Name) -> Self {
         TargetUpdateDesc {
             name,
             ty: T::stid(),
@@ -63,7 +63,7 @@ pub struct TargetReadDesc {
 }
 
 impl TargetReadDesc {
-    pub fn new<T: WithStid>(name: Name) -> Self {
+    pub fn new<T: HasStid>(name: Name) -> Self {
         TargetReadDesc {
             name,
             ty: T::stid(),

@@ -31,7 +31,7 @@ pub use self::{
     dependency::Dependency,
     generator::new_plugin_crate,
     manifest::ProjectManifest,
-    path::{make_relative, real_path},
+    path::{is_available, make_relative, real_path},
     plugin::Plugin,
     wrapper::{game_bin_path, BuildProcess, Profile},
 };

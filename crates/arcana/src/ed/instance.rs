@@ -498,6 +498,10 @@ impl Instance {
             view.work_graph.remove_hook(hook);
         }
     }
+
+    pub fn hub(&self) -> &PluginsHub {
+        &self.hub
+    }
 }
 
 pub struct Simulation {

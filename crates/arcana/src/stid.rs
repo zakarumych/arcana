@@ -1,7 +1,7 @@
 //! This module provides a type that can be used to replace `TypeId` and is guaranteed to be stable.
 //!
 //! `Stid` is 64bit long semi-random value that is associated with a type
-//! via derive macro or manual implementation of `WithStid` trait.
+//! via derive macro or manual implementation of `HasStid` trait.
 //!
 //! User may provide specific identifier number for a type, it must be unique,
 //! it must not have most significant bit set to 1,
@@ -22,7 +22,7 @@ use gametime::TimeSpan;
 crate::make_id! {
     /// Stable Type Identifier.
     ///
-    /// Identifier is assigned via `WithStid` trait.
+    /// Identifier is assigned via `HasStid` trait.
     /// The trait can be implemented manually, derived or implemented by `with_stid!` macro.
     ///
     /// Derive macro and proc-macro allow specifying the identifier value.
@@ -35,7 +35,7 @@ crate::make_id! {
 
 /// Trait for types that have stable identifier.
 /// Derive it, implement manually or use `with_stid!` macro.
-pub trait WithStid: 'static {
+pub trait HasStid: 'static {
     fn stid() -> Stid
     where
         Self: Sized;
@@ -47,7 +47,7 @@ impl Stid {
     /// Returns stable identifier of a type.
     pub fn of<T>() -> Self
     where
-        T: WithStid,
+        T: HasStid,
     {
         T::stid()
     }
@@ -56,7 +56,7 @@ impl Stid {
     /// This works for trait objects.
     pub fn of_val<T>(value: &T) -> Self
     where
-        T: WithStid + ?Sized,
+        T: HasStid + ?Sized,
     {
         value.stid_dyn()
     }

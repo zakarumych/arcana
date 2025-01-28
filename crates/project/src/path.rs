@@ -169,3 +169,39 @@ pub fn make_relative(path: &Path, base: &Path) -> PathBuf {
 
     result
 }
+
+/// Checks if path is available for creating a file.
+///
+/// This doesn't check permissions for file creation,
+/// but checks that path is not occupied,
+/// and no ancestor is a file or inaccessible,
+/// and that some first existing ancestor is a directory.
+pub fn is_available(path: &Path) -> bool {
+    if path.exists() {
+        return false;
+    }
+
+    let Some(parent) = path.parent() else {
+        return false;
+    };
+
+    for ancestor in parent.ancestors() {
+        match ancestor.metadata() {
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                continue;
+            }
+            Err(_) => {
+                return false;
+            }
+            Ok(metadata) => {
+                if metadata.is_dir() {
+                    return true;
+                } else {
+                    return false;
+                }
+            }
+        }
+    }
+
+    false
+}

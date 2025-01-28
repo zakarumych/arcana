@@ -1,10 +1,30 @@
-use std::{path::PathBuf, process::Child};
+use std::{
+    env::args_os,
+    path::PathBuf,
+    process::{Child, ExitCode, Termination},
+};
 
 use arcana_launcher::{validate_engine_path, Dependency, Ident, Profile, Project, Start};
 use egui_file::FileDialog;
 use hashbrown::HashMap;
 
-fn main() -> eframe::Result<()> {
+enum Exit {
+    Success,
+    CliError(miette::Error),
+    EFrameError(eframe::Error),
+}
+
+impl Termination for Exit {
+    fn report(self) -> ExitCode {
+        match self {
+            Exit::Success => ExitCode::SUCCESS,
+            Exit::CliError(err) => Termination::report(Err::<(), _>(err)),
+            Exit::EFrameError(err) => Termination::report(Err::<(), _>(err)),
+        }
+    }
+}
+
+fn main() -> Exit {
     use tracing_subscriber::layer::SubscriberExt as _;
 
     if let Err(err) = tracing::subscriber::set_global_default(
@@ -16,12 +36,25 @@ fn main() -> eframe::Result<()> {
         panic!("Failed to install tracing subscriber: {}", err);
     }
 
+    let args = args_os();
+    if args.len() > 1 {
+        match arcana_launcher_cli::run_cli() {
+            Ok(()) => return Exit::Success,
+            Err(err) => return Exit::CliError(err),
+        }
+    }
+
     let native_options = eframe::NativeOptions::default();
-    eframe::run_native(
+    let err = eframe::run_native(
         "My egui App",
         native_options,
         Box::new(|cc| Ok(Box::new(App::new(cc)))),
-    )
+    );
+
+    match err {
+        Ok(()) => Exit::Success,
+        Err(err) => Exit::EFrameError(err),
+    }
 }
 
 impl eframe::App for App {

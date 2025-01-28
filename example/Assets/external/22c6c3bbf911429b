@@ -1,0 +1,9 @@
+url = "file:///C:/Users/user/Pictures/Screenshots/Screenshot%202024-10-16%20155856.png"
+
+[assets.RGBA]
+id = "00b7d9444b023801"
+sha256 = "FECFoT2of864KY3K9i4CC4J5EKeGkHL2p1zEC1UJXJFTRGcA"
+
+[assets.RGBA.sources."../../../../../Pictures/Screenshots/Screenshot%202024-10-16%20155856.png"]
+secs_since_epoch = 1729087223
+nanos_since_epoch = 716521100

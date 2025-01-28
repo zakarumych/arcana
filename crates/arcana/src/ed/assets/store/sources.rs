@@ -72,7 +72,7 @@ impl Sources {
         Some((path, modified))
     }
 
-    pub async fn fetch(
+    pub fn fetch(
         &mut self,
         temporaries: &Path,
         source: &Url,

@@ -1,6 +1,6 @@
 use std::{any::Any, path::Path};
 
-use arcana_names::{Ident, Name};
+use arcana_names::Ident;
 
 use crate::make_id;
 
@@ -29,8 +29,28 @@ pub enum ImportError {
     },
 }
 
-pub trait ImportConfig: egui_probe::EguiProbe + Any + Send + Sync {}
-impl<T> ImportConfig for T where T: egui_probe::EguiProbe + Any + Send + Sync {}
+pub trait ImportConfig: egui_probe::EguiProbe + Any + Send + Sync {
+    fn serialize(&self, ser: toml::Serializer) -> Result<(), toml::ser::Error>;
+    fn deserialize(&mut self, de: toml::Deserializer) -> Result<(), toml::de::Error>;
+}
+
+impl<T> ImportConfig for T
+where
+    T: egui_probe::EguiProbe
+        + serde::Serialize
+        + for<'de> serde::Deserialize<'de>
+        + Any
+        + Send
+        + Sync,
+{
+    fn serialize(&self, ser: toml::Serializer) -> Result<(), toml::ser::Error> {
+        serde::Serialize::serialize(self, ser)
+    }
+
+    fn deserialize(&mut self, de: toml::Deserializer) -> Result<(), toml::de::Error> {
+        serde::Deserialize::deserialize_in_place(de, self)
+    }
+}
 
 impl dyn ImportConfig {
     #[inline(always)]
@@ -66,6 +86,9 @@ impl dyn ImportConfig {
     }
 }
 
+/// Special kind of configuration that won't bring any info.
+/// Editor will not attempt to show any configuration for this importer.
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct EmptyConfig;
 
 impl egui_probe::EguiProbe for EmptyConfig {
@@ -75,10 +98,7 @@ impl egui_probe::EguiProbe for EmptyConfig {
 }
 
 /// Trait for an importer.
-pub trait Importer: Send + Sync {
-    /// Returns name of the importer
-    fn name(&self) -> Name;
-
+pub trait Importer: Send + Sync + 'static {
     /// Returns source formats importer works with.
     fn formats(&self) -> &[&str];
 

@@ -1,15 +1,16 @@
 use arcana_names::{Ident, Name};
+use hashbrown::HashMap;
 
 use crate::assets::import::Importer;
 
 pub struct Importers {
-    importers: Vec<Box<dyn Importer>>,
+    importers: HashMap<Name, Box<dyn Importer>>,
 }
 
 impl Importers {
     pub fn new() -> Self {
         Importers {
-            importers: Vec::new(),
+            importers: HashMap::new(),
         }
     }
 
@@ -18,8 +19,12 @@ impl Importers {
     }
 
     /// Adds importer to the list of importers.
-    pub fn add_importer(&mut self, importer: Box<dyn Importer>) {
-        let name = importer.name();
+    pub fn add_importer(&mut self, name: Name, importer: Box<dyn Importer>) {
+        if self.importers.contains_key(&name) {
+            tracing::warn!("Importer '{}' already registered", name);
+            return;
+        }
+
         let target = importer.target();
         let formats = importer.formats();
         let extensions = importer.extensions();
@@ -32,14 +37,11 @@ impl Importers {
             extensions,
         );
 
-        self.importers.push(importer);
+        self.importers.insert(name, importer);
     }
 
     pub fn get(&self, name: Name) -> Option<&dyn Importer> {
-        self.importers
-            .iter()
-            .find(|importer| importer.name() == name)
-            .map(|i| &**i)
+        self.importers.get(&name).map(|importer| &**importer)
     }
 
     /// Select importers that match the given target, format and extension.
@@ -48,22 +50,22 @@ impl Importers {
         target: Option<Ident>,
         format: Option<&str>,
         extension: Option<&str>,
-    ) -> Vec<&dyn Importer> {
+    ) -> Vec<(Name, &dyn Importer)> {
         self.importers
             .iter()
-            .filter(|importer| match target {
+            .filter(|(_, importer)| match target {
                 None => true,
                 Some(target) => importer.target() == target,
             })
-            .filter(|importer| match format {
+            .filter(|(_, importer)| match format {
                 None => true,
                 Some(format) => importer.formats().contains(&format),
             })
-            .filter(|importer| match extension {
+            .filter(|(_, importer)| match extension {
                 None => true,
                 Some(extension) => importer.extensions().contains(&extension),
             })
-            .map(|importer| &**importer)
+            .map(|(name, importer)| (*name, &**importer))
             .collect()
     }
 }

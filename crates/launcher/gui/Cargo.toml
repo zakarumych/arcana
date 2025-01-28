@@ -13,6 +13,7 @@ path = "src/main.rs"
 
 [dependencies]
 arcana-launcher = { path = ".." }
+arcana-launcher-cli = { path = "../cli" }
 camino.workspace = true
 dirs.workspace = true
 egui.workspace = true

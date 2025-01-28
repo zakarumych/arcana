@@ -71,23 +71,6 @@ pub enum MetaError {
         path: PathBuf,
     },
 
-    #[error("Failed to rename file '{from}' to '{to}': {error}")]
-    RenameError {
-        error: std::io::Error,
-        from: PathBuf,
-        to: PathBuf,
-    },
-
-    #[error("Failed to compare files '{path1}' and '{path2}': {error}")]
-    CompareError {
-        error: std::io::Error,
-        path1: PathBuf,
-        path2: PathBuf,
-    },
-
-    #[error("Path '{path}' is occupied by non-file")]
-    PathOccupiedByDirectory { path: PathBuf },
-
     #[error("Failed to get real path of '{path}'")]
     PathError { path: PathBuf },
 

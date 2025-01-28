@@ -178,6 +178,36 @@ impl PluginsHub {
     pub fn add_flow_fn(&mut self, id: CodeNodeId, code: FlowCode) {
         self.flow_fns.insert(id, code);
     }
+
+    /// Adds an importer from a plugin to the hub.
+    pub fn add_importer(&mut self, id: ImporterId, importer: impl Importer) {
+        self.importers.insert(id, Box::new(importer));
+    }
+
+    /// Select importers that match the given target, format and extension.
+    pub fn select_importers(
+        &self,
+        target: Option<Ident>,
+        format: Option<&str>,
+        extension: Option<&str>,
+    ) -> Vec<(ImporterId, &dyn Importer)> {
+        self.importers
+            .iter()
+            .filter(|(_, importer)| match target {
+                None => true,
+                Some(target) => importer.target() == target,
+            })
+            .filter(|(_, importer)| match format {
+                None => true,
+                Some(format) => importer.formats().contains(&format),
+            })
+            .filter(|(_, importer)| match extension {
+                None => true,
+                Some(extension) => importer.extensions().contains(&extension),
+            })
+            .map(|(id, importer)| (*id, &**importer))
+            .collect()
+    }
 }
 
 #[doc(hidden)]

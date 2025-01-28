@@ -6,21 +6,22 @@ use std::{
     time::SystemTime,
 };
 
-use arcana_names::{Ident, Name};
+use arcana_names::Ident;
 use arcana_project::real_path;
-use futures::future::BoxFuture;
 use hashbrown::{HashMap, HashSet};
 use parking_lot::RwLock;
 use url::Url;
 
-use crate::assets::{
-    import::{AssetDependencies, AssetSources, ImportError, Importer},
-    AssetData, AssetId, Error, Loader, NotFound,
+use crate::{
+    assets::{
+        import::{AssetDependencies, AssetSources, ImportError, Importer, ImporterId},
+        AssetId,
+    },
+    plugin::PluginsHub,
 };
 
 mod content_address;
 mod generator;
-mod importer;
 mod meta;
 mod scheme;
 mod sources;
@@ -28,13 +29,11 @@ mod temp;
 
 use self::{
     generator::Generator,
-    importer::Importers,
     meta::{AssetMeta, MetaError, SourceMeta},
     sources::{Sources, SourcesError},
     temp::make_temporary,
 };
 
-const DEFAULT_AUX: &'static str = "assets";
 const DEFAULT_ARTIFACTS: &'static str = "artifacts";
 const DEFAULT_EXTERNAL: &'static str = "external";
 const MAX_ITEM_ATTEMPTS: u32 = 1024;
@@ -53,33 +52,6 @@ pub struct StoreInfo {
 pub enum OpenStoreError {
     #[error("Failed to get real path of '{path}'")]
     PathError { path: PathBuf },
-
-    #[error("Failed to read store metadata file '{path}'. {error}")]
-    MetaReadError {
-        error: std::io::Error,
-        path: PathBuf,
-    },
-
-    #[error("Failed to deserialize store metadata file '{path}'. {error}")]
-    MetaDeserializeError {
-        error: toml::de::Error,
-        path: PathBuf,
-    },
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum SaveStoreError {
-    #[error("Failed to write store metadata file '{path}'. {error}")]
-    MetaWriteError {
-        error: std::io::Error,
-        path: PathBuf,
-    },
-
-    #[error("Failed to serialize store metadata file '{path}'. {error}")]
-    MetaSerializeError {
-        error: toml::ser::Error,
-        path: PathBuf,
-    },
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -114,7 +86,7 @@ pub enum StoreError {
 
     #[error("Failed to import asset '{url}' by '{importer}'. {reason}")]
     ImportError {
-        importer: Name,
+        importer: ImporterId,
         target: Ident,
         url: Url,
         reason: String,
@@ -122,15 +94,9 @@ pub enum StoreError {
 
     #[error("Too many attempts to import asset '{url}' by '{importer}'")]
     TooManyAttempts {
-        importer: Name,
+        importer: ImporterId,
         target: Ident,
         url: Url,
-    },
-
-    #[error("Failed to save artifact '{path}'. {error}")]
-    FailedToSaveArtifact {
-        error: std::io::Error,
-        path: PathBuf,
     },
 }
 
@@ -155,10 +121,10 @@ impl StoreInfo {
 }
 
 #[derive(Clone)]
-struct AssetItem {
-    source: Url,
-    format: Option<String>,
-    target: Ident,
+pub struct AssetItem {
+    pub source: Url,
+    pub format: Option<String>,
+    pub target: Ident,
 }
 
 pub struct Store {
@@ -167,7 +133,6 @@ pub struct Store {
     artifacts_base: PathBuf,
     external: PathBuf,
     temp: PathBuf,
-    importers: Importers,
 
     artifacts: RwLock<HashMap<AssetId, AssetItem>>,
     scanned: RwLock<bool>,
@@ -199,39 +164,26 @@ impl Store {
             .temp
             .map_or_else(std::env::temp_dir, |path| base.join(path));
 
-        let importers = Importers::new();
-
         Ok(Store {
             base,
             base_url,
             artifacts_base: artifacts,
             external,
             temp,
-            importers,
             artifacts: RwLock::new(HashMap::new()),
             scanned: RwLock::new(false),
             id_gen: Generator::new(),
         })
     }
 
-    /// Register importer.
-    #[tracing::instrument(skip(self), fields(importer = %importer.name()))]
-    pub fn register_importer(&mut self, importer: Box<dyn Importer>) {
-        self.importers.add_importer(importer);
-    }
-
-    #[tracing::instrument(skip(self))]
-    pub fn purge_importers(&mut self) {
-        self.importers.clear();
-    }
-
     /// Import an asset.
-    #[tracing::instrument(skip(self))]
-    pub async fn store(
+    #[tracing::instrument(skip(self, hub))]
+    pub fn store(
         &self,
         source: &str,
         target: Ident,
         format: Option<&str>,
+        hub: &PluginsHub,
     ) -> Result<(AssetId, PathBuf, SystemTime), StoreError> {
         let source = self
             .base_url
@@ -242,17 +194,20 @@ impl Store {
                 source: source.to_owned(),
             })?;
 
-        self.store_from_url(source, target, format).await
+        self.store_from_url(source, target, format, hub)
     }
 
     /// Import an asset.
-    #[tracing::instrument(skip(self))]
-    pub async fn store_from_url(
+    #[tracing::instrument(skip(self, hub))]
+    pub fn store_from_url(
         &self,
         source: Url,
         target: Ident,
         format: Option<&str>,
+        hub: &PluginsHub,
     ) -> Result<(AssetId, PathBuf, SystemTime), StoreError> {
+        self.ensure_scanned();
+
         let mut sources = Sources::new();
 
         let base = &self.base;
@@ -313,8 +268,7 @@ impl Store {
             let extension = url_ext(&item.source);
 
             let importers =
-                self.importers
-                    .select(Some(item.target), item.format.as_deref(), extension);
+                hub.select_importers(Some(item.target), item.format.as_deref(), extension);
 
             if importers.is_empty() {
                 return Err(StoreError::NoImporters {
@@ -331,12 +285,11 @@ impl Store {
                 });
             }
 
-            let importer = importers[0];
+            let (importer_id, importer) = importers[0];
 
             // Fetch source file.
             let (source_path, source_modified) = sources
                 .fetch(&self.temp, &item.source)
-                .await
                 .map_err(StoreError::SourcesError)?;
 
             let source_path = source_path.to_owned();
@@ -392,7 +345,7 @@ impl Store {
                 Ok(()) => {}
                 Err(ImportError::Other { reason }) => {
                     return Err(StoreError::ImportError {
-                        importer: importer.name(),
+                        importer: importer_id,
                         target: item.target,
                         url: item.source.clone(),
                         reason,
@@ -405,7 +358,7 @@ impl Store {
                     // If we have too many attempts, we should stop.
                     if item.attempt >= MAX_ITEM_ATTEMPTS {
                         return Err(StoreError::TooManyAttempts {
-                            importer: importer.name(),
+                            importer: importer_id,
                             target: item.target,
                             url: item.source.clone(),
                         });
@@ -425,7 +378,6 @@ impl Store {
                             }
                             Ok(url) => sources
                                 .fetch(&self.temp, &url)
-                                .await
                                 .map_err(StoreError::SourcesError)?,
                         };
                     }
@@ -520,7 +472,80 @@ impl Store {
     }
 
     /// Fetch asset data path.
-    pub async fn fetch(&self, id: AssetId) -> Option<(PathBuf, SystemTime)> {
+    pub fn fetch(&self, id: AssetId, hub: &PluginsHub) -> Option<(PathBuf, SystemTime)> {
+        self.ensure_scanned();
+
+        let item = self.artifacts.read().get(&id).cloned()?;
+
+        let (_, path, modified) = self
+            .store_from_url(item.source, item.target, item.format.as_deref(), hub)
+            .ok()?;
+
+        Some((path, modified))
+    }
+
+    /// Fetch asset data path.
+    pub fn find_asset(
+        &self,
+        source: &str,
+        target: Ident,
+        hub: &PluginsHub,
+    ) -> Result<Option<AssetId>, StoreError> {
+        self.ensure_scanned();
+
+        let source_url =
+            self.base_url
+                .join(source)
+                .map_err(|error| StoreError::InvalidSourceUrl {
+                    error,
+                    base: self.base_url.clone(),
+                    source: source.to_owned(),
+                })?;
+
+        let meta = SourceMeta::new(&source_url, &self.base, &self.external)
+            .map_err(StoreError::MetaError)?;
+
+        match meta.get_asset(target) {
+            None => {
+                drop(meta);
+                match self.store(source, target, None, hub) {
+                    Err(err) => {
+                        tracing::warn!(
+                            "Failed to store '{}' as '{}' on lookup. {:#}",
+                            source,
+                            target,
+                            err
+                        );
+                        Ok(None)
+                    }
+                    Ok((id, _, _)) => Ok(Some(id)),
+                }
+            }
+            Some(asset) => Ok(Some(asset.id())),
+        }
+    }
+
+    /// Select imported assets.
+    /// Optionally filter by target and base URL.
+    pub fn select(&self, target: Option<Ident>, base: Option<&str>) -> Vec<(AssetId, AssetItem)> {
+        self.ensure_scanned();
+
+        let base_url = base.map(|base| self.base_url.join(base).expect("Base URL must be valid"));
+
+        self.artifacts
+            .read()
+            .iter()
+            .filter(|(_, item)| {
+                target.map_or(true, |target| item.target == target)
+                    && base_url
+                        .as_ref()
+                        .map_or(true, |base| is_base_url(base, &item.source))
+            })
+            .map(|(&id, item)| (id, item.clone()))
+            .collect()
+    }
+
+    fn ensure_scanned(&self) {
         let scanned = *self.scanned.read();
 
         if !scanned {
@@ -543,53 +568,6 @@ impl Store {
                 drop(artifacts);
                 drop(scanned);
             }
-        }
-
-        let item = self.artifacts.read().get(&id).cloned()?;
-
-        let (_, path, modified) = self
-            .store_from_url(item.source, item.target, item.format.as_deref())
-            .await
-            .ok()?;
-
-        Some((path, modified))
-    }
-
-    /// Fetch asset data path.
-    pub async fn find_asset(
-        &self,
-        source: &str,
-        target: Ident,
-    ) -> Result<Option<AssetId>, StoreError> {
-        let source_url =
-            self.base_url
-                .join(source)
-                .map_err(|error| StoreError::InvalidSourceUrl {
-                    error,
-                    base: self.base_url.clone(),
-                    source: source.to_owned(),
-                })?;
-
-        let meta = SourceMeta::new(&source_url, &self.base, &self.external)
-            .map_err(StoreError::MetaError)?;
-
-        match meta.get_asset(target) {
-            None => {
-                drop(meta);
-                match self.store(source, target, None).await {
-                    Err(err) => {
-                        tracing::warn!(
-                            "Failed to store '{}' as '{}' on lookup. {:#}",
-                            source,
-                            target,
-                            err
-                        );
-                        Ok(None)
-                    }
-                    Ok((id, _, _)) => Ok(Some(id)),
-                }
-            }
-            Some(asset) => Ok(Some(asset.id())),
         }
     }
 }
@@ -756,51 +734,33 @@ fn scan_local(
     }
 }
 
-impl Loader for Store {
-    #[inline]
-    fn load<'a>(&'a self, id: AssetId) -> BoxFuture<'a, Result<AssetData, Error>> {
-        Box::pin(async move {
-            match self.fetch(id).await {
-                None => Err(Error::new(NotFound)),
-                Some((path, modified)) => {
-                    let bytes = std::fs::read(&path).map_err(Error::new)?;
-                    Ok(AssetData {
-                        bytes: bytes.into_boxed_slice(),
-                        version: modified_to_version(modified),
-                    })
-                }
-            }
-        })
-    }
-
-    #[inline]
-    fn update<'a>(
-        &'a self,
-        id: AssetId,
-        version: u64,
-    ) -> BoxFuture<'a, Result<Option<AssetData>, Error>> {
-        Box::pin(async move {
-            match self.fetch(id).await {
-                None => Ok(None),
-                Some((path, modified)) => {
-                    if modified_to_version(modified) <= version {
-                        return Ok(None);
-                    }
-                    let bytes = std::fs::read(&path).map_err(Error::new)?;
-                    Ok(Some(AssetData {
-                        bytes: bytes.into_boxed_slice(),
-                        version: modified_to_version(modified),
-                    }))
-                }
-            }
-        })
-    }
-}
-
 #[inline]
 fn modified_to_version(modified: SystemTime) -> u64 {
     modified
         .duration_since(SystemTime::UNIX_EPOCH)
         .expect("SystemTime must be after UNIX_EPOCH")
         .as_secs()
+}
+
+fn is_base_url(base: &Url, url: &Url) -> bool {
+    if base.scheme() != url.scheme() || base.host() != url.host() || base.port() != url.port() {
+        return false;
+    }
+
+    let base_path = base.path();
+    let url_path = url.path();
+
+    if !url_path.starts_with(base_path) {
+        return false;
+    }
+
+    if base_path.ends_with('/') {
+        return true;
+    }
+
+    if url_path[base_path.len()..].starts_with('/') {
+        return true;
+    }
+
+    false
 }

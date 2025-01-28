@@ -43,6 +43,7 @@ pub enum UserEvent {}
 /// Editor tab.
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 enum Tab {
+    Assets,
     Plugins,
     // Console,
     Systems,
@@ -246,6 +247,10 @@ impl App {
                                     }
                                 });
                                 ui.menu_button("View", |ui| {
+                                    if ui.button("Assets").clicked() {
+                                        focus_or_add_tab(tabs, Tab::Assets);
+                                        ui.close_menu();
+                                    }
                                     if ui.button("Plugins").clicked() {
                                         focus_or_add_tab(tabs, Tab::Plugins);
                                         ui.close_menu();
@@ -283,6 +288,7 @@ impl App {
                             linked: self.container.as_ref(),
                             project: &mut self.project,
                             data: &mut self.data,
+                            assets: &mut self.assets,
                             plugins: &mut self.plugins,
                             // console: &mut self.console,
                             systems: &mut self.systems,
@@ -496,6 +502,7 @@ struct AppModel<'a> {
     linked: Option<&'a Container>,
     project: &'a mut Project,
     data: &'a mut ProjectData,
+    assets: &'a mut Assets,
     plugins: &'a mut Plugins,
     // console: &'a mut Console,
     systems: &'a mut Systems,
@@ -518,6 +525,7 @@ impl TabViewer for AppModel<'_> {
 
     fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Tab) {
         match *tab {
+            Tab::Assets => self.assets.show(ui, self.main),
             Tab::Plugins => self.plugins.show(self.linked, self.project, self.data, ui),
             // Tab::Console => self.console.show(ui),
             Tab::Systems => self.systems.show(self.project, self.data, self.ide, ui),
@@ -540,6 +548,7 @@ impl TabViewer for AppModel<'_> {
 
     fn title(&mut self, tab: &mut Tab) -> WidgetText {
         match *tab {
+            Tab::Assets => "Assets".into(),
             Tab::Plugins => "Plugins".into(),
             // Tab::Console => "Console".into(),
             Tab::Systems => "Systems".into(),
@@ -553,6 +562,7 @@ impl TabViewer for AppModel<'_> {
 
     fn scroll_bars(&self, tab: &Tab) -> [bool; 2] {
         match tab {
+            Tab::Assets => [false, false],
             // Tab::Console => [false, false],
             Tab::Systems => [false, false],
             Tab::Codes => [false, false],
