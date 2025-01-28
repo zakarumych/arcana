@@ -42,9 +42,7 @@ struct State {
 impl Generator {
     /// Returns default epoch.
     pub fn default_epoch() -> SystemTime {
-        /// 2023-04-07 21:51:12 UTC as seconds since UNIX epoch.
-        /// This is the time when the value was defined.
-        const DEFAULT_EPOCH: u64 = 1680904272;
+        const DEFAULT_EPOCH: u64 = 1073741824;
 
         SystemTime::UNIX_EPOCH + Duration::from_secs(DEFAULT_EPOCH)
     }

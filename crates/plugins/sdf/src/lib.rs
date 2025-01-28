@@ -40,7 +40,7 @@ pub struct Shape {
 
 impl Shape {
     pub fn rect(width: f32, height: f32) -> Self {
-        Self {
+        Shape {
             color: [0.8, 0.2, 1.0, 1.0],
             transform: na::Affine2::identity(),
             kind: ShapeKind::Rect { width, height },
@@ -48,7 +48,7 @@ impl Shape {
     }
 
     pub fn circle(radius: f32) -> Self {
-        Self {
+        Shape {
             color: [0.8, 0.2, 1.0, 1.0],
             transform: na::Affine2::identity(),
             kind: ShapeKind::Circle { radius },

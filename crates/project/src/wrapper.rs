@@ -21,7 +21,7 @@ pub enum Profile {
 pub fn run_editor(root_path: &Path, manifest_path: &Path, profile: Profile) -> Command {
     let workspace = root_path.join(WORKSPACE_DIR_NAME);
     let mut cmd = Command::new("cargo");
-    cmd.arg("run").arg("--package=ed");
+    cmd.arg("+nightly").arg("run").arg("--package=ed");
     match profile {
         Profile::Release => {
             cmd.arg("--release");
@@ -45,7 +45,7 @@ pub fn run_editor(root_path: &Path, manifest_path: &Path, profile: Profile) -> C
 pub fn build_editor(root: &Path, profile: Profile) -> Command {
     let workspace = root.join(WORKSPACE_DIR_NAME);
     let mut cmd = Command::new("cargo");
-    cmd.arg("build").arg("--package=ed");
+    cmd.arg("+nightly").arg("build").arg("--package=ed");
     if profile == Profile::Release {
         cmd.arg("--release");
     }
@@ -59,7 +59,8 @@ pub fn build_editor(root: &Path, profile: Profile) -> Command {
 pub fn run_game(root: &Path, profile: Profile) -> Command {
     let workspace = root.join(WORKSPACE_DIR_NAME);
     let mut cmd = Command::new("cargo");
-    cmd.arg("run")
+    cmd.arg("+nightly")
+        .arg("run")
         .arg("--package=game")
         .arg("--features=arcana/ed");
     if profile == Profile::Release {
@@ -74,7 +75,7 @@ pub fn run_game(root: &Path, profile: Profile) -> Command {
 pub fn build_game(root: &Path, profile: Profile) -> Command {
     let workspace = root.join(WORKSPACE_DIR_NAME);
     let mut cmd = Command::new("cargo");
-    cmd.arg("build").arg("--package=game");
+    cmd.arg("+nightly").arg("build").arg("--package=game");
     if profile == Profile::Release {
         cmd.arg("--release");
     }
@@ -90,7 +91,7 @@ pub fn build_plugins(root: &Path, profile: Profile) -> miette::Result<BuildProce
     let workspace = root.join(WORKSPACE_DIR_NAME);
 
     let mut cmd = Command::new("cargo");
-    cmd.arg("build").arg("--package=plugins");
+    cmd.arg("+nightly").arg("build").arg("--package=plugins");
 
     if profile == Profile::Release {
         cmd.arg("--release");

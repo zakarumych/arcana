@@ -3,7 +3,7 @@ use edict::world::World;
 use hashbrown::HashMap;
 
 use crate::{
-    make_id,
+    make_uid,
     model::{Model, Value},
     stid::HasStid,
     Stid,
@@ -11,12 +11,12 @@ use crate::{
 
 use super::graph::{Exec, Planner};
 
-make_id! {
+make_uid! {
     /// ID of the render job.
     pub JobId;
 }
 
-/// Descroption of job creating a target.
+/// Description of job creating a target.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct TargetCreateDesc {
     /// Create name.
@@ -212,6 +212,27 @@ macro_rules! job_desc {
 }
 
 pub trait Job: 'static {
+    /// Returns job name.
+    ///
+    /// This method is used to get name of the job
+    /// when plugin is loaded.
+    fn name() -> Name
+    where
+        Self: Sized;
+
+    /// Returns job description.
+    ///
+    /// This method is used to get description of the job
+    /// when plugin is loaded.
+    fn desc() -> JobDesc
+    where
+        Self: Sized;
+
+    /// Creates new job instance.
+    fn new() -> Self
+    where
+        Self: Sized;
+
     /// First phase of a job is planning.
     ///
     /// This phase is responsible for:
@@ -247,4 +268,12 @@ pub(super) fn invalid_input_pin(pin: usize) -> ! {
 #[cold]
 pub(super) fn invalid_output_pin(pin: usize) -> ! {
     panic!("Invalid output pin index: {}", pin)
+}
+
+fn is_job<T: Job>(_: T) {}
+
+fn assert_job_is_job() {
+    fn get_job(job: impl Job) {
+        is_job(job);
+    }
 }

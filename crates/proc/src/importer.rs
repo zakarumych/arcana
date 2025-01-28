@@ -1,70 +1,63 @@
 use proc_macro2::TokenStream;
 
-pub fn importer(attr: proc_macro::TokenStream, item: syn::Item) -> syn::Result<TokenStream> {
+pub fn importer(attr: proc_macro::TokenStream, item: syn::ItemImpl) -> syn::Result<TokenStream> {
+    let mut tokens = TokenStream::new();
+
+    let importer_trait_path = match item.trait_ {
+        None => {
+            return Err(syn::Error::new_spanned(
+                item,
+                "expected `Importer` trait implementation",
+            ));
+        }
+        Some((Some(_), _, _)) => {
+            return Err(syn::Error::new_spanned(
+                item,
+                "expected non-negative `Importer` trait implementation",
+            ));
+        }
+        Some((_, ref path, _)) => path,
+    };
+
+    let type_path = match *item.self_ty {
+        syn::Type::Path(ref type_path) => type_path,
+        _ => {
+            return Err(syn::Error::new_spanned(
+                item.self_ty,
+                "expected `Importer` implementation for a type",
+            ));
+        }
+    };
+
+    let type_last_segment = type_path.path.segments.last().unwrap();
+
+    let ident = &type_last_segment.ident;
+
     if !attr.is_empty() {
-        return Err(syn::Error::new_spanned(
-            TokenStream::from(attr),
-            "unexpected attribute",
+        return Err(syn::Error::new(
+            proc_macro2::Span::call_site(),
+            "`#[importer]` does not accept any arguments",
         ));
     }
 
-    let name = match &item {
-        syn::Item::Fn(item) => &item.sig.ident,
-        syn::Item::Struct(item) => &item.ident,
-        syn::Item::Union(item) => &item.ident,
-        _ => {
-            return Err(syn::Error::new_spanned(item, "expected function or a type"));
-        }
-    };
-
-    let id = match &item {
-        syn::Item::Fn(item) => {
-            let ident = &item.sig.ident;
-            quote::quote! { ::arcana::local_name_hash_id!(#ident) }
-        }
-        syn::Item::Struct(item) => {
-            let ident = &item.ident;
-            quote::quote! { ::arcana::local_name_hash_id!(#ident) }
-        }
-        syn::Item::Union(item) => {
-            let ident = &item.ident;
-            quote::quote! { ::arcana::local_name_hash_id!(#ident) }
-        }
-        _ => {
-            return Err(syn::Error::new_spanned(item, "expected function or a type"));
-        }
-    };
-
-    let new = match &item {
-        syn::Item::Fn(item) => {
-            let ident = &item.sig.ident;
-            quote::quote! { #ident }
-        }
-        syn::Item::Struct(item) => {
-            let ident = &item.ident;
-            quote::quote! { #ident::new() }
-        }
-        syn::Item::Union(item) => {
-            let ident = &item.ident;
-            quote::quote! { #ident::new() }
-        }
-        _ => {
-            return Err(syn::Error::new_spanned(item, "expected function or a type"));
-        }
-    };
-
-    Ok(quote::quote! {
+    tokens.extend(quote::quote! {
         ::arcana::plugin_ctor_add!(plugin => {
-            let id: ::arcana::assets::import::ImporterId = #id;
+            #[allow(dead_code)]
+            fn importer_is_importer<T: #importer_trait_path>() {
+                ::arcana::for_macro::is_importer::<T>();
+            }
+            importer_is_importer::<#type_path>();
+
+            let id: ::arcana::assets::import::ImporterId = ::arcana::local_name_hash_id!(#ident);
 
             let add = |hub: &mut ::arcana::plugin::PluginsHub| {
-                let id: ::arcana::assets::import::ImporterId = #id;
-                hub.add_importer(id, #new);
+                let id: ::arcana::assets::import::ImporterId = ::arcana::local_name_hash_id!(#ident);
+                hub.add_importer(id, < #type_path as ::arcana::assets::import::Importer >::new());
             };
 
             let info = ::arcana::plugin::ImporterInfo {
                 id,
-                name: ::arcana::name!(#name),
+                name: < #type_path as ::arcana::assets::import::Importer >::name(),
                 location: ::std::option::Option::Some(::arcana::plugin::Location {
                     file: std::string::String::from(::std::file!()),
                     line: ::std::line!(),
@@ -76,5 +69,7 @@ pub fn importer(attr: proc_macro::TokenStream, item: syn::Item) -> syn::Result<T
         });
 
         #item
-    })
+    });
+
+    Ok(tokens)
 }

@@ -1,12 +1,5 @@
 [workspace]
-members = [
-    "project",
-    "arcana",
-    "launcher/cli",
-    "launcher/gui",
-    "plugins/*",
-    "names",
-]
+members = ["project", "arcana", "launcher", "plugins/*", "names"]
 resolver = "2"
 
 [workspace.package]
@@ -27,53 +20,56 @@ base64 = "0.22"
 basis-universal = "0.3.1"
 basis-universal-sys = "0.3.1"
 bincode = "1.3"
-bitflags = "2.0"
-bit-vec = { version = "0.7" }
+bitflags = "2.6"
+bit-vec = { version = "0.8" }
 blink-alloc = { version = "0.3.1", features = ["nightly"] }
-bytemuck = { version = "1.7", features = ["derive", "min_const_generics"] }
+bytemuck = { version = "1.21", features = ["derive", "min_const_generics"] }
 camino = "1.1"
-cargo_toml = "0.20"
+cargo_toml = "0.21"
 cint = "0.3"
 clap = { version = "4.3", features = ["derive"] }
 codespan-reporting = "0.11"
 const-random = "0.1"
-core-graphics-types = { version = "0.1" }
+# core-graphics-types = { version = "0.1" }
 ctor = "0.2"
 cursor-icon = { version = "1.0" }
 denvars = { version = "0.3.2" }
 dirs = { version = "5" }
 edict = { version = "1.0.0-rc5", path = "../../edict", features = ["serde"] }
-egui = { version = "0.28", features = ["bytemuck", "serde", "cint"] }
-egui_dnd = { version = "0.9" }
-egui_dock = { version = "0.13" }
-egui_file = { version = "0.18" }
-egui-phosphor = { version = "0.5", git = "https://github.com/crumblingstatue/egui-phosphor.git", branch = "egui-0.28" }
+egui = { version = "0.30", features = ["bytemuck", "serde", "cint"] }
+egui_dnd = { version = "0.11" }
+egui_dock = { version = "0.14", git = "https://github.com/bryceberger/egui_dock", rev = "4ea4ba1d77fa1c6f994042f50b486e431a25490f" }
+egui_file = { version = "0.20" }
+egui-phosphor = { version = "0.8" }
 egui-probe = { path = "../../egui-probe" }
 egui-snarl = { path = "../../egui-snarl" }
-egui_tracing = { version = "0.2.2" }
-eframe = { version = "0.28" }
+# egui_tracing = { version = "0.2.6" }
+eframe = { version = "0.30" }
 flume = "0.11"
 figa = { version = "0.3" }
 futures = "0.3"
 gametime = { version = "0.5", path = "../../gametime" }
-gilrs = { version = "0.10" }
-hashbrown = { version = "=0.14", features = ["nightly", "serde"] }
+gilrs = { version = "0.11" }
+hashbrown = { version = "=0.15", features = ["nightly", "serde"] }
 hidden-trait = "0.1"
 image = "0.25"
 libloading = "0.8"
-linkme = "0.3"
+# linkme = "0.3"
 #mev = { git = "https://github.com/zakarumych/mev.git" }
 mev = { path = "../../mev" }
-miette = "7.0"
-na = { package = "nalgebra", version = "0.33", features = ["libm", "serde-serialize"] }
-open = { version = "5.0" }
-ordered-float = { version = "4.2" }
+miette = "7.4"
+na = { package = "nalgebra", version = "0.33", features = [
+    "libm",
+    "serde-serialize",
+] }
+open = { version = "5.3" }
+ordered-float = { version = "4.6" }
 palette = { version = "0.7", features = ["serializing"] }
 parking_lot = "0.12"
 percent-encoding = "2.3"
 proc-macro2 = "1"
 rand = "0.8"
-proc-easy = "0.3"
+proc-easy = "0.4"
 quote = "1"
 raw-window-handle = "0.6"
 relevant = "0.4"
@@ -85,7 +81,7 @@ slab = "0.4"
 smallvec = "1.6"
 simba = { version = "0.9" }
 syn = "2"
-thiserror = "1"
+thiserror = "2"
 tiny-fn = { version = "0.1.6" }
 tokio = { version = "1", features = [
     "rt",
@@ -99,5 +95,6 @@ tracing-error = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 unicode-ident = "1"
 url = "2"
-uuid = { version = "1.6" }
+uuid = { version = "1.11" }
+vtid = { version = "0.1", features = ["derive"] }
 winit = { version = "0.30" }

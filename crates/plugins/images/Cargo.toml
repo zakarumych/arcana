@@ -1,0 +1,19 @@
+[package]
+version = "0.0.0"
+name = "images"
+edition = "2021"
+publish = false
+
+[dependencies]
+arcana = { path = "../../arcana" }
+basis-universal.workspace = true
+image = { workspace = true, features = [
+    "png",
+    "jpeg",
+    "tga",
+    "tiff",
+    "bmp",
+    "gif",
+    "qoi",
+    "webp",
+] }

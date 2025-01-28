@@ -21,6 +21,7 @@ proc_easy::easy_parse! {
 
 proc_easy::easy_parse! {
     pub struct HasStid {
+    pub struct HasStid {
         ty: syn::Type,
         assign: proc_easy::EasyMaybe<AssignStid>,
     }
@@ -64,7 +65,7 @@ fn hash_derive_input(input: &syn::DeriveInput) -> u64 {
     hasher.finish()
 }
 
-pub fn with_stid(stid: Option<StidValue>, input: &syn::DeriveInput) -> syn::Result<TokenStream> {
+pub fn has_stid(stid: Option<StidValue>, input: &syn::DeriveInput) -> syn::Result<TokenStream> {
     let name = &input.ident;
 
     let base_id = match &stid {
@@ -103,12 +104,14 @@ pub fn with_stid(stid: Option<StidValue>, input: &syn::DeriveInput) -> syn::Resu
             let ident = &tp.ident;
             where_clause.predicates.push(syn::parse_quote! {
                 #ident: ::arcana::stid::HasStid
+                #ident: ::arcana::stid::HasStid
             });
         }
 
         let ids = input.generics.type_params().map(|tp| {
             let ident = &tp.ident;
             quote::quote! {
+                <#ident as ::arcana::stid::HasStid>::stid().get()
                 <#ident as ::arcana::stid::HasStid>::stid().get()
             }
         });
@@ -128,6 +131,7 @@ pub fn with_stid(stid: Option<StidValue>, input: &syn::DeriveInput) -> syn::Resu
 
     let output = quote::quote! {
         impl #impl_generics ::arcana::stid::HasStid for #name #ty_generics #where_clause {
+        impl #impl_generics ::arcana::stid::HasStid for #name #ty_generics #where_clause {
             #[inline(always)]
             fn stid() -> ::arcana::stid::Stid {
                 let id = #combined_ids;
@@ -136,6 +140,7 @@ pub fn with_stid(stid: Option<StidValue>, input: &syn::DeriveInput) -> syn::Resu
 
             #[inline(always)]
             fn stid_dyn(&self) -> ::arcana::stid::Stid {
+                <Self as ::arcana::stid::HasStid>::stid()
                 <Self as ::arcana::stid::HasStid>::stid()
             }
         }
@@ -169,6 +174,7 @@ pub fn with_stid_fn(input: HasStid) -> syn::Result<TokenStream> {
     };
 
     let output = quote::quote! {
+        impl ::arcana::stid::HasStid for #ty {
         impl ::arcana::stid::HasStid for #ty {
             #[inline(always)]
             fn stid() -> ::arcana::stid::Stid {

@@ -67,7 +67,7 @@ macro_rules! for_tuple_2x {
 macro_rules! const_format {
     ($fmt:literal $(, $arg:expr)* $(,)?) => {{
         ::std::thread_local! {
-            static VALUE: &'static str = const { ::std::format!($fmt $(, $arg)*).leak() };
+            static VALUE: &'static str = { ::std::format!($fmt $(, $arg)*).leak() };
         }
         let s: &'static str = VALUE.with(|s| *s);
         s
@@ -79,7 +79,7 @@ extern crate self as arcana;
 // Re-exports
 pub use {
     arcana_names::{ident, name, Ident, IdentError, Name, NameError},
-    arcana_proc::{filter, importer, init, job, stable_hash_tokens, system, with_stid, HasStid},
+    arcana_proc::{filter, has_stid, importer, init, job, stable_hash_tokens, system, HasStid},
     arcana_project as project,
     blink_alloc::{self, Blink, BlinkAlloc},
     bytemuck,
@@ -89,6 +89,7 @@ pub use {
         TimeStamp,
     },
     hashbrown, na, parking_lot, tokio, tracing,
+    vtid::{HasVtid, Vtid},
 };
 
 pub use mev;
@@ -117,7 +118,7 @@ pub mod viewport;
 pub mod work;
 
 pub use self::{
-    id::{BaseId, Id, IdGen},
+    id::{BaseId, Id, SeqIdGen},
     num2name::{hash_to_name, num_to_name},
     stid::{HasStid, Stid},
     tany::{LTAny, TAny},
@@ -241,3 +242,12 @@ static_assert!(
     size_of::<usize>() <= size_of::<u64>(),
     "Unchecked cast from usize to u64 is performed in Arcana"
 );
+
+/// Module that contains non-public items exposed for macros.
+#[doc(hidden)]
+pub mod for_macro {
+    use crate::{assets::import::Importer, work::Job};
+
+    pub fn is_job<T: Job>() {}
+    pub fn is_importer<T: Importer>() {}
+}

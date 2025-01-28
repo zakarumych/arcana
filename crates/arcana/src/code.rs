@@ -7,17 +7,17 @@ use hashbrown::{hash_map::Entry, HashMap};
 use smallvec::SmallVec;
 
 use crate::{
-    make_id,
-    stid::{HasStid, Stid},
+    make_uid,
+    stid::{Stid, WithStid},
     Slot,
 };
 
-make_id! {
+make_uid! {
     /// ID of the code node
     pub CodeNodeId;
 }
 
-make_id! {
+make_uid! {
     /// ID of the code graph
     pub CodeGraphId;
 }

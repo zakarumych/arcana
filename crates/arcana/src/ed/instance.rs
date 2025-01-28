@@ -12,7 +12,7 @@ use arcana::{
     render::{CurrentRenderer, RenderGraphId, Renderer},
     viewport::{ViewId, Viewport},
     work::{CommandStream, HookId, Image2D, Image2DInfo, PinId, Target, WorkGraph},
-    Blink, ClockStep, EntityId, FrequencyTicker, IdGen, Name, World,
+    Blink, ClockStep, EntityId, FrequencyTicker, Name, SeqIdGen, World,
 };
 use egui::Ui;
 use hashbrown::{HashMap, HashSet};
@@ -112,7 +112,7 @@ pub struct Instance {
     /// Instance views.
     views: HashMap<ViewId, InstanceView>,
 
-    view_id_gen: IdGen,
+    view_id_gen: SeqIdGen,
 }
 
 impl Instance {
@@ -145,7 +145,7 @@ impl Instance {
             schedule,
             container: None,
             views: HashMap::new(),
-            view_id_gen: IdGen::new(),
+            view_id_gen: SeqIdGen::new(),
         }
     }
 
@@ -189,7 +189,7 @@ impl Instance {
     }
 
     pub fn new_view(&mut self) -> ViewId {
-        let id = self.view_id_gen.next();
+        let id = ViewId::generate(&mut self.view_id_gen);
 
         self.views.insert(
             id,

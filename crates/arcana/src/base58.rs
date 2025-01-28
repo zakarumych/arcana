@@ -174,7 +174,7 @@ pub fn base58_enc_io(read: impl std::io::Read, write: impl std::io::Write) -> st
     Ok(())
 }
 
-#[derive(Clone, Copy, Debug, thiserror::Error)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum Base58DecodingError {
     #[error("invalid character in input")]
     InvalidCharacter,

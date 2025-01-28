@@ -1,6 +1,6 @@
 use futures::future::BoxFuture;
 
-use super::{error::Error, id::AssetId};
+use super::{error::Error, AssetId};
 
 /// Asset data loaded from [`Store`].
 pub struct AssetData {

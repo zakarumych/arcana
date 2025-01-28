@@ -9,6 +9,7 @@ description = ""
 
 [plugins.dependency]
 path = "../crates/plugins/scene"
+path = "../crates/plugins/scene"
 
 [[plugins]]
 name = "triangle"
@@ -16,12 +17,21 @@ description = ""
 
 [plugins.dependency]
 path = "../crates/plugins/triangle"
+path = "../crates/plugins/triangle"
 
 [[plugins]]
 name = "dummy"
 description = ""
 
 [plugins.dependency]
+path = "../crates/plugins/dummy"
+
+[[plugins]]
+name = "images"
+description = ""
+
+[plugins.dependency]
+path = "../crates/plugins/images"
 path = "../crates/plugins/dummy"
 
 [[plugins]]

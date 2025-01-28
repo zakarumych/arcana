@@ -79,7 +79,7 @@ impl Plugins {
         })
     }
 
-    /// Adds new plugin.
+    /// Adds plugin to project.
     pub fn add_plugin(
         &mut self,
         name: Ident,

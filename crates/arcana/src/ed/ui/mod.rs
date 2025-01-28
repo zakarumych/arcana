@@ -150,16 +150,16 @@ impl Ui {
         clipboard: &mut Clipboard,
         window: &Window,
         time: TimeStamp,
-        run_ui: impl FnOnce(&egui::Context, UserTextures),
+        mut run_ui: impl FnMut(&egui::Context, UserTextures),
     ) {
         viewport.raw_input.time = Some(time.elapsed_since_start().as_secs_f64());
 
-        let user_textures = UserTextures {
-            textures: &mut self.textures,
-            next_user_texture_id: &mut self.next_user_texture_id,
-        };
-
         let output = self.cx.run(viewport.raw_input.take(), |cx| {
+            let user_textures = UserTextures {
+                textures: &mut self.textures,
+                next_user_texture_id: &mut self.next_user_texture_id,
+            };
+
             run_ui(cx, user_textures);
         });
 

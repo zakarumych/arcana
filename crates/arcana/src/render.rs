@@ -1,8 +1,8 @@
 use edict::{component::Component, entity::EntityId};
 
-use crate::make_id;
+use crate::make_uid;
 
-make_id! {
+make_uid! {
     /// ID of the render graph.
     pub RenderGraphId;
 }

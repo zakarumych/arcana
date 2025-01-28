@@ -8,21 +8,20 @@ use std::{
 use amity::flip_queue::FlipQueue;
 use hashbrown::{HashMap, HashSet};
 use parking_lot::{Mutex, RwLock};
-
-use crate::type_id;
+use vtid::Vtid;
 
 use super::{
     asset::Asset,
     build::AssetBuilder,
     error::{Error, NotFound},
-    id::AssetId,
     loader::{AssetData, Loader},
+    AssetId,
 };
 
 const ASSETS_ARRAY_SIZE: usize = 32;
 
 fn assets_array_index(id: AssetId) -> usize {
-    let v = id.value().get();
+    let v = id.get();
 
     // Simple hash function to distribute assets across multiple locks.
     let v = v.wrapping_mul(0x9E3779B9);
@@ -40,18 +39,18 @@ pub struct Assets {
 
 struct AssetsInner {
     /// Loaders to load assets from.
-    loaders: Box<[Box<dyn Loader>]>,
+    loaders: Box<[Arc<dyn Loader>]>,
 
     /// Arrays are indexed by `assets_array_index(id)`.
     /// This helps to distribute asset access across multiple locks.
-    types: RwLock<HashMap<TypeId, [Arc<dyn AnyTypedAssets>; ASSETS_ARRAY_SIZE]>>,
+    types: RwLock<HashMap<Vtid, [Arc<dyn AnyTypedAssets>; ASSETS_ARRAY_SIZE]>>,
 
     // Queue of assets to build.
-    to_build: FlipQueue<(TypeId, AssetId)>,
+    to_build: FlipQueue<(Vtid, AssetId)>,
 }
 
 impl Assets {
-    pub fn new(loaders: impl IntoIterator<Item = Box<dyn Loader>>) -> Self {
+    pub fn new(loaders: impl IntoIterator<Item = Arc<dyn Loader>>) -> Self {
         Assets {
             inner: Arc::new(AssetsInner {
                 loaders: loaders.into_iter().collect(),
@@ -91,10 +90,10 @@ impl Assets {
     /// This function is not intended for game code.
     /// Editor will use it before switching plugins.
     #[doc(hidden)]
-    pub fn drop_all_except(&self, keep: &HashSet<TypeId>) {
+    pub fn drop_all_except(&self, keep: &HashSet<Vtid>) {
         let mut types_write = self.inner.types.write();
-        types_write.retain(|type_id, map| {
-            if keep.contains(type_id) {
+        types_write.retain(|vtid, map| {
+            if keep.contains(vtid) {
                 return true;
             }
 
@@ -109,20 +108,20 @@ impl Assets {
 
     pub fn build_assets(&self, builder: &mut AssetBuilder) {
         self.inner.to_build.drain_locking(|to_build| {
-            for (type_id, id) in to_build {
-                if let Some(typed) = self.typed_get(type_id, id) {
+            for (vtid, id) in to_build {
+                if let Some(typed) = self.typed_get(vtid, id) {
                     typed.build_asset(id, builder);
                 }
             }
         });
     }
 
-    fn typed_get(&self, type_id: TypeId, id: AssetId) -> Option<Arc<dyn AnyTypedAssets>> {
+    fn typed_get(&self, vtid: Vtid, id: AssetId) -> Option<Arc<dyn AnyTypedAssets>> {
         let index = assets_array_index(id);
 
         let types_read = self.inner.types.read();
 
-        let typed_assets = types_read.get(&type_id)?;
+        let typed_assets = types_read.get(&vtid)?;
         Some(typed_assets[index].clone())
     }
 
@@ -135,7 +134,7 @@ impl Assets {
         where
             A: Asset,
         {
-            let type_id = TypeId::of::<A>();
+            let vtid = Vtid::of::<A>();
 
             let new_typed_array = array::from_fn(|_| {
                 Arc::new(TypedAssets::<A> {
@@ -147,7 +146,7 @@ impl Assets {
                 unsafe { new_typed_array[index].clone().downcast_arc_unchecked() };
 
             let mut types_write = assets.inner.types.write();
-            match types_write.entry(type_id) {
+            match types_write.entry(vtid) {
                 hashbrown::hash_map::Entry::Occupied(entry) => {
                     // Another thread already inserted the value, use it.
                     unsafe { entry.get()[index].clone().downcast_arc_unchecked() }
@@ -161,11 +160,11 @@ impl Assets {
         }
 
         let index = assets_array_index(id);
-        let type_id = TypeId::of::<A>();
+        let vtid = Vtid::of::<A>();
 
         let types_read = self.inner.types.read();
 
-        if let Some(typed_assets) = types_read.get(&type_id) {
+        if let Some(typed_assets) = types_read.get(&vtid) {
             return unsafe { typed_assets[index].clone().downcast_arc_unchecked() };
         }
 
@@ -345,7 +344,7 @@ where
                                 };
 
                                 drop(cache);
-                                assets.inner.to_build.push((type_id::<A>(), id));
+                                assets.inner.to_build.push((Vtid::of::<A>(), id));
                             }
                             Err(error) => {
                                 *state = AssetState::Error { error };
@@ -372,7 +371,7 @@ where
     }
 }
 
-async fn load_from_any(loaders: &[Box<dyn Loader>], id: AssetId) -> Result<AssetData, Error> {
+async fn load_from_any(loaders: &[Arc<dyn Loader>], id: AssetId) -> Result<AssetData, Error> {
     let mut not_found_error = None;
 
     for loader in loaders {

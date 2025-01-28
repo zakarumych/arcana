@@ -97,16 +97,32 @@ impl egui_probe::EguiProbe for EmptyConfig {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct ImporterDesc {
+    pub formats: Vec<String>,
+    pub extensions: Vec<String>,
+    pub target: Ident,
+}
+
 /// Trait for an importer.
-pub trait Importer: Send + Sync + 'static {
+pub trait Importer: Send + Sync {
+    /// Returns name of the importer
+    fn name(&self) -> Name
+    where
+        Self: Sized;
+
     /// Returns source formats importer works with.
     fn formats(&self) -> &[&str];
 
-    /// Returns list of extensions for source formats.
-    fn extensions(&self) -> &[&str];
+    /// Returns description of the importer.
+    fn desc() -> ImporterDesc
+    where
+        Self: Sized;
 
-    /// Returns target format importer produces.
-    fn target(&self) -> Ident;
+    /// Returns importer instance.
+    fn new() -> Self
+    where
+        Self: Sized;
 
     /// Returns configuration value for this importer.
     fn config(&self) -> Box<dyn ImportConfig> {
