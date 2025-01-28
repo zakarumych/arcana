@@ -138,17 +138,17 @@ arcana::export_arcana_plugin! {
 
                 last_ball = id;
 
-                spawn_block!(in ref world for last_ball -> {
+                spawn_block!(in world for last_ball -> {
                     last_ball.next_contact_force_event().await;
                     let _ = last_ball.insert(Burst { span: TimeSpan::ZERO, scale: 1.0, color: [0.0, 0.0, 0.0] });
                 });
             };
 
-            spawn_block!(in ref world -> {
-                sleep(timespan!(2 s), world.reborrow()).await;
+            spawn_block!(in world -> {
+                sleep(timespan!(2 s), world).await;
                 loop {
-                    new_node(&mut world);
-                    sleep(timespan!(1 s), world.reborrow()).await;
+                    new_node(world);
+                    sleep(timespan!(1 s), world).await;
                 }
             });
         }

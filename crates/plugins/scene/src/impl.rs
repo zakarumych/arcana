@@ -2,9 +2,10 @@ use std::collections::VecDeque;
 
 use arcana::edict::{
     self,
-    query::{Not, With},
-    relation::FilterRelates,
-    Component, Entities, Related, RelatesExclusive, Relation, View,
+    component::Component,
+    query::{Entities, Not, With},
+    relation::{FilterRelates, Related, RelatesExclusive, Relation},
+    view::View,
 };
 
 #[derive(Clone, Copy, Debug, Component)]
@@ -90,6 +91,7 @@ impl Local {
     }
 }
 
+#[arcana::system]
 pub fn scene_system(
     root: View<(Entities, Related<Local>), (Not<FilterRelates<Local>>, With<Global>)>,
     kids: View<(RelatesExclusive<&Local>, Option<Related<Local>>), With<Global>>,

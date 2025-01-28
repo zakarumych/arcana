@@ -2,10 +2,9 @@ use std::collections::VecDeque;
 
 use arcana::{
     blink_alloc::Blink,
-    edict::{EntityId, NoSuchEntity, World},
+    edict::{entity::EntityId, world::World, NoSuchEntity},
     input::{
-        DeviceId, ElementState, Input, InputFilter, KeyEvent, MouseButton, PhysicalKey,
-        ViewportInput,
+        DeviceId, ElementState, Input, InputFilter, KeyEvent, MouseButton, PhysicalKey, ViewInput,
     },
 };
 use hashbrown::HashMap;
@@ -51,8 +50,8 @@ impl MyInputFilter {
 
     pub fn handle(&mut self, world: &mut World, event: &Input) -> bool {
         match *event {
-            Input::ViewportInput { ref input } => match *input {
-                ViewportInput::KeyboardInput {
+            Input::ViewInput { ref input, .. } => match *input {
+                ViewInput::KeyboardInput {
                     device_id,
                     ref event,
                     ..
@@ -85,25 +84,25 @@ pub enum ControllerBind {
 }
 
 impl InputHandler {
-    #[cfg_attr(inline_more, inline(always))]
+    #[cfg_attr(feature = "inline-more", inline(always))]
     pub fn new() -> Self {
         InputHandler {
             add_controller: HashMap::new(),
         }
     }
 
-    #[cfg_attr(inline_more, inline(always))]
+    #[cfg_attr(feature = "inline-more", inline(always))]
     pub fn add_controller(&mut self, controller: Box<dyn Controller>, bind: ControllerBind) {
         self.add_controller.insert(bind, controller);
     }
 
-    #[cfg_attr(inline_more, inline(always))]
+    #[cfg_attr(feature = "inline-more", inline(always))]
     pub fn add_global_controller(&mut self, controller: Box<dyn Controller>) {
         self.add_controller
             .insert(ControllerBind::Global, controller);
     }
 
-    #[cfg_attr(inline_more, inline(always))]
+    #[cfg_attr(feature = "inline-more", inline(always))]
     pub fn add_device_controller(&mut self, device: DeviceId, controller: Box<dyn Controller>) {
         self.add_controller
             .insert(ControllerBind::Device(device), controller);

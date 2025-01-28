@@ -30,7 +30,7 @@ impl Ident {
         validate_ident(s)?;
 
         let s = INTERNER.intern(s);
-        Ok(Ident::from_ident_str(s))
+        Ok(Ident { s })
     }
 
     /// This function is safe because it cannot be used
@@ -38,7 +38,8 @@ impl Ident {
     ///
     /// However, it is possible to create invalid `Ident` that may cause unexpected behavior.
     #[inline(always)]
-    pub const fn from_ident_str(s: &'static str) -> Self {
+    pub fn from_ident_str(s: &'static str) -> Self {
+        let s = INTERNER.intern(s);
         Ident { s }
     }
 

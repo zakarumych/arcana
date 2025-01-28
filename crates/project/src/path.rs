@@ -75,20 +75,9 @@ pub fn normalizing_join(mut base: PathBuf, path: &Path) -> Option<PathBuf> {
     }
 }
 
-/// Returns absolute resolved path.
+/// Returns absolute path.
 /// If path is relative, it is resolved relative to current directory.
 pub fn real_path(path: &Path) -> Option<PathBuf> {
-    for a in path.ancestors() {
-        if let Ok(base) = dunce::canonicalize(a) {
-            let tail = path.strip_prefix(a).unwrap();
-            let path = normalizing_join(base, tail)?;
-
-            // Base was canonicalized
-            // Tail does not exist and normalizing_join normalized result.
-            return Some(path);
-        }
-    }
-
     if path.is_absolute() {
         return Some(path.to_owned());
     }
@@ -98,11 +87,7 @@ pub fn real_path(path: &Path) -> Option<PathBuf> {
         return None;
     }
 
-    let path = normalizing_join(cd, path)?;
-
-    // Current directory was canonicalized
-    // Path does not exist and normalizing_join normalized result.
-    Some(path)
+    normalizing_join(cd, path)
 }
 
 // pub struct RealPathError {

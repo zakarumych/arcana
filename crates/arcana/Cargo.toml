@@ -5,11 +5,98 @@ authors.workspace = true
 readme.workspace = true
 license.workspace = true
 version.workspace = true
-description = "Arcana Engine"
+description = "Arcana Engine Runtime"
+
+[lib]
+crate-type = ["rlib", "dylib"]
 
 [features]
-dynamic = ["dep:arcana-dyn"]
+# Inline more functions
+inline-more = []
 
 [dependencies]
-arcana-impl = { path = "impl" }
-arcana-dyn = { path = "dyn", optional = true }
+arcana-names = { path = "../names" }
+arcana-proc = { path = "../proc" }
+arcana-project = { path = "../project" }
+
+# Math
+approx.workspace = true
+na.workspace = true
+simba.workspace = true
+
+# ECS
+edict.workspace = true
+
+# Time
+gametime.workspace = true
+
+# Colors
+cint.workspace = true
+palette.workspace = true
+
+# Graphics
+basis-universal.workspace = true
+mev.workspace = true
+
+# Async
+tokio.workspace = true
+
+# Error handling
+thiserror.workspace = true
+miette.workspace = true
+
+# Tracing
+tracing.workspace = true
+tracing-error.workspace = true
+tracing-subscriber.workspace = true
+
+# Serialization
+bincode.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde-nothing.workspace = true
+toml.workspace = true
+
+# Editor UI
+cursor-icon.workspace = true
+egui.workspace = true
+egui_dnd.workspace = true
+egui_dock = { workspace = true, features = ["serde"] }
+egui_file.workspace = true
+egui-phosphor.workspace = true
+egui-probe = { workspace = true, features = ["derive"] }
+egui-snarl = { workspace = true, features = ["serde"] }
+egui_tracing.workspace = true
+
+# System
+arboard.workspace = true
+camino.workspace = true
+dirs.workspace = true
+gilrs.workspace = true
+open.workspace = true
+winit = { workspace = true, features = ["serde"] }
+
+# Linking
+ctor.workspace = true
+linkme.workspace = true
+libloading.workspace = true
+
+# Other stuff
+ahash.workspace = true
+amity.workspace = true
+base64.workspace = true
+blink-alloc.workspace = true
+bit-vec.workspace = true
+bytemuck.workspace = true
+const-random.workspace = true
+flume.workspace = true
+futures.workspace = true
+hashbrown.workspace = true
+ordered-float.workspace = true
+parking_lot.workspace = true
+rand.workspace = true
+slab.workspace = true
+smallvec.workspace = true
+sha2.workspace = true
+tiny-fn.workspace = true
+url = { workspace = true, features = ["serde"] }

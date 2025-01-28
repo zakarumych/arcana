@@ -3,7 +3,7 @@ use std::ops::{Deref, DerefMut};
 use arcana::{
     blink_alloc::Blink,
     edict::World,
-    input::{Input, InputFilter, ViewportInput},
+    input::{Input, InputFilter, ViewInput},
 };
 
 arcana::export_arcana_plugin! {
@@ -45,8 +45,8 @@ impl InputFilter for CursorFilter {
         let mut cursor = world.expect_resource_mut::<MainCursor>();
 
         match *event {
-            Input::ViewportInput { ref input } => match *input {
-                ViewportInput::CursorMoved { x, y, .. } => {
+            Input::ViewInput { ref input } => match *input {
+                ViewInput::CursorMoved { x, y, .. } => {
                     cursor.x = x as f32;
                     cursor.y = y as f32;
                 }

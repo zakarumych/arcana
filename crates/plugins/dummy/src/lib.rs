@@ -1,8 +1,10 @@
-use arcana::{input::Input, Blink, World};
+use arcana::input::Input;
 
-arcana::export_arcana_plugin! {
-    DummyPlugin {
-        systems: [fake1: || {}, fake2: || {}],
-        filters: [fake1: |_: &Blink, _: &mut World, _: &Input| false, fake2: |_: &Blink, _: &mut World, _: &Input| true],
-    }
+arcana::declare_plugin!();
+
+mod system;
+
+#[arcana::filter]
+fn dummy_filter(input: &Input) -> bool {
+    false
 }

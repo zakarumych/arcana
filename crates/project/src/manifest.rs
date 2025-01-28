@@ -6,7 +6,7 @@ use crate::{dependency::Dependency, plugin::Plugin};
 
 /// Project manifest.
 /// Contains information about project, dependencies, systems order, etc.
-/// Usually put into `Arcana.toml` file.
+/// Put into `<project-name.arcana>` file.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct ProjectManifest {
     /// Name of the project.

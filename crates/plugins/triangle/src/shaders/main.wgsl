@@ -210,12 +210,17 @@ fn vs_main(@builtin(vertex_index) index: u32) -> VertOutput {
 
     let output = VertOutput(
         vec4<f32>((ca * x + sa * y) / f32(pc.width) * f32(pc.height), (ca * y - sa * x), 0.0, 1.0),
-        xyz_to_lab(rgb_to_xyz(rgb)),
+        // xyz_to_lab(rgb_to_xyz(rgb)),
+        rgb,
     );
     return output;
 }
 
 @fragment
 fn fs_main(@location(0) color: vec3<f32>) -> @location(0) vec4<f32> {
-    return vec4<f32>(xyz_to_rgb(lab_to_xyz(color)), 1.0);
+    return vec4<f32>(
+        // xyz_to_rgb(lab_to_xyz(color)),
+        color,
+        1.0,
+    );
 }

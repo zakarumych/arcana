@@ -5,7 +5,7 @@ authors.workspace = true
 readme.workspace = true
 license.workspace = true
 version.workspace = true
-description = "Arcana Project library"
+description = "Crate to handle Arcana project files"
 
 [dependencies]
 arcana-names = { path = "../names" }
@@ -14,7 +14,6 @@ ahash.workspace = true
 camino = { workspace = true, features = ["serde1"] }
 cargo_toml.workspace = true
 dirs.workspace = true
-dunce.workspace = true
 hashbrown.workspace = true
 miette.workspace = true
 parking_lot.workspace = true

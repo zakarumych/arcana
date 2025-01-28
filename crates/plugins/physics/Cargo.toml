@@ -15,7 +15,7 @@ arcana = { path = "../../arcana" }
 scene = { path = "../scene" }
 
 bitflags.workspace = true
-rapier2d = { workspace = true, optional = true }
-rapier3d = { workspace = true, optional = true }
+rapier2d = { version = "0.21", optional = true }
+rapier3d = { version = "0.21", optional = true }
 na.workspace = true
 amity.workspace = true

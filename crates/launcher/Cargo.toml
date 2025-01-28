@@ -5,7 +5,7 @@ authors.workspace = true
 readme.workspace = true
 license.workspace = true
 version.workspace = true
-description = "Arcana Engine launcher library"
+description = "Launcher library"
 
 [dependencies]
 arcana-names = { path = "../names" }

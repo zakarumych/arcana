@@ -5,17 +5,14 @@ authors.workspace = true
 readme.workspace = true
 license.workspace = true
 version.workspace = true
-description = "Arcana Engine launcher"
+description = "GUI launcher for Arcana Engine"
 
 [[bin]]
 name = "arcana"
 path = "src/main.rs"
 
 [dependencies]
-arcana = { path = "../../arcana" }
-# arcana-project = { path = "../../project" }
 arcana-launcher = { path = ".." }
-arcana-egui = { path = "../../plugins/egui" }
 camino.workspace = true
 dirs.workspace = true
 egui.workspace = true
@@ -23,6 +20,7 @@ egui_dnd.workspace = true
 egui_file.workspace = true
 egui-phosphor.workspace = true
 egui_tracing.workspace = true
+eframe.workspace = true
 hashbrown.workspace = true
 miette = { workspace = true, features = ["fancy"] }
 serde.workspace = true
@@ -30,4 +28,3 @@ serde_json.workspace = true
 tracing.workspace = true
 tracing-error.workspace = true
 tracing-subscriber.workspace = true
-winit = { workspace = true, features = ["serde"] }

@@ -1,0 +1,16 @@
+[package]
+name = "arcana-baked"
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+license.workspace = true
+version.workspace = true
+
+[features]
+# Enable this to add client part to the dough
+client = []
+
+# Enable this to add server part to the dough
+server = []
+
+[dependencies]

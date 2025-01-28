@@ -1,14 +1,22 @@
 use std::mem::size_of;
 
 use arcana::{
-    edict::World,
-    gametime::ClockStep,
+    code::CodeGraphId,
+    edict::{self, query::Cpy, world::World},
+    events::{emit_event, Event},
+    flow::{sleep, FlowEntity},
+    gametime::{ClockStep, TimeSpan},
+    hash_id,
     hashbrown::HashMap,
+    local_name_hash_id,
     mev::{self, Arguments, DeviceRepr},
     model::{ColorModel, ColorValue, Model, Value},
     name,
     work::{Exec, Image2D, Job, JobDesc, JobIdx, Planner},
+    Component, Res, View,
 };
+
+arcana::declare_plugin!([dummy ...]);
 
 #[derive(mev::Arguments)]
 pub struct DTArguments {
@@ -23,6 +31,7 @@ pub struct DTConstants {
     pub height: u32,
 }
 
+#[arcana::job]
 pub struct DrawTriangle {
     pipeline: Option<mev::RenderPipeline>,
     arguments: Option<DTArguments>,
@@ -32,7 +41,6 @@ pub struct DrawTriangle {
 impl DrawTriangle {
     pub fn desc() -> JobDesc {
         arcana::job_desc! [
-            speed: in Model::Float,
             c1: in Model::Color(ColorModel::Srgb),
             c2: in Model::Color(ColorModel::Srgb),
             c3: in Model::Color(ColorModel::Srgb),
@@ -57,11 +65,7 @@ impl Job for DrawTriangle {
             return;
         };
 
-        let speed = match planner.param("speed") {
-            Value::Int(speed) => (*speed) as f32,
-            Value::Float(speed) => (*speed) as f32,
-            _ => 1.0,
-        };
+        let angle = world.view::<Cpy<Angle>>().into_iter().next().unwrap().0;
 
         let constants = self.constants.entry(idx).or_insert(DTConstants {
             angle: 0.0,
@@ -69,7 +73,7 @@ impl Job for DrawTriangle {
             height: 0,
         });
 
-        constants.angle += world.expect_resource::<ClockStep>().step.as_secs_f32() * speed;
+        constants.angle = angle;
 
         while constants.angle > 1.0 {
             constants.angle = constants.angle.fract();
@@ -146,7 +150,7 @@ impl Job for DrawTriangle {
                 .new_buffer(mev::BufferDesc {
                     size: size_of::<[f32; 12]>(),
                     name: "colors",
-                    usage: mev::BufferUsage::UNIFORM,
+                    usage: mev::BufferUsage::UNIFORM | mev::BufferUsage::TRANSFER_DST,
                     memory: mev::Memory::Shared,
                 })
                 .unwrap();
@@ -181,6 +185,12 @@ impl Job for DrawTriangle {
             mev::PipelineStages::FRAGMENT_SHADER,
         );
 
+        encoder.init_image(
+            mev::PipelineStages::all(),
+            mev::PipelineStages::FRAGMENT_SHADER,
+            &target,
+        );
+
         let mut render = encoder.render(mev::RenderPassDesc {
             color_attachments: &[
                 mev::AttachmentDesc::new(&target).clear(mev::ClearColor(1.0, 0.5, 0.3, 0.0))
@@ -188,7 +198,7 @@ impl Job for DrawTriangle {
             ..Default::default()
         });
 
-        let dims = target.dimensions().expect_2d();
+        let dims = target.extent().expect_2d();
 
         render.with_pipeline(pipeline);
         render.with_arguments(0, arguments);
@@ -217,6 +227,7 @@ pub struct OpConstants {
     pub op: u32,
 }
 
+#[arcana::job(op)]
 pub struct OpJob {
     pipeline: Option<mev::ComputePipeline>,
 }
@@ -299,7 +310,7 @@ impl Job for OpJob {
 
         let mut compute = encoder.compute();
 
-        let dims = src.dimensions().expect_2d();
+        let dims = src.extent().expect_2d();
 
         compute.with_pipeline(pipeline);
         compute.with_arguments(
@@ -318,34 +329,115 @@ impl Job for OpJob {
     }
 }
 
-arcana::export_arcana_plugin! {
-    TrianglePlugin {
-        // List dependencies
-        dependencies: [dummy ...],
+fn x2(_: FlowEntity, a: &f32) -> (f32,) {
+    (a * 2.0,)
+}
 
-        // List jobs
-        jobs: [DrawTriangle, op: OpJob::desc() => OpJob::new()],
+fn mul(_: FlowEntity, a: &f32, b: &f32) -> (f32,) {
+    (a * b,)
+}
 
-        // // Init block
-        // in world => {
-        //     let world = world.local();
+fn add(_: FlowEntity, a: &f32, b: &f32) -> (f32,) {
+    (a + b,)
+}
 
-        //     // let window = world.expect_resource::<Window>().id();
+async fn wait(e: FlowEntity) {
+    tracing::info!("Sleeping for a second");
+    sleep(TimeSpan::SECOND, e.world()).await;
+    tracing::info!("One second passed");
+}
 
-        //     let mut graph = world.expect_resource_mut::<RenderGraph>();
-        //     // Create main pass.
-        //     // It returns target id that it renders to.
-        //     let target = MainPass::build(&mut graph);
+#[derive(Clone, Copy, Component)]
+struct Speed(f32);
 
-        //     // let id = world.spawn_one(Egui::new()).id();
+fn set_angle_speed(e: FlowEntity, speed: &f32) {
+    tracing::info!("Setting triangle speed to {}", speed);
+    let _ = e.set(Speed(*speed));
+}
 
-        //     // if world.get_resource::<EguiResource>().is_some() {
-        //     //     target = EguiRender::build_overlay(id, target, &mut graph);
-        //     // }
+fn get_angle_speed(e: FlowEntity) -> (f32,) {
+    (e.get_cloned::<Speed>().unwrap().0,)
+}
 
-        //     // Use window's surface for the render target.
-        //     graph.present(target);
-        //     drop(graph);
-        // }
+#[derive(Clone, Copy, Component)]
+struct Angle(f32);
+
+fn set_angle(mut e: FlowEntity, angle: &f32) {
+    tracing::info!("Setting triangle angle to {}", angle);
+    let mut angle = *angle;
+
+    if angle >= 1.0 {
+        angle = angle.fract();
+    }
+
+    let _ = e.set(Angle(angle));
+}
+
+fn get_angle(e: FlowEntity) -> (f32,) {
+    (e.get_cloned::<Angle>().unwrap().0,)
+}
+
+#[arcana::system]
+fn rotate_system(view: View<(&mut Angle, &Speed)>, clock: Res<ClockStep>) {
+    for (angle, speed) in view {
+        angle.0 += speed.0 * clock.step.as_secs_f32();
+
+        if angle.0 >= 1.0 {
+            angle.0 = angle.0.fract();
+        }
     }
 }
+
+#[arcana::init]
+fn init(world: &mut World) {
+    let e = world
+        .spawn((
+            Speed(std::f32::consts::FRAC_1_PI * 0.5),
+            Angle(0.0),
+            hash_id!("speedup" => CodeGraphId),
+        ))
+        .id();
+
+    // spawn_block!(in world -> {
+    //     for _ in 0..1 {
+    //         emit_event(world, Event::new(local_name_hash_id!(Start), e));
+    //         sleep(TimeSpan::SECOND, world).await;
+    //     }
+    // });
+}
+
+// arcana::export_arcana_plugin! {
+//     TrianglePlugin {
+//         // List dependencies
+//         dependencies: [dummy ...],
+
+//         // List systems
+//         systems: [rotate_system],
+
+//         // List jobs
+//         jobs: [DrawTriangle, op: OpJob::desc() => OpJob::new()],
+
+//         events: [Start],
+
+//         pure_codes: [x2, mul, add, get_angle_speed, get_angle],
+//         flow_codes: [wait, set_angle_speed, set_angle],
+
+//         // Init block
+//         in world => {
+//             let e = world.spawn((
+//                 Speed(std::f32::consts::FRAC_1_PI * 0.5),
+//                 Angle(0.0),
+//                 Code {
+//                     code_id: hash_id!("speedup"),
+//                 }
+//             )).id();
+
+//             spawn_block!(in world -> {
+//                 for _ in 0..1 {
+//                     emit_event(world, Event::new(local_name_hash_id!(Start), e));
+//                     sleep(TimeSpan::SECOND, world).await;
+//                 }
+//             });
+//         }
+//     }
+// }

@@ -11,27 +11,6 @@ use crate::{path::make_relative, WORKSPACE_DIR_NAME};
 
 use super::Dependency;
 
-// #[derive(Clone, Copy)]
-// enum Profile {
-//     Client,
-//     Server,
-//     ClientServer,
-//     Ed,
-// }
-
-// struct WithFeatures(Profile);
-
-// impl fmt::Display for WithFeatures {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-//         match self.0 {
-//             Profile::Client => write!(f, ", features = [\"client\"]"),
-//             Profile::Server => write!(f, ", features = [\"server\"]"),
-//             Profile::ClientServer => write!(f, ", features = [\"client\", \"server\"]"),
-//             Profile::Ed => write!(f, ", features = [\"ed\"]"),
-//         }
-//     }
-// }
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Profile {
     Release,
@@ -39,8 +18,8 @@ pub enum Profile {
 }
 
 /// Construct a command to run ed for arcana project.
-pub fn run_editor(root: &Path, profile: Profile) -> Command {
-    let workspace = root.join(WORKSPACE_DIR_NAME);
+pub fn run_editor(root_path: &Path, manifest_path: &Path, profile: Profile) -> Command {
+    let workspace = root_path.join(WORKSPACE_DIR_NAME);
     let mut cmd = Command::new("cargo");
     cmd.arg("run").arg("--package=ed");
     match profile {
@@ -52,6 +31,10 @@ pub fn run_editor(root: &Path, profile: Profile) -> Command {
             cmd.env("ARCANA_PROFILE", "debug");
         }
     }
+
+    cmd.arg("--");
+    cmd.arg(manifest_path.as_os_str());
+
     // cmd.arg("--verbose")
     cmd.env("RUSTFLAGS", "-Zshare-generics=off -Cprefer-dynamic=yes")
         .current_dir(&workspace);
