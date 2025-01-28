@@ -5,16 +5,30 @@ authors.workspace = true
 readme.workspace = true
 license.workspace = true
 version.workspace = true
-description = "Launcher library"
+description = "Arcana Engine Launcher"
+
+[[bin]]
+name = "arcana"
+path = "src/main.rs"
 
 [dependencies]
 arcana-names = { path = "../names" }
 arcana-project = { path = "../project" }
 camino = { workspace = true, features = ["serde1"] }
+clap.workspace = true
 denvars = { workspace = true, features = ["toml"] }
 dirs.workspace = true
+egui.workspace = true
+egui_dnd.workspace = true
+egui_file.workspace = true
+egui-phosphor.workspace = true
+eframe.workspace = true
 figa = { workspace = true, features = ["derive"] }
+hashbrown.workspace = true
 miette = { workspace = true, features = ["fancy"] }
 serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
 toml.workspace = true
 tracing.workspace = true
+tracing-error.workspace = true
+tracing-subscriber.workspace = true

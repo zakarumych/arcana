@@ -13,12 +13,12 @@ use edict::{
 
 use crate::{
     hash::{no_hash_map, NoHashMap},
-    make_id, type_id, Slot,
+    make_uid, type_id, Slot,
 };
 
 const MAX_EVENTS: usize = 65536;
 
-make_id! {
+make_uid! {
     /// Event ID type.
     /// Any event type must have a unique ID.
     /// Listeners can listen to specific event IDs.

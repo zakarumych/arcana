@@ -15,18 +15,12 @@ use crate::{
     events::EventId,
     input::{FilterId, InputFilter, IntoInputFilter},
     work::{Job, JobDesc, JobId},
-    {make_id, Stid},
+    {make_uid, Stid},
 };
 
-make_id! {
+make_uid! {
     /// ID of the ECS system.
     pub SystemId;
-}
-
-make_id! {
-    /// Type ID of registered plugin's types.
-    /// It is guaranteed to change each time the plugin is recompiled.
-    pub Vtid;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -169,6 +163,11 @@ impl PluginsHub {
         self.jobs.insert(id, Box::new(job));
     }
 
+    /// Adds a importer from a plugin to the hub.
+    pub fn add_importer(&mut self, id: ImporterId, importer: impl Importer) {
+        self.importers.insert(id, Box::new(importer));
+    }
+
     /// Adds a pure fn from a plugin to the hub.
     pub fn add_pure_fn(&mut self, id: CodeNodeId, code: PureCode) {
         self.pure_fns.insert(id, code);
@@ -255,17 +254,17 @@ impl ArcanaPlugin {
         self.fill_hub.push(add);
     }
 
+    pub fn add_importer(&mut self, info: ImporterInfo, add: fn(&mut PluginsHub)) {
+        self.importers.push(info);
+        self.fill_hub.push(add);
+    }
+
     pub fn add_event(&mut self, info: EventInfo) {
         self.events.push(info);
     }
 
     pub fn add_code(&mut self, info: CodeInfo, add: fn(&mut PluginsHub)) {
         self.codes.push(info);
-        self.fill_hub.push(add);
-    }
-
-    pub fn add_importer(&mut self, info: ImporterInfo, add: fn(&mut PluginsHub)) {
-        self.importers.push(info);
         self.fill_hub.push(add);
     }
 

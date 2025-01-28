@@ -344,7 +344,7 @@ impl GamesTab {
         let mut new_id = self.id.clone();
 
         ui.horizontal_top(|ui| {
-            // let mut cbox = egui::ComboBox::from_id_source("games-list");
+            // let mut cbox = egui::ComboBox::from_id_salt("games-list");
 
             // if let Some(id) = &self.id {
             //     cbox = cbox.selected_text(format!("{}", id.entity));

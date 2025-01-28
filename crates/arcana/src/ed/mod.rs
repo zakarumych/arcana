@@ -68,7 +68,7 @@ fn _run(project_path: &Path) -> miette::Result<()> {
 
     let (project, data) = load_project(project_path)?;
 
-    let event_collector = egui_tracing::EventCollector::default();
+    // let event_collector = egui_tracing::EventCollector::default();
 
     use tracing_subscriber::layer::SubscriberExt as _;
 
@@ -76,8 +76,8 @@ fn _run(project_path: &Path) -> miette::Result<()> {
         tracing_subscriber::fmt()
             // .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
             .finish()
-            .with(tracing_error::ErrorLayer::default())
-            .with(event_collector.clone()),
+            .with(tracing_error::ErrorLayer::default()),
+        // .with(event_collector.clone()),
     ) {
         panic!("Failed to install tracing subscriber: {}", err);
     }
@@ -90,7 +90,7 @@ fn _run(project_path: &Path) -> miette::Result<()> {
     builder.with_any_thread(true);
 
     let events = builder.build().expect("Failed to create event loop");
-    let mut app = app::App::new(event_collector, project, data);
+    let mut app = app::App::new(project, data);
 
     events.run_app(&mut app).unwrap();
 

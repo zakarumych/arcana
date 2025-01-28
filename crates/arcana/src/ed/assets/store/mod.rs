@@ -3,23 +3,25 @@
 use std::{
     collections::VecDeque,
     path::{Path, PathBuf},
-    time::SystemTime,
+    time::{Duration, SystemTime},
 };
 
 use arcana_names::{Ident, Name};
 use arcana_project::real_path;
 use futures::future::BoxFuture;
 use hashbrown::{HashMap, HashSet};
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use url::Url;
 
-use crate::assets::{
-    import::{AssetDependencies, AssetSources, ImportError, Importer},
-    AssetData, AssetId, Error, Loader, NotFound,
+use crate::{
+    assets::{
+        import::{AssetDependencies, AssetSources, ImportError, Importer, ImporterDesc},
+        AssetData, AssetId, Error, Loader, NotFound,
+    },
+    id::TimeUidGen,
 };
 
 mod content_address;
-mod generator;
 mod importer;
 mod meta;
 mod scheme;
@@ -27,17 +29,17 @@ mod sources;
 mod temp;
 
 use self::{
-    generator::Generator,
     importer::Importers,
     meta::{AssetMeta, MetaError, SourceMeta},
     sources::{Sources, SourcesError},
     temp::make_temporary,
 };
 
-const DEFAULT_AUX: &'static str = "assets";
 const DEFAULT_ARTIFACTS: &'static str = "artifacts";
 const DEFAULT_EXTERNAL: &'static str = "external";
 const MAX_ITEM_ATTEMPTS: u32 = 1024;
+
+const DEFAULT_EPOCH: u64 = 1073741824;
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct StoreInfo {
@@ -167,11 +169,11 @@ pub struct Store {
     artifacts_base: PathBuf,
     external: PathBuf,
     temp: PathBuf,
-    importers: Importers,
+    importers: RwLock<Importers>,
 
     artifacts: RwLock<HashMap<AssetId, AssetItem>>,
     scanned: RwLock<bool>,
-    id_gen: Generator,
+    id_gen: Mutex<TimeUidGen>,
 }
 
 impl Store {
@@ -207,22 +209,24 @@ impl Store {
             artifacts_base: artifacts,
             external,
             temp,
-            importers,
+            importers: RwLock::new(importers),
             artifacts: RwLock::new(HashMap::new()),
             scanned: RwLock::new(false),
-            id_gen: Generator::new(),
+            id_gen: Mutex::new(TimeUidGen::random_with_start(
+                SystemTime::UNIX_EPOCH + Duration::from_secs(DEFAULT_EPOCH),
+            )),
         })
     }
 
     /// Register importer.
-    #[tracing::instrument(skip(self), fields(importer = %importer.name()))]
-    pub fn register_importer(&mut self, importer: Box<dyn Importer>) {
-        self.importers.add_importer(importer);
+    #[tracing::instrument(skip(self, importer))]
+    pub fn register_importer(&self, name: Name, desc: ImporterDesc, importer: Box<dyn Importer>) {
+        self.importers.write().add_importer(name, desc, importer);
     }
 
     #[tracing::instrument(skip(self))]
-    pub fn purge_importers(&mut self) {
-        self.importers.clear();
+    pub fn purge_importers(&self) {
+        self.importers.write().clear();
     }
 
     /// Import an asset.
@@ -312,27 +316,6 @@ impl Store {
 
             let extension = url_ext(&item.source);
 
-            let importers =
-                self.importers
-                    .select(Some(item.target), item.format.as_deref(), extension);
-
-            if importers.is_empty() {
-                return Err(StoreError::NoImporters {
-                    format: item.format.clone(),
-                    target: item.target,
-                    url: item.source.clone(),
-                });
-            }
-            if importers.len() > 1 {
-                return Err(StoreError::ManyImporters {
-                    format: item.format.clone(),
-                    target: item.target,
-                    url: item.source.clone(),
-                });
-            }
-
-            let importer = importers[0];
-
             // Fetch source file.
             let (source_path, source_modified) = sources
                 .fetch(&self.temp, &item.source)
@@ -341,58 +324,84 @@ impl Store {
 
             let source_path = source_path.to_owned();
             let output_path = make_temporary(&self.temp);
+            let selected_importer_name;
+            let result;
 
-            struct Fn<F>(F);
-
-            impl<F> AssetSources for Fn<F>
-            where
-                F: FnMut(&str) -> Option<PathBuf>,
             {
-                fn get(&mut self, source: &str) -> Option<PathBuf> {
-                    (self.0)(source)
+                let importers = self.importers.read();
+                let selected_importers =
+                    importers.select(Some(item.target), item.format.as_deref(), extension);
+
+                if selected_importers.is_empty() {
+                    return Err(StoreError::NoImporters {
+                        format: item.format.clone(),
+                        target: item.target,
+                        url: item.source.clone(),
+                    });
                 }
-            }
-
-            impl<F> AssetDependencies for Fn<F>
-            where
-                F: FnMut(&str, Ident) -> Option<AssetId>,
-            {
-                fn get(&mut self, source: &str, target: Ident) -> Option<AssetId> {
-                    (self.0)(source, target)
+                if selected_importers.len() > 1 {
+                    return Err(StoreError::ManyImporters {
+                        format: item.format.clone(),
+                        target: item.target,
+                        url: item.source.clone(),
+                    });
                 }
-            }
 
-            let result = importer.import(
-                &source_path,
-                &output_path,
-                &mut Fn(|src: &str| {
-                    let src = item.source.join(src).ok()?; // If parsing fails - source will be listed in `ImportResult::RequireSources`.
-                    let (path, modified) = sources.get(&src)?;
-                    item.sources.insert(src, modified);
-                    Some(path.to_owned())
-                }),
-                &mut Fn(|src: &str, target: Ident| {
-                    let src = item.source.join(src).ok()?;
+                let (name, selected_importer) = selected_importers[0];
+                selected_importer_name = name;
 
-                    match SourceMeta::new(&src, base, external) {
-                        Ok(meta) => {
-                            let asset = meta.get_asset(target)?;
-                            item.dependencies.insert(asset.id());
-                            Some(asset.id())
-                        }
-                        Err(err) => {
-                            tracing::error!("Fetching dependency failed. {:#}", err);
-                            None
-                        }
+                struct Fn<F>(F);
+
+                impl<F> AssetSources for Fn<F>
+                where
+                    F: FnMut(&str) -> Option<PathBuf>,
+                {
+                    fn get(&mut self, source: &str) -> Option<PathBuf> {
+                        (self.0)(source)
                     }
-                }),
-            );
+                }
+
+                impl<F> AssetDependencies for Fn<F>
+                where
+                    F: FnMut(&str, Ident) -> Option<AssetId>,
+                {
+                    fn get(&mut self, source: &str, target: Ident) -> Option<AssetId> {
+                        (self.0)(source, target)
+                    }
+                }
+
+                result = selected_importer.import(
+                    &source_path,
+                    &output_path,
+                    &mut Fn(|src: &str| {
+                        let src = item.source.join(src).ok()?; // If parsing fails - source will be listed in `ImportResult::RequireSources`.
+                        let (path, modified) = sources.get(&src)?;
+                        item.sources.insert(src, modified);
+                        Some(path.to_owned())
+                    }),
+                    &mut Fn(|src: &str, target: Ident| {
+                        let src = item.source.join(src).ok()?;
+
+                        match SourceMeta::new(&src, base, external) {
+                            Ok(meta) => {
+                                let asset = meta.get_asset(target)?;
+                                item.dependencies.insert(asset.id());
+                                Some(asset.id())
+                            }
+                            Err(err) => {
+                                tracing::error!("Fetching dependency failed. {:#}", err);
+                                None
+                            }
+                        }
+                    }),
+                );
+            }
 
             match result {
                 Ok(()) => {}
                 Err(ImportError::Other { reason }) => {
                     return Err(StoreError::ImportError {
-                        importer: importer.name(),
+                        importer: selected_importer_name,
                         target: item.target,
                         url: item.source.clone(),
                         reason,
@@ -405,7 +414,7 @@ impl Store {
                     // If we have too many attempts, we should stop.
                     if item.attempt >= MAX_ITEM_ATTEMPTS {
                         return Err(StoreError::TooManyAttempts {
-                            importer: importer.name(),
+                            importer: selected_importer_name,
                             target: item.target,
                             url: item.source.clone(),
                         });
@@ -470,7 +479,7 @@ impl Store {
                 }
             }
 
-            let new_id = AssetId(self.id_gen.generate());
+            let new_id = AssetId::generate(&mut *self.id_gen.lock());
             let item = stack.pop().unwrap();
 
             let make_relative_source = |source| match self.base_url.make_relative(source) {

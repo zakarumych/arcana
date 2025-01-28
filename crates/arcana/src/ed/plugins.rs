@@ -66,7 +66,7 @@ impl Plugins {
         })
     }
 
-    /// Adds new plugin.
+    /// Adds plugin to project.
     pub fn add_plugin(
         &mut self,
         name: Ident,
@@ -242,7 +242,7 @@ impl Plugins {
                 let r = ui.button(egui_phosphor::regular::PLUS);
 
                 if r.clicked() {
-                    let mut dialog = FileDialog::select_folder(None);
+                    let mut dialog = FileDialog::save_file(None);
                     dialog.open();
                     self.dialog = Some(PluginsDialog::NewPlugin(dialog));
                 } else {

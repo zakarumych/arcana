@@ -32,7 +32,7 @@ impl EguiProbe for ModelProbe<'_> {
             _ => todo!(),
         };
 
-        let mut r = egui::ComboBox::from_id_source(self.local_id)
+        let mut r = egui::ComboBox::from_id_salt(self.local_id)
             .selected_text(var_name(self.model))
             .show_ui(ui, |ui| {
                 let r = ui.selectable_label(matches!(self.model, Model::Bool), "Bool");
@@ -159,7 +159,7 @@ impl EguiProbe for MaybeModelProbe<'_> {
             _ => todo!(),
         };
 
-        egui::ComboBox::from_id_source(self.local_id)
+        egui::ComboBox::from_id_salt(self.local_id)
             .selected_text(var_name(self.model.as_deref()))
             .show_ui(ui, |ui| {
                 let r = ui.selectable_label(matches!(self.model, None), "None");
@@ -1031,7 +1031,7 @@ impl EguiProbe for ValueProbe<'_> {
 
                     let mut r = ui
                         .horizontal(|ui| {
-                            egui::ComboBox::from_id_source(self.local_id)
+                            egui::ComboBox::from_id_salt(self.local_id)
                                 .selected_text(name.as_str())
                                 .show_ui(ui, |ui| {
                                     for &(vname, ref vmodel) in variants {

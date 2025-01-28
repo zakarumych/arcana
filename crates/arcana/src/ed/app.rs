@@ -4,7 +4,6 @@ use arboard::Clipboard;
 use blink_alloc::BlinkAlloc;
 use egui::{Id, TopBottomPanel, WidgetText};
 use egui_dock::{DockState, NodeIndex, TabIndex, TabViewer, Tree};
-use egui_tracing::EventCollector;
 use gametime::{Clock, ClockStep, FrequencyNumExt, FrequencyTicker};
 use miette::IntoDiagnostic;
 use winit::{
@@ -98,7 +97,7 @@ struct AppView {
 }
 
 impl App {
-    pub fn new(_event_collector: EventCollector, project: Project, data: ProjectData) -> Self {
+    pub fn new(project: Project, data: ProjectData) -> Self {
         let (device, queue) = init_mev();
 
         let plugins = Plugins::new();

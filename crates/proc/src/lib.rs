@@ -1,6 +1,7 @@
 // extern crate proc_macro;
 
 mod filter;
+mod importer;
 mod init;
 mod job;
 mod stable_hasher;
@@ -8,29 +9,10 @@ mod stid;
 mod system;
 
 use proc_macro::TokenStream;
-use stid::WithStid;
+use stid::HasStid;
 
-// #[proc_macro_attribute]
-// pub fn stid(attr: TokenStream, item: TokenStream) -> TokenStream {
-//     let stid = if attr.is_empty() {
-//         None
-//     } else {
-//         Some(syn::parse_macro_input!(attr as stid::StidValue))
-//     };
-
-//     let input = syn::parse_macro_input!(item as syn::DeriveInput);
-
-//     match stid::with_stid(stid, &input) {
-//         Ok(mut output) => {
-//             output.extend(input.to_token_stream());
-//             output.into()
-//         }
-//         Err(err) => err.to_compile_error().into(),
-//     }
-// }
-
-#[proc_macro_derive(WithStid, attributes(stid))]
-pub fn derive_with_stid(input: TokenStream) -> TokenStream {
+#[proc_macro_derive(HasStid, attributes(stid))]
+pub fn derive_has_stid(input: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(input as syn::DeriveInput);
 
     fn parse_stid_attr(attr: &syn::Attribute) -> syn::Result<stid::StidValue> {
@@ -65,17 +47,17 @@ pub fn derive_with_stid(input: TokenStream) -> TokenStream {
         None => None,
     };
 
-    match stid::with_stid(stid, &input) {
+    match stid::has_stid(stid, &input) {
         Ok(output) => output.into(),
         Err(err) => err.to_compile_error().into(),
     }
 }
 
 #[proc_macro]
-pub fn with_stid(tokens: TokenStream) -> TokenStream {
-    let input = syn::parse_macro_input!(tokens as WithStid);
+pub fn has_stid(tokens: TokenStream) -> TokenStream {
+    let input = syn::parse_macro_input!(tokens as HasStid);
 
-    match stid::with_stid_fn(input) {
+    match stid::has_stid_fn(input) {
         Ok(output) => output.into(),
         Err(err) => err.to_compile_error().into(),
     }
@@ -110,8 +92,18 @@ pub fn system(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// Exports function as system.
 #[proc_macro_attribute]
 pub fn job(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let item = syn::parse_macro_input!(item as syn::ItemStruct);
+    let item = syn::parse_macro_input!(item as syn::ItemImpl);
     match job::job(attr, item) {
+        Ok(output) => output.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
+}
+
+/// Exports function as system.
+#[proc_macro_attribute]
+pub fn importer(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let item = syn::parse_macro_input!(item as syn::ItemImpl);
+    match importer::importer(attr, item) {
         Ok(output) => output.into(),
         Err(err) => err.to_compile_error().into(),
     }

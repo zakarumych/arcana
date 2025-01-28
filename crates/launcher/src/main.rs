@@ -4,7 +4,9 @@ use arcana_launcher::{validate_engine_path, Dependency, Ident, Profile, Project,
 use egui_file::FileDialog;
 use hashbrown::HashMap;
 
-fn main() -> eframe::Result<()> {
+mod cli;
+
+fn main() -> miette::Result<()> {
     use tracing_subscriber::layer::SubscriberExt as _;
 
     if let Err(err) = tracing::subscriber::set_global_default(
@@ -13,7 +15,13 @@ fn main() -> eframe::Result<()> {
             .finish()
             .with(tracing_error::ErrorLayer::default()),
     ) {
-        panic!("Failed to install tracing subscriber: {}", err);
+        miette::bail!("Failed to set global default subscriber: {}", err);
+    }
+
+    let command_executed = cli::run()?;
+
+    if command_executed {
+        return Ok(());
     }
 
     let native_options = eframe::NativeOptions::default();
@@ -22,6 +30,9 @@ fn main() -> eframe::Result<()> {
         native_options,
         Box::new(|cc| Ok(Box::new(App::new(cc)))),
     )
+    .map_err(|err| miette::Report::msg(err.to_string()))?;
+
+    Ok(())
 }
 
 impl eframe::App for App {
@@ -388,9 +399,9 @@ impl eframe::App for App {
             }
         }
 
-        if cx.requested_repaint_last_frame() {
-            cx.request_repaint();
-        }
+        // if cx.requested_repaint_last_pass() {
+        //     cx.request_repaint();
+        // }
 
         match run_editor {
             None => {}
@@ -600,7 +611,7 @@ impl NewProject {
 
                         if self.advanced {
                             ui.with_layout(cfg_name_layout, |ui| ui.label("Engine"));
-                            let mut cbox = egui::ComboBox::from_id_source("versions").width(300.0);
+                            let mut cbox = egui::ComboBox::from_id_salt("versions").width(300.0);
 
                             if let Some(v) = &self.engine {
                                 cbox = cbox.selected_text(display_dependency(v));

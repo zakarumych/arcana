@@ -34,15 +34,21 @@ mod asset;
 mod assets;
 mod build;
 mod error;
-mod id;
+// mod id;
 pub mod import;
 mod loader;
+
+use crate::make_uid;
 
 pub use self::{
     asset::Asset,
     assets::Assets,
     build::{AssetBuildContext, AssetBuilder},
     error::{Error, NotFound},
-    id::AssetId,
     loader::{AssetData, Loader},
 };
+
+make_uid! {
+    /// A 64-bit ID used to identify an asset.
+    pub AssetId;
+}

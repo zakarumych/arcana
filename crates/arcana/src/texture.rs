@@ -4,10 +4,11 @@ use basis_universal::{self, TranscodeError, TranscodeParameters, TranscoderTextu
 use edict::component::Component;
 use mev::Extent2;
 use smallvec::SmallVec;
+use vtid::HasVtid;
 
 use crate::assets::{Asset, AssetBuilder, Assets};
 
-#[derive(Clone)]
+#[derive(Clone, HasVtid)]
 pub struct Texture {
     pub image: mev::Image,
 }

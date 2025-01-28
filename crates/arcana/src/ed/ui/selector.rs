@@ -71,7 +71,7 @@ impl<K, E> Selector<K, E> {
             }
         }
 
-        let ir = egui::ComboBox::from_id_source(self.id)
+        let ir = egui::ComboBox::from_id_salt(self.id)
             .selected_text(current_text)
             .show_ui(ui, |ui| {
                 for (k, e) in options {

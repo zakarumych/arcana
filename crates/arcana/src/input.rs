@@ -12,9 +12,9 @@ pub use winit::{
     window::CursorIcon,
 };
 
-use crate::{make_id, viewport::ViewId};
+use crate::{make_uid, viewport::ViewId};
 
-make_id! {
+make_uid! {
     /// ID of the input filter
     pub FilterId;
 }

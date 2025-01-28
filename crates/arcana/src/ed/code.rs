@@ -9,7 +9,7 @@ use edict::{
 };
 use egui::{epaint::PathShape, Color32, Painter, PointerButton, Rect, Shape, Stroke, Ui};
 use egui_snarl::{
-    ui::{CustomPinShape, PinInfo, PinShape, SnarlStyle, SnarlViewer},
+    ui::{PinInfo, SnarlStyle, SnarlViewer},
     InPin, InPinId, NodeId, OutPin, OutPinId, Snarl,
 };
 use hashbrown::{HashMap, HashSet};
@@ -636,7 +636,7 @@ impl SnarlViewer<CodeNode> for CodeViewer<'_> {
                 ..
             } => {
                 if pin.id.input < inflows {
-                    flow_pin()
+                    PinInfo::default()
                 } else {
                     let input = inputs[pin.id.input - inflows];
                     PinInfo::square().with_fill(hue_hash(&input))
@@ -657,7 +657,7 @@ impl SnarlViewer<CodeNode> for CodeViewer<'_> {
         match *node {
             CodeNode::Event { ref outputs, .. } => {
                 if pin.id.output == 0 {
-                    flow_pin()
+                    PinInfo::default()
                 } else {
                     let output = outputs[pin.id.output - 1];
                     PinInfo::square().with_fill(hue_hash(&output))
@@ -673,7 +673,7 @@ impl SnarlViewer<CodeNode> for CodeViewer<'_> {
                 ..
             } => {
                 if pin.id.output < outflows {
-                    flow_pin()
+                    PinInfo::default()
                 } else {
                     let output = outputs[pin.id.output - outflows];
                     PinInfo::square().with_fill(hue_hash(&output))
@@ -767,6 +767,69 @@ impl SnarlViewer<CodeNode> for CodeViewer<'_> {
             }
         }
     }
+
+    fn draw_input_pin(
+        &mut self,
+        pin: &InPin,
+        pin_info: &PinInfo,
+        pos: egui::Pos2,
+        size: f32,
+        snarl_style: &SnarlStyle,
+        style: &egui::Style,
+        painter: &Painter,
+        scale: f32,
+        snarl: &Snarl<CodeNode>,
+    ) -> Color32 {
+        let node = &snarl[pin.id.node];
+
+        match *node {
+            CodeNode::Event { .. } => unreachable!(),
+            CodeNode::Pure { .. } => pin_info.draw(pos, size, snarl_style, style, painter, scale),
+            CodeNode::Flow { inflows, .. } => {
+                if pin.id.input < inflows {
+                    draw_flow_pin(painter, Rect::from_center_size(pos, egui::vec2(size, size)));
+                    Color32::WHITE
+                } else {
+                    pin_info.draw(pos, size, snarl_style, style, painter, scale)
+                }
+            }
+        }
+    }
+
+    fn draw_output_pin(
+        &mut self,
+        pin: &OutPin,
+        pin_info: &PinInfo,
+        pos: egui::Pos2,
+        size: f32,
+        snarl_style: &SnarlStyle,
+        style: &egui::Style,
+        painter: &Painter,
+        scale: f32,
+        snarl: &Snarl<CodeNode>,
+    ) -> Color32 {
+        let node = &snarl[pin.id.node];
+
+        match *node {
+            CodeNode::Event { .. } => {
+                if pin.id.output == 0 {
+                    draw_flow_pin(painter, Rect::from_center_size(pos, egui::vec2(size, size)));
+                    Color32::WHITE
+                } else {
+                    pin_info.draw(pos, size, snarl_style, style, painter, scale)
+                }
+            }
+            CodeNode::Pure { .. } => pin_info.draw(pos, size, snarl_style, style, painter, scale),
+            CodeNode::Flow { outflows, .. } => {
+                if pin.id.output < outflows {
+                    draw_flow_pin(painter, Rect::from_center_size(pos, egui::vec2(size, size)));
+                    Color32::WHITE
+                } else {
+                    pin_info.draw(pos, size, snarl_style, style, painter, scale)
+                }
+            }
+        }
+    }
 }
 
 fn draw_flow_pin(painter: &Painter, rect: Rect) {
@@ -776,12 +839,6 @@ fn draw_flow_pin(painter: &Painter, rect: Rect) {
         fill: Color32::WHITE,
         stroke: Stroke::new(1.0, Color32::WHITE).into(),
     }));
-}
-
-fn flow_pin() -> PinInfo {
-    PinInfo::default().with_shape(PinShape::Custom(CustomPinShape::new(
-        |painter, rect, _, _| draw_flow_pin(painter, rect),
-    )))
 }
 
 pub struct CodeTool {

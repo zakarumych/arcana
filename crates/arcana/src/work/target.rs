@@ -9,7 +9,7 @@ use hashbrown::HashMap;
 use crate::{
     hash::{no_hash_map, NoHashMap},
     make_id,
-    stid::WithStid,
+    stid::HasStid,
     type_id,
 };
 
@@ -18,7 +18,7 @@ make_id! {
     pub TargetId;
 }
 
-pub trait Target: WithStid + 'static {
+pub trait Target: HasStid + 'static {
     type Info: Eq + 'static;
 
     fn allocate(device: &mev::Device, name: &str, info: &Self::Info) -> Self

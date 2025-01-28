@@ -1,19 +1,19 @@
 use proc_macro2::TokenStream;
 
-pub fn job(attr: proc_macro::TokenStream, item: syn::ItemImpl) -> syn::Result<TokenStream> {
+pub fn importer(attr: proc_macro::TokenStream, item: syn::ItemImpl) -> syn::Result<TokenStream> {
     let mut tokens = TokenStream::new();
 
-    let job_trait_path = match item.trait_ {
+    let importer_trait_path = match item.trait_ {
         None => {
             return Err(syn::Error::new_spanned(
                 item,
-                "expected `Job` trait implementation",
+                "expected `Importer` trait implementation",
             ));
         }
         Some((Some(_), _, _)) => {
             return Err(syn::Error::new_spanned(
                 item,
-                "expected non-negative `Job` trait implementation",
+                "expected non-negative `Importer` trait implementation",
             ));
         }
         Some((_, ref path, _)) => path,
@@ -24,7 +24,7 @@ pub fn job(attr: proc_macro::TokenStream, item: syn::ItemImpl) -> syn::Result<To
         _ => {
             return Err(syn::Error::new_spanned(
                 item.self_ty,
-                "expected `Job` implementation for a type",
+                "expected `Importer` implementation for a type",
             ));
         }
     };
@@ -36,28 +36,28 @@ pub fn job(attr: proc_macro::TokenStream, item: syn::ItemImpl) -> syn::Result<To
     if !attr.is_empty() {
         return Err(syn::Error::new(
             proc_macro2::Span::call_site(),
-            "`#[job]` does not accept any arguments",
+            "`#[importer]` does not accept any arguments",
         ));
     }
 
     tokens.extend(quote::quote! {
         ::arcana::plugin_ctor_add!(plugin => {
-            fn job_is_job<T: #job_trait_path>() {
-                ::arcana::for_macro::is_job::<T>();
+            #[allow(dead_code)]
+            fn importer_is_importer<T: #importer_trait_path>() {
+                ::arcana::for_macro::is_importer::<T>();
             }
-            job_is_job::<#type_path>();
+            importer_is_importer::<#type_path>();
 
-            let id: ::arcana::work::JobId = ::arcana::local_name_hash_id!(#ident);
+            let id: ::arcana::assets::import::ImporterId = ::arcana::local_name_hash_id!(#ident);
 
             let add = |hub: &mut ::arcana::plugin::PluginsHub| {
-                let id: ::arcana::work::JobId = ::arcana::local_name_hash_id!(#ident);
-                hub.add_job(id, < #type_path as ::arcana::work::Job >::new());
+                let id: ::arcana::assets::import::ImporterId = ::arcana::local_name_hash_id!(#ident);
+                hub.add_importer(id, < #type_path as ::arcana::assets::import::Importer >::new());
             };
 
-            let info = ::arcana::plugin::JobInfo {
+            let info = ::arcana::plugin::ImporterInfo {
                 id,
-                name: < #type_path as ::arcana::work::Job >::name(),
-                desc: < #type_path as ::arcana::work::Job >::desc(),
+                name: < #type_path as ::arcana::assets::import::Importer >::name(),
                 location: ::std::option::Option::Some(::arcana::plugin::Location {
                     file: std::string::String::from(::std::file!()),
                     line: ::std::line!(),
@@ -65,7 +65,7 @@ pub fn job(attr: proc_macro::TokenStream, item: syn::ItemImpl) -> syn::Result<To
                 }),
             };
 
-            plugin.add_job(info, add);
+            plugin.add_importer(info, add);
         });
 
         #item

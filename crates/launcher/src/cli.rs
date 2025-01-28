@@ -143,7 +143,7 @@ enum Command {
 }
 
 #[derive(Debug, Parser)]
-#[command(name = "arcn")]
+#[command(name = "arcana")]
 #[command(about = "Arcana game engine CLI")]
 #[command(rename_all = "kebab-case")]
 struct Cli {
@@ -151,26 +151,22 @@ struct Cli {
     command: Option<Command>,
 }
 
-fn main() -> miette::Result<()> {
-    install_tracing_subscriber();
-
+pub fn run() -> miette::Result<bool> {
     let cli = Cli::parse();
     let start = Start::new();
 
-    match cli.command.unwrap_or_else(|| Command::Ed {
-        path: PathBuf::from("."),
-        release: false,
-    }) {
-        Command::Init { path, name, arcana } => {
+    match cli.command {
+        None => return Ok(false),
+        Some(Command::Init { path, name, arcana }) => {
             start.init(&path, name, pick_engine_version(&start, arcana), false)?;
         }
-        Command::New { path, name, arcana } => {
+        Some(Command::New { path, name, arcana }) => {
             start.init(&path, name, pick_engine_version(&start, arcana), true)?;
         }
-        Command::InitWorkspace { path } => {
+        Some(Command::InitWorkspace { path }) => {
             start.init_workspace(&path)?;
         }
-        Command::Ed { path, release } => {
+        Some(Command::Ed { path, release }) => {
             start.run_ed(
                 &path,
                 if release {
@@ -180,10 +176,10 @@ fn main() -> miette::Result<()> {
                 },
             )?;
         }
-        Command::NewPlugin { path, name, arcana } => {
+        Some(Command::NewPlugin { path, name, arcana }) => {
             start.new_plugin(&path, name, pick_engine_version(&start, arcana))?;
         }
-        Command::Game { path, release } => {
+        Some(Command::Game { path, release }) => {
             start.run_game(
                 &path,
                 if release {
@@ -193,7 +189,7 @@ fn main() -> miette::Result<()> {
                 },
             )?;
         }
-        Command::Cook { .. } => {
+        Some(Command::Cook { .. }) => {
             unimplemented!()
             //     let path = start.build_game(&path)?;
 
@@ -217,7 +213,7 @@ fn main() -> miette::Result<()> {
         }
     }
 
-    Ok(())
+    Ok(true)
 }
 
 fn pick_engine_version(start: &Start, arcana: Option<ArcanaArg>) -> Dependency {
@@ -227,17 +223,5 @@ fn pick_engine_version(start: &Start, arcana: Option<ArcanaArg>) -> Dependency {
             [first, ..] => first.clone(),
         },
         Some(ArcanaArg { arcana }) => arcana,
-    }
-}
-
-fn install_tracing_subscriber() {
-    use tracing_subscriber::layer::SubscriberExt as _;
-    if let Err(err) = tracing::subscriber::set_global_default(
-        tracing_subscriber::fmt()
-            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-            .finish()
-            .with(tracing_error::ErrorLayer::default()),
-    ) {
-        panic!("Failed to install tracing subscriber: {}", err);
     }
 }

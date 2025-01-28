@@ -10,7 +10,8 @@ use hashbrown::{hash_map::Entry, HashMap, HashSet};
 use slab::Slab;
 
 use crate::{
-    arena::Arena, id::IdGen, model::Value, plugin::PluginsHub, work::job::invalid_output_pin, Stid,
+    arena::Arena, id::SeqIdGen, model::Value, plugin::PluginsHub, work::job::invalid_output_pin,
+    Stid,
 };
 
 use super::{
@@ -36,7 +37,7 @@ pub struct WorkGraph {
 
     // Mutable state
     hub: TargetHub,
-    idgen: IdGen,
+    idgen: SeqIdGen,
     sinks: HashMap<PinId, TargetId>,
 
     // Temporary state
@@ -106,7 +107,7 @@ impl WorkGraph {
 
         // Assign target ids to job pins.
 
-        let mut idgen = IdGen::new();
+        let mut idgen = SeqIdGen::new();
 
         let mut output_targets = HashMap::<PinId, TargetId>::new();
         let mut input_targets = HashMap::<PinId, TargetId>::new();
@@ -139,7 +140,7 @@ impl WorkGraph {
                     }
                     None => {
                         // Allocate new target to assign to this edge pins.
-                        let target = idgen.next();
+                        let target = TargetId::generate(&mut idgen);
                         output_targets.insert(edge.from, target);
                         input_targets.insert(edge.to, target);
                     }
@@ -255,7 +256,7 @@ impl WorkGraph {
                 self.hub.external(target_id, target, info);
             }
             Entry::Vacant(entry) => {
-                let mut target_id = self.idgen.next();
+                let mut target_id = TargetId::generate(&mut self.idgen);
 
                 match (job.update_idx(pin.pin), job.create_idx(pin.pin)) {
                     (Some(idx), None) => match job.updates[idx].id {

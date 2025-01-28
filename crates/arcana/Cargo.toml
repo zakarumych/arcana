@@ -66,7 +66,7 @@ egui_file.workspace = true
 egui-phosphor.workspace = true
 egui-probe = { workspace = true, features = ["derive"] }
 egui-snarl = { workspace = true, features = ["serde"] }
-egui_tracing.workspace = true
+# egui_tracing.workspace = true
 
 # System
 arboard.workspace = true
@@ -78,7 +78,7 @@ winit = { workspace = true, features = ["serde"] }
 
 # Linking
 ctor.workspace = true
-linkme.workspace = true
+# linkme.workspace = true
 libloading.workspace = true
 
 # Other stuff
@@ -100,3 +100,4 @@ smallvec.workspace = true
 sha2.workspace = true
 tiny-fn.workspace = true
 url = { workspace = true, features = ["serde"] }
+vtid.workspace = true

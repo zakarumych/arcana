@@ -7,17 +7,17 @@ use hashbrown::{hash_map::Entry, HashMap};
 use smallvec::SmallVec;
 
 use crate::{
-    make_id,
-    stid::{Stid, WithStid},
+    make_uid,
+    stid::{Stid, HasStid},
     Slot,
 };
 
-make_id! {
+make_uid! {
     /// ID of the code node
     pub CodeNodeId;
 }
 
-make_id! {
+make_uid! {
     /// ID of the code graph
     pub CodeGraphId;
 }
@@ -191,8 +191,8 @@ macro_rules! into_pure_code {
         impl<F $(,$b)* $(,$a)*> IntoPureCode<($($a,)*), ($($b,)*)> for F
         where
             F: Fn(FlowEntity, $(&$a,)*) -> ($($b,)*) + Copy,
-            $($a: WithStid,)*
-            $($b: WithStid + Send + Sync,)*
+            $($a: HasStid,)*
+            $($b: HasStid + Send + Sync,)*
         {
             fn into_pure_code(self) -> (CodeDesc, PureCode) {
                 #![allow(unused, non_snake_case)]
@@ -204,8 +204,8 @@ macro_rules! into_pure_code {
                 }
 
                 let desc = CodeDesc::Pure {
-                    inputs: vec![$(<$a as WithStid>::stid(),)*],
-                    outputs: vec![$(<$b as WithStid>::stid(),)*],
+                    inputs: vec![$(<$a as HasStid>::stid(),)*],
+                    outputs: vec![$(<$b as HasStid>::stid(),)*],
                 };
 
                 let code = |entity: FlowEntity, inputs: &[ValueId], outputs: &[ValueId], values: &mut CodeValues| {
@@ -249,8 +249,8 @@ macro_rules! into_flow_code {
         impl<F $(,$b)* $(,$a)*> IntoFlowCode<($($a,)*), ($($b,)*)> for F
         where
             F: Fn(FlowEntity, $(&$a,)*) -> ($($b,)*) + Copy,
-            $($a: WithStid,)*
-            $($b: WithStid + Send + Sync,)*
+            $($a: HasStid,)*
+            $($b: HasStid + Send + Sync,)*
         {
             fn into_flow_code(self) -> (CodeDesc, FlowCode) {
                 #![allow(unused, non_snake_case)]
@@ -264,8 +264,8 @@ macro_rules! into_flow_code {
                 let desc = CodeDesc::Flow {
                     inflows: 1,
                     outflows: 1,
-                    inputs: vec![$(<$a as WithStid>::stid(),)*],
-                    outputs: vec![$(<$b as WithStid>::stid(),)*],
+                    inputs: vec![$(<$a as HasStid>::stid(),)*],
+                    outputs: vec![$(<$b as HasStid>::stid(),)*],
                 };
 
                 let code = |inflow: usize, entity: FlowEntity, inputs: &[ValueId], outputs: &[ValueId], mut continuation: Continuation| {
@@ -332,8 +332,8 @@ macro_rules! into_async_flow_code {
         impl<F $(,$b)* $(,$a)*> IntoAsyncFlowCode<($($a,)*), ($($b,)*)> for F
         where
             F: for<'a> IntoAsyncFlowCodeL<'a, ($($a,)*), ($($b,)*)> + Copy,
-            $($a: WithStid + Clone,)*
-            $($b: WithStid + Send + Sync,)*
+            $($a: HasStid + Clone,)*
+            $($b: HasStid + Send + Sync,)*
         {
             fn into_flow_code(self) -> (CodeDesc, FlowCode) {
                 #![allow(unused, non_snake_case)]
@@ -347,8 +347,8 @@ macro_rules! into_async_flow_code {
                 let desc = CodeDesc::Flow {
                     inflows: 1,
                     outflows: 1,
-                    inputs: vec![$(<$a as WithStid>::stid(),)*],
-                    outputs: vec![$(<$b as WithStid>::stid(),)*],
+                    inputs: vec![$(<$a as HasStid>::stid(),)*],
+                    outputs: vec![$(<$b as HasStid>::stid(),)*],
                 };
 
                 let code = |inflow: usize, entity: FlowEntity, inputs: &[ValueId], outputs: &[ValueId], mut continuation: Continuation| {

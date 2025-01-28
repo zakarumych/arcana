@@ -13,7 +13,7 @@ use arcana::{
     model::{ColorModel, ColorValue, Model, Value},
     name,
     work::{Exec, Image2D, Job, JobDesc, JobIdx, Planner},
-    Component, Res, View,
+    Component, Name, Res, View,
 };
 
 arcana::declare_plugin!([dummy ...]);
@@ -31,15 +31,19 @@ pub struct DTConstants {
     pub height: u32,
 }
 
-#[arcana::job]
 pub struct DrawTriangle {
     pipeline: Option<mev::RenderPipeline>,
     arguments: Option<DTArguments>,
     constants: HashMap<JobIdx, DTConstants>,
 }
 
-impl DrawTriangle {
-    pub fn desc() -> JobDesc {
+#[arcana::job]
+impl Job for DrawTriangle {
+    fn name() -> Name {
+        arcana::name!(DrawTriangle)
+    }
+
+    fn desc() -> JobDesc {
         arcana::job_desc! [
             c1: in Model::Color(ColorModel::Srgb),
             c2: in Model::Color(ColorModel::Srgb),
@@ -48,16 +52,14 @@ impl DrawTriangle {
         ]
     }
 
-    pub fn new() -> Self {
+    fn new() -> Self {
         DrawTriangle {
             pipeline: None,
             arguments: None,
             constants: HashMap::new(),
         }
     }
-}
 
-impl Job for DrawTriangle {
     fn plan(&mut self, mut planner: Planner<'_>, world: &mut World) {
         let idx = planner.idx();
 
@@ -227,13 +229,17 @@ pub struct OpConstants {
     pub op: u32,
 }
 
-#[arcana::job(op)]
 pub struct OpJob {
     pipeline: Option<mev::ComputePipeline>,
 }
 
-impl OpJob {
-    pub fn desc() -> JobDesc {
+#[arcana::job]
+impl Job for OpJob {
+    fn name() -> Name {
+        arcana::name!(op)
+    }
+
+    fn desc() -> JobDesc {
         arcana::job_desc! [
             op: in Model::Enum(vec![
                 (name!(add), Some(Model::Unit)),
@@ -246,12 +252,10 @@ impl OpJob {
         ]
     }
 
-    pub fn new() -> Self {
+    fn new() -> Self {
         OpJob { pipeline: None }
     }
-}
 
-impl Job for OpJob {
     fn plan(&mut self, mut planner: Planner<'_>, _world: &mut World) {
         let Some(dst) = planner.update::<Image2D>() else {
             return;

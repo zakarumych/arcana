@@ -42,7 +42,7 @@ impl ViewRect {
 
 impl Camera2 {
     pub const fn new() -> Self {
-        Self {
+        Camera2 {
             viewport: ViewRect::FovY(1.0),
             parallax: 1.0,
         }
