@@ -8,7 +8,7 @@ use smallvec::SmallVec;
 
 use crate::{
     make_uid,
-    stid::{Stid, WithStid},
+    stid::{HasStid, Stid},
     Slot,
 };
 

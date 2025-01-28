@@ -1,6 +1,6 @@
 use std::{any::Any, path::Path};
 
-use arcana_names::Ident;
+use arcana_names::{Ident, Name};
 
 use crate::make_id;
 
@@ -105,14 +105,11 @@ pub struct ImporterDesc {
 }
 
 /// Trait for an importer.
-pub trait Importer: Send + Sync {
+pub trait Importer: Send + Sync + 'static {
     /// Returns name of the importer
     fn name(&self) -> Name
     where
         Self: Sized;
-
-    /// Returns source formats importer works with.
-    fn formats(&self) -> &[&str];
 
     /// Returns description of the importer.
     fn desc() -> ImporterDesc

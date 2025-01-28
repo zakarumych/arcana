@@ -7,6 +7,11 @@ use rand::RngCore;
 
 use parking_lot::Mutex;
 
+use crate::{
+    assets::AssetId,
+    id::{GenId, GenUid},
+};
+
 const ONE: NonZeroU16 = match NonZeroU16::new(1) {
     None => unreachable!(),
     Some(value) => value,
@@ -114,3 +119,13 @@ impl Generator {
         }
     }
 }
+
+impl GenId for Generator {
+    type Value = NonZeroU64;
+
+    fn generate(&mut self) -> NonZeroU64 {
+        Self::generate(&*self)
+    }
+}
+
+impl GenUid for Generator {}

@@ -169,7 +169,7 @@ fn init_mev() -> (mev::Device, mev::Queue) {
     let instance = mev::Instance::load().expect("Failed to init graphics");
 
     let (device, mut queues) = instance
-        .create(mev::DeviceDesc {
+        .new_device(mev::DeviceDesc {
             idx: 0,
             queues: &[0],
             features: mev::Features::SURFACE,

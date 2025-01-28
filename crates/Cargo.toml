@@ -35,7 +35,7 @@ ctor = "0.2"
 cursor-icon = { version = "1.0" }
 denvars = { version = "0.3.2" }
 dirs = { version = "5" }
-edict = { version = "1.0.0-rc5", path = "../../edict", features = ["serde"] }
+edict = { version = "1.0.0-rc6", path = "../../edict", features = ["serde"] }
 egui = { version = "0.30", features = ["bytemuck", "serde", "cint"] }
 egui_dnd = { version = "0.11" }
 egui_dock = { version = "0.14", git = "https://github.com/bryceberger/egui_dock", rev = "4ea4ba1d77fa1c6f994042f50b486e431a25490f" }

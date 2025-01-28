@@ -9,7 +9,7 @@ use edict::{
 };
 use egui::{epaint::PathShape, Color32, Painter, PointerButton, Rect, Shape, Stroke, Ui};
 use egui_snarl::{
-    ui::{PinInfo, SnarlStyle, SnarlViewer},
+    ui::{PinInfo, PinWireInfo, SnarlPin, SnarlStyle, SnarlViewer, WireStyle},
     InPin, InPinId, NodeId, OutPin, OutPinId, Snarl,
 };
 use hashbrown::{HashMap, HashSet};
@@ -615,20 +615,21 @@ impl SnarlViewer<CodeNode> for CodeViewer<'_> {
         }
     }
 
+    #[allow(refining_impl_trait)]
     fn show_input(
         &mut self,
         pin: &InPin,
         _ui: &mut Ui,
         _scale: f32,
         snarl: &mut Snarl<CodeNode>,
-    ) -> PinInfo {
+    ) -> CodePin {
         let node = &snarl[pin.id.node];
 
         match *node {
             CodeNode::Event { .. } => unreachable!(),
             CodeNode::Pure { ref inputs, .. } => {
                 let input = inputs[pin.id.input];
-                PinInfo::square().with_fill(hue_hash(&input))
+                CodePin::Value(input)
             }
             CodeNode::Flow {
                 inflows,
@@ -636,36 +637,37 @@ impl SnarlViewer<CodeNode> for CodeViewer<'_> {
                 ..
             } => {
                 if pin.id.input < inflows {
-                    PinInfo::default()
+                    CodePin::Flow
                 } else {
                     let input = inputs[pin.id.input - inflows];
-                    PinInfo::square().with_fill(hue_hash(&input))
+                    CodePin::Value(input)
                 }
             }
         }
     }
 
+    #[allow(refining_impl_trait)]
     fn show_output(
         &mut self,
         pin: &OutPin,
         _ui: &mut Ui,
         _scale: f32,
         snarl: &mut Snarl<CodeNode>,
-    ) -> PinInfo {
+    ) -> CodePin {
         let node = &snarl[pin.id.node];
 
         match *node {
             CodeNode::Event { ref outputs, .. } => {
                 if pin.id.output == 0 {
-                    PinInfo::default()
+                    CodePin::Flow
                 } else {
                     let output = outputs[pin.id.output - 1];
-                    PinInfo::square().with_fill(hue_hash(&output))
+                    CodePin::Value(output)
                 }
             }
             CodeNode::Pure { ref outputs, .. } => {
                 let output = outputs[pin.id.output];
-                PinInfo::square().with_fill(hue_hash(&output))
+                CodePin::Value(output)
             }
             CodeNode::Flow {
                 outflows,
@@ -673,10 +675,10 @@ impl SnarlViewer<CodeNode> for CodeViewer<'_> {
                 ..
             } => {
                 if pin.id.output < outflows {
-                    PinInfo::default()
+                    CodePin::Flow
                 } else {
                     let output = outputs[pin.id.output - outflows];
-                    PinInfo::square().with_fill(hue_hash(&output))
+                    CodePin::Value(output)
                 }
             }
         }
@@ -767,65 +769,34 @@ impl SnarlViewer<CodeNode> for CodeViewer<'_> {
             }
         }
     }
+}
 
-    fn draw_input_pin(
-        &mut self,
-        pin: &InPin,
-        pin_info: &PinInfo,
-        pos: egui::Pos2,
-        size: f32,
+enum CodePin {
+    Value(Stid),
+    Flow,
+}
+
+impl SnarlPin for CodePin {
+    fn draw(
+        self,
+        scale: f32,
         snarl_style: &SnarlStyle,
         style: &egui::Style,
+        rect: Rect,
         painter: &Painter,
-        scale: f32,
-        snarl: &Snarl<CodeNode>,
-    ) -> Color32 {
-        let node = &snarl[pin.id.node];
-
-        match *node {
-            CodeNode::Event { .. } => unreachable!(),
-            CodeNode::Pure { .. } => pin_info.draw(pos, size, snarl_style, style, painter, scale),
-            CodeNode::Flow { inflows, .. } => {
-                if pin.id.input < inflows {
-                    draw_flow_pin(painter, Rect::from_center_size(pos, egui::vec2(size, size)));
-                    Color32::WHITE
-                } else {
-                    pin_info.draw(pos, size, snarl_style, style, painter, scale)
-                }
+    ) -> PinWireInfo {
+        match self {
+            CodePin::Value(stid) => {
+                let color = hue_hash(&stid);
+                PinInfo::circle()
+                    .with_fill(color)
+                    .draw(scale, snarl_style, style, rect, painter)
             }
-        }
-    }
-
-    fn draw_output_pin(
-        &mut self,
-        pin: &OutPin,
-        pin_info: &PinInfo,
-        pos: egui::Pos2,
-        size: f32,
-        snarl_style: &SnarlStyle,
-        style: &egui::Style,
-        painter: &Painter,
-        scale: f32,
-        snarl: &Snarl<CodeNode>,
-    ) -> Color32 {
-        let node = &snarl[pin.id.node];
-
-        match *node {
-            CodeNode::Event { .. } => {
-                if pin.id.output == 0 {
-                    draw_flow_pin(painter, Rect::from_center_size(pos, egui::vec2(size, size)));
-                    Color32::WHITE
-                } else {
-                    pin_info.draw(pos, size, snarl_style, style, painter, scale)
-                }
-            }
-            CodeNode::Pure { .. } => pin_info.draw(pos, size, snarl_style, style, painter, scale),
-            CodeNode::Flow { outflows, .. } => {
-                if pin.id.output < outflows {
-                    draw_flow_pin(painter, Rect::from_center_size(pos, egui::vec2(size, size)));
-                    Color32::WHITE
-                } else {
-                    pin_info.draw(pos, size, snarl_style, style, painter, scale)
+            CodePin::Flow => {
+                draw_flow_pin(painter, rect);
+                PinWireInfo {
+                    style: WireStyle::Bezier3,
+                    color: Color32::WHITE,
                 }
             }
         }

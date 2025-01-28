@@ -13,12 +13,13 @@ mod store;
 
 use egui_file::FileDialog;
 use futures::future::BoxFuture;
+use hashbrown::HashMap;
 use store::{Store, StoreInfo};
 use url::Url;
 
 use crate::{
     assets::{
-        import::{EmptyConfig, ImportConfig, ImporterId},
+        import::{EmptyConfig, ImportConfig, ImporterDesc, ImporterId},
         AssetData, AssetId, Error, Loader, NotFound,
     },
     task::{TaskQueue, WakerArray},
@@ -87,6 +88,8 @@ pub struct Assets {
     lookup: Lookup,
 
     import_dialog: Option<ImportDialog>,
+
+    importers: HashMap<ImporterId, ImporterDesc>,
 }
 
 enum ImportDialog {
@@ -118,6 +121,7 @@ impl Assets {
                 path: String::new(),
             },
             import_dialog: None,
+            importers: HashMap::new(),
         }
     }
 
@@ -167,15 +171,15 @@ impl Assets {
                                 };
 
                                 let mut selected_importers = Vec::new();
-                                for (id, importer) in instance.hub().importers.iter() {
+                                for (id, importer) in self.importers.iter() {
                                     if let Some(ext) = ext {
-                                        let supported = importer.extensions();
+                                        let supported = &importer.extensions;
                                         if supported.iter().all(|e| **e != *ext) {
                                             continue;
                                         }
                                     }
 
-                                    selected_importers.push((*id, &**importer));
+                                    selected_importers.push((*id, importer.target));
                                 }
 
                                 if selected_importers.is_empty() {
@@ -187,13 +191,18 @@ impl Assets {
                                 }
 
                                 if selected_importers.len() == 1 {
-                                    let (id, importer) = selected_importers[0];
+                                    let (id, target) = selected_importers[0];
+                                    let importer = instance
+                                        .hub()
+                                        .importers
+                                        .get(&id)
+                                        .expect("Importer not found");
 
                                     let config = importer.config();
                                     if config.is::<EmptyConfig>() {
                                         let res = self.store.store_from_url(
                                             source_url,
-                                            importer.target(),
+                                            target,
                                             None,
                                             instance.hub(),
                                         );

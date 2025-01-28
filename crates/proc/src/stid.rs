@@ -21,7 +21,6 @@ proc_easy::easy_parse! {
 
 proc_easy::easy_parse! {
     pub struct HasStid {
-    pub struct HasStid {
         ty: syn::Type,
         assign: proc_easy::EasyMaybe<AssignStid>,
     }
@@ -131,7 +130,6 @@ pub fn has_stid(stid: Option<StidValue>, input: &syn::DeriveInput) -> syn::Resul
 
     let output = quote::quote! {
         impl #impl_generics ::arcana::stid::HasStid for #name #ty_generics #where_clause {
-        impl #impl_generics ::arcana::stid::HasStid for #name #ty_generics #where_clause {
             #[inline(always)]
             fn stid() -> ::arcana::stid::Stid {
                 let id = #combined_ids;
@@ -141,7 +139,6 @@ pub fn has_stid(stid: Option<StidValue>, input: &syn::DeriveInput) -> syn::Resul
             #[inline(always)]
             fn stid_dyn(&self) -> ::arcana::stid::Stid {
                 <Self as ::arcana::stid::HasStid>::stid()
-                <Self as ::arcana::stid::HasStid>::stid()
             }
         }
     };
@@ -149,7 +146,7 @@ pub fn has_stid(stid: Option<StidValue>, input: &syn::DeriveInput) -> syn::Resul
     Ok(output)
 }
 
-pub fn with_stid_fn(input: HasStid) -> syn::Result<TokenStream> {
+pub fn has_stid_fn(input: HasStid) -> syn::Result<TokenStream> {
     let stid = match input.assign {
         EasyMaybe::Nothing => None,
         EasyMaybe::Just(AssignStid { assign: _, stid }) => Some(stid),
@@ -174,7 +171,6 @@ pub fn with_stid_fn(input: HasStid) -> syn::Result<TokenStream> {
     };
 
     let output = quote::quote! {
-        impl ::arcana::stid::HasStid for #ty {
         impl ::arcana::stid::HasStid for #ty {
             #[inline(always)]
             fn stid() -> ::arcana::stid::Stid {

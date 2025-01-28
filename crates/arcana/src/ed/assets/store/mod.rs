@@ -14,7 +14,9 @@ use url::Url;
 
 use crate::{
     assets::{
-        import::{AssetDependencies, AssetSources, ImportError, Importer, ImporterId},
+        import::{
+            AssetDependencies, AssetSources, ImportError, Importer, ImporterDesc, ImporterId,
+        },
         AssetId,
     },
     plugin::PluginsHub,
@@ -138,7 +140,9 @@ pub struct Store {
 
     artifacts: RwLock<HashMap<AssetId, AssetItem>>,
     scanned: RwLock<bool>,
-    id_gen: Mutex<TimeUidGen>,
+    id_gen: Mutex<Generator>,
+
+    importers: RwLock<HashMap<ImporterId, ImporterDesc>>,
 }
 
 impl Store {
@@ -174,9 +178,11 @@ impl Store {
             temp,
             artifacts: RwLock::new(HashMap::new()),
             scanned: RwLock::new(false),
-            id_gen: Mutex::new(TimeUidGen::random_with_start(
+            id_gen: Mutex::new(Generator::with_epoch(
                 SystemTime::UNIX_EPOCH + Duration::from_secs(DEFAULT_EPOCH),
             )),
+
+            importers: RwLock::new(HashMap::new()),
         })
     }
 
@@ -271,26 +277,6 @@ impl Store {
 
             let extension = url_ext(&item.source);
 
-            let importers =
-                hub.select_importers(Some(item.target), item.format.as_deref(), extension);
-
-            if importers.is_empty() {
-                return Err(StoreError::NoImporters {
-                    format: item.format.clone(),
-                    target: item.target,
-                    url: item.source.clone(),
-                });
-            }
-            if importers.len() > 1 {
-                return Err(StoreError::ManyImporters {
-                    format: item.format.clone(),
-                    target: item.target,
-                    url: item.source.clone(),
-                });
-            }
-
-            let (importer_id, importer) = importers[0];
-
             // Fetch source file.
             let (source_path, source_modified) = sources
                 .fetch(&self.temp, &item.source)
@@ -298,84 +284,104 @@ impl Store {
 
             let source_path = source_path.to_owned();
             let output_path = make_temporary(&self.temp);
-            let selected_importer_name;
             let result;
 
-            {
-                let importers = self.importers.read();
-                let selected_importers =
-                    importers.select(Some(item.target), item.format.as_deref(), extension);
-
-                if selected_importers.is_empty() {
-                    return Err(StoreError::NoImporters {
-                        format: item.format.clone(),
-                        target: item.target,
-                        url: item.source.clone(),
-                    });
-                }
-                if selected_importers.len() > 1 {
-                    return Err(StoreError::ManyImporters {
-                        format: item.format.clone(),
-                        target: item.target,
-                        url: item.source.clone(),
-                    });
-                }
-
-                let (name, selected_importer) = selected_importers[0];
-                selected_importer_name = name;
-
-                struct Fn<F>(F);
-
-                impl<F> AssetSources for Fn<F>
-                where
-                    F: FnMut(&str) -> Option<PathBuf>,
-                {
-                    fn get(&mut self, source: &str) -> Option<PathBuf> {
-                        (self.0)(source)
+            let importers = self.importers.read();
+            let selected_importers = importers
+                .iter()
+                .filter_map(|(id, desc)| {
+                    if desc.target != item.target {
+                        return None;
                     }
-                }
 
-                impl<F> AssetDependencies for Fn<F>
-                where
-                    F: FnMut(&str, Ident) -> Option<AssetId>,
-                {
-                    fn get(&mut self, source: &str, target: Ident) -> Option<AssetId> {
-                        (self.0)(source, target)
-                    }
-                }
-
-                result = selected_importer.import(
-                    &source_path,
-                    &output_path,
-                    &mut Fn(|src: &str| {
-                        let src = item.source.join(src).ok()?; // If parsing fails - source will be listed in `ImportResult::RequireSources`.
-                        let (path, modified) = sources.get(&src)?;
-                        item.sources.insert(src, modified);
-                        Some(path.to_owned())
-                    }),
-                    &mut Fn(|src: &str, target: Ident| {
-                        let src = item.source.join(src).ok()?;
-
-                        match SourceMeta::new(&src, base, external) {
-                            Ok(meta) => {
-                                let asset = meta.get_asset(target)?;
-                                item.dependencies.insert(asset.id());
-                                Some(asset.id())
-                            }
-                            Err(err) => {
-                                tracing::error!("Fetching dependency failed. {:#}", err);
-                                None
-                            }
+                    if let Some(format) = &item.format {
+                        if desc.formats.iter().all(|fmt| fmt != format) {
+                            return None;
                         }
-                    }),
-                );
+                    }
+
+                    if let Some(extension) = extension {
+                        if desc.extensions.iter().all(|ext| ext != extension) {
+                            return None;
+                        }
+                    }
+
+                    Some(*id)
+                })
+                .collect::<Vec<_>>();
+
+            if selected_importers.is_empty() {
+                return Err(StoreError::NoImporters {
+                    format: item.format.clone(),
+                    target: item.target,
+                    url: item.source.clone(),
+                });
             }
+            if selected_importers.len() > 1 {
+                return Err(StoreError::ManyImporters {
+                    format: item.format.clone(),
+                    target: item.target,
+                    url: item.source.clone(),
+                });
+            }
+
+            let selected_importer_id = selected_importers[0];
+            let selected_importer = hub
+                .importers
+                .get(&selected_importer_id)
+                .expect("Importer not found");
+
+            struct Fn<F>(F);
+
+            impl<F> AssetSources for Fn<F>
+            where
+                F: FnMut(&str) -> Option<PathBuf>,
+            {
+                fn get(&mut self, source: &str) -> Option<PathBuf> {
+                    (self.0)(source)
+                }
+            }
+
+            impl<F> AssetDependencies for Fn<F>
+            where
+                F: FnMut(&str, Ident) -> Option<AssetId>,
+            {
+                fn get(&mut self, source: &str, target: Ident) -> Option<AssetId> {
+                    (self.0)(source, target)
+                }
+            }
+
+            result = selected_importer.import(
+                &source_path,
+                &output_path,
+                &mut Fn(|src: &str| {
+                    let src = item.source.join(src).ok()?; // If parsing fails - source will be listed in `ImportResult::RequireSources`.
+                    let (path, modified) = sources.get(&src)?;
+                    item.sources.insert(src, modified);
+                    Some(path.to_owned())
+                }),
+                &mut Fn(|src: &str, target: Ident| {
+                    let src = item.source.join(src).ok()?;
+
+                    match SourceMeta::new(&src, base, external) {
+                        Ok(meta) => {
+                            let asset = meta.get_asset(target)?;
+                            item.dependencies.insert(asset.id());
+                            Some(asset.id())
+                        }
+                        Err(err) => {
+                            tracing::error!("Fetching dependency failed. {:#}", err);
+                            None
+                        }
+                    }
+                }),
+            );
 
             match result {
                 Ok(()) => {}
                 Err(ImportError::Other { reason }) => {
                     return Err(StoreError::ImportError {
-                        importer: importer_id,
+                        importer: selected_importer_id,
                         target: item.target,
                         url: item.source.clone(),
                         reason,
@@ -388,7 +394,7 @@ impl Store {
                     // If we have too many attempts, we should stop.
                     if item.attempt >= MAX_ITEM_ATTEMPTS {
                         return Err(StoreError::TooManyAttempts {
-                            importer: importer_id,
+                            importer: selected_importer_id,
                             target: item.target,
                             url: item.source.clone(),
                         });

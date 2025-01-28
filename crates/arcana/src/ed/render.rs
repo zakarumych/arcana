@@ -388,6 +388,7 @@ impl SnarlViewer<RenderGraphNode> for RenderGraphViewer<'_> {
         }
     }
 
+    #[allow(refining_impl_trait)]
     fn show_input(
         &mut self,
         pin: &InPin,
@@ -428,7 +429,7 @@ impl SnarlViewer<RenderGraphNode> for RenderGraphViewer<'_> {
                                 .show(ui)
                                 .changed();
                         });
-                        PinInfo::square().with_size(0.0)
+                        PinInfo::square()
                     }
                     a => unreachable!("{a:?}"),
                 }
@@ -440,6 +441,7 @@ impl SnarlViewer<RenderGraphNode> for RenderGraphViewer<'_> {
         }
     }
 
+    #[allow(refining_impl_trait)]
     fn show_output(
         &mut self,
         pin: &OutPin,
