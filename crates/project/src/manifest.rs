@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use arcana_names::{Ident, Name};
+use arcana_intern::{Ident, Name};
 
 use crate::{dependency::Dependency, plugin::Plugin};
 

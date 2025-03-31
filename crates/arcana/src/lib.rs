@@ -1,5 +1,5 @@
 #![feature(allocator_api, maybe_uninit_slice)]
-#![deny(unsafe_op_in_unsafe_fn, unused_must_use)]
+#![deny(unsafe_op_in_unsafe_fn, unused_must_use, non_snake_case)]
 #![recursion_limit = "512"]
 
 #[macro_export]
@@ -78,28 +78,19 @@ extern crate self as arcana;
 
 // Re-exports
 pub use {
-    arcana_names::{ident, name, Ident, IdentError, Name, NameError},
-    arcana_proc::{filter, has_stid, importer, init, job, stable_hash_tokens, system, HasStid},
-    arcana_project as project,
-    blink_alloc::{self, Blink, BlinkAlloc},
-    bytemuck,
-    edict::{self, prelude::*},
-    gametime::{
-        self, Clock, ClockStep, Frequency, FrequencyTicker, FrequencyTickerIter, TimeSpan,
-        TimeStamp,
-    },
-    hashbrown, na, parking_lot, tokio, tracing,
+    arcana_intern::{ident, name, Ident, IdentError, Name, NameError},
+    arcana_project as project, bytemuck, gametime, hashbrown, na, parking_lot, tokio, tracing,
     vtid::{HasVtid, Vtid},
 };
 
-pub use mev;
 pub mod arena;
 pub mod assets;
 pub mod base58;
 pub mod code;
+pub mod ecs;
 pub mod ed;
 pub mod events;
-pub mod flow;
+pub mod graphics;
 pub mod hash;
 pub mod id;
 pub mod input;
@@ -109,45 +100,12 @@ mod num2name;
 pub mod plugin;
 pub mod render;
 pub mod serde_with;
-pub mod stid;
+pub mod slot;
 pub mod tany;
 pub mod task;
-pub mod texture;
 pub mod unfold;
 pub mod viewport;
 pub mod work;
-
-pub use self::{
-    id::{BaseId, Id, SeqIdGen},
-    num2name::{hash_to_name, num_to_name},
-    stid::{HasStid, Stid},
-    tany::{LTAny, TAny},
-};
-
-/// Returns version of the arcana crate.
-pub fn version() -> &'static str {
-    env!("CARGO_PKG_VERSION")
-}
-
-/// Triggers panic.
-/// Use when too large capacity is requested.
-#[inline(never)]
-#[cold]
-fn capacity_overflow() -> ! {
-    panic!("capacity overflow");
-}
-
-#[inline(always)]
-fn alloc_guard(alloc_size: usize) {
-    if usize::BITS < 64 && alloc_size > isize::MAX as usize {
-        capacity_overflow()
-    }
-}
-
-#[inline(always)]
-pub fn type_id<T: 'static>() -> std::any::TypeId {
-    std::any::TypeId::of::<T>()
-}
 
 #[macro_export]
 macro_rules! static_assert {
@@ -163,90 +121,45 @@ macro_rules! static_assert {
     };
 }
 
-/// Slot for storing a single value of `Any` type
-/// with type-safe access, replacement and removal.
-#[derive(Default)]
-pub struct Slot(Option<TAny>);
-
-impl From<Option<TAny>> for Slot {
-    #[inline(always)]
-    fn from(opt: Option<TAny>) -> Self {
-        Slot(opt)
-    }
-}
-
-impl From<TAny> for Slot {
-    #[inline(always)]
-    fn from(boxed: TAny) -> Self {
-        Slot(Some(boxed))
-    }
-}
-
-impl Slot {
-    #[inline(always)]
-    pub fn new() -> Self {
-        Slot(None)
-    }
-
-    #[inline(always)]
-    pub fn with_value<T>(value: T) -> Self
-    where
-        T: Send + Sync + 'static,
-    {
-        Self(Some(TAny::new(value)))
-    }
-
-    #[inline(always)]
-    pub fn into_inner(self) -> Option<TAny> {
-        self.0
-    }
-
-    #[inline(always)]
-    pub fn set<T>(&mut self, value: T)
-    where
-        T: Send + Sync + 'static,
-    {
-        if let Some(boxed) = &mut self.0 {
-            if let Some(slot) = boxed.downcast_mut::<T>() {
-                *slot = value;
-                return;
-            }
-        }
-        self.0 = Some(TAny::new(value));
-    }
-
-    #[inline(always)]
-    pub fn get<T: 'static>(&self) -> Option<&T> {
-        if let Some(boxed) = &self.0 {
-            return boxed.downcast_ref::<T>();
-        }
-
-        None
-    }
-
-    #[inline(always)]
-    pub fn take<T: 'static>(&mut self) -> Option<T> {
-        if let Some(tany) = &self.0 {
-            if tany.is::<T>() {
-                let tany = self.0.take().unwrap();
-                let value = unsafe { tany.downcast::<T>().unwrap_unchecked() };
-                return Some(value);
-            }
-        }
-
-        None
-    }
-}
-
 static_assert!(
     size_of::<usize>() <= size_of::<u64>(),
     "Unchecked cast from usize to u64 is performed in Arcana"
 );
 
+/// Returns version of the arcana crate.
+pub fn version() -> &'static str {
+    // Version of each crate in the workspace is the same.
+    env!("CARGO_PKG_VERSION")
+}
+
+/// Triggers panic.
+/// Use when too large capacity is requested.
+#[inline(never)]
+#[cold]
+fn capacity_overflow() -> ! {
+    panic!("capacity overflow");
+}
+
+// Guard against allocating too large memory on systems with less than 64-bit address space.
+#[inline(always)]
+fn alloc_guard(alloc_size: usize) {
+    // On 64-bit and wider systems, we assume that allocations larger than isize::MAX are impossible.
+    if usize::BITS < 64 && alloc_size > isize::MAX as usize {
+        capacity_overflow()
+    }
+}
+
+#[inline(always)]
+pub fn type_id<T: 'static>() -> std::any::TypeId {
+    std::any::TypeId::of::<T>()
+}
+
 /// Module that contains non-public items exposed for macros.
 #[doc(hidden)]
 pub mod for_macro {
     use crate::{assets::import::Importer, work::Job};
+
+    pub use arcana_proc::stable_hash_tokens;
 
     pub fn is_job<T: Job>() {}
     pub fn is_importer<T: Importer>() {}

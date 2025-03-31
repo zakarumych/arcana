@@ -12,7 +12,7 @@ use std::{
     process::Child,
 };
 
-use arcana_names::{Ident, Name};
+use arcana_intern::{Ident, Name};
 use camino::{Utf8Path, Utf8PathBuf};
 
 mod dependency;

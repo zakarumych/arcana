@@ -296,7 +296,7 @@ impl Buffer for GrowableBuffer {
     }
 
     fn filled(&self) -> &[u8] {
-        unsafe { MaybeUninit::slice_assume_init_ref(&self.bytes[self.consumed..self.filled]) }
+        unsafe { self.bytes[self.consumed..self.filled].assume_init_ref() }
     }
 
     fn unfilled(&mut self, min: usize) -> &mut [u8] {
@@ -363,9 +363,7 @@ impl Buffer for GrowableBuffer {
         }
 
         // Return unfilled portion.
-        unsafe {
-            MaybeUninit::slice_assume_init_mut(&mut self.bytes[self.filled..self.initialized])
-        }
+        unsafe { self.bytes[self.filled..self.initialized].assume_init_mut() }
     }
 
     fn clear(&mut self) {

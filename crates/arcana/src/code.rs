@@ -7,9 +7,9 @@ use hashbrown::{hash_map::Entry, HashMap};
 use smallvec::SmallVec;
 
 use crate::{
+    id::{HasStid, Stid},
     make_uid,
-    stid::{HasStid, Stid},
-    Slot,
+    slot::Slot,
 };
 
 make_uid! {

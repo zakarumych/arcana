@@ -10,11 +10,26 @@ use crate::{intern::INTERNER, Ident};
 #[macro_export]
 macro_rules! name {
     ($i:ident) => {
-        $crate::Name::from_name_str(stringify!($i))
+        $crate::Name::from_name_static(stringify!($i))
     };
 }
 
-/// String wrapper that ensures it is a valid unicode identifier.
+#[macro_export]
+macro_rules! format_name {
+    ($fmt:literal $(, $arg:expr)*) => { {
+        $crate::Name::from_string(::std::format!($fmt $(, $arg)*)).unwrap()
+    }};
+}
+
+#[macro_export]
+macro_rules! try_format_name {
+    ($fmt:literal $(, $arg:expr)*) => { {
+        $crate::Name::from_string(::std::format!($fmt $(, $arg)*))
+    }};
+}
+
+/// Interned string wrapper that ensures it is a valid name.
+/// Names should not have control characters and should not be empty.
 #[derive(Clone, Copy)]
 #[repr(transparent)]
 pub struct Name {
@@ -22,6 +37,25 @@ pub struct Name {
 }
 
 impl Name {
+    /// Creates a new `Name` from a static string.
+    ///
+    /// Returns an error if the string is empty or contains control characters.
+    ///
+    /// Valid string will be interned.
+    ///
+    /// Unlike `from_static`, this function will allocate storage for the string if it is not interned yet.
+    pub fn from_static(s: &'static str) -> Result<Self, NameError> {
+        validate_name(s)?;
+
+        let s = INTERNER.intern_static(s);
+        Ok(Name { s })
+    }
+
+    /// Creates a new `Name` from a string-like object.
+    ///
+    /// Returns an error if the string is empty or contains control characters.
+    ///
+    /// Valid string will be interned.
     pub fn from_str<S>(s: &S) -> Result<Self, NameError>
     where
         S: AsRef<str> + ?Sized,
@@ -33,13 +67,30 @@ impl Name {
         Ok(Name { s })
     }
 
-    /// This function is safe because it cannot be used
-    /// to violate Rust safety rules.
+    /// Creates a new `Name` from a `String` object.
     ///
-    /// However, it is possible to create invalid `Name` that may cause unexpected behavior.
+    /// Returns an error if the string is empty or contains control characters.
+    ///
+    /// Valid string will be interned.
+    ///
+    /// Unlike `from_str`, this function takes ownership of the string and use it if it is not interned yet.
+    pub fn from_string(s: String) -> Result<Self, NameError> {
+        validate_name(&*s)?;
+
+        let s = INTERNER.intern_string(s);
+        Ok(Name { s })
+    }
+
+    /// Creates a new `Name` from a static string.
+    ///
+    /// Does not perform any validation.
+    ///
+    /// Otherwise same as `from_static`.
     #[inline(always)]
-    pub fn from_name_str(s: &'static str) -> Self {
-        let s = INTERNER.intern(s);
+    pub fn from_name_static(s: &'static str) -> Self {
+        debug_assert!(validate_name(s).is_ok());
+
+        let s = INTERNER.intern_static(s);
         Name { s }
     }
 

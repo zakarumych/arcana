@@ -1,9 +1,11 @@
 use arcana::{
+    ecs::world::World,
     input::{FilterId, Input},
     plugin::{Location, PluginsHub},
     project::Project,
-    Blink, Ident, Name, World,
+    Ident, Name,
 };
+use blink_alloc::Blink;
 use egui::{Color32, Ui, WidgetText};
 use hashbrown::HashMap;
 

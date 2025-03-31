@@ -1,4 +1,4 @@
-use arcana::edict::world::WorldLocal;
+use arcana::ecs::world::WorldLocal;
 use egui::Ui;
 
 pub struct Inspector;

@@ -13,7 +13,9 @@ use edict::{
 
 use crate::{
     hash::{no_hash_map, NoHashMap},
-    make_uid, type_id, Slot,
+    make_uid,
+    slot::Slot,
+    type_id,
 };
 
 const MAX_EVENTS: usize = 65536;

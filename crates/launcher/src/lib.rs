@@ -9,7 +9,7 @@ use arcana_project::{new_plugin_crate, process_path_ident, Plugin};
 use camino::Utf8PathBuf;
 use figa::Figa;
 
-pub use arcana_names::Ident;
+pub use arcana_intern::Ident;
 pub use arcana_project::{validate_engine_path, Dependency, Profile, Project};
 
 #[derive(Default, serde::Serialize, serde::Deserialize, figa::Figa)]

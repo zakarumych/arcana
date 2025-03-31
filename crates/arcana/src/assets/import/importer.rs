@@ -1,12 +1,12 @@
 use std::{any::Any, path::Path};
 
-use arcana_names::{Ident, Name};
+use arcana_intern::{Ident, Name};
 
-use crate::make_id;
+use crate::make_uid;
 
 use super::{AssetDependencies, AssetDependency, AssetSources};
 
-make_id! {
+make_uid! {
     /// Unique identifier of an importer.
     pub ImporterId;
 }

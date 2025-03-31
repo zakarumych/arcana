@@ -3,7 +3,7 @@ use std::{borrow::Cow, hash::Hash, path::PathBuf};
 use arboard::Clipboard;
 use blink_alloc::BlinkAlloc;
 use egui::{Id, TopBottomPanel, WidgetText};
-use egui_dock::{DockState, NodeIndex, TabIndex, TabViewer, Tree};
+use egui_tiles::{Tile, TileId, Tiles, Tree, UiResponse};
 use gametime::{Clock, ClockStep, FrequencyNumExt, FrequencyTicker};
 use miette::IntoDiagnostic;
 use winit::{
@@ -54,6 +54,8 @@ enum Tab {
     // Custom(ToolId),
 }
 
+pub trait TabTrait {}
+
 /// Editor app instance.
 /// Contains state of the editor.
 pub struct App {
@@ -93,7 +95,7 @@ pub struct App {
 struct AppView {
     window: Window,
     surface: Option<mev::Surface>,
-    dock_state: DockState<Tab>,
+    tab_tree: Tree<Tab>,
     viewport: UiViewport,
 }
 
@@ -231,7 +233,6 @@ impl App {
                     &view.window,
                     self.clock.now(),
                     |cx, textures| {
-                        let tabs = view.dock_state.main_surface_mut();
                         TopBottomPanel::top("Menu").show(cx, |ui| {
                             ui.horizontal(|ui| {
                                 ui.menu_button("File", |ui| {
@@ -247,11 +248,11 @@ impl App {
                                 });
                                 ui.menu_button("View", |ui| {
                                     if ui.button("Assets").clicked() {
-                                        focus_or_add_tab(tabs, Tab::Assets);
+                                        focus_or_add_tab(&mut view.tab_tree, Tab::Assets);
                                         ui.close_menu();
                                     }
                                     if ui.button("Plugins").clicked() {
-                                        focus_or_add_tab(tabs, Tab::Plugins);
+                                        focus_or_add_tab(&mut view.tab_tree, Tab::Plugins);
                                         ui.close_menu();
                                     }
                                     // if ui.button("Console").clicked() {
@@ -259,19 +260,19 @@ impl App {
                                     //     ui.close_menu();
                                     // }
                                     if ui.button("Codes").clicked() {
-                                        focus_or_add_tab(tabs, Tab::Codes);
+                                        focus_or_add_tab(&mut view.tab_tree, Tab::Codes);
                                         ui.close_menu();
                                     }
                                     if ui.button("Systems").clicked() {
-                                        focus_or_add_tab(tabs, Tab::Systems);
+                                        focus_or_add_tab(&mut view.tab_tree, Tab::Systems);
                                         ui.close_menu();
                                     }
                                     if ui.button("Filters").clicked() {
-                                        focus_or_add_tab(tabs, Tab::Filters);
+                                        focus_or_add_tab(&mut view.tab_tree, Tab::Filters);
                                         ui.close_menu();
                                     }
                                     if ui.button("Rendering").clicked() {
-                                        focus_or_add_tab(tabs, Tab::Rendering);
+                                        focus_or_add_tab(&mut view.tab_tree, Tab::Rendering);
                                         ui.close_menu();
                                     }
                                     // if ui.button("Main").clicked() {
@@ -282,26 +283,28 @@ impl App {
                             });
                         });
 
-                        let mut model = AppModel {
-                            window: &view.window,
-                            linked: self.container.as_ref(),
-                            project: &mut self.project,
-                            data: &mut self.data,
-                            assets: &mut self.assets,
-                            plugins: &mut self.plugins,
-                            // console: &mut self.console,
-                            systems: &mut self.systems,
-                            filters: &mut self.filters,
-                            code: &mut self.code,
-                            rendering: &mut self.rendering,
-                            main: &mut self.main,
-                            sample: &self.image_sample,
-                            device: &device,
-                            textures,
-                            ide: self.ide.as_deref(),
-                        };
+                        egui::containers::CentralPanel::default().show(cx, |ui| {
+                            let mut model = AppModel {
+                                window: &view.window,
+                                linked: self.container.as_ref(),
+                                project: &mut self.project,
+                                data: &mut self.data,
+                                assets: &mut self.assets,
+                                plugins: &mut self.plugins,
+                                // console: &mut self.console,
+                                systems: &mut self.systems,
+                                filters: &mut self.filters,
+                                code: &mut self.code,
+                                rendering: &mut self.rendering,
+                                main: &mut self.main,
+                                sample: &self.image_sample,
+                                device: &device,
+                                textures,
+                                ide: self.ide.as_deref(),
+                            };
 
-                        egui_dock::DockArea::new(&mut view.dock_state).show(cx, &mut model);
+                            view.tab_tree.ui(&mut model, ui);
+                        });
 
                         if self.show_preferences {
                             egui::Window::new("Preferences")
@@ -382,7 +385,7 @@ impl App {
                             .unwrap_or_default()
                             .to_logical(scale_factor),
                         size: view.window.inner_size().to_logical(scale_factor),
-                        dock_state: Cow::Borrowed(&view.dock_state),
+                        tab_tree: Cow::Borrowed(&view.tab_tree),
                         maximized: view.window.is_maximized(),
                     }
                 })
@@ -429,7 +432,7 @@ impl App {
                     let view = AppView {
                         window,
                         surface: None,
-                        dock_state: view.dock_state.into_owned(),
+                        tab_tree: view.tab_tree.into_owned(),
                         viewport,
                     };
 
@@ -458,28 +461,17 @@ impl App {
             self.views.push(AppView {
                 window,
                 surface: None,
-                dock_state: DockState::new(vec![]),
+                tab_tree: Tree::empty(Id::new("Ed tabs").with(self.views.len())),
                 viewport,
             });
         }
     }
 }
 
-fn find_tab(tabs: &Tree<Tab>, tab: Tab) -> Option<(NodeIndex, TabIndex)> {
-    for (node_idx, node) in tabs.iter().enumerate() {
-        if let Some(tab_idx) = node.iter_tabs().position(|t| *t == tab) {
-            return Some((NodeIndex(node_idx), TabIndex(tab_idx)));
-        }
-    }
-    None
-}
-
-fn focus_or_add_tab(tabs: &mut Tree<Tab>, tab: Tab) {
-    if let Some((node_idx, tab_idx)) = find_tab(tabs, tab) {
-        tabs.set_focused_node(node_idx);
-        tabs.set_active_tab(node_idx, tab_idx);
+fn focus_or_add_tab(tree: &mut Tree<Tab>, tab: Tab) {
+    if let Some(_id) = tree.tiles.find_pane(&tab) {
     } else {
-        tabs.push_to_first_leaf(tab);
+        let _ = tree.tiles.insert_pane(tab);
     }
 }
 
@@ -488,7 +480,7 @@ struct AppViewState<'a> {
     pos: dpi::LogicalPosition<f64>,
     size: dpi::LogicalSize<f64>,
     maximized: bool,
-    dock_state: Cow<'a, DockState<Tab>>,
+    tab_tree: Cow<'a, Tree<Tab>>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -515,14 +507,8 @@ struct AppModel<'a> {
     ide: Option<&'a dyn Ide>,
 }
 
-impl TabViewer for AppModel<'_> {
-    type Tab = Tab;
-
-    fn id(&mut self, tab: &mut Tab) -> egui::Id {
-        Id::new(*tab)
-    }
-
-    fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Tab) {
+impl egui_tiles::Behavior<Tab> for AppModel<'_> {
+    fn pane_ui(&mut self, ui: &mut egui::Ui, _id: TileId, tab: &mut Tab) -> UiResponse {
         match *tab {
             Tab::Assets => self.assets.show(ui, self.main),
             Tab::Plugins => self.plugins.show(self.linked, self.project, self.data, ui),
@@ -543,9 +529,10 @@ impl TabViewer for AppModel<'_> {
             // Tab::Main => self.main.show(self.window.id(), &mut self.textures, ui),
             Tab::Inspector => {} //Inspector::show(self.world, ui),
         }
+        UiResponse::default()
     }
 
-    fn title(&mut self, tab: &mut Tab) -> WidgetText {
+    fn tab_title_for_pane(&mut self, tab: &Tab) -> WidgetText {
         match *tab {
             Tab::Assets => "Assets".into(),
             Tab::Plugins => "Plugins".into(),
@@ -559,16 +546,16 @@ impl TabViewer for AppModel<'_> {
         }
     }
 
-    fn scroll_bars(&self, tab: &Tab) -> [bool; 2] {
-        match tab {
-            Tab::Assets => [false, false],
-            // Tab::Console => [false, false],
-            Tab::Systems => [false, false],
-            Tab::Codes => [false, false],
-            Tab::Rendering => [false, false],
-            _ => [true, true],
-        }
-    }
+    // fn scroll_bars(&self, tab: &Tab) -> [bool; 2] {
+    //     match tab {
+    //         Tab::Assets => [false, false],
+    //         // Tab::Console => [false, false],
+    //         Tab::Systems => [false, false],
+    //         Tab::Codes => [false, false],
+    //         Tab::Rendering => [false, false],
+    //         _ => [true, true],
+    //     }
+    // }
 }
 
 fn app_state_path(create: bool, name: &str) -> Option<PathBuf> {

@@ -1,4 +1,4 @@
-use arcana_names::Ident;
+use arcana_intern::Ident;
 
 use crate::assets::AssetId;
 

@@ -1,6 +1,6 @@
 use std::hash::Hash;
 
-use arcana_names::Name;
+use arcana_intern::{format_name, Name};
 
 use crate::hash::stable_hash;
 
@@ -30,11 +30,12 @@ fn num_to_name_impl(num: u16) -> Name {
     let color = ((num >> 6) & 0b11111) as usize;
     let noun = (num & 0b111111) as usize;
 
-    Name::from_str(&format!(
+    format_name!(
         "{} {} {}",
-        ADJECTIVES[adjective], COLORS[color], NOUNS[noun]
-    ))
-    .unwrap()
+        ADJECTIVES[adjective],
+        COLORS[color],
+        NOUNS[noun]
+    )
 }
 
 pub fn num_to_name(num: u16) -> Name {

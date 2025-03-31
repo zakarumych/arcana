@@ -4,14 +4,14 @@ use std::{
     hash::Hash,
 };
 
-use arcana_names::Name;
+use arcana_intern::Name;
 use edict::world::World;
 use hashbrown::{hash_map::Entry, HashMap, HashSet};
 use slab::Slab;
 
 use crate::{
-    arena::Arena, id::SeqIdGen, model::Value, plugin::PluginsHub, work::job::invalid_output_pin,
-    Stid,
+    arena::Arena, id::SeqIdGen, id::Stid, model::Value, plugin::PluginsHub,
+    work::job::invalid_output_pin,
 };
 
 use super::{
@@ -732,22 +732,6 @@ impl JobNode {
             hook(hub, &device, &commands);
         }
     }
-
-    // fn update_idx(&self, pin: usize) -> Option<usize> {
-    //     if pin < self.updates.len() {
-    //         Some(pin)
-    //     } else {
-    //         None
-    //     }
-    // }
-
-    // fn read_idx(&self, pin: usize) -> Option<usize> {
-    //     if pin >= self.updates.len() && pin < self.updates.len() + self.reads.len() {
-    //         Some(pin - self.updates.len())
-    //     } else {
-    //         None
-    //     }
-    // }
 
     fn update_idx(&self, pin: usize) -> Option<usize> {
         if pin < self.updates.len() {

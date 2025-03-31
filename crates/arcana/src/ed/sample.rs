@@ -1,6 +1,6 @@
 use std::mem::size_of;
 
-use arcana::mev::{self, Arguments};
+use mev::Arguments;
 use miette::IntoDiagnostic;
 
 #[derive(mev::DeviceRepr)]

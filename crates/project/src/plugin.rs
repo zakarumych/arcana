@@ -91,7 +91,7 @@ impl Plugin {
             }
         };
 
-        let Ok(name) = Ident::from_str(&package.name) else {
+        let Ok(name) = Ident::from_string(package.name) else {
             miette::bail!(
                 "Plugin manifest '{path}/{CARGO_TOML_NAME}' package name is not valid identifier",
             );

@@ -5,12 +5,12 @@
 
 use std::fmt;
 
-use arcana_names::Name;
+use arcana_intern::Name;
 use edict::entity::EntityId;
 use hashbrown::HashMap;
 use palette::IntoColor;
 
-use crate::{base58, Stid};
+use crate::{base58, id::Stid};
 
 #[derive(
     Copy, Clone, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,

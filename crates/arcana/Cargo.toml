@@ -15,7 +15,7 @@ crate-type = ["rlib", "dylib"]
 inline-more = []
 
 [dependencies]
-arcana-names = { path = "../names" }
+arcana-intern = { path = "../intern" }
 arcana-proc = { path = "../proc" }
 arcana-project = { path = "../project" }
 
@@ -61,7 +61,7 @@ toml.workspace = true
 cursor-icon.workspace = true
 egui.workspace = true
 egui_dnd.workspace = true
-egui_dock = { workspace = true, features = ["serde"] }
+egui_tiles = { workspace = true, features = ["serde"] }
 egui_file.workspace = true
 egui-phosphor.workspace = true
 egui-probe = { workspace = true, features = ["derive"] }
@@ -100,4 +100,4 @@ smallvec.workspace = true
 sha2.workspace = true
 tiny-fn.workspace = true
 url = { workspace = true, features = ["serde"] }
-vtid.workspace = true
+vtid = { workspace = true, features = ["derive"] }

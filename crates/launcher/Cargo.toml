@@ -12,7 +12,7 @@ name = "arcana"
 path = "src/main.rs"
 
 [dependencies]
-arcana-names = { path = "../names" }
+arcana-intern = { path = "../intern" }
 arcana-project = { path = "../project" }
 camino = { workspace = true, features = ["serde1"] }
 clap.workspace = true

@@ -2,23 +2,30 @@
 
 use arcana::{
     code::{builtin::emit_code_start, init_codes},
-    edict::{flow::Flows, query::Cpy},
+    ecs::{
+        entity::EntityId,
+        flow::{init_flows, wake_flows, Flows},
+        query::Cpy,
+        world::World,
+    },
     events::init_events,
-    flow::{init_flows, wake_flows},
     gametime::{ClockRate, FrequencyNumExt, TimeSpan, TimeStamp},
     input::{DeviceId, Input, KeyCode, PhysicalKey, ViewInput},
-    make_id, mev,
+    make_id,
     plugin::PluginsHub,
     render::{CurrentRenderer, RenderGraphId, Renderer},
     viewport::{ViewId, Viewport},
     work::{CommandStream, HookId, Image2D, Image2DInfo, PinId, Target, WorkGraph},
-    Blink, ClockStep, EntityId, FrequencyTicker, Name, SeqIdGen, World,
+    Name,
 };
+use arcana_intern::format_name;
+use blink_alloc::Blink;
 use egui::Ui;
+use gametime::{ClockStep, FrequencyTicker};
 use hashbrown::{HashMap, HashSet};
 use winit::{event::WindowEvent, window::WindowId};
 
-use crate::ed::ui::Sampler;
+use crate::{ed::ui::Sampler, id::SeqIdGen};
 
 use super::{
     code::CodeContext,
@@ -194,7 +201,7 @@ impl Instance {
         self.views.insert(
             id,
             InstanceView {
-                name: Name::from_str(&format!("New view {id}")).unwrap(),
+                name: format_name!("New view {id}"),
                 viewport: Viewport::new_image(),
                 renderer: None,
                 last_render_graph: None,
@@ -545,8 +552,8 @@ impl Simulation {
 
         view.window = Some(window);
 
-        let game_frame = egui::Frame::none()
-            .rounding(egui::Rounding::same(5.0))
+        let game_frame = egui::Frame::NONE
+            .corner_radius(egui::CornerRadius::same(5))
             .stroke(egui::Stroke::new(
                 1.0,
                 if view.focused {
@@ -555,7 +562,7 @@ impl Simulation {
                     egui::Color32::DARK_GRAY
                 },
             ))
-            .inner_margin(egui::Margin::same(10.0));
+            .inner_margin(egui::Margin::same(10));
 
         game_frame.show(ui, |ui| {
             let size = ui.available_size();

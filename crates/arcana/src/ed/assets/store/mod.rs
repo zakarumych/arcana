@@ -6,7 +6,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use arcana_names::Ident;
+use arcana_intern::Ident;
 use arcana_project::real_path;
 use hashbrown::{HashMap, HashSet};
 use parking_lot::{Mutex, RwLock};

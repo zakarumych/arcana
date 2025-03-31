@@ -16,7 +16,7 @@
 //! to produce identifier for the concrete generic type instance.
 //!
 
-use arcana_proc::has_stid;
+pub use arcana_proc::{has_stid, HasStid};
 use gametime::TimeSpan;
 
 crate::make_uid! {

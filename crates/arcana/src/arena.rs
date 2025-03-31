@@ -12,20 +12,15 @@ use std::{
 use crate::alloc_guard;
 
 /// Very simple typed arena.
-/// Is able to hold values of single type.
-/// User may put new values and keep mutable references to them.
-/// Arena uses interior mutability to allow putting values via shared reference,
-/// so it is allowed to put new values while references to previously put values are alive.
+/// Holds values of a single type.
 ///
-/// With exclusive access to arena user may drain all put values or drop them.
+/// Allows to keep mutable reference to values allocated in it, borrowing the arena immutably.
 ///
-/// Note that arena may grow while references to contained values are alive.
-/// This is due to the fact that growth does not move existing values.
-/// Instead buffers are chained into a list where all buffers except the root are exhausted -
-/// contain maximum number of values.
+/// When all immutable references to the arena are dropped, with mutable access the arena can be drained,
+/// returning all values stored in it in an iterator.
 ///
-/// On reset all exhausted buffers are deallocated and the root buffer is reset.
-/// All values are dropped unless drained.
+/// Resetting the arena drops all values still stored in it.
+/// And returns excess memory to the system.
 pub struct Arena<T> {
     head: Head<T>,
     tail: RefCell<Vec<Exhausted<T>>>,

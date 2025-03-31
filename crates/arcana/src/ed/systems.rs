@@ -239,7 +239,6 @@ impl SnarlViewer<SystemNode> for SystemViewer<'_> {
         _inputs: &[InPin],
         _utputs: &[OutPin],
         ui: &mut Ui,
-        _scale: f32,
         snarl: &mut Snarl<SystemNode>,
     ) {
         let mut remove = false;
@@ -338,13 +337,8 @@ impl SnarlViewer<SystemNode> for SystemViewer<'_> {
         1
     }
 
-    fn show_input(
-        &mut self,
-        pin: &InPin,
-        ui: &mut Ui,
-        _scale: f32,
-        snarl: &mut Snarl<SystemNode>,
-    ) -> PinInfo {
+    #[allow(refining_impl_trait)]
+    fn show_input(&mut self, pin: &InPin, ui: &mut Ui, snarl: &mut Snarl<SystemNode>) -> PinInfo {
         assert_eq!(pin.id.input, 0);
 
         let pin_fill = Color32::LIGHT_GRAY;
@@ -360,13 +354,8 @@ impl SnarlViewer<SystemNode> for SystemViewer<'_> {
         pin_info.with_shape(node.category.pin_shape())
     }
 
-    fn show_output(
-        &mut self,
-        pin: &OutPin,
-        ui: &mut Ui,
-        _scale: f32,
-        snarl: &mut Snarl<SystemNode>,
-    ) -> PinInfo {
+    #[allow(refining_impl_trait)]
+    fn show_output(&mut self, pin: &OutPin, ui: &mut Ui, snarl: &mut Snarl<SystemNode>) -> PinInfo {
         assert_eq!(pin.id.output, 0);
 
         let pin_fill = Color32::LIGHT_GRAY;
@@ -431,7 +420,6 @@ impl SnarlViewer<SystemNode> for SystemViewer<'_> {
         &mut self,
         pos: egui::Pos2,
         ui: &mut Ui,
-        _scale: f32,
         src_pins: AnyPins,
         snarl: &mut Snarl<SystemNode>,
     ) {
@@ -484,13 +472,7 @@ impl SnarlViewer<SystemNode> for SystemViewer<'_> {
         true
     }
 
-    fn show_graph_menu(
-        &mut self,
-        pos: egui::Pos2,
-        ui: &mut Ui,
-        _scale: f32,
-        snarl: &mut Snarl<SystemNode>,
-    ) {
+    fn show_graph_menu(&mut self, pos: egui::Pos2, ui: &mut Ui, snarl: &mut Snarl<SystemNode>) {
         ui.label("Add system");
         ui.separator();
 

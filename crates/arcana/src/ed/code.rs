@@ -2,11 +2,6 @@
 
 use std::{collections::BTreeMap, hash::Hash, ops::Range};
 
-use edict::{
-    flow::{FlowEntity, Flows},
-    query::Cpy,
-    world::World,
-};
 use egui::{epaint::PathShape, Color32, Painter, PointerButton, Rect, Shape, Stroke, Ui};
 use egui_snarl::{
     ui::{PinInfo, PinWireInfo, SnarlPin, SnarlStyle, SnarlViewer, WireStyle},
@@ -20,11 +15,18 @@ use crate::{
         AsyncContinueQueue, CodeDesc, CodeGraphId, CodeNodeId, CodeValues, Continuation, FlowCode,
         PureCode, ValueId,
     },
+    ecs::{
+        flow::{FlowEntity, Flows},
+        query::Cpy,
+        world::World,
+        NoSuchEntity,
+    },
     events::{EventId, Events},
     hash_id,
+    id::Stid,
     plugin::{CodeInfo, EventInfo, PluginsHub},
     project::Project,
-    Ident, Name, NameError, NoSuchEntity, Stid,
+    Ident, Name, NameError,
 };
 
 use super::{container::Container, data::ProjectData, hue_hash, ui::Selector};
@@ -597,7 +599,6 @@ impl SnarlViewer<CodeNode> for CodeViewer<'_> {
         _inputs: &[InPin],
         _outputs: &[OutPin],
         ui: &mut Ui,
-        _scale: f32,
         snarl: &mut Snarl<CodeNode>,
     ) {
         let node = &snarl[node];
@@ -616,13 +617,7 @@ impl SnarlViewer<CodeNode> for CodeViewer<'_> {
     }
 
     #[allow(refining_impl_trait)]
-    fn show_input(
-        &mut self,
-        pin: &InPin,
-        _ui: &mut Ui,
-        _scale: f32,
-        snarl: &mut Snarl<CodeNode>,
-    ) -> CodePin {
+    fn show_input(&mut self, pin: &InPin, _ui: &mut Ui, snarl: &mut Snarl<CodeNode>) -> CodePin {
         let node = &snarl[pin.id.node];
 
         match *node {
@@ -647,13 +642,7 @@ impl SnarlViewer<CodeNode> for CodeViewer<'_> {
     }
 
     #[allow(refining_impl_trait)]
-    fn show_output(
-        &mut self,
-        pin: &OutPin,
-        _ui: &mut Ui,
-        _scale: f32,
-        snarl: &mut Snarl<CodeNode>,
-    ) -> CodePin {
+    fn show_output(&mut self, pin: &OutPin, _ui: &mut Ui, snarl: &mut Snarl<CodeNode>) -> CodePin {
         let node = &snarl[pin.id.node];
 
         match *node {
@@ -688,13 +677,7 @@ impl SnarlViewer<CodeNode> for CodeViewer<'_> {
         true
     }
 
-    fn show_graph_menu(
-        &mut self,
-        pos: egui::Pos2,
-        ui: &mut Ui,
-        _scale: f32,
-        snarl: &mut Snarl<CodeNode>,
-    ) {
+    fn show_graph_menu(&mut self, pos: egui::Pos2, ui: &mut Ui, snarl: &mut Snarl<CodeNode>) {
         if !self.available_events.is_empty() {
             ui.label("Add event");
             for (&plugin, events) in self.available_events.iter() {
@@ -779,7 +762,6 @@ enum CodePin {
 impl SnarlPin for CodePin {
     fn draw(
         self,
-        scale: f32,
         snarl_style: &SnarlStyle,
         style: &egui::Style,
         rect: Rect,
@@ -790,7 +772,7 @@ impl SnarlPin for CodePin {
                 let color = hue_hash(&stid);
                 PinInfo::circle()
                     .with_fill(color)
-                    .draw(scale, snarl_style, style, rect, painter)
+                    .draw(snarl_style, style, rect, painter)
             }
             CodePin::Flow => {
                 draw_flow_pin(painter, rect);

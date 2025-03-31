@@ -1,5 +1,5 @@
 use arboard::Clipboard;
-use arcana::{gametime::TimeStamp, mev};
+use gametime::TimeStamp;
 use hashbrown::HashMap;
 use render::Render;
 use winit::window::Window;

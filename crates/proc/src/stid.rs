@@ -102,16 +102,16 @@ pub fn has_stid(stid: Option<StidValue>, input: &syn::DeriveInput) -> syn::Resul
         for tp in input.generics.type_params() {
             let ident = &tp.ident;
             where_clause.predicates.push(syn::parse_quote! {
-                #ident: ::arcana::stid::HasStid
-                #ident: ::arcana::stid::HasStid
+                #ident: ::arcana::id::HasStid
+                #ident: ::arcana::id::HasStid
             });
         }
 
         let ids = input.generics.type_params().map(|tp| {
             let ident = &tp.ident;
             quote::quote! {
-                <#ident as ::arcana::stid::HasStid>::stid().get()
-                <#ident as ::arcana::stid::HasStid>::stid().get()
+                <#ident as ::arcana::id::HasStid>::stid().get()
+                <#ident as ::arcana::id::HasStid>::stid().get()
             }
         });
 
@@ -129,16 +129,16 @@ pub fn has_stid(stid: Option<StidValue>, input: &syn::DeriveInput) -> syn::Resul
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
 
     let output = quote::quote! {
-        impl #impl_generics ::arcana::stid::HasStid for #name #ty_generics #where_clause {
+        impl #impl_generics ::arcana::id::HasStid for #name #ty_generics #where_clause {
             #[inline(always)]
-            fn stid() -> ::arcana::stid::Stid {
+            fn stid() -> ::arcana::id::Stid {
                 let id = #combined_ids;
-                ::arcana::stid::Stid::new(::core::num::NonZeroU64::new(id).unwrap())
+                ::arcana::id::Stid::new(::core::num::NonZeroU64::new(id).unwrap())
             }
 
             #[inline(always)]
-            fn stid_dyn(&self) -> ::arcana::stid::Stid {
-                <Self as ::arcana::stid::HasStid>::stid()
+            fn stid_dyn(&self) -> ::arcana::id::Stid {
+                <Self as ::arcana::id::HasStid>::stid()
             }
         }
     };
@@ -171,15 +171,15 @@ pub fn has_stid_fn(input: HasStid) -> syn::Result<TokenStream> {
     };
 
     let output = quote::quote! {
-        impl ::arcana::stid::HasStid for #ty {
+        impl ::arcana::id::HasStid for #ty {
             #[inline(always)]
-            fn stid() -> ::arcana::stid::Stid {
-                ::arcana::stid::Stid::new(::core::num::NonZeroU64::new(#base_id).unwrap())
+            fn stid() -> ::arcana::id::Stid {
+                ::arcana::id::Stid::new(::core::num::NonZeroU64::new(#base_id).unwrap())
             }
 
             #[inline(always)]
-            fn stid_dyn(&self) -> ::arcana::stid::Stid {
-                ::arcana::stid::Stid::new(::core::num::NonZeroU64::new(#base_id).unwrap())
+            fn stid_dyn(&self) -> ::arcana::id::Stid {
+                ::arcana::id::Stid::new(::core::num::NonZeroU64::new(#base_id).unwrap())
             }
         }
     };

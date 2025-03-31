@@ -3,7 +3,7 @@ use std::{
     time::SystemTime,
 };
 
-use arcana_names::Ident;
+use arcana_intern::Ident;
 use arcana_project::real_path;
 use hashbrown::HashMap;
 use url::Url;

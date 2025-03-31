@@ -1,7 +1,7 @@
 use std::{path::PathBuf, str::FromStr};
 
+use arcana_intern::Ident;
 use arcana_launcher::Start;
-use arcana_names::Ident;
 use arcana_project::{Dependency, Profile};
 use clap::{builder::TypedValueParser, Parser, Subcommand};
 

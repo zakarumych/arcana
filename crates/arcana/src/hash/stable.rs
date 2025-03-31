@@ -21,6 +21,9 @@ impl BuildHasher for StableHashBuilder {
     }
 }
 
+/// Hash map that uses stable hasher.
+///
+/// This allows to use the hash map across different runs and compilations of the program.
 pub type StableHashMap<K, V> = HashMap<K, V, StableHashBuilder>;
 
 pub const fn stable_hash_map<K, V>() -> StableHashMap<K, V> {
@@ -30,6 +33,8 @@ pub const fn stable_hash_map<K, V>() -> StableHashMap<K, V> {
 /// Return stable hasher instance.
 /// Hashes produced by this hasher are stable across different runs and compilations of the program.
 pub fn stable_hasher() -> AHasher {
+    // ATTENTION: This is a stable hasher.
+    // There must be VERY good reason to change the seeds.
     RandomState::with_seeds(1, 2, 3, 4).build_hasher()
 }
 

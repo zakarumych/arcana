@@ -8,9 +8,8 @@ use hashbrown::HashMap;
 
 use crate::{
     hash::{no_hash_map, NoHashMap},
-    make_id,
-    stid::HasStid,
-    type_id,
+    id::HasStid,
+    make_id, type_id,
 };
 
 make_id! {

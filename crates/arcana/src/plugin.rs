@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 
-use arcana_names::{Ident, Name};
+use arcana_intern::{Ident, Name};
 use arcana_project::Dependency;
 use edict::{
     system::{IntoSystem, System},
@@ -13,11 +13,13 @@ use crate::{
     assets::import::{Importer, ImporterDesc, ImporterId},
     code::{CodeDesc, CodeNodeId, FlowCode, PureCode},
     events::EventId,
+    id::Stid,
     input::{FilterId, InputFilter, IntoInputFilter},
     make_uid,
     work::{Job, JobDesc, JobId},
-    Stid,
 };
+
+pub use arcana_proc::{filter, importer, init, job, system};
 
 make_uid! {
     /// ID of the ECS system.

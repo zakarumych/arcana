@@ -1,12 +1,11 @@
-use arcana_names::Name;
+use arcana_intern::Name;
 use edict::world::World;
 use hashbrown::HashMap;
 
 use crate::{
+    id::{HasStid, Stid},
     make_uid,
     model::{Model, Value},
-    stid::HasStid,
-    Stid,
 };
 
 use super::graph::{Exec, Planner};

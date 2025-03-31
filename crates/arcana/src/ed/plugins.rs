@@ -6,7 +6,7 @@ use arcana::{
     },
     Ident,
 };
-use arcana_names::validate_ident;
+use arcana_intern::validate_ident;
 use arcana_project::real_path;
 use camino::{Utf8Path, Utf8PathBuf};
 use egui::{Color32, RichText, Ui};

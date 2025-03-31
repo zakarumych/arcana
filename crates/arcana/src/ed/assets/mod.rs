@@ -5,7 +5,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use arcana_names::Ident;
+use arcana_intern::Ident;
 use arcana_project::real_path;
 use egui::Ui;
 

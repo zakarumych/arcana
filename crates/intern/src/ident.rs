@@ -10,8 +10,22 @@ use crate::{intern::INTERNER, Name};
 #[macro_export]
 macro_rules! ident {
     ($i:ident) => {
-        $crate::Ident::from_ident_str(stringify!($i))
+        $crate::Ident::from_ident_static(stringify!($i))
     };
+}
+
+#[macro_export]
+macro_rules! format_ident {
+    ($fmt:literal $(, $arg:expr)*) => { {
+        $crate::Ident::from_string(::std::format!($fmt $(, $arg)*)).unwrap()
+    }};
+}
+
+#[macro_export]
+macro_rules! try_format_ident {
+    ($fmt:literal $(, $arg:expr)*) => { {
+        $crate::Ident::from_string(::std::format!($fmt $(, $arg)*))
+    }};
 }
 
 /// String wrapper that ensures it is a valid unicode identifier.
@@ -22,6 +36,25 @@ pub struct Ident {
 }
 
 impl Ident {
+    /// Creates a new `Ident` from a static string.
+    ///
+    /// Returns an error if the string is empty or contains invalid unicode identifier characters.
+    ///
+    /// Valid string will be interned.
+    pub fn from_static(s: &'static str) -> Result<Self, IdentError> {
+        validate_ident(s)?;
+
+        let s = INTERNER.intern_static(s);
+        Ok(Ident { s })
+    }
+
+    /// Creates a new `Ident` from a static string.
+    ///
+    /// Returns an error if the string is empty or contains invalid unicode identifier characters.
+    ///
+    /// Valid string will be interned.
+    ///
+    /// Unlike `from_static`, this function will allocate storage for the string if it is not interned yet.
     pub fn from_str<S>(s: &S) -> Result<Self, IdentError>
     where
         S: AsRef<str> + ?Sized,
@@ -33,13 +66,30 @@ impl Ident {
         Ok(Ident { s })
     }
 
-    /// This function is safe because it cannot be used
-    /// to violate Rust safety rules.
+    /// Creates a new `Ident` from a static string.
     ///
-    /// However, it is possible to create invalid `Ident` that may cause unexpected behavior.
+    /// Returns an error if the string is empty or contains invalid unicode identifier characters.
+    ///
+    /// Valid string will be interned.
+    ///
+    /// Unlike `from_str`, this function takes ownership of the string and use it if it is not interned yet.
+    pub fn from_string(s: String) -> Result<Self, IdentError> {
+        validate_ident(&*s)?;
+
+        let s = INTERNER.intern_string(s);
+        Ok(Ident { s })
+    }
+
+    /// Creates a new `Ident` from a static string.
+    ///
+    /// Does not perform any validation.
+    ///
+    /// Otherwise same as `from_static`.
     #[inline(always)]
-    pub fn from_ident_str(s: &'static str) -> Self {
-        let s = INTERNER.intern(s);
+    pub fn from_ident_static(s: &'static str) -> Self {
+        debug_assert!(validate_ident(s).is_ok());
+
+        let s = INTERNER.intern_static(s);
         Ident { s }
     }
 

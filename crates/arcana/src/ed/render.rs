@@ -1,6 +1,6 @@
 use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 
-use arcana_names::{Ident, Name};
+use arcana_intern::{Ident, Name};
 use edict::entity::EntityId;
 use egui::Ui;
 use egui_snarl::{
@@ -10,12 +10,12 @@ use egui_snarl::{
 use hashbrown::HashMap;
 
 use crate::{
+    id::Stid,
     model::Value,
     plugin::{JobInfo, Location},
     project::Project,
     render::RenderGraphId,
     work::{Edge, HookId, Image2D, JobDesc, JobId, JobIdx, PinId},
-    Stid,
 };
 
 use super::{
@@ -301,7 +301,6 @@ impl SnarlViewer<RenderGraphNode> for RenderGraphViewer<'_> {
         _: &[egui_snarl::InPin],
         _: &[egui_snarl::OutPin],
         ui: &mut egui::Ui,
-        _: f32,
         snarl: &mut egui_snarl::Snarl<RenderGraphNode>,
     ) {
         let mut remove = false;
@@ -393,7 +392,6 @@ impl SnarlViewer<RenderGraphNode> for RenderGraphViewer<'_> {
         &mut self,
         pin: &InPin,
         ui: &mut egui::Ui,
-        _scale: f32,
         snarl: &mut Snarl<RenderGraphNode>,
     ) -> PinInfo {
         match snarl[pin.id.node] {
@@ -446,7 +444,6 @@ impl SnarlViewer<RenderGraphNode> for RenderGraphViewer<'_> {
         &mut self,
         pin: &OutPin,
         ui: &mut egui::Ui,
-        _scale: f32,
         snarl: &mut Snarl<RenderGraphNode>,
     ) -> PinInfo {
         match snarl[pin.id.node] {
@@ -552,7 +549,6 @@ impl SnarlViewer<RenderGraphNode> for RenderGraphViewer<'_> {
         &mut self,
         pos: egui::Pos2,
         ui: &mut Ui,
-        _scale: f32,
         src_pins: AnyPins,
         snarl: &mut Snarl<RenderGraphNode>,
     ) {
@@ -630,7 +626,6 @@ impl SnarlViewer<RenderGraphNode> for RenderGraphViewer<'_> {
         &mut self,
         pos: egui::Pos2,
         ui: &mut Ui,
-        _scale: f32,
         snarl: &mut Snarl<RenderGraphNode>,
     ) {
         ui.label("Add job");

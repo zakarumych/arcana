@@ -1,4 +1,4 @@
-use arcana_names::{Ident, Name};
+use arcana_intern::{Ident, Name};
 use hashbrown::HashMap;
 
 use crate::assets::import::{Importer, ImporterDesc};

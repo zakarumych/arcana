@@ -1,15 +1,18 @@
 //! Strong id utility.
 
-use std::{
-    fmt,
-    hash::Hash,
-    num::NonZeroU64,
-    thread::sleep,
-    time::{Duration, SystemTime},
-};
+mod seqgen;
+mod stid;
+
+use std::{fmt, hash::Hash, num::NonZeroU64};
 
 use crate::base58::{base58_dec_len, base58_dec_slice, base58_enc_fmt, Base58DecodingError};
 
+pub use self::{
+    seqgen::SeqIdGen,
+    stid::{has_stid, HasStid, Stid},
+};
+
+/// ID trait to be implemented by all id types.
 pub trait Id: fmt::Debug + Copy + Ord + Eq + Hash {
     fn new(value: NonZeroU64) -> Self;
     fn get(self) -> u64;
@@ -17,7 +20,7 @@ pub trait Id: fmt::Debug + Copy + Ord + Eq + Hash {
 }
 
 /// Marker trait that signals that id is generated
-/// in a way that guarantees or at least tries to guarantee uniqueness.
+/// in a way that guarantees or at least attempts to guarantee uniqueness.
 ///
 /// There's is no way to truly guarantee uniqueness of generated ids
 /// without some kind of global coordination.
@@ -53,7 +56,7 @@ macro_rules! hash_id {
         let mut hasher = $crate::hash::stable_hasher();
         $(::core::hash::Hash::hash(&{$value}, &mut hasher);)+
         let hash = ::core::hash::Hasher::finish(&hasher) | 0x8000_0000_0000_0000;
-        $crate::Id::new(::core::num::NonZeroU64::new(hash).unwrap())
+        $crate::id::Id::new(::core::num::NonZeroU64::new(hash).unwrap())
     }};
     ($($value:expr),+ => $id:ty) => {{
         let mut hasher = $crate::hash::stable_hasher();
@@ -73,12 +76,12 @@ macro_rules! hash_id {
 #[macro_export]
 macro_rules! name_hash_id {
     ($ident:ident) => {{
-        let hash = const { $crate::stable_hash_tokens!($ident) | 0x8000_0000_0000_0000 };
-        $crate::Id::new(::core::num::NonZeroU64::new(hash).unwrap())
+        let hash = const { $crate::for_macro::stable_hash_tokens!($ident) | 0x8000_0000_0000_0000 };
+        $crate::id::Id::new(::core::num::NonZeroU64::new(hash).unwrap())
     }};
     ($ident:ident => $id:ty) => {
         const {
-            let hash = $crate::stable_hash_tokens!($ident) | 0x8000_0000_0000_0000;
+            let hash = $crate::for_macro::stable_hash_tokens!($ident) | 0x8000_0000_0000_0000;
             <$id>::new(unsafe { ::core::num::NonZeroU64::new_unchecked(hash) })
         }
     };
@@ -97,14 +100,14 @@ macro_rules! local_hash_id {
         let mut hasher = $crate::stable_hasher();
         $(::core::hash::Hash::hash(&{$value}, &mut hasher);)+
         let hash = ::core::hash::Hasher::finish(&hasher);
-        let hash = $crate::mix_hash_with_string(hash, ::core::module_path!()) | 0x8000_0000_0000_0000;
+        let hash = $crate::hash::mix_hash_with_string(hash, ::core::module_path!()) | 0x8000_0000_0000_0000;
         $crate::Id::new(::core::num::NonZeroU64::new(hash).unwrap())
     }};
     ($($value:expr),+ => $id:ty) => {{
         let mut hasher = $crate::stable_hasher();
         $(::core::hash::Hash::hash(&{$value}, &mut hasher);)+
         let hash = ::core::hash::Hasher::finish(&hasher);
-        let hash = $crate::mix_hash_with_string(hash, ::core::module_path!()) | 0x8000_0000_0000_0000;
+        let hash = $crate::hash::mix_hash_with_string(hash, ::core::module_path!()) | 0x8000_0000_0000_0000;
         <$id>::new(::core::num::NonZeroU64::new(hash).unwrap())
     }};
 }
@@ -120,14 +123,14 @@ macro_rules! local_hash_id {
 macro_rules! local_name_hash_id {
     ($ident:ident) => {{
         let hash = const {
-            let hash = $crate::stable_hash_tokens!($ident);
+            let hash = $crate::for_macro::stable_hash_tokens!($ident);
             $crate::hash::mix_hash_with_string(hash, ::core::module_path!()) | 0x8000_0000_0000_0000
         };
         $crate::Id::new(::core::num::NonZeroU64::new(hash).unwrap())
     }};
     ($ident:ident => $id:ty) => {
         const {
-            let hash = $crate::stable_hash_tokens!($ident);
+            let hash = $crate::for_macro::stable_hash_tokens!($ident);
             let hash = $crate::hash::mix_hash_with_string(hash, ::core::module_path!())
                 | 0x8000_0000_0000_0000;
             <$id>::new(unsafe { ::core::num::NonZeroU64::new_unchecked(hash) })
@@ -185,7 +188,7 @@ macro_rules! make_id_base {
             }
         }
 
-        impl $crate::Id for $name {
+        impl $crate::id::Id for $name {
             #[inline(always)]
             fn new(value: ::core::num::NonZeroU64) -> Self {
                 $name {
@@ -367,13 +370,13 @@ impl BaseId {
     }
 }
 
-#[cfg_attr(feature = "inline-more", inline(always))]
+#[inline(always)]
 #[doc(hidden)]
 pub fn fmt_id(value: u64, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     base58_enc_fmt(&value.to_le_bytes(), &mut *f)
 }
 
-#[cfg_attr(feature = "inline-more", inline(always))]
+#[inline]
 #[doc(hidden)]
 pub fn parse_id(string: &str) -> Result<NonZeroU64, ParseIdError> {
     let mut value = [0u8; 8];
@@ -402,153 +405,3 @@ pub trait GenId {
 /// Marker trait that signals that ID values are generated
 /// in a way that guarantees or at least tries to guarantee uniqueness.
 pub trait GenUid: GenId {}
-
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
-pub struct SeqIdGen {
-    next_id: u64,
-}
-
-impl Default for SeqIdGen {
-    #[inline(always)]
-    fn default() -> Self {
-        SeqIdGen::new()
-    }
-}
-
-impl SeqIdGen {
-    #[inline(always)]
-    pub const fn new() -> Self {
-        SeqIdGen { next_id: 1 }
-    }
-
-    #[inline(always)]
-    pub const fn next(&mut self) -> NonZeroU64 {
-        if self.next_id == 0 {
-            panic!("SeqIdGen overflow");
-        }
-
-        let value = NonZeroU64::new(self.next_id).unwrap();
-        self.next_id += 1;
-        value
-    }
-}
-
-impl GenId for SeqIdGen {
-    type Value = NonZeroU64;
-
-    #[inline(always)]
-    fn generate(&mut self) -> NonZeroU64 {
-        self.next()
-    }
-}
-
-/// Time based ID generator.
-/// Uses seconds since predefined moment as a base for ID values.
-/// Adds counter for sub-second generated IDs.
-/// And generator ID to avoid collisions between different instances.
-pub struct TimeUidGen {
-    /// counter for sub-second IDs generated.
-    ///
-    /// Only 10 bits are actually used.
-    counter: u16,
-
-    /// Contains second number of last generated ID.
-    /// If new ID is generated in the same second, counter is incremented.
-    /// Otherwise new second is used and counter is reset.
-    ///
-    /// Only 34 bits are actually used.
-    second: u64,
-
-    /// Generator ID.
-    /// Used to avoid collisions between different instances.
-    ///
-    /// Only 20 bits are actually used.
-    generator_id: u32,
-
-    /// Start time for the generator.
-    start: SystemTime,
-}
-
-impl TimeUidGen {
-    pub fn with_start(generator_id: u32, start: SystemTime) -> Self {
-        let generator_id = generator_id & 0xFFFFF;
-
-        let now = SystemTime::now();
-
-        // Find second number from the start.
-        let second = now
-            .duration_since(start)
-            .expect("start for TimeUidGen is in the future")
-            .as_secs();
-
-        // Counter is initialized in a way that will require
-        // second to pass before first ID is generated.
-        // This avoids collisions with IDs generated by previous run of the process in the same second.
-        TimeUidGen {
-            counter: 0x3FF,
-            second,
-            generator_id,
-            start,
-        }
-    }
-
-    pub fn random_with_start(start: SystemTime) -> Self {
-        let generator_id = rand::random::<u32>() & 0xFFFFF;
-        TimeUidGen::with_start(generator_id, start)
-    }
-
-    pub fn random() -> Self {
-        TimeUidGen::random_with_start(SystemTime::UNIX_EPOCH)
-    }
-
-    pub fn next(&mut self) -> NonZeroU64 {
-        loop {
-            let now = SystemTime::now();
-            let second = now
-                .duration_since(self.start)
-                .expect("TimeUidGen start is in the future")
-                .as_secs();
-
-            if second > 0x3FFFFFFFF {
-                panic!("Too distant future");
-            }
-
-            if second != self.second {
-                self.second = second;
-                self.counter = 0;
-            }
-
-            self.counter = self.counter.wrapping_add(1);
-            if self.counter & 0x3FF == 0 {
-                // In rare case when we generate IDs faster than one per millisecond
-                // we need to wait for next second.
-                let next_second = self.start + Duration::from_secs(second + 1);
-                let duration = next_second.duration_since(now).unwrap();
-                sleep(duration);
-                continue;
-            }
-
-            self.second = second;
-
-            let counter = (self.counter & 0x3FF) as u64;
-            let second = self.second & 0x3FFFFFFFF;
-            let generator_id = (self.generator_id & 0xFFFFF) as u64;
-
-            let id = (second << 30) | (counter << 20) | generator_id;
-
-            // counter is never 0.
-            return NonZeroU64::new(id).unwrap();
-        }
-    }
-}
-
-impl GenId for TimeUidGen {
-    type Value = NonZeroU64;
-
-    #[inline(always)]
-    fn generate(&mut self) -> NonZeroU64 {
-        self.next()
-    }
-}
-
-impl GenUid for TimeUidGen {}
