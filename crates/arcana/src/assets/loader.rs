@@ -16,11 +16,19 @@ pub struct AssetData {
 /// Abstract loader for asset raw data.
 pub trait Loader: Send + Sync + 'static {
     /// Load asset data from this loader.
-    /// Returns `Ok(Some(asset_data))` if asset is loaded successfully.
-    /// Returns `Ok(None)` if asset is not found, allowing checking other sources.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] containing [`NotFound`] if asset is not found.
+    /// In which case it is recommended to try other loaders.
+    ///
+    /// [`NotFound`]: crate::assets::NotFound
     fn load<'a>(&'a self, id: AssetId) -> BoxFuture<'a, Result<AssetData, Error>>;
 
     /// Update asset data if newer is available.
+    /// Use version from last returned [`AssetData`] for this asset.
+    /// If newer version is available, it will be returned in [`AssetData`].
+    /// If no newer version is available, [`None`] will be returned.
     fn update<'a>(
         &'a self,
         id: AssetId,

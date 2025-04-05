@@ -9,6 +9,7 @@ use arcana_intern::Ident;
 use arcana_project::real_path;
 use egui::Ui;
 
+mod repository;
 mod store;
 
 use egui_file::FileDialog;
@@ -80,8 +81,8 @@ struct Lookup {
     path: String,
 }
 
-/// Assets viewer.
-pub struct Assets {
+/// Assets repository.
+pub struct AssetRepository {
     store: Store,
 
     // Where to look for assets.
@@ -111,10 +112,10 @@ struct ErrorDialog {
     message: String,
 }
 
-impl Assets {
+impl AssetRepository {
     pub fn new(base: &Path) -> Self {
         let store = Store::new(base, StoreInfo::default()).expect("Failed to create asset store");
-        Assets {
+        AssetRepository {
             store,
             lookup: Lookup {
                 target: String::new(),

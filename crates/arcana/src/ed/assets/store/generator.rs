@@ -1,21 +1,15 @@
 use std::{
     num::{NonZeroU16, NonZeroU64},
-    time::{Duration, SystemTime},
+    time::{Duration, Instant, SystemTime},
 };
 
 use rand::RngCore;
 
 use parking_lot::Mutex;
 
-use crate::{
-    assets::AssetId,
-    id::{GenId, GenUid},
-};
+use crate::id::{GenId, GenUid};
 
-const ONE: NonZeroU16 = match NonZeroU16::new(1) {
-    None => unreachable!(),
-    Some(value) => value,
-};
+const MAX_SLEEP: Duration = Duration::from_secs(10);
 
 fn counter_next(counter: NonZeroU16) -> Option<NonZeroU16> {
     let c = counter.get();
@@ -35,7 +29,12 @@ fn counter_next(counter: NonZeroU16) -> Option<NonZeroU16> {
 /// 10 bits - counter.
 pub struct Generator {
     state: Mutex<State>,
-    epoch: SystemTime,
+
+    /// Monotonic clock.
+    start: Instant,
+
+    /// Seconds since epoch before start.
+    from_epoch: u64,
 }
 
 struct State {
@@ -47,9 +46,7 @@ struct State {
 impl Generator {
     /// Returns default epoch.
     pub fn default_epoch() -> SystemTime {
-        const DEFAULT_EPOCH: u64 = 1073741824;
-
-        SystemTime::UNIX_EPOCH + Duration::from_secs(DEFAULT_EPOCH)
+        SystemTime::UNIX_EPOCH
     }
 
     /// Creates a new generator with default epoch.
@@ -59,13 +56,21 @@ impl Generator {
     }
 
     /// Creates a new generator with given epoch.
-    pub const fn with_epoch(epoch: SystemTime) -> Self {
+    pub fn with_epoch(epoch: SystemTime) -> Self {
+        let now = SystemTime::now();
+
+        let from_epoch = now
+            .duration_since(epoch)
+            .expect("Epoch is in the future")
+            .as_secs();
+
         Generator {
             state: Mutex::new(State {
-                counter: ONE,
+                counter: NonZeroU16::MIN,
                 last_secs: 0,
             }),
-            epoch,
+            start: Instant::now(),
+            from_epoch,
         }
     }
 
@@ -80,43 +85,65 @@ impl Generator {
     ///
     /// Panics if seconds since epoch is greater than 2^34 - 557+ years.
     pub fn generate(&self) -> NonZeroU64 {
-        loop {
-            let mut state = self.state.lock();
-            let now = SystemTime::now();
-            let since_epoch = now.duration_since(self.epoch).unwrap();
-            let mut seconds = since_epoch.as_secs();
+        /// The maximum number of seconds since epoch is 2^34 - 557+ years.
+        const MAX_SECONDS: u64 = 2 << 34;
 
-            if seconds >= 2 << 34 {
+        let mut now = Instant::now();
+        let mut seconds = now
+            .duration_since(self.start)
+            .as_secs()
+            .saturating_add(self.from_epoch);
+        let counter;
+
+        loop {
+            if seconds >= MAX_SECONDS {
                 panic!("Time overflow");
             }
 
+            let mut state = self.state.lock();
+
+            // Bump the seconds so it won't be decreased in any case.
+            // It shouldn't be decreased anyway, but just in case.
             seconds = seconds.max(state.last_secs);
             if state.last_secs == seconds {
                 match counter_next(state.counter) {
                     None => {
-                        let next_second = self.epoch + Duration::from_secs(state.last_secs + 1);
-                        let dur = next_second.duration_since(now).unwrap();
+                        let next_second = self.start + Duration::from_secs(state.last_secs + 1);
+                        let dur = next_second.duration_since(now);
                         drop(state);
+
+                        if dur > MAX_SLEEP {
+                            panic!("Time based ID generator requires long sleep. This should not happen.");
+                        }
+
                         std::thread::sleep(dur);
+
+                        // Update timer after sleep.
+                        now = Instant::now();
+                        seconds = now
+                            .duration_since(self.start)
+                            .as_secs()
+                            .saturating_add(self.from_epoch);
                         continue;
                     }
                     Some(counter) => state.counter = counter,
                 }
-                continue;
             } else {
                 state.last_secs = seconds;
-                state.counter = ONE;
+                state.counter = NonZeroU16::MIN;
             }
 
-            let counter = state.counter;
+            counter = state.counter;
             drop(state);
-
-            let mut r = [0u8; 4];
-            rand::thread_rng().fill_bytes(&mut r[..3]);
-            let r = u32::from_le_bytes(r);
-
-            return (seconds << 30) | ((r as u64 & 0xfffff) << 10) | NonZeroU64::from(counter);
+            break;
         }
+
+        let random = u64::from(rand::rng().next_u32() & 0xfffff);
+        let counter = u64::from(counter.get());
+        debug_assert!(counter <= 0x3ff);
+
+        // unwrap: `counter` is non-zero u16, thus it results in non-zero u64 here.
+        NonZeroU64::new((seconds << 30) | (counter << 20) | random).unwrap()
     }
 }
 
@@ -129,3 +156,13 @@ impl GenId for Generator {
 }
 
 impl GenUid for Generator {}
+
+impl GenId for &Generator {
+    type Value = NonZeroU64;
+
+    fn generate(&mut self) -> NonZeroU64 {
+        Generator::generate(self)
+    }
+}
+
+impl GenUid for &Generator {}

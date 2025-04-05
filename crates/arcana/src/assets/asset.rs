@@ -11,7 +11,7 @@ pub trait Asset: HasVtid + Send + Sync + Clone + 'static {
     type Loaded: Any + Send + Sync;
 
     fn load(
-        data: Box<[u8]>,
+        data: &[u8],
         assets: &Assets,
     ) -> impl Future<Output = Result<Self::Loaded, Error>> + Send;
 

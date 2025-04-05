@@ -123,67 +123,67 @@ pub struct ImporterInfo {
     pub location: Option<Location>,
 }
 
-/// Active plugin hub contains
-/// systems, filters and jobs
-/// populated from plugins.
-pub struct PluginsHub {
-    pub systems: HashMap<SystemId, Box<dyn System + Send>>,
-    pub filters: HashMap<FilterId, Box<dyn InputFilter>>,
-    pub jobs: HashMap<JobId, Box<dyn Job>>,
-    pub pure_fns: HashMap<CodeNodeId, PureCode>,
-    pub flow_fns: HashMap<CodeNodeId, FlowCode>,
-    pub importers: HashMap<ImporterId, Box<dyn Importer>>,
-}
+// /// Active plugin hub contains
+// /// systems, filters and jobs
+// /// populated from plugins.
+// pub struct PluginsHub {
+//     pub systems: HashMap<SystemId, Box<dyn System + Send>>,
+//     pub filters: HashMap<FilterId, Box<dyn InputFilter>>,
+//     pub jobs: HashMap<JobId, Box<dyn Job>>,
+//     pub pure_fns: HashMap<CodeNodeId, PureCode>,
+//     pub flow_fns: HashMap<CodeNodeId, FlowCode>,
+//     pub importers: HashMap<ImporterId, Box<dyn Importer>>,
+// }
 
-impl PluginsHub {
-    pub fn new() -> Self {
-        PluginsHub {
-            systems: HashMap::new(),
-            filters: HashMap::new(),
-            jobs: HashMap::new(),
-            pure_fns: HashMap::new(),
-            flow_fns: HashMap::new(),
-            importers: HashMap::new(),
-        }
-    }
+// impl PluginsHub {
+//     pub fn new() -> Self {
+//         PluginsHub {
+//             systems: HashMap::new(),
+//             filters: HashMap::new(),
+//             jobs: HashMap::new(),
+//             pure_fns: HashMap::new(),
+//             flow_fns: HashMap::new(),
+//             importers: HashMap::new(),
+//         }
+//     }
 
-    /// Adds a system from a plugin to the hub.
-    pub fn add_system<S, M>(&mut self, id: SystemId, system: S)
-    where
-        S: IntoSystem<M>,
-    {
-        self.systems.insert(id, Box::new(system.into_system()));
-    }
+//     /// Adds a system from a plugin to the hub.
+//     pub fn add_system<S, M>(&mut self, id: SystemId, system: S)
+//     where
+//         S: IntoSystem<M>,
+//     {
+//         self.systems.insert(id, Box::new(system.into_system()));
+//     }
 
-    /// Adds a filter from a plugin to the hub.
-    pub fn add_filter<F, M>(&mut self, id: FilterId, filter: F)
-    where
-        F: IntoInputFilter<M>,
-    {
-        self.filters
-            .insert(id, Box::new(filter.into_input_filter()));
-    }
+//     /// Adds a filter from a plugin to the hub.
+//     pub fn add_filter<F, M>(&mut self, id: FilterId, filter: F)
+//     where
+//         F: IntoInputFilter<M>,
+//     {
+//         self.filters
+//             .insert(id, Box::new(filter.into_input_filter()));
+//     }
 
-    /// Adds a job from a plugin to the hub.
-    pub fn add_job(&mut self, id: JobId, job: impl Job) {
-        self.jobs.insert(id, Box::new(job));
-    }
+//     /// Adds a job from a plugin to the hub.
+//     pub fn add_job(&mut self, id: JobId, job: impl Job) {
+//         self.jobs.insert(id, Box::new(job));
+//     }
 
-    /// Adds a importer from a plugin to the hub.
-    pub fn add_importer(&mut self, id: ImporterId, importer: impl Importer) {
-        self.importers.insert(id, Box::new(importer));
-    }
+//     /// Adds a importer from a plugin to the hub.
+//     pub fn add_importer(&mut self, id: ImporterId, importer: impl Importer) {
+//         self.importers.insert(id, Box::new(importer));
+//     }
 
-    /// Adds a pure fn from a plugin to the hub.
-    pub fn add_pure_fn(&mut self, id: CodeNodeId, code: PureCode) {
-        self.pure_fns.insert(id, code);
-    }
+//     /// Adds a pure fn from a plugin to the hub.
+//     pub fn add_pure_fn(&mut self, id: CodeNodeId, code: PureCode) {
+//         self.pure_fns.insert(id, code);
+//     }
 
-    /// Adds a flow fn from a plugin to the hub.
-    pub fn add_flow_fn(&mut self, id: CodeNodeId, code: FlowCode) {
-        self.flow_fns.insert(id, code);
-    }
-}
+//     /// Adds a flow fn from a plugin to the hub.
+//     pub fn add_flow_fn(&mut self, id: CodeNodeId, code: FlowCode) {
+//         self.flow_fns.insert(id, code);
+//     }
+// }
 
 #[doc(hidden)]
 static GLOBAL_LINK_CHECK: AtomicBool = AtomicBool::new(false);
@@ -224,15 +224,32 @@ pub fn unknown_dependency() -> ! {
 /// A crate must use `declare_plugin!` macro to declare it is a plugin.
 #[derive(Default)]
 pub struct ArcanaPlugin {
+    /// Path to the plugin source code if it is a local plugin.
     location: Option<PathBuf>,
+
+    /// List of dependencies.
     dependencies: Vec<(Ident, Dependency)>,
+
+    /// List of event filters.
     filters: Vec<FilterInfo>,
+
+    /// List of systems.
     systems: Vec<SystemInfo>,
+
+    /// List of jobs.
     jobs: Vec<JobInfo>,
+
+    /// List of events.
     events: Vec<EventInfo>,
+
+    /// List of codes.
     codes: Vec<CodeInfo>,
+
+    /// List of asset importers.
     importers: Vec<ImporterInfo>,
-    fill_hub: Vec<fn(&mut PluginsHub)>,
+
+    /// World initialization functions.
+    /// Those will be run each time a world is initialized.
     init: Vec<fn(&mut World)>,
 }
 

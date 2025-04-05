@@ -24,7 +24,7 @@ pub trait Id: fmt::Debug + Copy + Ord + Eq + Hash {
 ///
 /// There's is no way to truly guarantee uniqueness of generated ids
 /// without some kind of global coordination.
-pub trait Uid: Id {}
+pub trait Uid: Id + serde::Serialize + for<'de> serde::Deserialize<'de> {}
 
 /// Error that is returned when trying to create id from zero value.
 #[derive(Debug)]
@@ -402,6 +402,19 @@ pub trait GenId {
     fn generate(&mut self) -> Self::Value;
 }
 
+impl<T> GenId for &mut T
+where
+    T: GenId,
+{
+    type Value = T::Value;
+
+    fn generate(&mut self) -> T::Value {
+        (**self).generate()
+    }
+}
+
 /// Marker trait that signals that ID values are generated
 /// in a way that guarantees or at least tries to guarantee uniqueness.
 pub trait GenUid: GenId {}
+
+impl<T> GenUid for &mut T where T: GenUid {}

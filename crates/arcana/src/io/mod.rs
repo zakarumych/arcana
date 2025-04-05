@@ -1,9 +1,14 @@
-use std::io::*;
+use std::{
+    fs::File,
+    io::{self, Read, Seek},
+    path::Path,
+};
 
 use buffer::{ArrayBuffer, Buffer, GrowableBuffer};
 
 use self::buffer::BorrowedBuffer;
 
+pub mod blobs;
 pub mod buffer;
 
 /// Combines [`Buffer`] and [`Read`] and implements buffering reading.
@@ -44,7 +49,7 @@ impl<R> BufferRead<GrowableBuffer, R> {
 impl<B, R> BufferRead<B, R>
 where
     B: Buffer,
-    R: Read,
+    R: io::Read,
 {
     /// Read bytes that are already in buffer.
     pub fn read_from_buffer(&mut self, buf: &mut [u8]) -> usize {
@@ -74,7 +79,7 @@ where
     /// buffer contains at least `min` bytes,
     /// reader is exhausted or an error occurs
     /// or buffer is full.
-    pub fn fill_buf(&mut self, min: usize) -> Result<&[u8]> {
+    pub fn fill_buf(&mut self, min: usize) -> io::Result<&[u8]> {
         loop {
             if self.buffer.filled().len() >= min {
                 return Ok(&self.buffer.filled());
@@ -88,7 +93,7 @@ where
                 Ok(amt) => {
                     self.buffer.fill(amt);
                 }
-                Err(e) if e.kind() == ErrorKind::Interrupted => {}
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
                 Err(e) => return Err(e),
             }
         }
@@ -100,12 +105,12 @@ where
     }
 }
 
-impl<B, R> BufRead for BufferRead<B, R>
+impl<B, R> io::BufRead for BufferRead<B, R>
 where
     B: Buffer,
-    R: Read,
+    R: io::Read,
 {
-    fn fill_buf(&mut self) -> Result<&[u8]> {
+    fn fill_buf(&mut self) -> io::Result<&[u8]> {
         self.fill_buf(1)
     }
 
@@ -114,12 +119,12 @@ where
     }
 }
 
-impl<B, R> Read for BufferRead<B, R>
+impl<B, R> io::Read for BufferRead<B, R>
 where
     B: Buffer,
-    R: Read,
+    R: io::Read,
 {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         if buf.is_empty() {
             return Ok(0);
         }
@@ -145,6 +150,134 @@ where
                 Ok(self.read_from_buffer(buf))
             }
             Err(e) => Err(e),
+        }
+    }
+}
+
+/// Compares two files byte by byte.
+pub fn files_eq(path1: &Path, path2: &Path) -> io::Result<bool> {
+    let mut file1 = File::open(path1)?;
+    let mut file2 = File::open(path2)?;
+
+    let size1 = file1.seek(io::SeekFrom::End(0))?;
+    file1.rewind()?;
+
+    let size2 = file2.seek(io::SeekFrom::End(0))?;
+    file2.rewind()?;
+
+    if size1 != size2 {
+        return Ok(false);
+    }
+
+    let mut buf1 = [0u8; 4096];
+    let mut buf2 = [0u8; 4096];
+
+    let mut off1 = 0;
+    let mut off2 = 0;
+
+    let mut len1 = 0;
+    let mut len2 = 0;
+
+    loop {
+        if len1 == 0 {
+            let n = file1.read(&mut buf1[off1 + len1..])?;
+            if n == 0 {
+                if len1 < len2 {
+                    return Ok(false);
+                }
+            }
+            len1 += n;
+        }
+
+        if len2 == 0 {
+            let n = file2.read(&mut buf2[off2 + len2..])?;
+            if n == 0 {
+                if len1 == 0 {
+                    return Ok(true);
+                }
+                return Ok(false);
+            }
+            len1 += n;
+        }
+
+        let len = usize::min(len1, len2);
+        if buf1[off1..][..len] != buf2[off2..][..len] {
+            return Ok(false);
+        }
+
+        len1 -= len;
+        len2 -= len;
+
+        off1 += len;
+        off2 += len;
+
+        if len1 == 0 {
+            off1 = 0;
+        } else if off1 > 512 && buf1.len() - off1 - len1 < 512 {
+            buf1.copy_within(off1..off1 + len1, 0);
+            off1 = 0;
+        }
+
+        if len2 == 0 {
+            off2 = 0;
+        } else if off2 > 512 && buf2.len() - off2 - len2 < 512 {
+            buf2.copy_within(off2..off2 + len2, 0);
+            off2 = 0;
+        }
+    }
+}
+
+/// Compares file to blob of bytes.
+pub fn file_eq_blob(path: &Path, blob: &[u8]) -> io::Result<bool> {
+    let mut file1 = File::open(path)?;
+
+    let size1 = file1.seek(io::SeekFrom::End(0))?;
+    file1.rewind()?;
+
+    if usize::try_from(size1) != Ok(blob.len()) {
+        return Ok(false);
+    }
+
+    let mut buf1 = [0u8; 4096];
+    let buf2 = blob;
+
+    let mut off1 = 0;
+    let mut off2 = 0;
+
+    let mut len1 = 0;
+    let mut len2 = blob.len();
+
+    loop {
+        if len1 == 0 {
+            let n = file1.read(&mut buf1[off1 + len1..])?;
+            if n == 0 {
+                if len1 < len2 {
+                    return Ok(false);
+                }
+            }
+            len1 += n;
+        }
+
+        if len2 == 0 {
+            return Ok(len1 == 0);
+        }
+
+        let len = usize::min(len1, len2);
+        if buf1[off1..][..len] != buf2[off2..][..len] {
+            return Ok(false);
+        }
+
+        len1 -= len;
+        len2 -= len;
+
+        off1 += len;
+        off2 += len;
+
+        if len1 == 0 {
+            off1 = 0;
+        } else if off1 > 512 && buf1.len() - off1 - len1 < 512 {
+            buf1.copy_within(off1..off1 + len1, 0);
+            off1 = 0;
         }
     }
 }

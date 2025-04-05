@@ -117,7 +117,8 @@ struct Loaded {
 
     /// Linked library.
     /// It is only used to keep the library loaded.
-    /// It must be last member of the struct to ensure it is dropped last.
+    /// Drop it after plugins are dropped
+    /// but before the file is removed.
     _lib: libloading::Library,
 
     /// Remove the temporary file after library is unloaded.
@@ -126,20 +127,24 @@ struct Loaded {
 
 impl Drop for Loaded {
     fn drop(&mut self) {
-        tracing::info!("Dropping loaded library");
+        tracing::info!("Dropping loaded library '{}'", self._tmp.path.display());
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Container {
     active_plugins: HashSet<Ident>,
 
     // Unload library last.
-    loaded: Arc<Loaded>,
+    loaded: Option<Arc<Loaded>>,
 }
 
 impl fmt::Debug for Container {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if self.loaded.is_none() {
+            return f.debug_struct("Container").finish();
+        }
+
         struct Plugins<I> {
             plugins: I,
         }
@@ -181,25 +186,50 @@ impl Container {
     }
 
     pub fn has(&self, name: Ident) -> bool {
-        self.loaded.plugins.iter().any(|(n, _)| *n == name)
+        let Some(loaded) = self.loaded.as_ref() else {
+            return false;
+        };
+        loaded.plugins.iter().any(|(n, _)| *n == name)
     }
 
     pub fn is_active(&self, name: Ident) -> bool {
         self.active_plugins.contains(&name)
     }
 
-    // pub fn get(&self, name: Ident) -> Option<&ArcanaPlugin> {
-    //     let (_, p) = self.loaded.plugins.iter().find(|(n, _)| *n == name)?;
-    //     Some(*p)
-    // }
+    /// Returns all plugins loaded from the library.
+    fn loaded_plugins(&self) -> &[(Ident, ArcanaPlugin)] {
+        let Some(loaded) = self.loaded.as_ref() else {
+            return &[];
+        };
+        &*loaded.plugins
+    }
 
-    pub fn plugins<'a>(&'a self) -> impl Iterator<Item = (Ident, &'a ArcanaPlugin)> + Clone + 'a {
-        self.loaded.plugins.iter().filter_map(|(name, plugin)| {
-            if self.active_plugins.contains(name) {
-                Some((*name, plugin))
-            } else {
-                None
+    pub fn get_plugin(&self, name: Ident) -> Option<&ArcanaPlugin> {
+        let Some(loaded) = self.loaded.as_ref() else {
+            return None;
+        };
+
+        for &(plugin_name, ref plugin) in loaded.plugins.iter() {
+            if plugin_name == name {
+                return Some(plugin);
             }
+        }
+
+        None
+    }
+
+    /// Returns all active plugins loaded from the library.
+    pub fn plugins<'a>(&'a self) -> impl Iterator<Item = (Ident, &'a ArcanaPlugin)> + Clone + 'a {
+        let plugins = self.loaded_plugins();
+
+        plugins.iter().filter_map(|loaded| {
+            loaded.plugins.iter().filter_map(|(name, plugin)| {
+                if self.active_plugins.contains(name) {
+                    Some((*name, plugin))
+                } else {
+                    None
+                }
+            })
         })
     }
 }
@@ -464,6 +494,8 @@ fn get_active_plugins(loaded: &Loaded, enabled_plugins: &HashSet<Ident>) -> Hash
 }
 
 fn load_lib(path: &Path, new_path: PathBuf) -> miette::Result<Loaded> {
+    tracing::info!("Loading library from '{}'", path.display());
+
     let tmp = copy_dylib(path, new_path).wrap_err("Failed to copy dylib")?;
 
     // Safety: nope.

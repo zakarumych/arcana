@@ -9,7 +9,7 @@ use blink_alloc::Blink;
 use egui::{Color32, Ui, WidgetText};
 use hashbrown::HashMap;
 
-use super::{container::Container, data::ProjectData, ide::Ide};
+use super::{container::Container, project::ProjectData, ide::Ide};
 
 #[derive(Clone, Debug, Hash, serde::Serialize, serde::Deserialize)]
 struct Filter {

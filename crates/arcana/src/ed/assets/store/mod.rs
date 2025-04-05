@@ -3,20 +3,18 @@
 use std::{
     collections::VecDeque,
     path::{Path, PathBuf},
-    time::{Duration, SystemTime},
+    time::SystemTime,
 };
 
 use arcana_intern::Ident;
 use arcana_project::real_path;
 use hashbrown::{HashMap, HashSet};
-use parking_lot::{Mutex, RwLock};
+use parking_lot::RwLock;
 use url::Url;
 
 use crate::{
     assets::{
-        import::{
-            AssetDependencies, AssetSources, ImportError, Importer, ImporterDesc, ImporterId,
-        },
+        import::{AssetDependencies, AssetSources, ImportError, ImporterDesc, ImporterId},
         AssetId,
     },
     plugin::PluginsHub,
@@ -39,8 +37,6 @@ use self::{
 const DEFAULT_ARTIFACTS: &'static str = "artifacts";
 const DEFAULT_EXTERNAL: &'static str = "external";
 const MAX_ITEM_ATTEMPTS: u32 = 1024;
-
-const DEFAULT_EPOCH: u64 = 1073741824;
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct StoreInfo {
@@ -140,7 +136,7 @@ pub struct Store {
 
     artifacts: RwLock<HashMap<AssetId, AssetItem>>,
     scanned: RwLock<bool>,
-    id_gen: Mutex<Generator>,
+    id_gen: Generator,
 
     importers: RwLock<HashMap<ImporterId, ImporterDesc>>,
 }
@@ -178,10 +174,7 @@ impl Store {
             temp,
             artifacts: RwLock::new(HashMap::new()),
             scanned: RwLock::new(false),
-            id_gen: Mutex::new(Generator::with_epoch(
-                SystemTime::UNIX_EPOCH + Duration::from_secs(DEFAULT_EPOCH),
-            )),
-
+            id_gen: Generator::new(),
             importers: RwLock::new(HashMap::new()),
         })
     }
@@ -458,7 +451,7 @@ impl Store {
                 }
             }
 
-            let new_id = AssetId::generate(&mut *self.id_gen.lock());
+            let new_id = AssetId::generate(&mut &self.id_gen);
             let item = stack.pop().unwrap();
 
             let make_relative_source = |source| match self.base_url.make_relative(source) {

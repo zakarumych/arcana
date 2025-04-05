@@ -3,7 +3,7 @@ use std::{borrow::Cow, hash::Hash, path::PathBuf};
 use arboard::Clipboard;
 use blink_alloc::BlinkAlloc;
 use egui::{Id, TopBottomPanel, WidgetText};
-use egui_tiles::{Tile, TileId, Tiles, Tree, UiResponse};
+use egui_tiles::{TileId, Tree, UiResponse};
 use gametime::{Clock, ClockStep, FrequencyNumExt, FrequencyTicker};
 use miette::IntoDiagnostic;
 use winit::{
@@ -16,19 +16,20 @@ use winit::{
 use crate::{input::ViewInput, project::Project};
 
 use super::{
-    assets::Assets,
+    assets::AssetRepository,
     code::CodeTool,
-    container::Container,
-    data::ProjectData,
+    container::{Container, ContainerUpdater},
     filters::Filters,
     ide::{Ide, IdeType},
     init_mev,
     instance::Instance,
     plugins::Plugins,
+    project::ProjectData,
     render::Rendering,
     sample::ImageSample,
     subprocess::{filter_subprocesses, kill_subprocesses},
     systems::Systems,
+    tool::{Tool, ToolId},
     ui::{Ui, UiViewport, UserTextures},
 };
 
@@ -39,39 +40,26 @@ pub struct AppConfig {
 
 pub enum UserEvent {}
 
-/// Editor tab.
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-enum Tab {
-    Assets,
-    Plugins,
-    // Console,
-    Systems,
-    Filters,
-    Rendering,
-    // Main,
-    Codes,
-    Inspector,
-    // Custom(ToolId),
+struct Tab {
+    tool: Box<dyn Tool>,
 }
-
-pub trait TabTrait {}
 
 /// Editor app instance.
 /// Contains state of the editor.
 pub struct App {
+    // Project main state.
     project: Project,
     data: ProjectData,
-    container: Option<Container>,
 
+    /// App views correspond to windows.
     views: Vec<AppView>,
 
     ui: Ui,
 
-    blink: BlinkAlloc,
-
+    /// Graphics queue.
     queue: mev::Queue,
 
-    assets: Assets,
+    assets: AssetRepository,
     plugins: Plugins,
     // console: Console,
     code: CodeTool,
@@ -86,9 +74,10 @@ pub struct App {
 
     clock: Clock,
     limiter: FrequencyTicker,
-    cfg: AppConfig,
-    show_preferences: bool,
 
+    cfg: AppConfig,
+
+    // Currently configured IDE to use.
     ide: Option<Box<dyn Ide>>,
 }
 
@@ -133,18 +122,16 @@ impl App {
             Some(ide) => Some(ide.get()),
         };
 
-        let assets = Assets::new(&project.root_path().join("Assets"));
+        let assets = AssetRepository::new(&project.root_path().join("Assets"));
 
         App {
             project,
             data,
-            container: None,
 
             views,
 
             ui: Ui::new(),
 
-            blink: BlinkAlloc::new(),
             queue,
 
             assets,
@@ -163,7 +150,6 @@ impl App {
             clock,
             limiter,
             cfg,
-            show_preferences: false,
 
             ide,
         }
@@ -286,7 +272,6 @@ impl App {
                         egui::containers::CentralPanel::default().show(cx, |ui| {
                             let mut model = AppModel {
                                 window: &view.window,
-                                linked: self.container.as_ref(),
                                 project: &mut self.project,
                                 data: &mut self.data,
                                 assets: &mut self.assets,
@@ -490,10 +475,9 @@ struct AppState<'a> {
 
 struct AppModel<'a> {
     window: &'a Window,
-    linked: Option<&'a Container>,
     project: &'a mut Project,
     data: &'a mut ProjectData,
-    assets: &'a mut Assets,
+    assets: &'a mut AssetRepository,
     plugins: &'a mut Plugins,
     // console: &'a mut Console,
     systems: &'a mut Systems,

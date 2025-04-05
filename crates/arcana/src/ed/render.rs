@@ -20,11 +20,11 @@ use crate::{
 
 use super::{
     container::Container,
-    data::ProjectData,
     hue_hash,
     ide::Ide,
     instance::Instance,
     model::ValueProbe,
+    project::ProjectData,
     sample::ImageSample,
     ui::{Sampler, Selector, UserTextures},
 };

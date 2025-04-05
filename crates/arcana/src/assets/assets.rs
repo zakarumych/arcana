@@ -18,8 +18,9 @@ use super::{
     AssetId,
 };
 
-const ASSETS_ARRAY_SIZE: usize = 32;
+const ASSETS_ARRAY_SIZE: usize = 97; // Prime number near 100. Arbitrary choice.
 
+/// Picks an index for the asset array based on the asset ID.
 fn assets_array_index(id: AssetId) -> usize {
     let v = id.get();
 
@@ -327,7 +328,7 @@ where
                         }
                     };
 
-                    let result = A::load(data.bytes, &assets).await;
+                    let result = A::load(&data.bytes, &assets).await;
 
                     let mut cache = me.cache.lock();
                     let Some(state) = cache.get_mut(&id) else {

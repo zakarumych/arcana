@@ -83,7 +83,8 @@ libloading.workspace = true
 
 # Other stuff
 ahash.workspace = true
-amity.workspace = true
+amity = { workspace = true, features = ["flip-queue", "broad"] }
+arc-swap.workspace = true
 base64.workspace = true
 blink-alloc.workspace = true
 bit-vec.workspace = true

@@ -30,7 +30,7 @@ use crate::{ed::ui::Sampler, id::SeqIdGen};
 use super::{
     code::CodeContext,
     container::Container,
-    data::ProjectData,
+    project::ProjectData,
     systems::{self, Schedule, Systems},
     ui::{Selector, UserTextures},
 };
@@ -82,7 +82,7 @@ struct InstanceView {
     contains_cursors: HashSet<DeviceId>,
 }
 
-/// Instance of the project.
+/// Running instance of the project.
 pub struct Instance {
     /// Own ECS world.
     world: World,

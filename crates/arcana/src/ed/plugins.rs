@@ -14,8 +14,8 @@ use egui_file::FileDialog;
 
 use super::{
     container::{Container, Loader, PluginsError},
-    data::ProjectData,
     get_profile,
+    project::ProjectData,
 };
 
 /// Tool to manage plugins libraries

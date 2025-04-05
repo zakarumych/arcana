@@ -2,6 +2,9 @@ use std::path::Path;
 
 use super::Ide;
 
+/// VSCode IDE integration.
+///
+/// This integration is used to open files in VSCode with a specific line number.
 pub struct VSCode;
 
 #[derive(Debug, thiserror::Error)]

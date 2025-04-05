@@ -14,7 +14,7 @@ use crate::{
     Ident, Name,
 };
 
-use super::{container::Container, data::ProjectData, ide::Ide, toggle_ui};
+use super::{container::Container, project::ProjectData, ide::Ide, toggle_ui};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Category {

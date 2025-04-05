@@ -29,7 +29,7 @@ use crate::{
     Ident, Name, NameError,
 };
 
-use super::{container::Container, data::ProjectData, hue_hash, ui::Selector};
+use super::{container::Container, project::ProjectData, hue_hash, ui::Selector};
 
 #[derive(Default)]
 struct OutputCacheEntry {

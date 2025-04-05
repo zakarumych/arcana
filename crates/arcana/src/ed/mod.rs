@@ -1,6 +1,6 @@
 use std::{hash::Hash, io::ErrorKind, path::Path};
 
-use data::ProjectData;
+use project::ProjectData;
 use winit::event_loop::EventLoop;
 
 #[cfg(windows)]
@@ -39,7 +39,6 @@ mod app;
 mod assets;
 mod code;
 mod container;
-mod data;
 mod error;
 mod filters;
 mod ide;
@@ -47,6 +46,7 @@ mod inspector;
 mod instance;
 mod model;
 mod plugins;
+mod project;
 mod render;
 mod sample;
 mod subprocess;

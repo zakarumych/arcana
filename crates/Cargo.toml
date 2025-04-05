@@ -12,10 +12,11 @@ version = "0.1.0"
 [workspace.dependencies]
 ahash = { version = "0.8" }
 alkahest = { version = "0.3", features = ["derive"] }
-# amity = { git = "https://github.com/zakarumych/amity.git" }
-amity = { version = "0.2" }
+amity = { git = "https://github.com/zakarumych/amity.git", features = ["parking_lot"] }
+# amity = { version = "0.4.1", features = ["parking_lot"] }
 approx = { version = "0.5" }
-arboard = { version = "3.4" }
+arboard = { version = "3.5" }
+arc-swap = { version = "1.7" }
 base64 = "0.22"
 basis-universal = "0.3.1"
 basis-universal-sys = "0.3.1"
