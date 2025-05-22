@@ -19,6 +19,8 @@
 pub use arcana_proc::{has_stid, HasStid};
 use gametime::TimeSpan;
 
+extern crate self as arcana_id;
+
 crate::make_uid! {
     /// Stable Type Identifier.
     ///
@@ -62,16 +64,16 @@ impl Stid {
     }
 }
 
-has_stid!(u8 = 0x0000_0000_0000_0001);
-has_stid!(u16 = 0x0000_0000_0000_0002);
-has_stid!(u32 = 0x0000_0000_0000_0003);
-has_stid!(u64 = 0x0000_0000_0000_0004);
-has_stid!(i8 = 0x0000_0000_0000_0005);
-has_stid!(i16 = 0x0000_0000_0000_0006);
-has_stid!(i32 = 0x0000_0000_0000_0007);
-has_stid!(i64 = 0x0000_0000_0000_0008);
-has_stid!(f32 = 0x0000_0000_0000_0009);
-has_stid!(f64 = 0x0000_0000_0000_000A);
+has_stid!(u8 = 0x0000_0000_0000_0001 @ arcana_id);
+has_stid!(u16 = 0x0000_0000_0000_0002 @ arcana_id);
+has_stid!(u32 = 0x0000_0000_0000_0003 @ arcana_id);
+has_stid!(u64 = 0x0000_0000_0000_0004 @ arcana_id);
+has_stid!(i8 = 0x0000_0000_0000_0005 @ arcana_id);
+has_stid!(i16 = 0x0000_0000_0000_0006 @ arcana_id);
+has_stid!(i32 = 0x0000_0000_0000_0007 @ arcana_id);
+has_stid!(i64 = 0x0000_0000_0000_0008 @ arcana_id);
+has_stid!(f32 = 0x0000_0000_0000_0009 @ arcana_id);
+has_stid!(f64 = 0x0000_0000_0000_000A @ arcana_id);
 
-has_stid!(TimeSpan = 0x0000_0000_0000_00041);
-has_stid!(::edict::entity::EntityId = 0x0000_0000_0000_0042);
+has_stid!(TimeSpan = 0x0000_0000_0000_00041 @ arcana_id);
+has_stid!(::edict::entity::EntityId = 0x0000_0000_0000_0042 @ arcana_id);

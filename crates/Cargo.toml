@@ -1,5 +1,13 @@
 [workspace]
-members = ["project", "arcana", "launcher", "plugins/*", "intern"]
+members = [
+    "proc",
+    "intern",
+    "base-encoding",
+    "io",
+    "hash",
+    "id",
+    "model",
+]
 resolver = "2"
 
 [workspace.package]
@@ -17,16 +25,19 @@ amity = { git = "https://github.com/zakarumych/amity.git", features = ["parking_
 approx = { version = "0.5" }
 arboard = { version = "3.5" }
 arc-swap = { version = "1.7" }
+#athena = { git = "https://github.com/zakarumych/athena.git" }
+athena = { path = "../../athena" }
 base64 = "0.22"
 basis-universal = "0.3.1"
 basis-universal-sys = "0.3.1"
-bincode = "1.3"
-bitflags = "2.9"
+bincode = "2.0"
+bitflags = "2.9.1"
 bit-vec = { version = "0.8" }
 blink-alloc = { version = "0.3.1", features = ["nightly"] }
 bytemuck = { version = "1.22", features = ["derive", "min_const_generics"] }
 camino = "1.1"
 cargo_toml = "0.22"
+chrono = "0.4"
 cint = "0.3"
 clap = { version = "4.5", features = ["derive"] }
 codespan-reporting = "0.12"
@@ -60,10 +71,10 @@ libloading = "0.8"
 #mev = { git = "https://github.com/zakarumych/mev.git" }
 mev = { path = "../../mev" }
 miette = "7.5"
-na = { package = "nalgebra", version = "0.33", features = [
-    "libm",
-    "serde-serialize",
-] }
+# na = { package = "nalgebra", version = "0.33", features = [
+#     "libm",
+#     "serde-serialize",
+# ] }
 open = { version = "5.3" }
 ordered-float = { version = "5.0" }
 palette = { version = "0.7", features = ["serializing"] }

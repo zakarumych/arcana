@@ -1,0 +1,10 @@
+[package]
+name = "assets"
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+license.workspace = true
+version.workspace = true
+description = "Asset pipeline and loader for Arcana engine"
+
+[dependencies]

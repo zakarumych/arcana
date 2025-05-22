@@ -1,5 +1,6 @@
 use proc_easy::EasyMaybe;
 use proc_macro2::{Span, TokenStream};
+use quote::format_ident;
 
 use std::hash::{Hash, Hasher};
 
@@ -20,9 +21,17 @@ proc_easy::easy_parse! {
 }
 
 proc_easy::easy_parse! {
+    struct FromPath {
+        at: syn::Token![@],
+        path: syn::Path,
+    }
+}
+
+proc_easy::easy_parse! {
     pub struct HasStid {
         ty: syn::Type,
         assign: proc_easy::EasyMaybe<AssignStid>,
+        from_path: proc_easy::EasyMaybe<FromPath>,
     }
 }
 
@@ -153,6 +162,10 @@ pub fn has_stid_fn(input: HasStid) -> syn::Result<TokenStream> {
     };
 
     let ty = input.ty;
+    let from_path = match input.from_path {
+        EasyMaybe::Just(FromPath { path, .. }) => path,
+        EasyMaybe::Nothing => format_ident!("::arcana::id").into(),
+    };
 
     let base_id = match &stid {
         None => stable_hash(&ty) | 0x8000_0000_0000_0000,
@@ -171,15 +184,15 @@ pub fn has_stid_fn(input: HasStid) -> syn::Result<TokenStream> {
     };
 
     let output = quote::quote! {
-        impl ::arcana::id::HasStid for #ty {
+        impl #from_path::HasStid for #ty {
             #[inline(always)]
-            fn stid() -> ::arcana::id::Stid {
-                ::arcana::id::Stid::new(::core::num::NonZeroU64::new(#base_id).unwrap())
+            fn stid() -> #from_path::Stid {
+                #from_path::Stid::new(::core::num::NonZeroU64::new(#base_id).unwrap())
             }
 
             #[inline(always)]
-            fn stid_dyn(&self) -> ::arcana::id::Stid {
-                ::arcana::id::Stid::new(::core::num::NonZeroU64::new(#base_id).unwrap())
+            fn stid_dyn(&self) -> #from_path::Stid {
+                #from_path::Stid::new(::core::num::NonZeroU64::new(#base_id).unwrap())
             }
         }
     };

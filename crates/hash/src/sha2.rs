@@ -3,9 +3,8 @@ use std::{
     path::Path,
 };
 
+use arcana_io::bufread::BufferRead;
 use sha2::{Digest, Sha256, Sha512};
-
-use crate::io::BufferRead;
 
 use super::{Hash256, Hash512};
 

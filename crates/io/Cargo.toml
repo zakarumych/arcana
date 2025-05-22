@@ -1,0 +1,10 @@
+[package]
+name = "arcana-io"
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+license.workspace = true
+version.workspace = true
+description = "IO for Arcana Engine"
+
+[dependencies]

@@ -1,0 +1,10 @@
+[package]
+name = "arcana-blobs"
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+license.workspace = true
+version.workspace = true
+description = "Easy access to binary blobs in FS for Arcana Engine"
+
+[dependencies]

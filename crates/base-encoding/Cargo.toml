@@ -1,0 +1,18 @@
+[package]
+name = "arcana-base-encoding"
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+license.workspace = true
+version.workspace = true
+description = "BaseN alphabet encoding and decoding"
+
+[features]
+std = ["dep:thiserror"]
+default = ["std"]
+
+[dependencies]
+thiserror = { workspace = true, optional = true }
+
+[dev-dependencies]
+rand.workspace = true

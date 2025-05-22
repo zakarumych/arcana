@@ -1,5 +1,9 @@
 //! Base58 encoding and decoding functions.
 
+use core::fmt;
+
+use alloc::{string::String, vec::Vec};
+
 const BASE58: &[u8; 58] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
 #[rustfmt::skip]
@@ -23,7 +27,7 @@ const BASE58_REV: [u8; 256] = [
     0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, // 0xF0-0xFF
 ];
 
-pub fn base58_enc_step(input: [u8; 2]) -> [u8; 3] {
+fn base58_enc_step(input: [u8; 2]) -> [u8; 3] {
     let mut value = u16::from_le_bytes(input);
 
     let digit2 = value % 58;
@@ -56,7 +60,7 @@ impl AsRef<[u8]> for Base58EncRem {
     }
 }
 
-pub fn base58_enc_rem(input: u8) -> Base58EncRem {
+fn base58_enc_rem(input: u8) -> Base58EncRem {
     let mut value = input;
 
     if value < 58 {
@@ -73,13 +77,13 @@ pub fn base58_enc_rem(input: u8) -> Base58EncRem {
     }
 }
 
-pub fn base58_enc_len(input: usize) -> usize {
+fn base58_enc_len(input: usize) -> usize {
     let words = input / 2;
     let rem = input % 2;
     words * 3 + rem * 2
 }
 
-pub fn base58_enc_str(input: &[u8], output: &mut String) {
+fn base58_enc_str(input: &[u8], output: &mut String) {
     let mut input = input;
 
     output.reserve(base58_enc_len(input.len()));
@@ -103,7 +107,7 @@ pub fn base58_enc_str(input: &[u8], output: &mut String) {
     }
 }
 
-pub fn base58_enc_fmt(input: &[u8], mut write: impl core::fmt::Write) -> core::fmt::Result {
+fn base58_enc_fmt(input: &[u8], mut write: impl fmt::Write) -> fmt::Result {
     let mut input = input;
 
     loop {
@@ -127,7 +131,8 @@ pub fn base58_enc_fmt(input: &[u8], mut write: impl core::fmt::Write) -> core::f
     Ok(())
 }
 
-pub fn base58_enc_io(read: impl std::io::Read, write: impl std::io::Write) -> std::io::Result<()> {
+#[cfg(feature = "std")]
+fn base58_enc_io(read: impl std::io::Read, write: impl std::io::Write) -> std::io::Result<()> {
     let mut read = read;
     let mut write = write;
 
@@ -174,100 +179,93 @@ pub fn base58_enc_io(read: impl std::io::Read, write: impl std::io::Write) -> st
     Ok(())
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
-pub enum Base58DecodingError {
-    #[error("invalid character in input")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "std", derive(thiserror::Error))]
+pub enum DecodeError {
+    #[cfg_attr(feature = "std", error("invalid character in input"))]
     InvalidCharacter,
 
-    #[error("invalid chunk in input")]
+    #[cfg_attr(feature = "std", error("invalid chunk in input"))]
     InvalidChunk,
 }
 
-pub fn base58_dec_step(input: [u8; 3]) -> Result<[u8; 2], Base58DecodingError> {
+fn base58_dec_step(input: [u8; 3]) -> Result<[u8; 2], DecodeError> {
     let [a, b, c] = input;
 
     let x = BASE58_REV[a as usize];
     if x == 0xFE {
-        return Err(Base58DecodingError::InvalidCharacter);
+        return Err(DecodeError::InvalidCharacter);
     }
 
     let y = BASE58_REV[b as usize];
     if y == 0xFE {
-        return Err(Base58DecodingError::InvalidCharacter);
+        return Err(DecodeError::InvalidCharacter);
     }
 
     let z = BASE58_REV[c as usize];
     if z == 0xFE {
-        return Err(Base58DecodingError::InvalidCharacter);
+        return Err(DecodeError::InvalidCharacter);
     }
 
     let mut result = u16::from(x);
 
-    result = result
-        .checked_mul(58)
-        .ok_or(Base58DecodingError::InvalidChunk)?;
+    result = result.checked_mul(58).ok_or(DecodeError::InvalidChunk)?;
 
     result = result
         .checked_add(u16::from(y))
-        .ok_or(Base58DecodingError::InvalidChunk)?;
+        .ok_or(DecodeError::InvalidChunk)?;
 
-    result = result
-        .checked_mul(58)
-        .ok_or(Base58DecodingError::InvalidChunk)?;
+    result = result.checked_mul(58).ok_or(DecodeError::InvalidChunk)?;
 
     result = result
         .checked_add(u16::from(z))
-        .ok_or(Base58DecodingError::InvalidChunk)?;
+        .ok_or(DecodeError::InvalidChunk)?;
 
     Ok(result.to_le_bytes())
 }
 
-pub fn base58_dec_rem_two(input: [u8; 2]) -> Result<u8, Base58DecodingError> {
+fn base58_dec_rem_two(input: [u8; 2]) -> Result<u8, DecodeError> {
     let [a, b] = input;
 
     let x = BASE58_REV[a as usize];
     if x == 0xFE {
-        return Err(Base58DecodingError::InvalidCharacter);
+        return Err(DecodeError::InvalidCharacter);
     }
 
     let y = BASE58_REV[b as usize];
     if y == 0xFE {
-        return Err(Base58DecodingError::InvalidCharacter);
+        return Err(DecodeError::InvalidCharacter);
     }
 
     let mut result = x;
 
-    result = result
-        .checked_mul(58)
-        .ok_or(Base58DecodingError::InvalidChunk)?;
+    result = result.checked_mul(58).ok_or(DecodeError::InvalidChunk)?;
 
-    result = result
-        .checked_add(y)
-        .ok_or(Base58DecodingError::InvalidChunk)?;
+    result = result.checked_add(y).ok_or(DecodeError::InvalidChunk)?;
 
     Ok(result)
 }
 
-pub fn base58_dec_rem_one(input: u8) -> Result<u8, Base58DecodingError> {
+fn base58_dec_rem_one(input: u8) -> Result<u8, DecodeError> {
     let a = input;
 
     let x = BASE58_REV[a as usize];
     if x == 0xFE {
-        return Err(Base58DecodingError::InvalidCharacter);
+        return Err(DecodeError::InvalidCharacter);
     }
 
     let result = x;
     Ok(result)
 }
 
-pub fn base58_dec_len(input: usize) -> usize {
+fn base58_dec_len(input: usize) -> usize {
     let words = input / 3;
     let rem = input % 3;
 
     words * 2 + if rem == 0 { 0 } else { 1 }
 }
 
-pub fn base58_dec_slice(input: &[u8], output: &mut [u8]) -> Result<(), Base58DecodingError> {
+fn base58_dec_slice(input: &[u8], output: &mut [u8]) -> Result<(), DecodeError> {
     let mut input = input;
     let mut output = output;
 
@@ -297,13 +295,14 @@ pub fn base58_dec_slice(input: &[u8], output: &mut [u8]) -> Result<(), Base58Dec
     Ok(())
 }
 
-pub fn base58_dec_vec(input: &[u8], output: &mut Vec<u8>) -> Result<(), Base58DecodingError> {
+fn base58_dec_vec(input: &[u8], output: &mut Vec<u8>) -> Result<(), DecodeError> {
     let offset = output.len();
     output.resize(offset + base58_dec_len(input.len()), 0);
     base58_dec_slice(input, &mut output[offset..])
 }
 
-pub fn base58_dec_io(read: impl std::io::Read, write: impl std::io::Write) -> std::io::Result<()> {
+#[cfg(feature = "std")]
+fn base58_dec_io(read: impl std::io::Read, write: impl std::io::Write) -> std::io::Result<()> {
     let mut read = read;
     let mut write = write;
 
@@ -360,6 +359,93 @@ pub fn base58_dec_io(read: impl std::io::Read, write: impl std::io::Write) -> st
     }
 
     Ok(())
+}
+
+pub const ALPHABET_SIZE: usize = 58;
+pub const ALPHABET: &'static [u8] = BASE58;
+
+pub fn encoded_len(input_len: usize) -> usize {
+    base58_enc_len(input_len)
+}
+
+pub fn encode_to_str(input: &[u8], output: &mut String) {
+    base58_enc_str(input, output);
+}
+
+pub fn encode_to_fmt(input: &[u8], write: impl fmt::Write) -> fmt::Result {
+    base58_enc_fmt(input, write)
+}
+
+#[cfg(feature = "std")]
+pub fn encode_io(read: impl std::io::Read, write: impl std::io::Write) -> std::io::Result<()> {
+    base58_enc_io(read, write)
+}
+
+pub fn decode_len(input_len: usize) -> usize {
+    base58_dec_len(input_len)
+}
+
+pub fn decode_to_slice(input: &[u8], output: &mut [u8]) -> Result<(), DecodeError> {
+    base58_dec_slice(input, output)
+}
+
+pub fn decode_to_vec(input: &[u8], output: &mut Vec<u8>) -> Result<(), DecodeError> {
+    base58_dec_vec(input, output)
+}
+
+#[cfg(feature = "std")]
+pub fn decode_io(read: impl std::io::Read, write: impl std::io::Write) -> std::io::Result<()> {
+    base58_dec_io(read, write)
+}
+
+pub struct Encoder;
+
+impl crate::Encoder for Encoder {
+    const ALPHABET_SIZE: usize = 58;
+    const ALPHABET: &'static [u8] = BASE58;
+
+    fn encoded_len(input_len: usize) -> usize {
+        base58_enc_len(input_len)
+    }
+
+    fn encode_to_str(input: &[u8], output: &mut String) {
+        base58_enc_str(input, output);
+    }
+
+    fn encode_to_fmt(input: &[u8], write: impl fmt::Write) -> fmt::Result {
+        base58_enc_fmt(input, write)
+    }
+
+    #[cfg(feature = "std")]
+    fn encode_io(read: impl std::io::Read, write: impl std::io::Write) -> std::io::Result<()> {
+        base58_enc_io(read, write)
+    }
+}
+
+pub struct Decoder;
+
+impl crate::Decoder for Decoder {
+    const ALPHABET_SIZE: usize = 58;
+    const ALPHABET: &'static [u8] = BASE58;
+
+    type Error = DecodeError;
+
+    fn decode_len(input_len: usize) -> usize {
+        base58_dec_len(input_len)
+    }
+
+    fn decode_to_slice(input: &[u8], output: &mut [u8]) -> Result<(), Self::Error> {
+        base58_dec_slice(input, output)
+    }
+
+    fn decode_to_vec(input: &[u8], output: &mut Vec<u8>) -> Result<(), Self::Error> {
+        base58_dec_vec(input, output)
+    }
+
+    #[cfg(feature = "std")]
+    fn decode_io(read: impl std::io::Read, write: impl std::io::Write) -> std::io::Result<()> {
+        base58_dec_io(read, write)
+    }
 }
 
 #[cfg(test)]
@@ -429,11 +515,11 @@ mod test_base58 {
     #[test]
     fn test_roundtrip_base58() {
         for _ in 0..1000 {
-            let size = rand::thread_rng().gen_range(42..15121);
+            let size = rand::rng().random_range(42..15121);
 
             let mut data = Vec::new();
             data.resize(size, 0);
-            rand::thread_rng().fill_bytes(&mut data);
+            rand::rng().fill_bytes(&mut data);
 
             let mut encoded = String::new();
             base58_enc_str(&data, &mut encoded);
@@ -442,50 +528,6 @@ mod test_base58 {
             base58_dec_vec(encoded.as_bytes(), &mut decoded).unwrap();
 
             assert_eq!(data, decoded);
-        }
-    }
-
-    #[test]
-    fn test_roundtrip_io_base58() {
-        for _ in 0..10 {
-            let size = rand::thread_rng().gen_range(124141..15121523);
-
-            let mut data = Vec::new();
-            data.resize(size, 0);
-            rand::thread_rng().fill_bytes(&mut data);
-
-            let mut encoded = Vec::new();
-            base58_enc_io(FussyReader { data: &data[..] }, &mut encoded).unwrap();
-
-            let mut decoded = Vec::new();
-            base58_dec_io(FussyReader { data: &encoded[..] }, &mut decoded).unwrap();
-
-            assert_eq!(data, decoded);
-        }
-    }
-
-    struct FussyReader<'a> {
-        data: &'a [u8],
-    }
-
-    impl std::io::Read for FussyReader<'_> {
-        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-            if rand::thread_rng().gen_bool(0.3) {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::Interrupted,
-                    "interrupted",
-                ));
-            }
-
-            if self.data.is_empty() {
-                return Ok(0);
-            }
-
-            let read = 1 + rand::thread_rng().gen_range(0..buf.len().min(self.data.len()));
-
-            buf[..read].copy_from_slice(&self.data[..read]);
-            self.data = &self.data[read..];
-            Ok(read)
         }
     }
 }

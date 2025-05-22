@@ -1,0 +1,21 @@
+[package]
+name = "arcana-model"
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+license.workspace = true
+version.workspace = true
+description = "Defines a model and a value type for type-erased communications"
+
+[dependencies]
+arcana-intern = { path = "../intern" }
+arcana-base-encoding = { path = "../base-encoding" }
+arcana-id = { path = "../id" }
+
+athena = { workspace = true, features = ["serde"] }
+edict.workspace = true
+serde = { workspace = true, features = ["derive"] }
+palette.workspace = true
+hashbrown.workspace = true
+thiserror.workspace = true
+chrono = {  workspace = true, features = ["serde"] }

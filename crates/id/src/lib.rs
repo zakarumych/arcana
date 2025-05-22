@@ -2,14 +2,16 @@
 
 mod seqgen;
 mod stid;
+mod uidgen;
 
 use std::{fmt, hash::Hash, num::NonZeroU64};
 
-use crate::base58::{base58_dec_len, base58_dec_slice, base58_enc_fmt, Base58DecodingError};
+use arcana_base_encoding::base58;
 
 pub use self::{
     seqgen::SeqIdGen,
-    stid::{has_stid, HasStid, Stid},
+    stid::{HasStid, Stid},
+    uidgen::TimeUidGen,
 };
 
 /// ID trait to be implemented by all id types.
@@ -56,7 +58,7 @@ macro_rules! hash_id {
         let mut hasher = $crate::hash::stable_hasher();
         $(::core::hash::Hash::hash(&{$value}, &mut hasher);)+
         let hash = ::core::hash::Hasher::finish(&hasher) | 0x8000_0000_0000_0000;
-        $crate::id::Id::new(::core::num::NonZeroU64::new(hash).unwrap())
+        $crate::Id::new(::core::num::NonZeroU64::new(hash).unwrap())
     }};
     ($($value:expr),+ => $id:ty) => {{
         let mut hasher = $crate::hash::stable_hasher();
@@ -77,7 +79,7 @@ macro_rules! hash_id {
 macro_rules! name_hash_id {
     ($ident:ident) => {{
         let hash = const { $crate::for_macro::stable_hash_tokens!($ident) | 0x8000_0000_0000_0000 };
-        $crate::id::Id::new(::core::num::NonZeroU64::new(hash).unwrap())
+        $crate::Id::new(::core::num::NonZeroU64::new(hash).unwrap())
     }};
     ($ident:ident => $id:ty) => {
         const {
@@ -155,14 +157,14 @@ macro_rules! make_id_base {
         impl ::core::fmt::Debug for $name {
             #[inline(always)]
             fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-                $crate::id::fmt_id(self.value.get(), f)
+                $crate::fmt_id(self.value.get(), f)
             }
         }
 
         impl ::core::fmt::Display for $name {
             #[inline(always)]
             fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-                $crate::id::fmt_id(self.value.get(), f)
+                $crate::fmt_id(self.value.get(), f)
             }
         }
 
@@ -188,7 +190,7 @@ macro_rules! make_id_base {
             }
         }
 
-        impl $crate::id::Id for $name {
+        impl $crate::Id for $name {
             #[inline(always)]
             fn new(value: ::core::num::NonZeroU64) -> Self {
                 $name {
@@ -208,22 +210,22 @@ macro_rules! make_id_base {
         }
 
         impl ::core::str::FromStr for $name {
-            type Err = $crate::id::ParseIdError;
+            type Err = $crate::ParseIdError;
 
             #[inline(always)]
-            fn from_str(s: &str) -> Result<Self, $crate::id::ParseIdError> {
-                let value = $crate::id::parse_id(s)?;
+            fn from_str(s: &str) -> Result<Self, $crate::ParseIdError> {
+                let value = $crate::parse_id(s)?;
                 Ok($name { value })
             }
         }
 
         impl ::core::convert::TryFrom<u64> for $name {
-            type Error = $crate::id::ZeroIDError;
+            type Error = $crate::ZeroIDError;
 
-            fn try_from(value: u64) -> Result<Self, $crate::id::ZeroIDError> {
+            fn try_from(value: u64) -> Result<Self, $crate::ZeroIDError> {
                 match ::core::num::NonZeroU64::try_from(value) {
                     Ok(value) => Ok($name { value }),
-                    Err(_) => Err($crate::id::ZeroIDError),
+                    Err(_) => Err($crate::ZeroIDError),
                 }
             }
         }
@@ -244,7 +246,7 @@ macro_rules! make_id {
         impl $name {
             #[allow(unused)]
             #[inline(always)]
-            pub fn generate(generator: &mut impl $crate::id::GenId<Value = ::core::num::NonZeroU64>) -> Self {
+            pub fn generate(generator: &mut impl $crate::GenId<Value = ::core::num::NonZeroU64>) -> Self {
                 $name::new(generator.generate())
             }
         }
@@ -254,7 +256,7 @@ macro_rules! make_id {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ParseIdError {
     #[error(transparent)]
-    DecodingError(#[from] Base58DecodingError),
+    DecodingError(#[from] base58::DecodeError),
 
     #[error("Id string is too long")]
     TooLong,
@@ -277,7 +279,7 @@ macro_rules! make_uid {
         impl $name {
             #[allow(unused)]
             #[inline(always)]
-            pub fn generate(generator: &mut impl $crate::id::GenUid<Value = ::core::num::NonZeroU64>) -> Self {
+            pub fn generate(generator: &mut impl $crate::GenUid<Value = ::core::num::NonZeroU64>) -> Self {
                 $name::new(generator.generate())
             }
         }
@@ -373,7 +375,7 @@ impl BaseId {
 #[inline(always)]
 #[doc(hidden)]
 pub fn fmt_id(value: u64, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    base58_enc_fmt(&value.to_le_bytes(), &mut *f)
+    base58::encode_to_fmt(&value.to_le_bytes(), &mut *f)
 }
 
 #[inline]
@@ -381,11 +383,11 @@ pub fn fmt_id(value: u64, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 pub fn parse_id(string: &str) -> Result<NonZeroU64, ParseIdError> {
     let mut value = [0u8; 8];
 
-    if base58_dec_len(string.len()) > 8 {
+    if base58::decode_len(string.len()) > 8 {
         return Err(ParseIdError::TooLong);
     }
 
-    base58_dec_slice(string.as_bytes(), &mut value)?;
+    base58::decode_to_slice(string.as_bytes(), &mut value)?;
     let value = u64::from_le_bytes(value);
     match NonZeroU64::new(value) {
         None => Err(ParseIdError::ZeroId),

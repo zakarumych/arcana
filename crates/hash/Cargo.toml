@@ -1,0 +1,16 @@
+[package]
+name = "arcana-hash"
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+license.workspace = true
+version.workspace = true
+description = "Hashing for Arcana Engine"
+
+[dependencies]
+arcana-base-encoding = { path = "../base-encoding" }
+arcana-io = { path = "../io" }
+serde.workspace = true
+hashbrown.workspace = true
+sha2.workspace = true
+ahash.workspace = true

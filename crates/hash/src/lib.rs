@@ -6,7 +6,7 @@ mod stable;
 
 use core::fmt;
 
-use crate::base58::{base58_dec_slice, base58_enc_fmt, base58_enc_str};
+use arcana_base_encoding::base58;
 
 pub use self::{
     noop::{no_hash_map, NoHashBuilder, NoHashMap, NoHasher},
@@ -62,7 +62,7 @@ impl serde::Serialize for Hash64 {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         if serializer.is_human_readable() {
             let mut encoded = String::new();
-            base58_enc_str(self.as_u8(), &mut encoded);
+            base58::encode_to_str(self.as_u8(), &mut encoded);
             serializer.serialize_str(&encoded)
         } else {
             serializer.serialize_bytes(self.as_u8())
@@ -89,7 +89,8 @@ impl<'de> serde::Deserialize<'de> for Hash64 {
                 E: serde::de::Error,
             {
                 let mut hash = [0; 8];
-                base58_dec_slice(value.as_bytes(), &mut hash).map_err(serde::de::Error::custom)?;
+                base58::decode_to_slice(value.as_bytes(), &mut hash)
+                    .map_err(serde::de::Error::custom)?;
                 Ok(Hash64::from_u8(hash))
             }
 
@@ -120,14 +121,14 @@ impl fmt::Debug for Hash64 {
         if f.alternate() {
             fmt::LowerHex::fmt(self, f)
         } else {
-            base58_enc_fmt(self.as_u8(), f)
+            base58::encode_to_fmt(self.as_u8(), f)
         }
     }
 }
 
 impl fmt::Display for Hash64 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        base58_enc_fmt(self.as_u8(), f)
+        base58::encode_to_fmt(self.as_u8(), f)
     }
 }
 
@@ -237,7 +238,7 @@ impl serde::Serialize for Hash128 {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         if serializer.is_human_readable() {
             let mut encoded = String::new();
-            base58_enc_str(self.as_u8(), &mut encoded);
+            base58::encode_to_str(self.as_u8(), &mut encoded);
             serializer.serialize_str(&encoded)
         } else {
             serializer.serialize_bytes(self.as_u8())
@@ -264,7 +265,8 @@ impl<'de> serde::Deserialize<'de> for Hash128 {
                 E: serde::de::Error,
             {
                 let mut hash = [0; 16];
-                base58_dec_slice(value.as_bytes(), &mut hash).map_err(serde::de::Error::custom)?;
+                base58::decode_to_slice(value.as_bytes(), &mut hash)
+                    .map_err(serde::de::Error::custom)?;
                 Ok(Hash128::from_u8(hash))
             }
 
@@ -295,14 +297,14 @@ impl fmt::Debug for Hash128 {
         if f.alternate() {
             fmt::LowerHex::fmt(self, f)
         } else {
-            base58_enc_fmt(self.as_u8(), f)
+            base58::encode_to_fmt(self.as_u8(), f)
         }
     }
 }
 
 impl fmt::Display for Hash128 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        base58_enc_fmt(self.as_u8(), f)
+        base58::encode_to_fmt(self.as_u8(), f)
     }
 }
 
@@ -412,7 +414,7 @@ impl serde::Serialize for Hash256 {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         if serializer.is_human_readable() {
             let mut encoded = String::new();
-            base58_enc_str(self.as_u8(), &mut encoded);
+            base58::encode_to_str(self.as_u8(), &mut encoded);
             serializer.serialize_str(&encoded)
         } else {
             serializer.serialize_bytes(self.as_u8())
@@ -439,7 +441,8 @@ impl<'de> serde::Deserialize<'de> for Hash256 {
                 E: serde::de::Error,
             {
                 let mut hash = [0; 32];
-                base58_dec_slice(value.as_bytes(), &mut hash).map_err(serde::de::Error::custom)?;
+                base58::decode_to_slice(value.as_bytes(), &mut hash)
+                    .map_err(serde::de::Error::custom)?;
                 Ok(Hash256::from_u8(hash))
             }
 
@@ -470,14 +473,14 @@ impl fmt::Debug for Hash256 {
         if f.alternate() {
             fmt::LowerHex::fmt(self, f)
         } else {
-            base58_enc_fmt(self.as_u8(), f)
+            base58::encode_to_fmt(self.as_u8(), f)
         }
     }
 }
 
 impl fmt::Display for Hash256 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        base58_enc_fmt(self.as_u8(), f)
+        base58::encode_to_fmt(self.as_u8(), f)
     }
 }
 
@@ -587,7 +590,7 @@ impl serde::Serialize for Hash512 {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         if serializer.is_human_readable() {
             let mut encoded = String::new();
-            base58_enc_str(self.as_u8(), &mut encoded);
+            base58::encode_to_str(self.as_u8(), &mut encoded);
             serializer.serialize_str(&encoded)
         } else {
             serializer.serialize_bytes(self.as_u8())
@@ -614,7 +617,8 @@ impl<'de> serde::Deserialize<'de> for Hash512 {
                 E: serde::de::Error,
             {
                 let mut hash = [0; 64];
-                base58_dec_slice(value.as_bytes(), &mut hash).map_err(serde::de::Error::custom)?;
+                base58::decode_to_slice(value.as_bytes(), &mut hash)
+                    .map_err(serde::de::Error::custom)?;
                 Ok(Hash512::from_u8(hash))
             }
 
@@ -645,14 +649,14 @@ impl fmt::Debug for Hash512 {
         if f.alternate() {
             fmt::LowerHex::fmt(self, f)
         } else {
-            base58_enc_fmt(self.as_u8(), f)
+            base58::encode_to_fmt(self.as_u8(), f)
         }
     }
 }
 
 impl fmt::Display for Hash512 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        base58_enc_fmt(self.as_u8(), f)
+        base58::encode_to_fmt(self.as_u8(), f)
     }
 }
 

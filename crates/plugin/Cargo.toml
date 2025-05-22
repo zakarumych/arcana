@@ -1,0 +1,10 @@
+[package]
+name = "arcana-plugin"
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+license.workspace = true
+version.workspace = true
+description = "Plugin system for Arcana Engine"
+
+[dependencies]
