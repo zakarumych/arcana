@@ -4,15 +4,15 @@ use std::{
     hash::Hash,
 };
 
+use arcana_alloc::Arena;
+use arcana_id::{SeqIdGen, Stid};
 use arcana_intern::Name;
+use arcana_model::Value;
 use edict::world::World;
 use hashbrown::{hash_map::Entry, HashMap, HashSet};
 use slab::Slab;
 
-use crate::{
-    arena::Arena, id::SeqIdGen, id::Stid, model::Value, plugin::PluginsHub,
-    work::job::invalid_output_pin,
-};
+use crate::{job::invalid_output_pin, Job, JobsSet};
 
 use super::{
     job::{JobDesc, JobId},
@@ -63,6 +63,8 @@ pub struct Cycle;
 
 impl WorkGraph {
     /// Build work-graph from list of jobs and edges.
+    ///
+    /// Jobs are supplied with values for their named parameters.
     pub fn new(
         mut jobs: HashMap<JobIdx, (JobId, JobDesc, HashMap<Name, Value>)>,
         edges: HashSet<Edge>,
@@ -351,7 +353,7 @@ impl WorkGraph {
         &mut self,
         queue: &mut mev::Queue,
         world: &mut World,
-        hub: &mut PluginsHub,
+        set: &mut JobsSet,
     ) -> Result<(), mev::DeviceError> {
         self.selected_jobs.clear();
 
@@ -362,24 +364,36 @@ impl WorkGraph {
         // Plan in reverse order.
         // This allows to collect all target descriptors before creating them.
         // And select dependencies for execution before planning loop considers them.
-        for job in self.plan.iter_mut().rev() {
-            if !self.selected_jobs.contains(&job.idx) {
+        for node in self.plan.iter_mut().rev() {
+            let Some(job) = set.get_mut(&node.id) else {
+                continue;
+            };
+            let job = &mut **job;
+
+            if !self.selected_jobs.contains(&node.idx) {
                 continue;
             }
-            job.plan(
+
+            node.plan(
                 &mut self.hub,
                 &mut self.selected_jobs,
                 queue.device().clone(),
                 world,
-                hub,
+                job,
             );
         }
 
-        for job in self.plan.iter_mut() {
-            if !self.selected_jobs.contains(&job.idx) {
+        for node in self.plan.iter_mut() {
+            let Some(job) = set.get_mut(&node.id) else {
+                continue;
+            };
+            let job = &mut **job;
+
+            if !self.selected_jobs.contains(&node.idx) {
                 continue;
             }
-            job.exec(&mut self.hub, queue, &self.cbufs, world, hub);
+
+            node.exec(&mut self.hub, queue, &self.cbufs, world, job);
         }
 
         queue.submit(self.cbufs.drain().filter_map(|e| e.finish().ok()), true)
@@ -672,7 +686,7 @@ impl JobNode {
         selected_jobs: &mut HashSet<JobIdx>,
         device: mev::Device,
         world: &mut World,
-        plugins: &mut PluginsHub,
+        job: &mut dyn Job,
     ) {
         let planner = Planner {
             updates: self.updates.iter(),
@@ -685,9 +699,7 @@ impl JobNode {
             params: &self.params,
         };
 
-        if let Some(job) = plugins.jobs.get_mut(&self.id) {
-            job.plan(planner, world);
-        }
+        job.plan(planner, world);
     }
 
     fn exec(
@@ -696,7 +708,7 @@ impl JobNode {
         queue: &mut mev::Queue,
         cbufs: &Arena<mev::CommandEncoder>,
         world: &mut World,
-        plugins: &mut PluginsHub,
+        job: &mut dyn Job,
     ) {
         let device = queue.device().clone();
 
@@ -719,9 +731,7 @@ impl JobNode {
             params: &self.params,
         };
 
-        if let Some(job) = plugins.jobs.get_mut(&self.id) {
-            job.exec(exec, world);
-        }
+        job.exec(exec, world);
 
         let commands = CommandStream {
             queue: RefCell::new(queue),

@@ -1,14 +1,12 @@
+use std::hash::Hash;
+
+use arcana_id::{make_uid, HasStid, Stid};
 use arcana_intern::Name;
+use arcana_model::{Model, Value};
 use edict::world::World;
 use hashbrown::HashMap;
 
-use crate::{
-    id::{HasStid, Stid},
-    make_uid,
-    model::{Model, Value},
-};
-
-use super::graph::{Exec, Planner};
+use crate::graph::{Exec, Planner};
 
 make_uid! {
     /// ID of the render job.
@@ -267,12 +265,4 @@ pub(super) fn invalid_input_pin(pin: usize) -> ! {
 #[cold]
 pub(super) fn invalid_output_pin(pin: usize) -> ! {
     panic!("Invalid output pin index: {}", pin)
-}
-
-fn is_job<T: Job>(_: T) {}
-
-fn assert_job_is_job() {
-    fn get_job(job: impl Job) {
-        is_job(job);
-    }
 }

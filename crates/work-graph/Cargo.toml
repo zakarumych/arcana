@@ -1,0 +1,21 @@
+[package]
+name = "arcana-work-graph"
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+arcana-alloc = { path = "../alloc" }
+arcana-id = { path = "../id" }
+arcana-intern = { path = "../intern" }
+arcana-hash = { path = "../hash" }
+arcana-model = { path = "../model" }
+arcana-proc = { path = "../proc" }
+
+edict.workspace = true
+mev.workspace = true
+hashbrown.workspace = true
+serde = { workspace = true, features = ["derive"] }
+slab.workspace = true

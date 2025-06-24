@@ -44,12 +44,18 @@ mod sources;
 
 pub use self::{
     dependencies::{AssetDependencies, AssetDependency},
-    importer::{EmptyConfig, ImportConfig, ImportError, Importer, ImporterDesc, ImporterId},
+    importer::{ImportError, Importer, ImporterId},
     sources::AssetSources,
 };
 
-/// Helper function for [`Importer`] implementations to emit an error if sources or dependencies are missing.
-pub fn ensure(sources: Vec<String>, dependencies: Vec<AssetDependency>) -> Result<(), ImportError> {
+/// Checks missing sources and dependencies lists.
+///
+/// Returns `Ok(())` if both lists are empty,
+/// Otherwise returns an error.
+pub fn check_missing(
+    sources: Vec<String>,
+    dependencies: Vec<AssetDependency>,
+) -> Result<(), ImportError> {
     if sources.is_empty() && dependencies.is_empty() {
         Ok(())
     } else {

@@ -11,7 +11,10 @@ description = "ID types and generators"
 arcana-proc = { path = "../proc" }
 arcana-base-encoding = { path = "../base-encoding" }
 serde = { workspace = true, features = ["derive"] }
+smol_str.workspace = true
 thiserror.workspace = true
 rand.workspace = true
 gametime.workspace = true
 edict.workspace = true
+vtid = { workspace = true, features = ["derive"] }
+palette.workspace = true

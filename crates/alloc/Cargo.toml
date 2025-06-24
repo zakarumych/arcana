@@ -1,12 +1,9 @@
 [package]
-name = "arcana-unfold"
+name = "arcana-alloc"
 edition.workspace = true
 authors.workspace = true
 readme.workspace = true
 license.workspace = true
 version.workspace = true
-description = "Unfolding system for Arcana Engine"
 
 [dependencies]
-edict.workspace = true
-hashbrown.workspace = true

@@ -587,7 +587,7 @@ impl CollisionEvents {
         self.queue.pop_front()
     }
 
-    #[cfg_attr(feature = "inline-more", inline)]
+    #[inline]
     pub fn poll_deque(&mut self, cx: &mut Context) -> Poll<CollisionEvent> {
         if let Some(collision) = self.queue.pop_front() {
             Poll::Ready(collision)
@@ -632,7 +632,7 @@ impl ContactForceEvents {
         self.queue.pop_front()
     }
 
-    #[cfg_attr(feature = "inline-more", inline)]
+    #[inline]
     pub fn poll_deque(&mut self, cx: &mut Context) -> Poll<ContactForce> {
         if let Some(contact) = self.queue.pop_front() {
             Poll::Ready(contact)

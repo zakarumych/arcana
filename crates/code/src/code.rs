@@ -2,15 +2,13 @@
 
 use std::future::Future;
 
+use arcana_intern::Name;
 use edict::{component::Component, entity::EntityId, flow::FlowEntity, world::World};
 use hashbrown::{hash_map::Entry, HashMap};
 use smallvec::SmallVec;
 
-use crate::{
-    id::{HasStid, Stid},
-    make_uid,
-    slot::Slot,
-};
+use arcana_id::{make_uid, Stid};
+use arcana_tany::Slot;
 
 make_uid! {
     /// ID of the code node
@@ -169,8 +167,8 @@ pub type FlowCode = fn(
 pub enum CodeDesc {
     /// Pure node gets executed every type its output is required.
     Pure {
-        inputs: Vec<Stid>,
-        outputs: Vec<Stid>,
+        inputs: Vec<(Stid, Name)>,
+        outputs: Vec<(Stid, Name)>,
     },
 
     /// Flow node that gets executed when triggered by connected inflow.

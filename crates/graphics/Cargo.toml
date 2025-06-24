@@ -1,0 +1,18 @@
+[package]
+name = "arcana-graphics"
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+arcana-assets = { path = "../assets" }
+
+edict.workspace = true
+mev.workspace = true
+vtid.workspace = true
+smallvec.workspace = true
+thiserror.workspace = true
+futures.workspace = true
+basis-universal.workspace = true

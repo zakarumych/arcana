@@ -280,7 +280,7 @@ impl<T> Drop for ExhaustedDrain<T> {
 impl<T> Iterator for ExhaustedDrain<T> {
     type Item = T;
 
-    #[cfg_attr(feature = "inline-more", inline)]
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         if self.idx == self.len {
             return None;
@@ -293,7 +293,7 @@ impl<T> Iterator for ExhaustedDrain<T> {
         Some(unsafe { ptr.read() })
     }
 
-    #[cfg_attr(feature = "inline-more", inline)]
+    #[inline]
     fn nth(&mut self, n: usize) -> Option<Self::Item> {
         // Limit number of elements to skip.
         let n = n.min(self.len - self.idx);
@@ -313,7 +313,7 @@ impl<T> Iterator for ExhaustedDrain<T> {
         self.next()
     }
 
-    #[cfg_attr(feature = "inline-more", inline)]
+    #[inline]
     fn count(self) -> usize {
         let n = self.len - self.idx;
 
@@ -348,7 +348,7 @@ impl<'a, T: 'a> Drop for HeadDrain<'a, T> {
 impl<'a, T: 'a> Iterator for HeadDrain<'a, T> {
     type Item = T;
 
-    #[cfg_attr(feature = "inline-more", inline)]
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         if self.idx == self.len {
             return None;
@@ -361,7 +361,7 @@ impl<'a, T: 'a> Iterator for HeadDrain<'a, T> {
         Some(unsafe { ptr.read() })
     }
 
-    #[cfg_attr(feature = "inline-more", inline)]
+    #[inline]
     fn nth(&mut self, n: usize) -> Option<Self::Item> {
         // Limit number of elements to skip.
         let n = n.min(self.len - self.idx);
@@ -381,7 +381,7 @@ impl<'a, T: 'a> Iterator for HeadDrain<'a, T> {
         self.next()
     }
 
-    #[cfg_attr(feature = "inline-more", inline)]
+    #[inline]
     fn count(self) -> usize {
         let n = self.len - self.idx;
 

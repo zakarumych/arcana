@@ -21,14 +21,12 @@ use crate::{
 };
 
 mod content_address;
-mod generator;
 mod meta;
 mod scheme;
 mod sources;
 mod temp;
 
 use self::{
-    generator::Generator,
     meta::{AssetMeta, MetaError, SourceMeta},
     sources::{Sources, SourcesError},
     temp::make_temporary,

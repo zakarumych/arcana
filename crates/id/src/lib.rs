@@ -284,25 +284,25 @@ macro_rules! make_uid {
             }
         }
 
-        impl ::serde::Serialize for $name {
+        impl $crate::for_macro::ser::Serialize for $name {
             #[inline(always)]
             fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
             where
-                S: ::serde::Serializer,
+                S: $crate::for_macro::ser::Serializer,
             {
                 self.value.serialize(serializer)
             }
         }
 
-        impl<'de> ::serde::Deserialize<'de> for $name {
+        impl<'de> $crate::for_macro::de::Deserialize<'de> for $name {
             #[inline(always)]
             fn deserialize<D>(deserializer: D) -> Result<$name, D::Error>
             where
-                D: ::serde::Deserializer<'de>,
+                D: $crate::for_macro::de::Deserializer<'de>,
             {
                 struct Visitor;
 
-                impl<'de> serde::de::Visitor<'de> for Visitor {
+                impl<'de> $crate::for_macro::de::Visitor<'de> for Visitor {
                     type Value = $name;
 
                     #[inline(always)]
@@ -313,10 +313,10 @@ macro_rules! make_uid {
                     #[inline(always)]
                     fn visit_u64<E>(self, v: u64) -> Result<$name, E>
                     where
-                        E: ::serde::de::Error,
+                        E: $crate::for_macro::de::Error,
                     {
                         match ::core::num::NonZeroU64::new(v) {
-                            None => Err(E::invalid_value(::serde::de::Unexpected::Unsigned(0), &self)),
+                            None => Err(E::invalid_value($crate::for_macro::de::Unexpected::Unsigned(0), &self)),
                             Some(value) => Ok($name { value }),
                         }
                     }
@@ -324,10 +324,10 @@ macro_rules! make_uid {
                     #[inline(always)]
                     fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
                     where
-                        E: ::serde::de::Error,
+                        E: $crate::for_macro::de::Error,
                     {
                         if v <= 0 {
-                            Err(E::invalid_value(::serde::de::Unexpected::Signed(v), &self))
+                            Err(E::invalid_value($crate::for_macro::de::Unexpected::Signed(v), &self))
                         } else {
                             Ok($name { value: ::core::num::NonZeroU64::new(v as u64).unwrap() })
                         }
@@ -336,7 +336,7 @@ macro_rules! make_uid {
                     #[inline(always)]
                     fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
                     where
-                        E: ::serde::de::Error,
+                        E: $crate::for_macro::de::Error,
                     {
                         v.parse().map_err(E::custom)
                     }
@@ -420,3 +420,10 @@ where
 pub trait GenUid: GenId {}
 
 impl<T> GenUid for &mut T where T: GenUid {}
+
+#[doc(hidden)]
+pub mod for_macro {
+    pub use arcana_proc::stable_hash_tokens;
+
+    pub use ::serde::{de, ser};
+}

@@ -1,6 +1,6 @@
 use arcana_intern::Ident;
 
-use crate::assets::AssetId;
+use crate::AssetId;
 
 /// Single dependency for a asset.
 #[derive(Debug)]

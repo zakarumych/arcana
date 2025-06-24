@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "alloc",
     "proc",
     "intern",
     "base-encoding",
@@ -7,6 +8,14 @@ members = [
     "hash",
     "id",
     "model",
+    "project",
+    "assets",
+    "unfold",
+    "work-graph",
+    "ecs",
+    "tany",
+    "graphics",
+    "code",
 ]
 resolver = "2"
 
@@ -20,13 +29,15 @@ version = "0.1.0"
 [workspace.dependencies]
 ahash = { version = "0.8" }
 alkahest = { version = "0.3", features = ["derive"] }
-amity = { git = "https://github.com/zakarumych/amity.git", features = ["parking_lot"] }
+amity = { git = "https://github.com/zakarumych/amity.git", features = [
+    "parking_lot",
+] }
 # amity = { version = "0.4.1", features = ["parking_lot"] }
 approx = { version = "0.5" }
 arboard = { version = "3.5" }
 arc-swap = { version = "1.7" }
-#athena = { git = "https://github.com/zakarumych/athena.git" }
-athena = { path = "../../athena" }
+athena = { git = "https://github.com/zakarumych/athena.git" }
+#athena = { path = "../../athena" }
 base64 = "0.22"
 basis-universal = "0.3.1"
 basis-universal-sys = "0.3.1"
@@ -47,7 +58,7 @@ ctor = "0.4"
 cursor-icon = { version = "1.0" }
 denvars = { version = "0.3.2" }
 dirs = { version = "6.0" }
-edict = { version = "1.0.0-rc6", path = "../../edict", features = ["serde"] }
+edict = { version = "1.0.0-rc6", path = "../../edict" }
 egui = { version = "0.31", features = ["bytemuck", "serde", "cint"] }
 egui_dnd = { version = "0.12" }
 egui_tiles = { version = "0.12" }
@@ -92,6 +103,7 @@ serde-nothing = "0.1"
 sha2 = "0.10"
 slab = "0.4"
 smallvec = "1.14"
+smol_str = "0.3.2"
 simba = { version = "0.9" }
 syn = "2"
 thiserror = "2"

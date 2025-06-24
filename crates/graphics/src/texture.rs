@@ -6,7 +6,7 @@ use mev::Extent2;
 use smallvec::SmallVec;
 use vtid::HasVtid;
 
-use crate::assets::{Asset, AssetBuilder, Assets};
+use arcana_assets::{Asset, AssetBuilder, Assets, Error};
 
 #[derive(Clone, HasVtid)]
 pub struct Texture {
@@ -46,16 +46,13 @@ impl Asset for Texture {
     type Loaded = LoadedTexture;
 
     fn load(
-        data: Box<[u8]>,
+        data: &[u8],
         assets: &Assets,
-    ) -> impl Future<Output = Result<Self::Loaded, crate::assets::Error>> + Send {
+    ) -> impl Future<Output = Result<Self::Loaded, Error>> + Send {
         futures::future::ready(load_texture(data, assets))
     }
 
-    fn build(
-        loaded: LoadedTexture,
-        builder: &mut AssetBuilder,
-    ) -> Result<Self, crate::assets::Error> {
+    fn build(loaded: LoadedTexture, builder: &mut AssetBuilder) -> Result<Self, Error> {
         let image = builder
             .device()
             .new_image(mev::ImageDesc {
@@ -66,7 +63,7 @@ impl Asset for Texture {
                 levels: loaded.level_offsets.len() as u32,
                 name: "texture",
             })
-            .map_err(crate::assets::Error::new)?;
+            .map_err(Error::new)?;
 
         let scratch = builder
             .device()
@@ -76,7 +73,7 @@ impl Asset for Texture {
                 memory: mev::Memory::Upload,
                 name: "scratch",
             })
-            .map_err(crate::assets::Error::new)?;
+            .map_err(Error::new)?;
 
         let mut encoder = builder.encoder().copy();
 
@@ -104,25 +101,25 @@ impl Asset for Texture {
     }
 }
 
-fn load_texture(data: Box<[u8]>, _assets: &Assets) -> Result<LoadedTexture, crate::assets::Error> {
+fn load_texture(data: &[u8], _assets: &Assets) -> Result<LoadedTexture, Error> {
     let mut transcoder = basis_universal::Transcoder::new();
 
     if !transcoder.validate_header(&data) {
-        return Err(crate::assets::Error::new(TextureError::InvalidData));
+        return Err(Error::new(TextureError::InvalidData));
     }
 
     match transcoder.basis_texture_type(&data) {
         basis_universal::BasisTextureType::TextureType2D => {
             let image_count = transcoder.image_count(&data);
             if image_count != 1 {
-                return Err(crate::assets::Error::new(TextureError::InvalidImageCount));
+                return Err(Error::new(TextureError::InvalidImageCount));
             }
 
             let info = transcoder.image_info(&data, 0).unwrap();
 
             let image_level_count = transcoder.image_level_count(&data, 0);
             if image_level_count == 0 {
-                return Err(crate::assets::Error::msg("No image levels found"));
+                return Err(Error::msg("No image levels found"));
             }
 
             let mut level_offsets = SmallVec::new();
@@ -130,11 +127,11 @@ fn load_texture(data: Box<[u8]>, _assets: &Assets) -> Result<LoadedTexture, crat
 
             for l in 0..image_level_count {
                 if let Err(()) = transcoder.prepare_transcoding(&data) {
-                    return Err(crate::assets::Error::new(TextureError::NoImageLevels));
+                    return Err(Error::new(TextureError::NoImageLevels));
                 }
 
                 let result = transcoder.transcode_image_level(
-                    &data,
+                    data,
                     TranscoderTextureFormat::RGBA32,
                     TranscodeParameters {
                         image_index: 0,
@@ -147,13 +144,13 @@ fn load_texture(data: Box<[u8]>, _assets: &Assets) -> Result<LoadedTexture, crat
 
                 match result {
                     Err(TranscodeError::TranscodeFormatNotSupported) => {
-                        return Err(crate::assets::Error::new(TextureError::FormatNotSupported));
+                        return Err(Error::new(TextureError::FormatNotSupported));
                     }
                     Err(TranscodeError::ImageLevelNotFound) => {
                         unreachable!();
                     }
                     Err(TranscodeError::TranscodeFailed) => {
-                        return Err(crate::assets::Error::new(TextureError::DecodeFailed))
+                        return Err(Error::new(TextureError::DecodeFailed))
                     }
                     Ok(bytes) => {
                         if l != 0 {
@@ -170,10 +167,6 @@ fn load_texture(data: Box<[u8]>, _assets: &Assets) -> Result<LoadedTexture, crat
                 transcoded_bytes,
             })
         }
-        _ => {
-            return Err(crate::assets::Error::new(
-                TextureError::ImageTypeNotSupported,
-            ))
-        }
+        _ => return Err(Error::new(TextureError::ImageTypeNotSupported)),
     }
 }

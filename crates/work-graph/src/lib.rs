@@ -1,6 +1,6 @@
-//! This module contains GPU work-graph implementation.
+//! This module contains work-graph implementation.
 //! Work graph consists of jobs that declare resources they work on and set of edges between them.
-//! Jobs work in isolation except for shared resoruces they declared.
+//! Jobs work in isolation except for shared resources they declared.
 
 mod graph;
 mod job;
@@ -8,7 +8,8 @@ mod target;
 
 use std::ops::Deref;
 
-use arcana_proc::HasStid;
+use arcana_proc::has_stid;
+use hashbrown::HashMap;
 
 pub use self::{
     graph::{CommandStream, Cycle, Edge, Exec, HookId, JobIdx, PinId, Planner, WorkGraph},
@@ -18,8 +19,10 @@ pub use self::{
 
 /// Generic 2d image target.
 /// It does not hold particular meaning behind pixel values.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, HasStid)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Image2D(pub mev::Image);
+
+has_stid!(Image2D = 0x0000_0000_0001_0001 @ arcana_id);
 
 impl Deref for Image2D {
     type Target = mev::Image;
@@ -73,8 +76,10 @@ impl target::Target for Image2D {
 /// but consumers may still provide desired extent and usage.
 ///
 /// Largest required extent is used and usage is merged.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, HasStid)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct SampledImage2D(pub mev::Image);
+
+has_stid!(SampledImage2D = 0x0000_0000_0001_0002 @ arcana_id);
 
 impl Deref for SampledImage2D {
     type Target = mev::Image;
@@ -124,3 +129,5 @@ impl target::Target for SampledImage2D {
         true
     }
 }
+
+pub type JobsSet = HashMap<JobId, Box<dyn Job>>;

@@ -4,13 +4,9 @@ use std::{
     mem::{transmute, ManuallyDrop},
 };
 
+use arcana_hash::{no_hash_map, NoHashMap};
+use arcana_id::{make_id, HasStid};
 use hashbrown::HashMap;
-
-use crate::{
-    hash::{no_hash_map, NoHashMap},
-    id::HasStid,
-    make_id, type_id,
-};
 
 make_id! {
     /// ID of the render target.
@@ -169,13 +165,13 @@ impl TargetHub {
     }
 
     pub fn data<T: Target>(&self, id: TargetId) -> Option<&TargetData<T>> {
-        let any_hub = self.types.get(&type_id::<T>())?;
+        let any_hub = self.types.get(&TypeId::of::<T>())?;
         let typed_hub = unsafe { any_hub.downcast_ref::<TargetData<T>>() };
         typed_hub.get(&id)
     }
 
     pub fn data_mut<T: Target>(&mut self, id: TargetId) -> Option<&mut TargetData<T>> {
-        let any_hub = self.types.get_mut(&type_id::<T>())?;
+        let any_hub = self.types.get_mut(&TypeId::of::<T>())?;
         let typed_hub = unsafe { any_hub.downcast_mut::<TargetData<T>>() };
         typed_hub.get_mut(&id)
     }
@@ -183,7 +179,7 @@ impl TargetHub {
     pub fn make_data_mut<T: Target>(&mut self, id: TargetId) -> &mut TargetData<T> {
         let any_hub = self
             .types
-            .entry(type_id::<T>())
+            .entry(TypeId::of::<T>())
             .or_insert_with(|| AnyHashMap::<TargetId>::new::<TargetData<T>>());
         let typed_hub = unsafe { any_hub.downcast_mut::<TargetData<T>>() };
         typed_hub.entry(id).or_insert_with(|| TargetData::new())

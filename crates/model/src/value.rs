@@ -5,8 +5,10 @@ use arcana_intern::Name;
 use athena::{Matrix2, Matrix3, Matrix4, Vector2, Vector3, Vector4};
 use chrono::{DateTime, TimeDelta, Utc};
 use edict::entity::EntityId;
+use gametime::TimeSpan;
 use hashbrown::HashMap;
 use palette::IntoColor;
+use smol_str::SmolStr;
 
 use crate::model::{ColorModel, Model};
 
@@ -117,7 +119,7 @@ pub enum Value {
     Bool(bool),
     Int(i64),
     Float(f64),
-    String(String),
+    String(SmolStr),
     Color(ColorValue),
     TimeDelta(TimeDelta),
     DateTime(DateTime<Utc>),

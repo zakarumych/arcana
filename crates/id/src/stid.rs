@@ -75,5 +75,16 @@ has_stid!(i64 = 0x0000_0000_0000_0008 @ arcana_id);
 has_stid!(f32 = 0x0000_0000_0000_0009 @ arcana_id);
 has_stid!(f64 = 0x0000_0000_0000_000A @ arcana_id);
 
+has_stid!(bool = 0x0000_0000_0000_000B @ arcana_id);
+has_stid!(smol_str::SmolStr = 0x0000_0000_0000_000C @ arcana_id);
+
+has_stid!(palette::LinLuma = 0x0000_0000_0000_000D @ arcana_id);
+has_stid!(palette::LinLumaa = 0x0000_0000_0000_000E @ arcana_id);
+has_stid!(palette::Srgb = 0x0000_0000_0000_000F @ arcana_id);
+has_stid!(palette::Srgba = 0x0000_0000_0000_0010 @ arcana_id);
+has_stid!(palette::Hsv = 0x0000_0000_0000_0011 @ arcana_id);
+has_stid!(palette::Hsva = 0x0000_0000_0000_0012 @ arcana_id);
+
 has_stid!(TimeSpan = 0x0000_0000_0000_00041 @ arcana_id);
+has_stid!(chrono::TimeDelta = 0x0000_0000_0000_00041 @ arcana_id);
 has_stid!(::edict::entity::EntityId = 0x0000_0000_0000_0042 @ arcana_id);

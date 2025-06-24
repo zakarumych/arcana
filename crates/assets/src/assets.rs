@@ -345,7 +345,7 @@ where
                                 };
 
                                 drop(cache);
-                                assets.inner.to_build.push((Vtid::of::<A>(), id));
+                                assets.inner.to_build.push_sync((Vtid::of::<A>(), id));
                             }
                             Err(error) => {
                                 *state = AssetState::Error { error };

@@ -1,4 +1,4 @@
-use crate::tany::TAny;
+use crate::threaded::TAny;
 
 /// Slot for storing a single value of `Any` type
 /// with type-safe access, replacement and removal.
@@ -72,5 +72,33 @@ impl Slot {
         }
 
         None
+    }
+
+    #[inline(always)]
+    pub fn clone_from<T>(&mut self, value: &T)
+    where
+        T: Clone + Send + Sync + 'static,
+    {
+        if let Some(boxed) = &mut self.0 {
+            if let Some(slot) = boxed.downcast_mut::<T>() {
+                slot.clone_from(value);
+                return;
+            }
+        }
+        self.0 = Some(TAny::new(value.clone()));
+    }
+
+    #[inline(always)]
+    pub fn from_borrowed<T>(&mut self, value: &(impl ToOwned<Owned = T> + ?Sized))
+    where
+        T: Send + Sync + 'static,
+    {
+        if let Some(boxed) = &mut self.0 {
+            if let Some(slot) = boxed.downcast_mut::<T>() {
+                value.clone_into(slot);
+                return;
+            }
+        }
+        self.0 = Some(TAny::new(value.to_owned()));
     }
 }
