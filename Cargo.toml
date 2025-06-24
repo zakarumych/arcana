@@ -1,21 +1,21 @@
 [workspace]
 members = [
-    "alloc",
-    "proc",
-    "intern",
-    "base-encoding",
-    "io",
-    "hash",
-    "id",
-    "model",
-    "project",
-    "assets",
-    "unfold",
-    "work-graph",
-    "ecs",
-    "tany",
-    "graphics",
-    "code",
+    "crates/alloc",
+    "crates/proc",
+    "crates/intern",
+    "crates/base-encoding",
+    "crates/io",
+    "crates/hash",
+    "crates/id",
+    "crates/model",
+    "crates/project",
+    "crates/assets",
+    "crates/unfold",
+    "crates/work-graph",
+    "crates/ecs",
+    "crates/tany",
+    "crates/graphics",
+    "crates/codex",
 ]
 resolver = "2"
 
@@ -37,7 +37,7 @@ approx = { version = "0.5" }
 arboard = { version = "3.5" }
 arc-swap = { version = "1.7" }
 athena = { git = "https://github.com/zakarumych/athena.git" }
-#athena = { path = "../../athena" }
+#athena = { path = "../athena" }
 base64 = "0.22"
 basis-universal = "0.3.1"
 basis-universal-sys = "0.3.1"
@@ -58,21 +58,21 @@ ctor = "0.4"
 cursor-icon = { version = "1.0" }
 denvars = { version = "0.3.2" }
 dirs = { version = "6.0" }
-edict = { version = "1.0.0-rc6", path = "../../edict" }
+edict = { version = "1.0.0-rc6", path = "../edict" }
 egui = { version = "0.31", features = ["bytemuck", "serde", "cint"] }
 egui_dnd = { version = "0.12" }
 egui_tiles = { version = "0.12" }
 egui_file = { version = "0.22" }
 egui-phosphor = { version = "0.9" }
-egui-probe = { path = "../../egui-probe" }
-egui-snarl = { path = "../../egui-snarl" }
+egui-probe = { path = "../egui-probe" }
+egui-snarl = { path = "../egui-snarl" }
 # egui_tracing = { version = "0.2.6" }
 eframe = { version = "0.31" }
 flume = "0.11"
 figa = { version = "0.3" }
 foldhash = { version = "0.1" }
 futures = "0.3"
-gametime = { version = "0.5", path = "../../gametime" }
+gametime = { version = "0.7.2" }
 gilrs = { version = "0.11" }
 hashbrown = { version = "=0.15", features = ["nightly", "serde"] }
 hidden-trait = "0.1"
@@ -80,7 +80,7 @@ image = "0.25"
 libloading = "0.8"
 # linkme = "0.3"
 #mev = { git = "https://github.com/zakarumych/mev.git" }
-mev = { path = "../../mev" }
+mev = { path = "../mev" }
 miette = "7.5"
 # na = { package = "nalgebra", version = "0.33", features = [
 #     "libm",

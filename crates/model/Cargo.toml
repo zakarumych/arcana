@@ -13,11 +13,10 @@ arcana-base-encoding = { path = "../base-encoding" }
 arcana-id = { path = "../id" }
 
 athena = { workspace = true, features = ["serde"] }
-edict.workspace = true
-gametime.workspace = true
+edict = { workspace = true, features = ["serde"] }
 serde = { workspace = true, features = ["derive"] }
 palette.workspace = true
 hashbrown.workspace = true
 thiserror.workspace = true
-chrono = { workspace = true, features = ["serde"] }
 smol_str = { workspace = true, features = ["serde"] }
+gametime = { workspace = true, features = ["serde"] }

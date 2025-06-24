@@ -3,13 +3,13 @@
 //! It can be used to go from type-less to typed seamlessly with `serde`.
 //!
 
-use arcana_id::Stid;
 use arcana_intern::Name;
 use athena::{Matrix2, Matrix3, Matrix4, Vector2, Vector3, Vector4};
 
-use chrono::{DateTime, TimeDelta, Utc};
 use edict::entity::EntityId;
+use gametime::TimeSpan;
 use hashbrown::HashMap;
+use smol_str::SmolStr;
 
 use crate::value::{ColorValue, Value};
 
@@ -58,11 +58,8 @@ pub enum Model {
     /// Any representation of color.
     Color(ColorModel),
 
-    /// Time delta
-    TimeDelta,
-
-    /// Date and time
-    DateTime,
+    /// Time span
+    TimeSpan,
 
     /// Entity id.
     Entity,
@@ -105,9 +102,6 @@ pub enum Model {
 
     /// Enum with named variants.
     Enum(Vec<(Name, Option<Model>)>),
-
-    /// Opaque type not representable in model.
-    Opaque(Stid),
 }
 
 impl Model {
@@ -118,7 +112,7 @@ impl Model {
             Model::Bool => Value::Bool(false),
             Model::Int => Value::Int(0),
             Model::Float => Value::Float(0.0),
-            Model::String => Value::String(String::new()),
+            Model::String => Value::String(SmolStr::default()),
             Model::Color(ColorModel::Luma) => {
                 Value::Color(ColorValue::Luma(palette::LinLuma::new(0.0)))
             }
@@ -137,8 +131,7 @@ impl Model {
             Model::Color(ColorModel::Hsva) => {
                 Value::Color(ColorValue::Hsva(palette::Hsva::new(0.0, 0.0, 0.0, 1.0)))
             }
-            Model::TimeDelta => Value::TimeDelta(TimeDelta::zero()),
-            Model::DateTime => Value::DateTime(DateTime::<Utc>::UNIX_EPOCH),
+            Model::TimeSpan => Value::TimeSpan(TimeSpan::ZERO),
             Model::Entity => Value::Entity(EntityId::dangling()),
             Model::Vec2 => Value::Vec2(Vector2::new(0.0, 0.0)),
             Model::Vec3 => Value::Vec3(Vector3::new(0.0, 0.0, 0.0)),
@@ -158,7 +151,7 @@ impl Model {
             Model::Record(ref fields) => Value::Map(
                 fields
                     .iter()
-                    .map(|(k, v)| (k.to_string(), default_value(v.as_ref())))
+                    .map(|&(k, ref v)| (k.into(), default_value(v.as_ref())))
                     .collect(),
             ),
             Model::Enum(ref variants) if variants.is_empty() => Value::Unit,
@@ -166,7 +159,6 @@ impl Model {
                 let v = &variants[0];
                 Value::Enum(v.0, Box::new(default_value(v.1.as_ref())))
             }
-            Model::Opaque(_) => Value::Unit,
         }
     }
 }

@@ -18,3 +18,4 @@ gametime.workspace = true
 edict.workspace = true
 vtid = { workspace = true, features = ["derive"] }
 palette.workspace = true
+chrono.workspace = true

@@ -3,12 +3,11 @@ use core::fmt;
 use arcana_base_encoding::base58;
 use arcana_intern::Name;
 use athena::{Matrix2, Matrix3, Matrix4, Vector2, Vector3, Vector4};
-use chrono::{DateTime, TimeDelta, Utc};
 use edict::entity::EntityId;
 use gametime::TimeSpan;
 use hashbrown::HashMap;
 use palette::IntoColor;
-use smol_str::SmolStr;
+use smol_str::{SmolStr, SmolStrBuilder};
 
 use crate::model::{ColorModel, Model};
 
@@ -121,8 +120,7 @@ pub enum Value {
     Float(f64),
     String(SmolStr),
     Color(ColorValue),
-    TimeDelta(TimeDelta),
-    DateTime(DateTime<Utc>),
+    TimeSpan(TimeSpan),
     Entity(EntityId),
     Vec2(Vector2<f64>),
     Vec3(Vector3<f64>),
@@ -132,7 +130,7 @@ pub enum Value {
     Mat4(Matrix4<f64>),
     Option(Option<Box<Value>>),
     Array(Vec<Value>),
-    Map(HashMap<String, Value>),
+    Map(HashMap<SmolStr, Value>),
     Enum(Name, Box<Value>),
 }
 
@@ -156,8 +154,7 @@ impl Value {
             Value::Float(_) => "Float",
             Value::String(_) => "String",
             Value::Color(_) => "Color",
-            Value::TimeDelta(_) => "TimeDelta",
-            Value::DateTime(_) => "DateTime",
+            Value::TimeSpan(_) => "TimeSpan",
             Value::Vec2(_) => "Vec2",
             Value::Vec3(_) => "Vec3",
             Value::Vec4(_) => "Vec4",
@@ -180,8 +177,7 @@ impl Value {
             Value::Float(_) => Model::Float,
             Value::String(_) => Model::String,
             Value::Color(color) => Model::Color(color.model()),
-            Value::TimeDelta(_) => Model::TimeDelta,
-            Value::DateTime(_) => Model::DateTime,
+            Value::TimeSpan(_) => Model::TimeSpan,
             Value::Vec2(_) => Model::Vec2,
             Value::Vec3(_) => Model::Vec3,
             Value::Vec4(_) => Model::Vec4,
@@ -389,12 +385,12 @@ impl<'de> serde::de::IntoDeserializer<'de, ValueError> for Value {
     }
 }
 
-struct Variant {
+struct EnumAccess {
     name: Name,
     value: Box<Value>,
 }
 
-impl<'de> serde::de::EnumAccess<'de> for Variant {
+impl<'de> serde::de::EnumAccess<'de> for EnumAccess {
     type Error = ValueError;
     type Variant = Value;
 
@@ -443,54 +439,57 @@ impl<'de> serde::de::VariantAccess<'de> for Value {
     }
 }
 
-struct TimeDeltaSeqDeserializer {
-    seconds: i64,
-    nanoseconds: i32,
-    step: u8,
+struct MapAccess {
+    iter: hashbrown::hash_map::IntoIter<SmolStr, Value>,
+    next_value: Option<Value>,
 }
 
-impl TimeDeltaSeqDeserializer {
-    fn new(delta: TimeDelta) -> Self {
-        let mut seconds = delta.num_seconds();
-        let mut nanos = delta.subsec_nanos();
-
-        if nanos < 0 {
-            seconds -= 1;
-            nanos += 1_000_000_000;
-        }
-
-        debug_assert!(nanos >= 0);
-        debug_assert!(nanos < 1_000_000_000);
-
-        TimeDeltaSeqDeserializer {
-            seconds,
-            nanoseconds: nanos as i32,
-            step: 0,
-        }
-    }
-}
-
-impl<'de> serde::de::SeqAccess<'de> for TimeDeltaSeqDeserializer {
+impl<'de> serde::de::MapAccess<'de> for MapAccess {
     type Error = ValueError;
 
-    fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error>
+    fn next_key_seed<K>(&mut self, seed: K) -> Result<Option<K::Value>, ValueError>
     where
-        T: serde::de::DeserializeSeed<'de>,
+        K: serde::de::DeserializeSeed<'de>,
     {
-        match self.step {
-            0 => {
-                self.step += 1;
-                let seconds =
-                    seed.deserialize(serde::de::value::I64Deserializer::new(self.seconds))?;
-                Ok(Some(seconds))
+        match self.iter.next() {
+            None => return Ok(None),
+            Some((key, value)) => {
+                self.next_value = Some(value);
+                seed.deserialize(serde::de::value::StrDeserializer::new(&key))
+                    .map(Some)
             }
-            1 => {
-                self.step += 1;
-                let nanoseconds =
-                    seed.deserialize(serde::de::value::I32Deserializer::new(self.nanoseconds))?;
-                Ok(Some(nanoseconds))
+        }
+    }
+
+    fn next_value_seed<V>(&mut self, seed: V) -> Result<V::Value, ValueError>
+    where
+        V: serde::de::DeserializeSeed<'de>,
+    {
+        let value = self
+            .next_value
+            .take()
+            .expect("next_key or next_key_seed should be called first");
+
+        seed.deserialize(value)
+    }
+
+    fn next_entry_seed<K, V>(
+        &mut self,
+        kseed: K,
+        vseed: V,
+    ) -> Result<Option<(K::Value, V::Value)>, ValueError>
+    where
+        K: serde::de::DeserializeSeed<'de>,
+        V: serde::de::DeserializeSeed<'de>,
+    {
+        match self.iter.next() {
+            None => return Ok(None),
+            Some((key, value)) => {
+                self.next_value = Some(value);
+                let key = kseed.deserialize(serde::de::value::StrDeserializer::new(&key))?;
+                let value = vseed.deserialize(self.next_value.take().unwrap())?;
+                Ok(Some((key, value)))
             }
-            _ => Ok(None),
         }
     }
 }
@@ -507,10 +506,9 @@ impl<'de> serde::de::Deserializer<'de> for Value {
             Value::Bool(value) => visitor.visit_bool(value),
             Value::Int(value) => visitor.visit_i64(value),
             Value::Float(value) => visitor.visit_f64(value),
-            Value::String(value) => visitor.visit_string(value),
+            Value::String(value) => visitor.visit_str(&value),
             Value::Color(color) => visitor.visit_enum(color),
-            Value::TimeDelta(delta) => visitor.visit_seq(TimeDeltaSeqDeserializer::new(delta)),
-            Value::DateTime(datetime) => visitor.visit_string(datetime.to_rfc3339()),
+            Value::TimeSpan(span) => visitor.visit_i64(span.as_nanos()),
             Value::Vec2(vec) => visitor.visit_seq(serde::de::value::SeqDeserializer::new(
                 vec.into_array().into_iter(),
             )),
@@ -541,10 +539,11 @@ impl<'de> serde::de::Deserializer<'de> for Value {
             Value::Array(array) => {
                 visitor.visit_seq(serde::de::value::SeqDeserializer::new(array.into_iter()))
             }
-            Value::Map(map) => {
-                visitor.visit_map(serde::de::value::MapDeserializer::new(map.into_iter()))
-            }
-            Value::Enum(name, value) => visitor.visit_enum(Variant { name, value: value }),
+            Value::Map(map) => visitor.visit_map(MapAccess {
+                iter: map.into_iter(),
+                next_value: None,
+            }),
+            Value::Enum(name, value) => visitor.visit_enum(EnumAccess { name, value: value }),
         }
     }
 
@@ -614,19 +613,19 @@ pub struct ValueSerializerOk {
 struct StringSerializer;
 
 impl<'a> serde::ser::Serializer for StringSerializer {
-    type Ok = String;
+    type Ok = SmolStr;
     type Error = ValueError;
 
-    type SerializeSeq = serde::ser::Impossible<String, ValueError>;
-    type SerializeTuple = serde::ser::Impossible<String, ValueError>;
-    type SerializeTupleStruct = serde::ser::Impossible<String, ValueError>;
-    type SerializeTupleVariant = serde::ser::Impossible<String, ValueError>;
-    type SerializeMap = serde::ser::Impossible<String, ValueError>;
-    type SerializeStruct = serde::ser::Impossible<String, ValueError>;
-    type SerializeStructVariant = serde::ser::Impossible<String, ValueError>;
+    type SerializeSeq = serde::ser::Impossible<SmolStr, ValueError>;
+    type SerializeTuple = serde::ser::Impossible<SmolStr, ValueError>;
+    type SerializeTupleStruct = serde::ser::Impossible<SmolStr, ValueError>;
+    type SerializeTupleVariant = serde::ser::Impossible<SmolStr, ValueError>;
+    type SerializeMap = serde::ser::Impossible<SmolStr, ValueError>;
+    type SerializeStruct = serde::ser::Impossible<SmolStr, ValueError>;
+    type SerializeStructVariant = serde::ser::Impossible<SmolStr, ValueError>;
 
-    fn serialize_str(self, v: &str) -> Result<String, Self::Error> {
-        Ok(v.to_owned())
+    fn serialize_str(self, v: &str) -> Result<SmolStr, Self::Error> {
+        Ok(v.into())
     }
 
     fn serialize_bool(self, _v: bool) -> Result<Self::Ok, Self::Error> {
@@ -845,8 +844,8 @@ impl<'a> ValueArraySerializer<'a> {
 }
 
 pub struct ValueMapSerializer<'a> {
-    map: &'a mut HashMap<String, Value>,
-    new_key: Option<String>,
+    map: &'a mut HashMap<SmolStr, Value>,
+    new_key: Option<SmolStr>,
 }
 
 impl<'a> serde::ser::Serializer for ValueSerializer<'a> {
@@ -920,19 +919,21 @@ impl<'a> serde::ser::Serializer for ValueSerializer<'a> {
     }
 
     fn serialize_char(self, v: char) -> Result<Self::Ok, Self::Error> {
-        *self.0 = Value::String(v.to_string());
+        let mut s = SmolStrBuilder::new();
+        s.push(v);
+        *self.0 = Value::String(s.finish());
         Ok(ValueSerializerOk { _private: () })
     }
 
     fn serialize_str(self, v: &str) -> Result<Self::Ok, Self::Error> {
-        *self.0 = Value::String(v.to_string());
+        *self.0 = Value::String(v.into());
         Ok(ValueSerializerOk { _private: () })
     }
 
     fn serialize_bytes(self, v: &[u8]) -> Result<Self::Ok, Self::Error> {
-        let mut s = String::new();
-        base58::encode_to_str(v, &mut s);
-        *self.0 = Value::String(s);
+        let mut s = SmolStrBuilder::new();
+        base58::encode_to_fmt(v, &mut s).expect("SmolStrBuilder fmt::Write should not fail");
+        *self.0 = Value::String(s.finish());
         Ok(ValueSerializerOk { _private: () })
     }
 
@@ -1138,7 +1139,7 @@ impl<'a> serde::ser::SerializeMap for ValueMapSerializer<'a> {
         let key = self
             .new_key
             .take()
-            .expect("serialize_key must be called first");
+            .expect("serialize_key should be called first");
 
         let mut v = Value::Unit;
         value.serialize(ValueSerializer(&mut v))?;
@@ -1174,7 +1175,7 @@ impl<'a> serde::ser::SerializeStruct for ValueMapSerializer<'a> {
     {
         let mut v = Value::Unit;
         value.serialize(ValueSerializer(&mut v))?;
-        self.map.insert(key.to_owned(), v);
+        self.map.insert(key.into(), v);
         Ok(())
     }
 
@@ -1193,7 +1194,7 @@ impl<'a> serde::ser::SerializeStructVariant for ValueMapSerializer<'a> {
     {
         let mut v = Value::Unit;
         value.serialize(ValueSerializer(&mut v))?;
-        self.map.insert(key.to_owned(), v);
+        self.map.insert(key.into(), v);
         Ok(())
     }
 

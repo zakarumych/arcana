@@ -18,6 +18,7 @@ pub struct LTAny {
 }
 
 impl Drop for LTAny {
+    #[inline]
     fn drop(&mut self) {
         unsafe {
             (self.vtable.drop)(&mut self.storage);
@@ -56,6 +57,7 @@ impl LTAny {
         }
     }
 
+    #[inline]
     pub fn from_boxed(boxed: Box<dyn Any>) -> Self {
         const {
             assert!(size_of::<Box<dyn Any>>() <= TANY_STORAGE_SIZE);
@@ -73,10 +75,12 @@ impl LTAny {
         }
     }
 
+    #[inline]
     pub fn type_id(&self) -> TypeId {
         unsafe { (self.vtable.type_id)(&self.storage) }
     }
 
+    #[inline]
     pub fn is<T>(&self) -> bool
     where
         T: 'static,
@@ -84,6 +88,7 @@ impl LTAny {
         self.type_id() == TypeId::of::<T>()
     }
 
+    #[inline]
     pub fn downcast_ref<T>(&self) -> Option<&T>
     where
         T: 'static,
@@ -96,6 +101,7 @@ impl LTAny {
         }
     }
 
+    #[inline]
     pub fn downcast_mut<T>(&mut self) -> Option<&mut T>
     where
         T: 'static,
@@ -108,6 +114,7 @@ impl LTAny {
         }
     }
 
+    #[inline]
     pub fn downcast<T>(self) -> Result<T, LTAny>
     where
         T: 'static,
@@ -122,6 +129,39 @@ impl LTAny {
             Ok(value)
         } else {
             Err(self)
+        }
+    }
+
+    #[inline]
+    pub fn set<T>(&mut self, value: T)
+    where
+        T: 'static,
+    {
+        match self.downcast_mut() {
+            Some(slot) => *slot = value,
+            None => *self = LTAny::new(value),
+        }
+    }
+
+    #[inline]
+    pub fn clone_from<T>(&mut self, value: &T)
+    where
+        T: Clone + 'static,
+    {
+        match self.downcast_mut::<T>() {
+            Some(slot) => slot.clone_from(value),
+            None => *self = LTAny::new(value.clone()),
+        }
+    }
+
+    #[inline]
+    pub fn from_borrowed<T>(&mut self, value: &(impl ToOwned<Owned = T> + ?Sized))
+    where
+        T: 'static,
+    {
+        match self.downcast_mut::<T>() {
+            Some(slot) => value.clone_into(slot),
+            None => *self = LTAny::new(value.to_owned()),
         }
     }
 }

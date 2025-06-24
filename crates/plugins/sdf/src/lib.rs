@@ -190,7 +190,7 @@ impl Render for SdfRender {
 
         let camera = world
             .try_view_one::<(&Global, &Camera2)>(self.camera)
-            .expect("Camera is missing");
+            .expect("Camera2 should exist");
 
         let camera = {
             let (g, c) = camera.get().unwrap();

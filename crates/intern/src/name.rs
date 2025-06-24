@@ -5,6 +5,8 @@ use std::{
     ops::Deref,
 };
 
+use smol_str::SmolStr;
+
 use crate::{intern::INTERNER, Ident};
 
 #[macro_export]
@@ -343,5 +345,11 @@ pub fn validate_name(s: &str) -> Result<(), NameError> {
         Some(pos) => {
             return Err(NameError::Bad(s[pos..].chars().next().unwrap()));
         }
+    }
+}
+
+impl From<Name> for SmolStr {
+    fn from(value: Name) -> Self {
+        SmolStr::new_static(value.s)
     }
 }

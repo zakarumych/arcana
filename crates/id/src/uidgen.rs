@@ -42,7 +42,7 @@ impl TimeUidGen {
         // Find second number from the start.
         let second = now
             .duration_since(start)
-            .expect("start for TimeUidGen is in the future")
+            .expect("start for TimeUidGen should not be in the future")
             .as_secs();
 
         // Counter is initialized in a way that will require
@@ -70,7 +70,7 @@ impl TimeUidGen {
             let now = SystemTime::now();
             let second = now
                 .duration_since(self.start)
-                .expect("TimeUidGen start is in the future")
+                .expect("TimeUidGen start should not be in the future")
                 .as_secs();
 
             if second > 0x3FFFFFFFF {

@@ -327,7 +327,7 @@ fn sort_plugins<'a>(plugins: &mut [(Ident, ArcanaPlugin)]) -> Result<(), Plugins
         order
             .iter()
             .position(|n| n == name)
-            .expect("Plugin not found in sorted list")
+            .expect("Plugin should be found in sorted list")
     });
 
     Ok(())

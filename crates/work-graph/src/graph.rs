@@ -430,19 +430,37 @@ impl Planner<'_> {
     where
         T: Target,
     {
-        let create = self.creates.next().expect("No more creates");
-        assert_eq!(create.ty, Stid::of::<T>());
+        let create = self
+            .creates
+            .next()
+            .expect("Plan should create declared targets");
+
+        assert_eq!(
+            create.ty,
+            Stid::of::<T>(),
+            "Plan must specify correct target type"
+        );
+
         self.hub
             .plan_create::<T>(create.id?, &create.name, &self.device)
     }
 
-    /// Fetcehs resource description for next update.
+    /// Fetches resource description for next update.
     pub fn update<T>(&mut self) -> Option<&T::Info>
     where
         T: Target,
     {
-        let update = self.updates.next().expect("No more updates");
-        assert_eq!(update.ty, Stid::of::<T>());
+        let update = self
+            .updates
+            .next()
+            .expect("Plan should update declared targets");
+
+        assert_eq!(
+            update.ty,
+            Stid::of::<T>(),
+            "Plan must specify correct target type"
+        );
+
         let info = self.hub.plan_update::<T>(update.id?)?;
 
         if let Some(dep_idx) = update.dep_idx {
@@ -458,11 +476,21 @@ impl Planner<'_> {
     where
         T: Target,
     {
-        let read = self.reads.next().expect("No more reads");
-        assert_eq!(read.ty, Stid::of::<T>());
+        let read = self
+            .reads
+            .next()
+            .expect("Plan should read declared targets");
+
+        assert_eq!(
+            read.ty,
+            Stid::of::<T>(),
+            "Plan must specify correct target type"
+        );
+
         let Some(id) = read.id else {
             return;
         };
+
         self.hub.plan_read::<T>(id, info);
 
         if let Some(dep_idx) = read.dep_idx {
@@ -537,7 +565,15 @@ impl Exec<'_> {
         T: Target,
     {
         let idx = self.next_update.get();
-        let update = self.updates.get(idx).expect("No more updates");
+        let update = self
+            .updates
+            .get(idx)
+            .expect("Execution should update declared targets");
+        assert_eq!(
+            update.ty,
+            Stid::of::<T>(),
+            "Execution must specify correct target type"
+        );
         self.next_update.set(idx + 1);
         self.hub.get::<T>(update.id?)
     }
@@ -550,7 +586,15 @@ impl Exec<'_> {
         T: Target,
     {
         let idx = self.next_create.get();
-        let create = self.creates.get(idx).expect("No more creates");
+        let create = self
+            .creates
+            .get(idx)
+            .expect("Execution should create declared targets");
+        assert_eq!(
+            create.ty,
+            Stid::of::<T>(),
+            "Execution must specify correct target type"
+        );
         self.next_create.set(idx + 1);
         self.hub.get::<T>(create.id?)
     }
@@ -563,7 +607,15 @@ impl Exec<'_> {
         T: Target,
     {
         let idx = self.next_read.get();
-        let read = self.reads.get(idx).expect("No more reads");
+        let read = self
+            .reads
+            .get(idx)
+            .expect("Execution should read declared targets");
+        assert_eq!(
+            read.ty,
+            Stid::of::<T>(),
+            "Execution must specify correct target type"
+        );
         self.next_read.set(idx + 1);
         self.hub.get::<T>(read.id?)
     }

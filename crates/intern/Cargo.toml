@@ -13,3 +13,4 @@ hashbrown.workspace = true
 parking_lot.workspace = true
 serde.workspace = true
 unicode-ident.workspace = true
+smol_str.workspace = true

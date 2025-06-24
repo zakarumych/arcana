@@ -5,6 +5,8 @@ use std::{
     ops::Deref,
 };
 
+use smol_str::SmolStr;
+
 use crate::{intern::INTERNER, Name};
 
 #[macro_export]
@@ -346,5 +348,11 @@ pub fn validate_ident(s: &str) -> Result<(), IdentError> {
         Some(pos) => {
             return Err(IdentError::Bad(s[pos..].chars().next().unwrap()));
         }
+    }
+}
+
+impl From<Ident> for SmolStr {
+    fn from(value: Ident) -> Self {
+        SmolStr::new_static(value.s)
     }
 }

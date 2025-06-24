@@ -1,5 +1,6 @@
 // extern crate proc_macro;
 
+mod codex;
 mod filter;
 mod importer;
 mod init;
@@ -114,6 +115,16 @@ pub fn importer(attr: TokenStream, item: TokenStream) -> TokenStream {
 pub fn init(attr: TokenStream, item: TokenStream) -> TokenStream {
     let item = syn::parse_macro_input!(item as syn::ItemFn);
     match init::init(attr, item) {
+        Ok(output) => output.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
+}
+
+/// Exports function as system.
+#[proc_macro_attribute]
+pub fn codex(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let item = syn::parse_macro_input!(item as syn::ItemFn);
+    match codex::codex(attr, item) {
         Ok(output) => output.into(),
         Err(err) => err.to_compile_error().into(),
     }
