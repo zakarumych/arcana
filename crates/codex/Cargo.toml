@@ -9,7 +9,6 @@ version.workspace = true
 [dependencies]
 arcana-id = { path = "../id" }
 arcana-intern = { path = "../intern" }
-arcana-model = { path = "../model" }
 arcana-tany = { path = "../tany" }
 
 edict.workspace = true

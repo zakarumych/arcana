@@ -1,30 +1,17 @@
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 
+use arcana_assets::import::{Importer, ImporterId};
+use arcana_ecs::SystemId;
+use arcana_input::{FilterId, InputFilter, IntoInputFilter};
 use arcana_intern::{Ident, Name};
 use arcana_project::Dependency;
+use arcana_work_graph::{Job, JobDesc, JobId};
 use edict::{
     system::{IntoSystem, System},
     world::World,
 };
 use hashbrown::HashMap;
-
-use crate::{
-    assets::import::{Importer, ImporterDesc, ImporterId},
-    code::{CodeDesc, CodeNodeId, FlowCode, PureCode},
-    events::EventId,
-    id::Stid,
-    input::{FilterId, InputFilter, IntoInputFilter},
-    make_uid,
-    work::{Job, JobDesc, JobId},
-};
-
-pub use arcana_proc::{filter, importer, init, job, system};
-
-make_uid! {
-    /// ID of the ECS system.
-    pub SystemId;
-}
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Location {
@@ -75,38 +62,6 @@ pub struct JobInfo {
     pub location: Option<Location>,
 }
 
-/// Code information declared by a plugin.
-#[derive(Clone)]
-pub struct CodeInfo {
-    /// Unique identified of the code.
-    pub id: CodeNodeId,
-
-    /// Name of the code.
-    pub name: Name,
-
-    /// Description of the code.
-    pub desc: CodeDesc,
-
-    /// Location of the filter in the source code.
-    pub location: Option<Location>,
-}
-
-/// Job information declared by a plugin.
-#[derive(Clone)]
-pub struct EventInfo {
-    /// Unique identified of the event.
-    pub id: EventId,
-
-    /// Name of the event.
-    pub name: Name,
-
-    /// List of event values.
-    pub values: Vec<Stid>,
-
-    /// Location of the filter in the source code.
-    pub location: Option<Location>,
-}
-
 /// System information declared by a plugin.
 #[derive(Clone, Debug)]
 pub struct ImporterInfo {
@@ -116,74 +71,57 @@ pub struct ImporterInfo {
     /// Name of the importer.
     pub name: Name,
 
-    /// Description of the importer.
-    pub desc: ImporterDesc,
-
     /// Location of the importer in the source code.
     pub location: Option<Location>,
 }
 
-// /// Active plugin hub contains
-// /// systems, filters and jobs
-// /// populated from plugins.
-// pub struct PluginsHub {
-//     pub systems: HashMap<SystemId, Box<dyn System + Send>>,
-//     pub filters: HashMap<FilterId, Box<dyn InputFilter>>,
-//     pub jobs: HashMap<JobId, Box<dyn Job>>,
-//     pub pure_fns: HashMap<CodeNodeId, PureCode>,
-//     pub flow_fns: HashMap<CodeNodeId, FlowCode>,
-//     pub importers: HashMap<ImporterId, Box<dyn Importer>>,
-// }
+/// Active plugin hub contains
+/// systems, filters and jobs
+/// populated from plugins.
+pub struct PluginsHub {
+    pub systems: HashMap<SystemId, Box<dyn System + Send>>,
+    pub filters: HashMap<FilterId, Box<dyn InputFilter>>,
+    pub jobs: HashMap<JobId, Box<dyn Job>>,
+    pub importers: HashMap<ImporterId, Box<dyn Importer>>,
+}
 
-// impl PluginsHub {
-//     pub fn new() -> Self {
-//         PluginsHub {
-//             systems: HashMap::new(),
-//             filters: HashMap::new(),
-//             jobs: HashMap::new(),
-//             pure_fns: HashMap::new(),
-//             flow_fns: HashMap::new(),
-//             importers: HashMap::new(),
-//         }
-//     }
+impl PluginsHub {
+    pub fn new() -> Self {
+        PluginsHub {
+            systems: HashMap::new(),
+            filters: HashMap::new(),
+            jobs: HashMap::new(),
+            importers: HashMap::new(),
+        }
+    }
 
-//     /// Adds a system from a plugin to the hub.
-//     pub fn add_system<S, M>(&mut self, id: SystemId, system: S)
-//     where
-//         S: IntoSystem<M>,
-//     {
-//         self.systems.insert(id, Box::new(system.into_system()));
-//     }
+    /// Adds a system from a plugin to the hub.
+    pub fn add_system<S, M>(&mut self, id: SystemId, system: S)
+    where
+        S: IntoSystem<M>,
+    {
+        self.systems.insert(id, Box::new(system.into_system()));
+    }
 
-//     /// Adds a filter from a plugin to the hub.
-//     pub fn add_filter<F, M>(&mut self, id: FilterId, filter: F)
-//     where
-//         F: IntoInputFilter<M>,
-//     {
-//         self.filters
-//             .insert(id, Box::new(filter.into_input_filter()));
-//     }
+    /// Adds a filter from a plugin to the hub.
+    pub fn add_filter<F, M>(&mut self, id: FilterId, filter: F)
+    where
+        F: IntoInputFilter<M>,
+    {
+        self.filters
+            .insert(id, Box::new(filter.into_input_filter()));
+    }
 
-//     /// Adds a job from a plugin to the hub.
-//     pub fn add_job(&mut self, id: JobId, job: impl Job) {
-//         self.jobs.insert(id, Box::new(job));
-//     }
+    /// Adds a job from a plugin to the hub.
+    pub fn add_job(&mut self, id: JobId, job: impl Job) {
+        self.jobs.insert(id, Box::new(job));
+    }
 
-//     /// Adds a importer from a plugin to the hub.
-//     pub fn add_importer(&mut self, id: ImporterId, importer: impl Importer) {
-//         self.importers.insert(id, Box::new(importer));
-//     }
-
-//     /// Adds a pure fn from a plugin to the hub.
-//     pub fn add_pure_fn(&mut self, id: CodeNodeId, code: PureCode) {
-//         self.pure_fns.insert(id, code);
-//     }
-
-//     /// Adds a flow fn from a plugin to the hub.
-//     pub fn add_flow_fn(&mut self, id: CodeNodeId, code: FlowCode) {
-//         self.flow_fns.insert(id, code);
-//     }
-// }
+    /// Adds a importer from a plugin to the hub.
+    pub fn add_importer(&mut self, id: ImporterId, importer: impl Importer) {
+        self.importers.insert(id, Box::new(importer));
+    }
+}
 
 #[doc(hidden)]
 static GLOBAL_LINK_CHECK: AtomicBool = AtomicBool::new(false);
@@ -227,6 +165,10 @@ pub struct ArcanaPlugin {
     /// Path to the plugin source code if it is a local plugin.
     location: Option<PathBuf>,
 
+    /// World initialization functions.
+    /// Those will be run each time a world is initialized.
+    init: Vec<fn(&mut World)>,
+
     /// List of dependencies.
     dependencies: Vec<(Ident, Dependency)>,
 
@@ -239,18 +181,10 @@ pub struct ArcanaPlugin {
     /// List of jobs.
     jobs: Vec<JobInfo>,
 
-    /// List of events.
-    events: Vec<EventInfo>,
-
-    /// List of codes.
-    codes: Vec<CodeInfo>,
-
     /// List of asset importers.
     importers: Vec<ImporterInfo>,
 
-    /// World initialization functions.
-    /// Those will be run each time a world is initialized.
-    init: Vec<fn(&mut World)>,
+    fill_hub: Vec<fn(&mut PluginsHub)>,
 }
 
 impl ArcanaPlugin {
@@ -260,6 +194,10 @@ impl ArcanaPlugin {
 
     pub fn add_dependency(&mut self, name: Ident, dep: Dependency) {
         self.dependencies.push((name, dep));
+    }
+
+    pub fn add_init(&mut self, add: fn(&mut World)) {
+        self.init.push(add);
     }
 
     pub fn add_filter(&mut self, info: FilterInfo, add: fn(&mut PluginsHub)) {
@@ -281,19 +219,6 @@ impl ArcanaPlugin {
         self.importers.push(info);
         self.fill_hub.push(add);
     }
-
-    pub fn add_event(&mut self, info: EventInfo) {
-        self.events.push(info);
-    }
-
-    pub fn add_code(&mut self, info: CodeInfo, add: fn(&mut PluginsHub)) {
-        self.codes.push(info);
-        self.fill_hub.push(add);
-    }
-
-    pub fn add_init(&mut self, add: fn(&mut World)) {
-        self.init.push(add);
-    }
 }
 
 impl ArcanaPlugin {
@@ -303,6 +228,16 @@ impl ArcanaPlugin {
 
     pub fn dependencies(&self) -> Vec<(Ident, Dependency)> {
         self.dependencies.clone()
+    }
+
+    pub fn init(&self, world: &mut World, hub: &mut PluginsHub) {
+        for fill in &self.fill_hub {
+            fill(hub);
+        }
+
+        for init in &self.init {
+            init(world);
+        }
     }
 
     pub fn filters(&self) -> Vec<FilterInfo> {
@@ -315,24 +250,6 @@ impl ArcanaPlugin {
 
     pub fn jobs(&self) -> Vec<JobInfo> {
         self.jobs.clone()
-    }
-
-    pub fn events(&self) -> Vec<EventInfo> {
-        self.events.clone()
-    }
-
-    pub fn codes(&self) -> Vec<CodeInfo> {
-        self.codes.clone()
-    }
-
-    pub fn init(&self, world: &mut World, hub: &mut PluginsHub) {
-        for fill in &self.fill_hub {
-            fill(hub);
-        }
-
-        for init in &self.init {
-            init(world);
-        }
     }
 }
 

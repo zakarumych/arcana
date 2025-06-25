@@ -8,3 +8,15 @@ version.workspace = true
 description = "Plugin system for Arcana Engine"
 
 [dependencies]
+arcana-intern = { path = "../intern" }
+arcana-id = { path = "../id" }
+arcana-ecs = { path = "../ecs" }
+arcana-assets = { path = "../assets" }
+arcana-work-graph = { path = "../work-graph" }
+arcana-input = { path = "../input" }
+arcana-project = { path = "../project" }
+
+hashbrown.workspace = true
+edict.workspace = true
+tracing.workspace = true
+ctor.workspace = true

@@ -3,7 +3,7 @@ use hashbrown::HashSet;
 use smallvec::SmallVec;
 
 use crate::{
-    codex::{Codex, CodexNode, CodexValues, InputId, ValueId},
+    codex::{Codex, CodexNode, CodexValues, InputId, NodeInput, OutputId},
     flow::FlowContext,
     pure::PureContext,
 };
@@ -25,23 +25,25 @@ fn run_pure(codex: &Codex, node: usize, entity: FlowEntity, values: &mut CodexVa
         };
 
         match codex_node {
-            CodexNode::Pure { desc, inputs, fun } => {
+            CodexNode::Pure { inputs, fun, .. } => {
                 let mut delay = false;
 
-                for &input in inputs {
-                    if !values.has(input) {
-                        if pending.contains(&input.node) {
-                            tracing::error!(
-                                "Circular dependency detected in pure node: {}",
-                                input.node
-                            );
-                            return;
+                for input in inputs {
+                    if let NodeInput::Connected(output) = *input {
+                        if !values.has(output) {
+                            if pending.contains(&output.node) {
+                                tracing::error!(
+                                    "Circular dependency detected in pure node: {}",
+                                    output.node
+                                );
+                                return;
+                            }
+                            if !enqueued.contains(&output.node) {
+                                queue.push(output.node);
+                                enqueued.insert(output.node);
+                            }
+                            delay = true;
                         }
-                        if !enqueued.contains(&input.node) {
-                            queue.push(input.node);
-                            enqueued.insert(input.node);
-                        }
-                        delay = true;
                     }
                 }
 
@@ -49,24 +51,22 @@ fn run_pure(codex: &Codex, node: usize, entity: FlowEntity, values: &mut CodexVa
                     continue;
                 }
 
-                let mut outputs = SmallVec::<[ValueId; 8]>::with_capacity(desc.outputs.len());
-
-                for idx in 0..outputs.len() {
-                    outputs.push(ValueId { node, idx });
-                }
-
-                fun(entity, inputs, &outputs, PureContext::new(values));
+                fun(entity, PureContext::new(node, inputs, values));
                 queue.pop();
             }
             CodexNode::Flow { .. } => {
                 tracing::error!("Unexecuted flow node {node} output is required");
                 return;
             }
+            CodexNode::Event { .. } => {
+                tracing::error!("Event node {node} output is required");
+                return;
+            }
         }
     }
 }
 
-pub fn execute(codex: &Codex, input: InputId, entity: FlowEntity, mut values: CodexValues) {
+pub(crate) fn execute(codex: &Codex, input: InputId, entity: FlowEntity, mut values: CodexValues) {
     if !entity.is_alive() {
         return;
     }
@@ -83,6 +83,9 @@ pub fn execute(codex: &Codex, input: InputId, entity: FlowEntity, mut values: Co
         match codex_node {
             CodexNode::Pure { .. } => {
                 unreachable!("Pure nodes should not be executed directly")
+            }
+            CodexNode::Event { .. } => {
+                unreachable!("Event nodes should not be executed")
             }
             CodexNode::Flow {
                 desc,
@@ -104,10 +107,10 @@ pub fn execute(codex: &Codex, input: InputId, entity: FlowEntity, mut values: Co
                     }
                 }
 
-                let mut outputs = SmallVec::<[ValueId; 8]>::with_capacity(desc.outputs.len());
+                let mut outputs = SmallVec::<[OutputId; 8]>::with_capacity(desc.outputs.len());
 
                 for idx in 0..outputs.len() {
-                    outputs.push(ValueId {
+                    outputs.push(OutputId {
                         node: input.node,
                         idx,
                     });

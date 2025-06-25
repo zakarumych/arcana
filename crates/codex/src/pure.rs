@@ -1,8 +1,9 @@
 use arcana_id::Stid;
 use arcana_intern::Name;
+use arcana_model::TypeModel;
 use edict::flow::FlowEntity;
 
-use crate::codex::{CodexValues, ValueId};
+use crate::codex::{CodexValues, NodeInput, OutputId};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct PureNodeDesc {
@@ -11,36 +12,57 @@ pub struct PureNodeDesc {
 }
 
 pub struct PureContext<'a> {
+    node: usize,
+    inputs: &'a [NodeInput],
     values: &'a mut CodexValues,
 }
 
 impl<'a> PureContext<'a> {
-    pub(crate) fn new(values: &'a mut CodexValues) -> Self {
-        PureContext { values }
+    pub(crate) fn new(node: usize, inputs: &'a [NodeInput], values: &'a mut CodexValues) -> Self {
+        PureContext {
+            node,
+            inputs,
+            values,
+        }
     }
 
-    pub fn get<T: 'static>(&self, id: ValueId) -> Option<&T> {
-        self.values.get(id)
+    pub fn get<T>(&self, idx: usize) -> Option<T>
+    where
+        T: TypeModel,
+    {
+        match self.inputs[idx] {
+            NodeInput::Connected(id) => self.values.get(id).cloned(),
+            NodeInput::Specified(ref value) => T::try_clone_from_value(value),
+            NodeInput::Unspecified => None,
+        }
     }
 
-    pub fn set<T>(&mut self, id: ValueId, value: T)
+    pub fn get_opaque<T>(&self, idx: usize) -> Option<&T>
+    where
+        T: 'static,
+    {
+        match self.inputs[idx] {
+            NodeInput::Connected(id) => self.values.get(id),
+            NodeInput::Specified(_) => None,
+            NodeInput::Unspecified => None,
+        }
+    }
+
+    pub fn set<T>(&mut self, idx: usize, value: T)
     where
         T: Send + Sync + 'static,
     {
-        self.values.set(id, value);
-    }
-
-    pub fn clone_from<T>(&mut self, id: ValueId, value: &T)
-    where
-        T: Clone + Send + Sync + 'static,
-    {
-        self.values.clone_from(id, value);
+        self.values.set(
+            OutputId {
+                node: self.node,
+                idx,
+            },
+            value,
+        );
     }
 }
 
-/// Type of pure code function.
-/// It takes list of inputs and outputs to produce.
+/// Type of pure codex function.
 /// Generally it should not have any visible side effects.
 /// Its execution may occur at any point or not occur at all.
-pub type PureCodexFn =
-    fn(entity: FlowEntity, inputs: &[ValueId], outputs: &[ValueId], ctx: PureContext);
+pub type PureCodexFn = fn(entity: FlowEntity, ctx: PureContext);

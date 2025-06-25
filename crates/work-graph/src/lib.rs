@@ -131,3 +131,8 @@ impl target::Target for SampledImage2D {
 }
 
 pub type JobsSet = HashMap<JobId, Box<dyn Job>>;
+
+#[doc(hidden)]
+pub mod for_macro {
+    pub use arcana_intern::ident;
+}

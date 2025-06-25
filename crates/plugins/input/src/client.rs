@@ -84,25 +84,25 @@ pub enum ControllerBind {
 }
 
 impl InputHandler {
-    #[cfg_attr(feature = "inline-more", inline(always))]
+    #[inline]
     pub fn new() -> Self {
         InputHandler {
             add_controller: HashMap::new(),
         }
     }
 
-    #[cfg_attr(feature = "inline-more", inline(always))]
+    #[inline]
     pub fn add_controller(&mut self, controller: Box<dyn Controller>, bind: ControllerBind) {
         self.add_controller.insert(bind, controller);
     }
 
-    #[cfg_attr(feature = "inline-more", inline(always))]
+    #[inline]
     pub fn add_global_controller(&mut self, controller: Box<dyn Controller>) {
         self.add_controller
             .insert(ControllerBind::Global, controller);
     }
 
-    #[cfg_attr(feature = "inline-more", inline(always))]
+    #[inline]
     pub fn add_device_controller(&mut self, device: DeviceId, controller: Box<dyn Controller>) {
         self.add_controller
             .insert(ControllerBind::Device(device), controller);

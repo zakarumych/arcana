@@ -1,11 +1,12 @@
 use std::{any::Any, future::Future};
 
+use arcana_id::HasStid;
 use vtid::HasVtid;
 
 use super::{assets::Assets, build::AssetBuilder, error::Error};
 
 /// Asset trait must be implemented for a type to be loaded as an Asset.
-pub trait Asset: HasVtid + Send + Sync + Clone + 'static {
+pub trait Asset: HasStid + HasVtid + Send + Sync + Clone + 'static {
     /// Loaded, optionally not yet built asset.
     /// If building is not required, this can be Self.
     type Loaded: Any + Send + Sync;

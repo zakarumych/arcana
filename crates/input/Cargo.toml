@@ -1,5 +1,5 @@
 [package]
-name = "arcana-ecs"
+name = "arcana-input"
 edition.workspace = true
 authors.workspace = true
 readme.workspace = true
@@ -9,5 +9,5 @@ version.workspace = true
 [dependencies]
 arcana-id = { path = "../id" }
 
-edict = { workspace = true, features = ["flow", "serde"] }
-gametime.workspace = true
+edict.workspace = true
+winit.workspace = true

@@ -1,17 +1,12 @@
-use edict::{component::Component, entity::EntityId, flow::FlowEntity};
-use hashbrown::{HashMap, HashSet};
+use arcana_tany::TAny;
+use edict::{component::Component, entity::EntityId};
 use smallvec::SmallVec;
 
-use crate::{
-    codex::{Codex, CodexId, CodexNode, CodexValues, InputId, ValueId},
-    flow::FlowContext,
-    pure::PureContext,
-};
+use crate::codex::{Codex, CodexId, CodexNode, CodexValues, InputId, OutputId};
 
 pub struct CodexComponent {
     id: CodexId,
-    trigger: SmallVec<[InputId; 8]>,
-    continuations: SmallVec<[(usize, usize, CodexValues); 8]>,
+    triggers: SmallVec<[(usize, usize, CodexValues); 8]>,
 }
 
 impl Component for CodexComponent {}
@@ -20,8 +15,7 @@ impl CodexComponent {
     pub fn new(id: CodexId) -> Self {
         CodexComponent {
             id,
-            trigger: SmallVec::new(),
-            continuations: SmallVec::new(),
+            triggers: SmallVec::new(),
         }
     }
 
@@ -29,33 +23,37 @@ impl CodexComponent {
         self.id
     }
 
-    pub fn trigger(&mut self, input: InputId) {
-        self.trigger.push(input);
-    }
-}
+    /// Trigger starting node execution.
+    pub fn trigger(&mut self, node: usize, values: impl Iterator<Item = TAny>) {
+        let values = CodexValues::from_iter(values.map(|v| {
+            let id = OutputId {
+                node,
+                idx: self.triggers.len(),
+            };
+            (id, v)
+        }));
 
-impl CodexComponent {
-    pub(crate) fn push_continuation(&mut self, node: usize, outflow: usize, values: CodexValues) {
-        self.continuations.push((node, outflow, values));
+        self.triggers.push((node, 0, values));
+    }
+
+    pub(crate) fn push_trigger(&mut self, node: usize, outflow: usize, values: CodexValues) {
+        self.triggers.push((node, outflow, values));
     }
 
     /// Returns next input to execute.
     pub(crate) fn drain_executions(
         &mut self,
         entity: EntityId,
+        id: CodexId,
         codex: &Codex,
         executions: &mut SmallVec<[(EntityId, CodexId, InputId, CodexValues); 32]>,
     ) {
-        for input in self.trigger.drain(..) {
-            executions.push((entity, codex.id(), input, CodexValues::new()));
-        }
-
-        for (node, outflow, values) in self.continuations.drain(..) {
+        for (node, outflow, values) in self.triggers.drain(..) {
             let codex_node = codex.nodes.get(node);
 
             match codex_node {
                 None => {
-                    tracing::error!("Node {} not found in codex {}", node, codex.id());
+                    tracing::error!("Node {} not found in codex {}", node, id);
                     continue;
                 }
                 Some(CodexNode::Pure { .. }) => {
@@ -71,7 +69,23 @@ impl CodexComponent {
                         );
                         continue;
                     } else {
-                        executions.push((entity, codex.id(), follows[outflow], values));
+                        if let Some(follow) = follows[outflow] {
+                            executions.push((entity, id, follow, values));
+                        }
+                    }
+                }
+                Some(CodexNode::Event { follow, .. }) => {
+                    if outflow != 0 {
+                        tracing::error!(
+                            "Event node trigger must have outflow 0, got {} for node {}",
+                            outflow,
+                            node
+                        );
+                        continue;
+                    }
+
+                    if let Some(follow) = *follow {
+                        executions.push((entity, id, follow, values));
                     }
                 }
             }

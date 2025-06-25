@@ -91,21 +91,21 @@ pub enum CollisionEvent {
 }
 
 impl From<CollisionStarted> for CollisionEvent {
-    #[cfg_attr(feature = "inline-more", inline(always))]
+    #[inline]
     fn from(event: CollisionStarted) -> Self {
         CollisionEvent::CollisionStarted(event)
     }
 }
 
 impl From<CollisionStopped> for CollisionEvent {
-    #[cfg_attr(feature = "inline-more", inline(always))]
+    #[inline]
     fn from(event: CollisionStopped) -> Self {
         CollisionEvent::CollisionStopped(event)
     }
 }
 
 impl From<ContactForce> for CollisionEvent {
-    #[cfg_attr(feature = "inline-more", inline(always))]
+    #[inline]
     fn from(event: ContactForce) -> Self {
         CollisionEvent::ContactForce(event)
     }
@@ -651,13 +651,13 @@ pub trait FlowEntityExt {
 }
 
 impl FlowEntityExt for FlowEntity<'_> {
-    #[cfg_attr(feature = "inline-more", inline(always))]
+    #[inline]
     async fn next_collision_event(&mut self) -> CollisionEvent {
         self.poll_view_mut::<&mut CollisionEvents, _, _>(|events, cx| events.poll_deque(cx))
             .await
     }
 
-    #[cfg_attr(feature = "inline-more", inline(always))]
+    #[inline]
     async fn next_contact_force_event(&mut self) -> ContactForce {
         self.poll_view_mut::<&mut ContactForceEvents, _, _>(|events, cx| events.poll_deque(cx))
             .await

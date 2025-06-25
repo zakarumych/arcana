@@ -423,7 +423,17 @@ impl<T> GenUid for &mut T where T: GenUid {}
 
 #[doc(hidden)]
 pub mod for_macro {
-    pub use arcana_proc::stable_hash_tokens;
+    pub use arcana_proc::{has_stid, stable_hash_tokens};
 
     pub use ::serde::{de, ser};
+}
+
+#[macro_export]
+macro_rules! has_stid {
+    ($name:ident = $value:literal) => {
+        $crate::for_macro::has_stid!($name = $value @ arcana_id);
+    };
+    ($name:ident) => {
+        $crate::for_macro::has_stid!($name @ arcana_id);
+    };
 }

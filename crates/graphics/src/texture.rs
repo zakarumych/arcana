@@ -7,11 +7,14 @@ use smallvec::SmallVec;
 use vtid::HasVtid;
 
 use arcana_assets::{Asset, AssetBuilder, Assets, Error};
+use arcana_id::has_stid;
 
 #[derive(Clone, HasVtid)]
 pub struct Texture {
     pub image: mev::Image,
 }
+
+has_stid!(Texture);
 
 impl Component for Texture {
     fn name() -> &'static str {

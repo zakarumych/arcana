@@ -1,11 +1,12 @@
-use std::{future::Future, task::Poll};
+use std::future::Future;
 
 use arcana_id::Stid;
 use arcana_intern::Name;
-use edict::{entity::EntityId, flow::FlowEntity, world::World};
+use arcana_model::TypeModel;
+use edict::flow::FlowEntity;
 
 use crate::{
-    codex::{Codex, CodexId, CodexValues, ValueId},
+    codex::{CodexValues, NodeInput, OutputId},
     component::CodexComponent,
 };
 
@@ -19,40 +20,67 @@ pub struct FlowNodeDesc {
 
 /// Context for flow codex execution.
 pub struct FlowContext<'a> {
-    values: &'a mut CodexValues,
     node: usize,
+    inflow: usize,
+    inputs: &'a [NodeInput],
+    values: &'a mut CodexValues,
     outflow: &'a mut Option<usize>,
 }
 
 impl<'a> FlowContext<'a> {
     pub(crate) fn new(
         node: usize,
+        inflow: usize,
+        inputs: &'a [NodeInput],
         values: &'a mut CodexValues,
         outflow: &'a mut Option<usize>,
     ) -> Self {
         FlowContext {
             node,
+            inflow,
+            inputs,
             values,
             outflow,
         }
     }
 
-    pub fn get<T: 'static>(&self, id: ValueId) -> Option<&T> {
-        self.values.get(id)
+    pub fn inflow(&self) -> usize {
+        self.inflow
     }
 
-    pub fn set<T>(&mut self, id: ValueId, value: T)
+    pub fn get<T>(&self, idx: usize) -> Option<T>
+    where
+        T: TypeModel,
+    {
+        match self.inputs[idx] {
+            NodeInput::Connected(id) => self.values.get(id).cloned(),
+            NodeInput::Specified(ref value) => T::try_clone_from_value(value),
+            NodeInput::Unspecified => None,
+        }
+    }
+
+    pub fn get_opaque<T>(&self, idx: usize) -> Option<&T>
+    where
+        T: 'static,
+    {
+        match self.inputs[idx] {
+            NodeInput::Connected(id) => self.values.get(id),
+            NodeInput::Specified(_) => None,
+            NodeInput::Unspecified => None,
+        }
+    }
+
+    pub fn set<T>(&mut self, idx: usize, value: T)
     where
         T: Send + Sync + 'static,
     {
-        self.values.set(id, value);
-    }
-
-    pub fn clone_from<T>(&mut self, id: ValueId, value: &T)
-    where
-        T: Clone + Send + Sync + 'static,
-    {
-        self.values.clone_from(id, value);
+        self.values.set(
+            OutputId {
+                node: self.node,
+                idx,
+            },
+            value,
+        );
     }
 
     /// Sync flow codex must call this method to specify which flow output will be triggered.
@@ -74,31 +102,15 @@ impl<'a> FlowContext<'a> {
 
             entity.map(|mut e| {
                 if let Some(codex) = e.get_mut::<&mut CodexComponent>() {
-                    codex.push_continuation(node, outflow, values);
+                    codex.push_trigger(node, outflow, values);
                 }
             });
         });
     }
 }
 
-/// Type of code function.
-/// It takes list of inputs and outputs to produce.
-/// It also takes index of input flow that triggered execution.
-/// It returns output flow index to trigger next flow function.
-pub type FlowCodexFn = fn(
-    inflow: usize,
-    entity: FlowEntity,
-    inputs: &[ValueId],
-    outputs: &[ValueId],
-    ctx: FlowContext,
-);
-
-fn enqueue_async_continue(
-    entity: EntityId,
-    codes: CodexId,
-    node: usize,
-    outflow: usize,
-    values: CodexValues,
-    world: &World,
-) {
-}
+/// Type of flow codex function.
+/// Unlike PureCodexFn it is expected to have visible side effects.
+/// Context provides not only input values, but also inflow index
+/// and allows specifying outflow index both synchronously and asynchronously.
+pub type FlowCodexFn = fn(entity: FlowEntity, ctx: FlowContext);

@@ -174,26 +174,26 @@ impl JobDesc {
 macro_rules! add_job_desc {
     (($params:ident, $reads:ident, $updates:ident, $creates:ident)) => {};
     (($params:ident, $reads:ident, $updates:ident, $creates:ident) $name:ident: $ty:ty , $($rest:tt)*) => {
-        $reads.push($crate::work::TargetReadDesc::new::< $ty >($crate::ident!($name).into()));
+        $reads.push($crate::work::TargetReadDesc::new::< $ty >($crate::for_macro::ident!($name).into()));
         $crate::add_job_desc!(($params, $reads, $updates, $creates) $($rest)*);
     };
     (($params:ident, $reads:ident, $updates:ident, $creates:ident) $name:ident: mut $ty:ty, $($rest:tt)*) => {
-        $updates.push($crate::work::TargetUpdateDesc::new::< $ty >($crate::ident!($name).into()));
+        $updates.push($crate::work::TargetUpdateDesc::new::< $ty >($crate::for_macro::ident!($name).into()));
         $crate::add_job_desc!(($params, $reads, $updates, $creates) $($rest)*);
     };
     (($params:ident, $reads:ident, $updates:ident, $creates:ident) $name:ident: +$ty:ty , $($rest:tt)*) => {
-        $creates.push($crate::work::TargetCreateDesc::new::< $ty >($crate::ident!($name).into()));
+        $creates.push($crate::work::TargetCreateDesc::new::< $ty >($crate::for_macro::ident!($name).into()));
         $crate::add_job_desc!(($params, $reads, $updates, $creates) $($rest)*);
     };
     (($params:ident, $reads:ident, $updates:ident, $creates:ident) $name:ident: in $model:expr , $($rest:tt)*) => {
-        $params.push(($crate::ident!($name).into(), $model));
+        $params.push(($crate::for_macro::ident!($name).into(), $model));
         $crate::add_job_desc!(($params, $reads, $updates, $creates) $($rest)*);
     };
 }
 
 #[macro_export]
 macro_rules! job_desc {
-    ($(@$model:expr,)? $($descs:tt)*) => {{
+    ($($descs:tt)*) => {{
         let mut params = std::vec::Vec::new();
         let mut reads = std::vec::Vec::new();
         let mut updates = std::vec::Vec::new();

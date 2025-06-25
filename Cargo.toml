@@ -7,15 +7,16 @@ members = [
     "crates/io",
     "crates/hash",
     "crates/id",
-    "crates/model",
     "crates/project",
+    "crates/model",
     "crates/assets",
     "crates/unfold",
     "crates/work-graph",
     "crates/ecs",
     "crates/tany",
     "crates/graphics",
-    "crates/codex",
+    "crates/input",
+    "crates/plugin",
 ]
 resolver = "2"
 
