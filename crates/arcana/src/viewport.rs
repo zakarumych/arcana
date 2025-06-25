@@ -3,7 +3,7 @@
 use edict::component::Component;
 use winit::window::Window;
 
-use crate::make_id;
+use arcana_id::make_id;
 
 make_id! {
     /// ID of the viewport.

@@ -17,6 +17,8 @@ members = [
     "crates/graphics",
     "crates/input",
     "crates/plugin",
+    "crates/num2name",
+    "crates/arcana",
 ]
 resolver = "2"
 

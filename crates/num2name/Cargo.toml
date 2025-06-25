@@ -1,0 +1,12 @@
+[package]
+name = "arcana-num2name"
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+arcana-intern = { path = "../intern" }
+arcana-id = { path = "../id" }
+arcana-hash = { path = "../hash" }

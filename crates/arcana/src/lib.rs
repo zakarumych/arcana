@@ -78,34 +78,18 @@ extern crate self as arcana;
 
 // Re-exports
 pub use {
+    arcana_id as id,
     arcana_intern::{ident, name, Ident, IdentError, Name, NameError},
-    arcana_project as project, bytemuck, gametime, hashbrown, na, parking_lot, tokio, tracing,
+    arcana_project as project, arcana_tany as tany, bytemuck, gametime, hashbrown, parking_lot,
+    tokio, tracing,
     vtid::{HasVtid, Vtid},
 };
 
-pub mod arena;
-pub mod assets;
-pub mod base58;
-pub mod code;
-pub mod ecs;
 pub mod ed;
-pub mod events;
-pub mod graphics;
-pub mod hash;
-pub mod id;
-pub mod input;
-pub mod io;
-pub mod model;
-mod num2name;
-pub mod plugin;
 pub mod render;
 pub mod serde_with;
-pub mod slot;
-pub mod tany;
 pub mod task;
-pub mod unfold;
 pub mod viewport;
-pub mod work;
 
 #[macro_export]
 macro_rules! static_assert {
@@ -140,7 +124,8 @@ pub fn type_id<T: 'static>() -> std::any::TypeId {
 /// Module that contains non-public items exposed for macros.
 #[doc(hidden)]
 pub mod for_macro {
-    use crate::{assets::import::Importer, work::Job};
+    use arcana_assets::import::Importer;
+    use arcana_work_graph::Job;
 
     pub fn is_job<T: Job>() {}
     pub fn is_importer<T: Importer>() {}

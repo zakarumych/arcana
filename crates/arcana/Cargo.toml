@@ -10,18 +10,28 @@ description = "Arcana Engine Runtime"
 [lib]
 crate-type = ["rlib", "dylib"]
 
-[features]
-# Inline more functions
-inline-more = []
-
 [dependencies]
+arcana-alloc = { path = "../alloc" }
+arcana-assets = { path = "../assets" }
+arcana-base-encoding = { path = "../base-encoding" }
+arcana-ecs = { path = "../ecs" }
+arcana-graphics = { path = "../graphics" }
+arcana-hash = { path = "../hash" }
+arcana-id = { path = "../id" }
 arcana-intern = { path = "../intern" }
+arcana-io = { path = "../io" }
+arcana-model = { path = "../model" }
+arcana-num2name = { path = "../num2name" }
+arcana-plugin = { path = "../plugin" }
 arcana-proc = { path = "../proc" }
 arcana-project = { path = "../project" }
+arcana-tany = { path = "../tany" }
+arcana-unfold = { path = "../unfold" }
+arcana-work-graph = { path = "../work-graph" }
 
 # Math
 approx.workspace = true
-na.workspace = true
+athena.workspace = true
 simba.workspace = true
 
 # ECS
@@ -35,7 +45,6 @@ cint.workspace = true
 palette.workspace = true
 
 # Graphics
-basis-universal.workspace = true
 mev.workspace = true
 
 # Async
@@ -78,7 +87,6 @@ winit = { workspace = true, features = ["serde"] }
 
 # Linking
 ctor.workspace = true
-# linkme.workspace = true
 libloading.workspace = true
 
 # Other stuff

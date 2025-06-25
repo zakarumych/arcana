@@ -1,8 +1,8 @@
 use std::hash::Hash;
 
+use arcana_hash::stable_hash;
+use arcana_id::Id;
 use arcana_intern::{format_name, Name};
-
-use crate::hash::stable_hash;
 
 const ADJECTIVES: &'static [&'static str; 32] = &[
     "Brave", "Bright", "Calm", "Clever", "Cool", "Cozy", "Cute", "Eager", "Fancy", "Fresh", "Good",
@@ -25,6 +25,7 @@ const NOUNS: &'static [&'static str; 64] = &[
     "Bear", "Cat", "Dog", "Fox", "Hawk", "Koala", "Lion", "Mink", "Owl", "Seal",
 ];
 
+#[inline(always)]
 fn num_to_name_impl(num: u16) -> Name {
     let adjective = (num >> 11) as usize;
     let color = ((num >> 6) & 0b11111) as usize;
@@ -39,6 +40,7 @@ fn num_to_name_impl(num: u16) -> Name {
 }
 
 pub fn num_to_name(num: u16) -> Name {
+    // Shuffle a bit.
     let num = (((num as u32) * 29983u32) >> 8) as u16;
     num_to_name_impl(num)
 }
@@ -51,5 +53,13 @@ where
 
     // Take middle 16 bits
     let [_, _, num, _] = *hash.as_u16();
-    num_to_name(num)
+    num_to_name_impl(num)
+}
+
+#[inline(always)]
+pub fn id_to_name<T>(id: &T) -> Name
+where
+    T: Id + ?Sized,
+{
+    hash_to_name(id)
 }
