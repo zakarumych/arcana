@@ -1,6 +1,8 @@
+use std::num::NonZeroU64;
+
 use arcana::{
-    ecs::world::World,
-    id::{make_id, SeqIdGen},
+    id::{make_uid, TimeUidGen},
+    ident,
     model::Value,
     project::Project,
     Ident,
@@ -8,46 +10,59 @@ use arcana::{
 use egui::Ui;
 use hashbrown::HashMap;
 
-use crate::{ide::Ide, instance::Instance};
+use crate::{ide::Ide, instance::Instance, plugins::Plugins, systems::Systems};
 
 use super::{container::Container, project::ProjectData};
 
-make_id! {
+make_uid! {
     /// ID of opened tool.
     pub ToolId;
 }
 
-pub enum ShowResult {
-    DoNothing,
-}
-
 pub trait Tool {
-    fn id(&self) -> ToolId;
+    /// Called regularly to update tool state.
+    ///
+    /// Tool is allowed to modify `project`, `data` and `instance` as it needs.
+    fn tick(&mut self, project: &mut Project, data: &mut ProjectData, instance: &mut Instance) {
+        let _ = (project, data, instance);
+    }
 
-    fn tick(&mut self, project: &mut Project, data: &mut ProjectData);
-
+    /// Shows the tool UI.
+    ///
+    /// This method is called when tool is visible and should render its UI.
     fn show(
         &mut self,
+        project: &mut Project,
         data: &mut ProjectData,
         ide: Option<&dyn Ide>,
         instance: &mut Instance,
         ui: &mut Ui,
-    ) -> ShowResult;
+    );
 
-    fn save(&self) -> Value;
+    /// Serializes the tool state to a value to allow loading it later
+    /// with updated tool instance.
+    fn save(&self) -> Value {
+        Value::Unit
+    }
 
-    fn load(&mut self, state: &Value);
+    /// Loads the tool state from a value.
+    fn load(&mut self, state: &Value) {
+        let _ = state;
+    }
 
-    // Only Plugins tool can create new containers.
-    #[inline]
-    #[doc(hidden)]
-    fn new_container(&self) -> Option<Container> {
-        None
+    /// Updates the tool state with new container instance.
+    fn update_plugins(
+        &mut self,
+        project: &mut Project,
+        data: &mut ProjectData,
+        container: &Container,
+    ) {
+        let _ = (project, data, container);
     }
 }
 
 struct BoxedTool {
-    plugin: Option<Ident>,
+    plugin: Ident,
     name: Ident,
 
     last_state: Value,
@@ -55,18 +70,55 @@ struct BoxedTool {
 }
 
 impl BoxedTool {
-    fn update_container(&mut self, container: &Container) {
-        let Some(plugin_name) = self.plugin else {
-            return;
-        };
+    fn new(plugin: Ident, name: Ident, tool: Option<Box<dyn Tool>>) -> Self {
+        BoxedTool {
+            plugin,
+            name,
+            last_state: Value::Unit,
+            tool,
+        }
+    }
 
+    fn update_container(
+        &mut self,
+        project: &mut Project,
+        data: &mut ProjectData,
+        container: &Container,
+    ) {
         // This is a tool from plugin. Reload it.
         self.save();
         self.tool = None;
 
-        // if let Some(plugin) = container.get_plugin(plugin_name) {
-        //     plugin.tools
-        // }
+        if let Some(plugin) = container.get_plugin(self.plugin) {
+            todo!()
+        }
+    }
+
+    fn tick(&mut self, project: &mut Project, data: &mut ProjectData, instance: &mut Instance) {
+        if let Some(tool) = &mut self.tool {
+            tool.tick(project, data, instance);
+        }
+    }
+
+    fn show(
+        &mut self,
+        project: &mut Project,
+        data: &mut ProjectData,
+        ide: Option<&dyn Ide>,
+        instance: &mut Instance,
+        ui: &mut Ui,
+    ) {
+        if let Some(tool) = &mut self.tool {
+            tool.show(project, data, ide, instance, ui);
+        } else {
+            ui.horizontal_centered(|ui| {
+                ui.label(format!("Tool {} is not loaded", self.name));
+            });
+        }
+    }
+
+    fn title(&self) -> String {
+        format!("{} @ {}", self.name, self.plugin)
     }
 
     fn save(&mut self) {
@@ -78,7 +130,7 @@ impl BoxedTool {
 
 pub struct Toolbox {
     tools: HashMap<ToolId, BoxedTool>,
-    idgen: SeqIdGen,
+    idgen: TimeUidGen,
     container: Container,
 }
 
@@ -86,38 +138,44 @@ impl Toolbox {
     pub fn new() -> Self {
         Toolbox {
             tools: HashMap::new(),
-            idgen: SeqIdGen::new(),
+            idgen: TimeUidGen::random(),
             container: Container::default(),
         }
     }
 
-    pub fn update_container(&mut self, container: Container) {
-        self.container = container;
-
+    pub fn tick(&mut self, project: &mut Project, data: &mut ProjectData, instance: &mut Instance) {
         for tool in self.tools.values_mut() {
-            tool.update_container(&self.container);
+            tool.tick(project, data, instance);
         }
     }
 
-    pub fn tick(&mut self, project: &mut Project, data: &mut ProjectData) {
-        for tool in self.tools.values_mut() {
-            if let Some(tool) = &mut tool.tool {
-                tool.tick(project, data);
-            }
-        }
+    pub fn enumerate(&self) -> impl Iterator<Item = (Ident, Ident)> + '_ {
+        [].into_iter()
+    }
+
+    pub fn add(&mut self, plugin: Ident, name: Ident) -> ToolId {
+        let id = ToolId::generate(&mut self.idgen);
+        let tool = BoxedTool::new(plugin, name, None);
+        self.tools.insert(id, tool);
+        id
+    }
+
+    pub fn remove(&mut self, id: ToolId) {
+        self.tools.remove(&id);
     }
 
     pub fn show(
         &mut self,
         id: ToolId,
+        project: &mut Project,
         data: &mut ProjectData,
         ide: Option<&dyn Ide>,
         instance: &mut Instance,
         ui: &mut Ui,
-    ) -> ShowResult {
+    ) {
         if let Some(tool) = self.tools.get_mut(&id) {
             if let Some(tool) = &mut tool.tool {
-                return tool.show(data, ide, instance, ui);
+                tool.show(project, data, ide, instance, ui);
             } else {
                 ui.horizontal_centered(|ui| {
                     ui.label(format!("Tool {} is not loaded", tool.name));
@@ -128,7 +186,13 @@ impl Toolbox {
                 ui.label(format!("Tool {} is not found", id));
             });
         }
+    }
 
-        ShowResult::DoNothing
+    pub fn title(&self, id: ToolId) -> String {
+        if let Some(tool) = self.tools.get(&id) {
+            tool.title()
+        } else {
+            format!("Tool {}", id)
+        }
     }
 }

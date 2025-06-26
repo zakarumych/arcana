@@ -17,7 +17,7 @@ use arcana::{
     Ident,
 };
 use hashbrown::{HashMap, HashSet};
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use url::Url;
 
 mod content_address;
@@ -134,7 +134,7 @@ pub struct Store {
 
     artifacts: RwLock<HashMap<AssetId, AssetItem>>,
     scanned: RwLock<bool>,
-    id_gen: TimeUidGen,
+    id_gen: Mutex<TimeUidGen>,
 
     importers: RwLock<HashMap<ImporterId, ImporterDesc>>,
 }
@@ -172,7 +172,7 @@ impl Store {
             temp,
             artifacts: RwLock::new(HashMap::new()),
             scanned: RwLock::new(false),
-            id_gen: TimeUidGen::random(),
+            id_gen: Mutex::new(TimeUidGen::random()),
             importers: RwLock::new(HashMap::new()),
         })
     }
@@ -292,7 +292,7 @@ impl Store {
                     }
 
                     if let Some(extension) = extension {
-                        if desc.extensions.iter().all(|ext| ext != extension) {
+                        if desc.extensions.iter().all(|ext| **ext != *extension) {
                             return None;
                         }
                     }
@@ -450,7 +450,7 @@ impl Store {
                 }
             }
 
-            let new_id = AssetId::generate(&mut &self.id_gen);
+            let new_id = AssetId::generate(&mut *self.id_gen.lock());
             let item = stack.pop().unwrap();
 
             let make_relative_source = |source| match self.base_url.make_relative(source) {

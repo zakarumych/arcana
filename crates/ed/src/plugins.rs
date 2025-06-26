@@ -1,15 +1,17 @@
 use std::path::{Path, PathBuf};
 
 use arcana::{
-    project::real_path,
     project::{
-        new_plugin_crate, BuildProcess, Dependency, Plugin, Profile, Project, ProjectManifest,
+        new_plugin_crate, real_path, BuildProcess, Dependency, Plugin, Profile, Project,
+        ProjectManifest,
     },
     validate_ident, Ident,
 };
 use camino::{Utf8Path, Utf8PathBuf};
 use egui::{Color32, RichText, Ui};
 use egui_file::FileDialog;
+
+use crate::instance::Instance;
 
 use super::{
     container::{Container, Loader, PluginsError},
@@ -21,6 +23,12 @@ use super::{
 /// and enable/disable self.
 pub(super) struct Plugins {
     loader: Loader,
+
+    /// Currently linked plugins container.
+    linked: Option<Container>,
+
+    /// Same as `linked`, but is cleared in Tool::__new_container.
+    updated: Option<Container>,
 
     // Pending plugins container.
     // Will become linked on first occasion.
@@ -58,6 +66,8 @@ impl Plugins {
     pub fn new() -> Self {
         Plugins {
             loader: Loader::new(),
+            linked: None,
+            updated: None,
             pending: None,
             failure: None,
             build: None,
@@ -103,114 +113,11 @@ impl Plugins {
         Ok(())
     }
 
-    pub fn tick(
-        &mut self,
-        project: &mut Project,
-        data: &ProjectData,
-        need_build: bool,
-    ) -> Option<Container> {
-        if let Some(mut build) = self.build.take() {
-            match build.finished() {
-                Ok(false) => self.build = Some(build),
-                Ok(true) => {
-                    tracing::info!(
-                        "Finished building plugins library {}",
-                        build.artifact().display()
-                    );
-                    let path = build.artifact();
-                    match self.loader.load(&path, &data.enabled_plugins) {
-                        Ok(container) => {
-                            if !Self::check_plugins(project.manifest(), &container) {
-                                tracing::warn!("Not all plugins are linked. Rebuilding");
-                                self.build =
-                                    ok_log_err!(project.build_plugins_library(self.profile));
-                            } else {
-                                tracing::info!(
-                                    "New plugins container version pending. {container:#?}"
-                                );
-                                self.pending = Some(container);
-                                self.failure = None;
-                            }
-                        }
-                        Err(mut err) => {
-                            let mut rebuild = false;
-                            tracing::error!("Failed to load plugins library. {err:?}");
-
-                            if let Some(err) = err.downcast_mut::<PluginsError>() {
-                                for md in err.missing_dependencies.drain(..) {
-                                    rebuild = true;
-                                    tracing::error!("Missing dependency: {md:?}");
-
-                                    if let Err(err) =
-                                        self.add_plugin(md.plugin, md.dependency, project)
-                                    {
-                                        tracing::error!(
-                                            "Failed to add missing dependency. {err:?}"
-                                        );
-                                    }
-                                }
-                            }
-
-                            if let Some(mut related) = err.related() {
-                                for err in &mut related {
-                                    tracing::error!("Related error: {err:?}");
-                                }
-                            }
-
-                            self.failure = Some(err);
-
-                            if rebuild {
-                                try_log_err!(project.sync(); None);
-
-                                match project.build_plugins_library(self.profile) {
-                                    Ok(build) => {
-                                        self.build = Some(build);
-                                    }
-                                    Err(err) => {
-                                        self.failure = Some(err);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                Err(err) => {
-                    tracing::error!("Failed building plugins library. {err:?}");
-                    self.failure = Some(err);
-                }
-            }
-        }
-
-        match self.pending.take() {
-            None => {
-                if need_build && self.failure.is_none() && self.build.is_none() {
-                    tracing::info!("Make initial plugins library build");
-
-                    match project.build_plugins_library(self.profile) {
-                        Ok(build) => {
-                            self.build = Some(build);
-                        }
-                        Err(err) => {
-                            self.failure = Some(err);
-                        }
-                    }
-                }
-                None
-            }
-            Some(c) => {
-                tracing::info!("New plugins container version linked. {c:#?}");
-                Some(c)
-            }
-        }
+    pub fn take_updated(&mut self) -> Option<Container> {
+        self.updated.take()
     }
 
-    pub fn show(
-        &mut self,
-        linked: Option<&Container>,
-        project: &mut Project,
-        data: &mut ProjectData,
-        ui: &mut Ui,
-    ) {
+    pub fn show(&mut self, project: &mut Project, data: &mut ProjectData, ui: &mut Ui) {
         let mut sync = false;
         let mut rebuild = false;
 
@@ -291,7 +198,7 @@ impl Plugins {
                         let mut heading = RichText::from(plugin.name.as_str());
 
                         let mut tooltip = "";
-                        if !linked.map_or(false, |c| c.has(plugin.name)) {
+                        if !self.linked.as_ref().map_or(false, |c| c.has(plugin.name)) {
                             // Not linked plugin may not be active.
                             if self.pending.is_some() || self.build.is_some() {
                                 tooltip = "Pending";
@@ -302,7 +209,11 @@ impl Plugins {
                             }
                         } else if !data.enabled_plugins.contains(&plugin.name) {
                             heading = heading.color(ui.visuals().warn_fg_color);
-                        } else if !linked.map_or(false, |c| c.is_active(plugin.name)) {
+                        } else if !self
+                            .linked
+                            .as_ref()
+                            .map_or(false, |c| c.is_active(plugin.name))
+                        {
                             tooltip = "Dependencies are not enabled";
                             heading = heading.color(ui.visuals().warn_fg_color);
                         } else {
@@ -526,8 +437,104 @@ impl Plugins {
 
             if let Some(c) = &self.pending {
                 self.pending = Some(c.with_plugins(&data.enabled_plugins));
-            } else if let Some(c) = &linked {
+            } else if let Some(c) = &self.linked {
                 self.pending = Some(c.with_plugins(&data.enabled_plugins));
+            }
+        }
+    }
+
+    pub fn tick(&mut self, project: &mut Project, data: &mut ProjectData) {
+        if let Some(mut build) = self.build.take() {
+            match build.finished() {
+                Ok(false) => self.build = Some(build),
+                Ok(true) => {
+                    tracing::info!(
+                        "Finished building plugins library {}",
+                        build.artifact().display()
+                    );
+                    let path = build.artifact();
+                    match self.loader.load(&path, &data.enabled_plugins) {
+                        Ok(container) => {
+                            if !Self::check_plugins(project.manifest(), &container) {
+                                tracing::warn!("Not all plugins are linked. Rebuilding");
+                                self.build =
+                                    ok_log_err!(project.build_plugins_library(self.profile));
+                            } else {
+                                tracing::info!(
+                                    "New plugins container version pending. {container:#?}"
+                                );
+                                self.pending = Some(container);
+                                self.failure = None;
+                            }
+                        }
+                        Err(mut err) => {
+                            let mut rebuild = false;
+                            tracing::error!("Failed to load plugins library. {err:?}");
+
+                            if let Some(err) = err.downcast_mut::<PluginsError>() {
+                                for md in err.missing_dependencies.drain(..) {
+                                    rebuild = true;
+                                    tracing::error!("Missing dependency: {md:?}");
+
+                                    if let Err(err) =
+                                        self.add_plugin(md.plugin, md.dependency, project)
+                                    {
+                                        tracing::error!(
+                                            "Failed to add missing dependency. {err:?}"
+                                        );
+                                    }
+                                }
+                            }
+
+                            if let Some(mut related) = err.related() {
+                                for err in &mut related {
+                                    tracing::error!("Related error: {err:?}");
+                                }
+                            }
+
+                            self.failure = Some(err);
+
+                            if rebuild {
+                                try_log_err!(project.sync());
+
+                                match project.build_plugins_library(self.profile) {
+                                    Ok(build) => {
+                                        self.build = Some(build);
+                                    }
+                                    Err(err) => {
+                                        self.failure = Some(err);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(err) => {
+                    tracing::error!("Failed building plugins library. {err:?}");
+                    self.failure = Some(err);
+                }
+            }
+        }
+
+        match self.pending.take() {
+            None => {
+                if self.linked.is_none() && self.failure.is_none() && self.build.is_none() {
+                    tracing::info!("Make initial plugins library build");
+
+                    match project.build_plugins_library(self.profile) {
+                        Ok(build) => {
+                            self.build = Some(build);
+                        }
+                        Err(err) => {
+                            self.failure = Some(err);
+                        }
+                    }
+                }
+            }
+            Some(c) => {
+                tracing::info!("New plugins container version linked. {c:#?}");
+                self.linked = Some(c);
+                self.updated = self.linked.clone();
             }
         }
     }

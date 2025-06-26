@@ -30,12 +30,15 @@ struct TypedRepository {
 struct RepositoryLoader {}
 
 impl Loader for RepositoryLoader {
-    fn load<'a>(&'a self, id: AssetId) -> BoxFuture<'a, Result<AssetData, Error>> {}
+    fn load<'a>(&'a self, id: AssetId) -> BoxFuture<'a, Result<AssetData, Error>> {
+        todo!()
+    }
 
     fn update<'a>(
         &'a self,
         id: AssetId,
         version: u64,
     ) -> BoxFuture<'a, Result<Option<AssetData>, Error>> {
+        todo!()
     }
 }

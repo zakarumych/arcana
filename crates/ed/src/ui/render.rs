@@ -1,8 +1,8 @@
 use std::mem::{offset_of, size_of_val};
 
+use arcana::mev::{self, Arguments, DeviceRepr};
 use egui::epaint::Vertex;
 use hashbrown::{hash_map::Entry, HashMap};
-use mev::{Arguments, DeviceRepr};
 
 use super::Sampler;
 

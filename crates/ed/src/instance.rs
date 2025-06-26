@@ -216,11 +216,9 @@ impl Instance {
         &mut self.rate
     }
 
-    pub fn tick(&mut self, data: &ProjectData, systems: &Systems, step: ClockStep) {
-        if self.systems_modification < systems.modification() {
-            self.schedule = data.systems.make_schedule();
-            self.systems_modification = systems.modification();
-        }
+    pub fn tick(&mut self, data: &ProjectData, step: ClockStep) {
+        data.systems
+            .update_schedule(self.systems_modification, &mut self.schedule);
 
         let step = self.rate.step(step.step);
 

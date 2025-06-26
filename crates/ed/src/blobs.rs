@@ -19,6 +19,7 @@ pub struct Blobs {
     path: PathBuf,
 }
 
+#[derive(Debug)]
 pub enum NewBlobsError {
     PathIsNotDir(PathBuf),
     DirectoryCreationFailed(io::Error),

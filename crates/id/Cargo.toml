@@ -10,6 +10,8 @@ description = "ID types and generators"
 [dependencies]
 arcana-proc = { path = "../proc" }
 arcana-base-encoding = { path = "../base-encoding" }
+arcana-hash = { path = "../hash" }
+
 serde = { workspace = true, features = ["derive"] }
 smol_str.workspace = true
 thiserror.workspace = true

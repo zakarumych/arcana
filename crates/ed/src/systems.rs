@@ -2,6 +2,7 @@ use std::collections::VecDeque;
 
 use arcana::{
     ecs::{action::ActionBufferSliceExt, world::World, SystemId},
+    id::tokens_hash_id,
     plugin::{Location, PluginsHub},
     project::Project,
     Ident, Name,
@@ -12,6 +13,8 @@ use egui_snarl::{
     InPin, InPinId, NodeId, OutPin, OutPinId, Snarl,
 };
 use hashbrown::{HashMap, HashSet};
+
+use crate::tool::{Tool, ToolId};
 
 use super::{container::Container, ide::Ide, project::ProjectData, toggle_ui};
 
@@ -101,25 +104,19 @@ fn order_systems(snarl: &Snarl<SystemNode>, category: Category) -> Vec<SystemId>
 }
 
 pub struct Systems {
-    modification: u64,
     available: Vec<SystemNode>,
 }
 
 impl Systems {
     pub fn new() -> Self {
         Systems {
-            modification: 1,
             available: Vec::new(),
         }
     }
 
-    pub fn modification(&self) -> u64 {
-        self.modification
-    }
-
     pub fn show(
         &mut self,
-        project: &Project,
+        project: &mut Project,
         data: &mut ProjectData,
         ide: Option<&dyn Ide>,
         ui: &mut Ui,
@@ -139,7 +136,7 @@ impl Systems {
         }
 
         if viewer.modified {
-            self.modification += 1;
+            data.systems.modification += 1;
         }
     }
 
@@ -175,7 +172,7 @@ impl Systems {
         self.available = new_systems;
         self.available.sort_by_cached_key(|node| node.name.clone());
 
-        self.modification += 1;
+        data.systems.modification += 1;
     }
 }
 
@@ -183,20 +180,27 @@ impl Systems {
 #[serde(transparent)]
 pub struct SystemGraph {
     snarl: Snarl<SystemNode>,
+
+    #[serde(skip)]
+    modification: u64,
 }
 
 impl SystemGraph {
     pub fn new() -> Self {
         SystemGraph {
             snarl: Snarl::new(),
+
+            modification: 0,
         }
     }
 
-    pub fn make_schedule(&self) -> Schedule {
-        Schedule {
-            fix_schedule: order_systems(&self.snarl, Category::Fix),
-            var_schedule: order_systems(&self.snarl, Category::Var),
+    pub fn update_schedule(&self, modification: u64, schedule: &mut Schedule) {
+        if self.modification == modification {
+            return;
         }
+
+        schedule.fix_schedule = order_systems(&self.snarl, Category::Fix);
+        schedule.var_schedule = order_systems(&self.snarl, Category::Var);
     }
 }
 

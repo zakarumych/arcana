@@ -6,6 +6,7 @@ use arcana::{
     input::ViewInput,
     mev,
     project::Project,
+    Ident,
 };
 use egui::{Id, TopBottomPanel, WidgetText};
 use egui_tiles::{TileId, Tree, UiResponse};
@@ -42,8 +43,12 @@ pub struct AppConfig {
 
 pub enum UserEvent {}
 
-struct Tab {
-    tool: ToolId,
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, serde::Serialize, serde::Deserialize)]
+enum Tab {
+    Plugins,
+    Systems,
+
+    Tool { id: ToolId },
 }
 
 /// Editor app instance.
@@ -77,6 +82,11 @@ pub struct App {
     // Currently configured IDE to use.
     ide: Option<Box<dyn Ide>>,
     toolbox: Toolbox,
+
+    show_preferences: bool,
+
+    plugins: Plugins,
+    systems: Systems,
 }
 
 struct AppView {
@@ -146,6 +156,10 @@ impl App {
 
             ide,
             toolbox,
+            show_preferences: false,
+
+            plugins,
+            systems,
         }
     }
 
@@ -165,20 +179,10 @@ impl App {
     }
 
     pub fn tick(&mut self, step: ClockStep) {
-        let update = self
-            .plugins
-            .tick(&mut self.project, &self.data, self.container.is_none());
+        self.toolbox
+            .tick(&mut self.project, &mut self.data, &mut self.main);
 
-        if let Some(c) = update {
-            self.systems.update_plugins(&mut self.data, &c);
-            self.filters.update_plugins(&mut self.data, &c);
-            self.rendering.update_plugins(&mut self.data, &c);
-            self.main.update_plugins(&c);
-
-            self.container = Some(c);
-        }
-
-        self.main.tick(&self.data, &self.systems, step);
+        self.main.tick(&self.data, step);
     }
 
     /// Runs rendering.
@@ -226,38 +230,25 @@ impl App {
                                     }
                                 });
                                 ui.menu_button("View", |ui| {
-                                    if ui.button("Assets").clicked() {
-                                        focus_or_add_tab(&mut view.tab_tree, Tab::Assets);
-                                        ui.close_menu();
-                                    }
                                     if ui.button("Plugins").clicked() {
                                         focus_or_add_tab(&mut view.tab_tree, Tab::Plugins);
                                         ui.close_menu();
                                     }
-                                    // if ui.button("Console").clicked() {
-                                    //     focus_or_add_tab(tabs, Tab::Console);
-                                    //     ui.close_menu();
-                                    // }
-                                    if ui.button("Codes").clicked() {
-                                        focus_or_add_tab(&mut view.tab_tree, Tab::Codes);
-                                        ui.close_menu();
-                                    }
+
                                     if ui.button("Systems").clicked() {
                                         focus_or_add_tab(&mut view.tab_tree, Tab::Systems);
                                         ui.close_menu();
                                     }
-                                    if ui.button("Filters").clicked() {
-                                        focus_or_add_tab(&mut view.tab_tree, Tab::Filters);
-                                        ui.close_menu();
+
+                                    for (plugin, name) in self.toolbox.enumerate() {
+                                        if ui.button(format!("{name} @ {plugin}")).clicked() {
+                                            todo!();
+                                            // let id = self.toolbox.add(plugin, name);
+
+                                            // view.tab_tree.tiles.insert_pane(Tab::Tool { id });
+                                            // ui.close_menu();
+                                        }
                                     }
-                                    if ui.button("Rendering").clicked() {
-                                        focus_or_add_tab(&mut view.tab_tree, Tab::Rendering);
-                                        ui.close_menu();
-                                    }
-                                    // if ui.button("Main").clicked() {
-                                    //     focus_or_add_tab(tabs, Tab::Main);
-                                    //     ui.close_menu();
-                                    // }
                                 });
                             });
                         });
@@ -268,17 +259,14 @@ impl App {
                                 project: &mut self.project,
                                 data: &mut self.data,
                                 assets: &mut self.assets,
-                                plugins: &mut self.plugins,
-                                // console: &mut self.console,
-                                systems: &mut self.systems,
-                                filters: &mut self.filters,
-                                code: &mut self.code,
-                                rendering: &mut self.rendering,
                                 main: &mut self.main,
                                 sample: &self.image_sample,
                                 device: &device,
                                 textures,
                                 ide: self.ide.as_deref(),
+                                toolbox: &mut self.toolbox,
+                                plugins: &mut self.plugins,
+                                systems: &mut self.systems,
                             };
 
                             view.tab_tree.ui(&mut model, ui);
@@ -477,44 +465,57 @@ struct AppModel<'a> {
     textures: UserTextures<'a>,
     ide: Option<&'a dyn Ide>,
     toolbox: &'a mut Toolbox,
+    plugins: &'a mut Plugins,
+    systems: &'a mut Systems,
 }
 
 impl egui_tiles::Behavior<Tab> for AppModel<'_> {
     fn pane_ui(&mut self, ui: &mut egui::Ui, _id: TileId, tab: &mut Tab) -> UiResponse {
         match *tab {
-            Tab::Assets => self.assets.show(ui, self.main),
-            Tab::Plugins => self.plugins.show(self.linked, self.project, self.data, ui),
+            // Tab::Assets => self.assets.show(ui, self.main),
+            Tab::Plugins => self.plugins.show(self.project, self.data, ui),
             // Tab::Console => self.console.show(ui),
             Tab::Systems => self.systems.show(self.project, self.data, self.ide, ui),
-            Tab::Filters => self.filters.show(self.project, self.data, self.ide, ui),
-            Tab::Codes => self.code.show(self.project, self.data, ui),
-            Tab::Rendering => self.rendering.show(
-                self.project,
-                self.data,
-                self.sample,
-                self.device,
-                self.main,
-                &mut self.textures,
-                self.ide,
-                ui,
-            ),
+            // Tab::Filters => self.filters.show(self.project, self.data, self.ide, ui),
+            // Tab::Codes => self.code.show(self.project, self.data, ui),
+            // Tab::Rendering => self.rendering.show(
+            //     self.project,
+            //     self.data,
+            //     self.sample,
+            //     self.device,
+            //     self.main,
+            //     &mut self.textures,
+            //     self.ide,
+            //     ui,
+            // ),
             // Tab::Main => self.main.show(self.window.id(), &mut self.textures, ui),
-            Tab::Inspector => {} //Inspector::show(self.world, ui),
+            // Tab::Inspector => {} //Inspector::show(self.world, ui),
+            Tab::Tool { id } => {
+                self.toolbox.show(
+                    id,
+                    self.project,
+                    self.data,
+                    self.ide.as_deref(),
+                    self.main,
+                    ui,
+                );
+            }
         }
         UiResponse::default()
     }
 
     fn tab_title_for_pane(&mut self, tab: &Tab) -> WidgetText {
         match *tab {
-            Tab::Assets => "Assets".into(),
+            // Tab::Assets => "Assets".into(),
             Tab::Plugins => "Plugins".into(),
             // Tab::Console => "Console".into(),
             Tab::Systems => "Systems".into(),
-            Tab::Filters => "Filters".into(),
-            Tab::Codes => "Codes".into(),
-            Tab::Rendering => "Rendering".into(),
+            // Tab::Filters => "Filters".into(),
+            // Tab::Codes => "Codes".into(),
+            // Tab::Rendering => "Rendering".into(),
             // Tab::Main => "Main".into(),
-            Tab::Inspector => "Inspector".into(),
+            // Tab::Inspector => "Inspector".into(),
+            Tab::Tool { id } => self.toolbox.title(id).into(),
         }
     }
 
@@ -556,7 +557,7 @@ fn load_app_state(name: &str) -> miette::Result<AppState<'static>> {
 
     let mut file = std::fs::File::open(path).into_diagnostic()?;
 
-    let state = bincode::deserialize_from(&mut file).into_diagnostic()?;
+    let state = serde_json::from_reader(&mut file).into_diagnostic()?;
 
     Ok(state)
 }
@@ -565,7 +566,7 @@ fn save_app_state(state: &AppState, name: &str) -> miette::Result<()> {
     let path = app_state_path(true, name)
         .ok_or_else(|| miette::miette!("Failed to get app state path"))?;
     let mut file = std::fs::File::create(path).into_diagnostic()?;
-    bincode::serialize_into(&mut file, state).into_diagnostic()?;
+    serde_json::to_writer_pretty(&mut file, state).into_diagnostic()?;
     Ok(())
 }
 
@@ -594,7 +595,7 @@ fn load_app_cfg() -> miette::Result<AppConfig> {
 
     let mut file = std::fs::File::open(path).into_diagnostic()?;
 
-    let state = bincode::deserialize_from(&mut file).into_diagnostic()?;
+    let state = serde_json::from_reader(&mut file).into_diagnostic()?;
 
     Ok(state)
 }
@@ -602,7 +603,7 @@ fn load_app_cfg() -> miette::Result<AppConfig> {
 fn save_app_cfg(config: &AppConfig) -> miette::Result<()> {
     let path = app_cfg_path(true).ok_or_else(|| miette::miette!("Failed to get app state path"))?;
     let mut file = std::fs::File::create(path).into_diagnostic()?;
-    bincode::serialize_into(&mut file, config).into_diagnostic()?;
+    serde_json::to_writer_pretty(&mut file, config).into_diagnostic()?;
     Ok(())
 }
 
