@@ -10,13 +10,12 @@ description = "Asset pipeline and loader for Arcana engine"
 [dependencies]
 arcana-intern = { path = "../intern" }
 arcana-id = { path = "../id" }
-arcana-model = { path = "../model" }
+arcana-metatype = { path = "../metatype" }
 
 mev.workspace = true
 
 futures.workspace = true
 thiserror.workspace = true
-vtid.workspace = true
 amity = { workspace = true, features = ["flip-queue"] }
 hashbrown.workspace = true
 parking_lot.workspace = true

@@ -3,10 +3,10 @@
 
 use std::io::Write;
 
-use arcana::{code::CodeGraphId, project::Project, render::RenderGraphId, Ident};
+use arcana::{project::Project, render::RenderGraphId, Ident};
 use hashbrown::{HashMap, HashSet};
 
-use super::{code::CodeGraph, filters::Funnel, render::RenderGraph, systems::SystemGraph};
+use super::{filters::Funnel, render::RenderGraph, systems::SystemGraph};
 
 /// In combination with `ProjectManifest` this defines the project completely.
 /// This includes enabled plugins, filter chain, system graph, asset collections, etc
@@ -25,9 +25,6 @@ pub struct ProjectData {
 
     /// Render graphs.
     pub render_graphs: HashMap<RenderGraphId, RenderGraph>,
-
-    /// Code graphs.
-    pub codes: HashMap<CodeGraphId, CodeGraph>,
 }
 
 impl ProjectData {

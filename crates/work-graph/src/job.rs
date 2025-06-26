@@ -1,10 +1,10 @@
 use std::hash::Hash;
 
-use arcana_id::{make_uid, HasStid, Stid};
+use arcana_id::make_uid;
 use arcana_intern::Name;
-use arcana_model::{Model, Value};
+use arcana_metatype::{MetaType, Stid};
+use arcana_model::Model;
 use edict::world::World;
-use hashbrown::HashMap;
 
 use crate::graph::{Exec, Planner};
 
@@ -24,7 +24,7 @@ pub struct TargetCreateDesc {
 }
 
 impl TargetCreateDesc {
-    pub fn new<T: HasStid>(name: Name) -> Self {
+    pub fn new<T: MetaType>(name: Name) -> Self {
         TargetCreateDesc {
             name,
             ty: T::stid(),
@@ -42,7 +42,7 @@ pub struct TargetUpdateDesc {
 }
 
 impl TargetUpdateDesc {
-    pub fn new<T: HasStid>(name: Name) -> Self {
+    pub fn new<T: MetaType>(name: Name) -> Self {
         TargetUpdateDesc {
             name,
             ty: T::stid(),
@@ -60,7 +60,7 @@ pub struct TargetReadDesc {
 }
 
 impl TargetReadDesc {
-    pub fn new<T: HasStid>(name: Name) -> Self {
+    pub fn new<T: MetaType>(name: Name) -> Self {
         TargetReadDesc {
             name,
             ty: T::stid(),
@@ -159,13 +159,6 @@ impl JobDesc {
             (_, Some(_)) => None,
             _ => invalid_output_pin(pin),
         }
-    }
-
-    pub fn default_params(&self) -> HashMap<Name, Value> {
-        self.params
-            .iter()
-            .map(|(k, m)| (*k, m.default_value()))
-            .collect()
     }
 }
 

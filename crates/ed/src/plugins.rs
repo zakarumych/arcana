@@ -1,13 +1,12 @@
 use std::path::{Path, PathBuf};
 
 use arcana::{
+    project::real_path,
     project::{
         new_plugin_crate, BuildProcess, Dependency, Plugin, Profile, Project, ProjectManifest,
     },
-    Ident,
+    validate_ident, Ident,
 };
-use arcana_intern::validate_ident;
-use arcana_project::real_path;
 use camino::{Utf8Path, Utf8PathBuf};
 use egui::{Color32, RichText, Ui};
 use egui_file::FileDialog;
@@ -457,7 +456,7 @@ impl Plugins {
                                             Ok(real_path) => {
                                                 new_plugin.real_path = real_path;
                                                 new_plugin.real_path.push(&new_plugin.name);
-                                                new_plugin.ready = arcana_project::is_available(
+                                                new_plugin.ready = arcana::project::is_available(
                                                     new_plugin.real_path.as_std_path(),
                                                 );
                                             }

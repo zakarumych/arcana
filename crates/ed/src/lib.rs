@@ -1,12 +1,15 @@
 use std::{hash::Hash, io::ErrorKind, path::Path};
 
-use project::ProjectData;
+use arcana::{
+    mev,
+    project::{Profile, Project},
+};
 use winit::event_loop::EventLoop;
 
 #[cfg(windows)]
 use winit::platform::windows::EventLoopBuilderExtWindows;
 
-use crate::project::{Profile, Project};
+use crate::project::ProjectData;
 
 /// Result::ok, but logs Err case.
 macro_rules! ok_log_err {
@@ -37,7 +40,8 @@ macro_rules! try_log_err {
 
 mod app;
 mod assets;
-mod code;
+mod blobs;
+// mod code;
 mod container;
 mod error;
 mod filters;
@@ -51,8 +55,10 @@ mod render;
 mod sample;
 mod subprocess;
 mod systems;
+mod task;
 mod tool;
 mod ui;
+mod viewport;
 
 /// Runs the editor application
 pub fn run(project_path: impl AsRef<Path>) {
@@ -64,7 +70,7 @@ pub fn run(project_path: impl AsRef<Path>) {
 fn _run(project_path: &Path) -> miette::Result<()> {
     // Marks the running instance of Arcana library.
     // This flag is checked in plugins to ensure they are linked to this arcana.
-    crate::plugin::set_running_arcana_instance();
+    arcana::plugin::set_running_arcana_instance();
 
     let (project, data) = load_project(project_path)?;
 
@@ -82,7 +88,7 @@ fn _run(project_path: &Path) -> miette::Result<()> {
         panic!("Failed to install tracing subscriber: {}", err);
     }
 
-    basis_universal::transcoder_init();
+    // basis_universal::transcoder_init();
 
     let mut builder = EventLoop::<app::UserEvent>::with_user_event();
 

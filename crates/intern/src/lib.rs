@@ -35,3 +35,16 @@ pub fn intern_static(s: &'static str) -> &'static str {
 pub fn intern_string(s: String) -> &'static str {
     intern::INTERNER.intern_string(s)
 }
+
+/// Formats a string with constant arguments only.
+/// Keeps static reference to avoid re-formatting the same string each time code is executed.
+/// Interns the result and returns a static string.
+#[macro_export]
+macro_rules! const_format {
+    ($fmt:literal $(, $arg:expr)* $(,)?) => {{
+        static CONST_FORMAT_STRING: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+        CONST_FORMAT_STRING.get_or_init(|| {
+            intern_string(::std::format!(const { $fmt } $(, const { $arg })*))
+        })
+    }};
+}

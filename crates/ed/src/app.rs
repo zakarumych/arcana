@@ -1,10 +1,14 @@
 use std::{borrow::Cow, hash::Hash, path::PathBuf};
 
 use arboard::Clipboard;
-use blink_alloc::BlinkAlloc;
+use arcana::{
+    gametime::{Clock, ClockStep, FrequencyNumExt, FrequencyTicker},
+    input::ViewInput,
+    mev,
+    project::Project,
+};
 use egui::{Id, TopBottomPanel, WidgetText};
 use egui_tiles::{TileId, Tree, UiResponse};
-use gametime::{Clock, ClockStep, FrequencyNumExt, FrequencyTicker};
 use miette::IntoDiagnostic;
 use winit::{
     dpi,
@@ -13,12 +17,10 @@ use winit::{
     window::{Window, WindowId},
 };
 
-use crate::{input::ViewInput, project::Project};
+use crate::tool::{self, Toolbox};
 
 use super::{
     assets::AssetRepository,
-    code::CodeTool,
-    container::{Container, ContainerUpdater},
     filters::Filters,
     ide::{Ide, IdeType},
     init_mev,
@@ -41,12 +43,14 @@ pub struct AppConfig {
 pub enum UserEvent {}
 
 struct Tab {
-    tool: Box<dyn Tool>,
+    tool: ToolId,
 }
 
 /// Editor app instance.
 /// Contains state of the editor.
 pub struct App {
+    should_quit: bool,
+
     // Project main state.
     project: Project,
     data: ProjectData,
@@ -60,17 +64,10 @@ pub struct App {
     queue: mev::Queue,
 
     assets: AssetRepository,
-    plugins: Plugins,
-    // console: Console,
-    code: CodeTool,
-    systems: Systems,
-    filters: Filters,
-    rendering: Rendering,
     main: Instance,
 
     image_sample: ImageSample,
     clipboard: Clipboard,
-    should_quit: bool,
 
     clock: Clock,
     limiter: FrequencyTicker,
@@ -79,6 +76,7 @@ pub struct App {
 
     // Currently configured IDE to use.
     ide: Option<Box<dyn Ide>>,
+    toolbox: Toolbox,
 }
 
 struct AppView {
@@ -98,7 +96,6 @@ impl App {
         let filters = Filters::new();
         let rendering = Rendering::new();
         let image_sample = ImageSample::new(&device).unwrap();
-        let code = CodeTool::new();
         let main = Instance::new();
 
         let clock = Clock::new();
@@ -124,7 +121,10 @@ impl App {
 
         let assets = AssetRepository::new(&project.root_path().join("Assets"));
 
+        let toolbox = Toolbox::new();
         App {
+            should_quit: false,
+
             project,
             data,
 
@@ -135,23 +135,17 @@ impl App {
             queue,
 
             assets,
-            plugins,
-            code,
-            systems,
-            filters,
-            rendering,
             main,
 
             image_sample,
             clipboard,
-
-            should_quit: false,
 
             clock,
             limiter,
             cfg,
 
             ide,
+            toolbox,
         }
     }
 
@@ -178,7 +172,6 @@ impl App {
         if let Some(c) = update {
             self.systems.update_plugins(&mut self.data, &c);
             self.filters.update_plugins(&mut self.data, &c);
-            self.code.update_plugins(&mut self.data, &c);
             self.rendering.update_plugins(&mut self.data, &c);
             self.main.update_plugins(&c);
 
@@ -478,17 +471,12 @@ struct AppModel<'a> {
     project: &'a mut Project,
     data: &'a mut ProjectData,
     assets: &'a mut AssetRepository,
-    plugins: &'a mut Plugins,
-    // console: &'a mut Console,
-    systems: &'a mut Systems,
-    filters: &'a mut Filters,
-    code: &'a mut CodeTool,
-    rendering: &'a mut Rendering,
     main: &'a mut Instance,
     sample: &'a ImageSample,
     device: &'a mev::Device,
     textures: UserTextures<'a>,
     ide: Option<&'a dyn Ide>,
+    toolbox: &'a mut Toolbox,
 }
 
 impl egui_tiles::Behavior<Tab> for AppModel<'_> {

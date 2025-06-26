@@ -1,9 +1,7 @@
 //! Contains logic for the viewports.
 
-use edict::component::Component;
+use arcana::{ecs::component::Component, id::make_id, mev};
 use winit::window::Window;
-
-use arcana_id::make_id;
 
 make_id! {
     /// ID of the viewport.

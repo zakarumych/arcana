@@ -6,19 +6,19 @@ use std::{
     time::SystemTime,
 };
 
-use arcana_intern::Ident;
-use arcana_project::real_path;
-use hashbrown::{HashMap, HashSet};
-use parking_lot::RwLock;
-use url::Url;
-
-use crate::{
+use arcana::{
     assets::{
         import::{AssetDependencies, AssetSources, ImportError, ImporterDesc, ImporterId},
         AssetId,
     },
+    id::TimeUidGen,
     plugin::PluginsHub,
+    project::real_path,
+    Ident,
 };
+use hashbrown::{HashMap, HashSet};
+use parking_lot::RwLock;
+use url::Url;
 
 mod content_address;
 mod meta;
@@ -134,7 +134,7 @@ pub struct Store {
 
     artifacts: RwLock<HashMap<AssetId, AssetItem>>,
     scanned: RwLock<bool>,
-    id_gen: Generator,
+    id_gen: TimeUidGen,
 
     importers: RwLock<HashMap<ImporterId, ImporterDesc>>,
 }
@@ -172,7 +172,7 @@ impl Store {
             temp,
             artifacts: RwLock::new(HashMap::new()),
             scanned: RwLock::new(false),
-            id_gen: Generator::new(),
+            id_gen: TimeUidGen::random(),
             importers: RwLock::new(HashMap::new()),
         })
     }
@@ -345,6 +345,7 @@ impl Store {
             result = selected_importer.import(
                 &source_path,
                 &output_path,
+                None,
                 &mut Fn(|src: &str| {
                     let src = item.source.join(src).ok()?; // If parsing fails - source will be listed in `ImportResult::RequireSources`.
                     let (path, modified) = sources.get(&src)?;

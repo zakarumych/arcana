@@ -6,9 +6,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::{
+use arcana::{
     hash::{sha256, sha256_file, Hash256},
-    io::{file_eq_blob, files_eq},
+    io::fs::{file_eq_blob, files_eq},
 };
 
 /// Stores blobs in the FS,

@@ -5,8 +5,15 @@ use std::{
     task::{Context, Poll},
 };
 
-use arcana_intern::Ident;
-use arcana_project::real_path;
+use arcana::{
+    assets::{
+        import::{EmptyConfig, ImporterDesc, ImporterId},
+        AssetData, AssetId, Error, Loader, NotFound,
+    },
+    metatype::Meta,
+    project::real_path,
+    Ident,
+};
 use egui::Ui;
 
 mod repository;
@@ -18,13 +25,7 @@ use hashbrown::HashMap;
 use store::{Store, StoreInfo};
 use url::Url;
 
-use crate::{
-    assets::{
-        import::{EmptyConfig, ImportConfig, ImporterDesc, ImporterId},
-        AssetData, AssetId, Error, Loader, NotFound,
-    },
-    task::{TaskQueue, WakerArray},
-};
+use crate::task::{TaskQueue, WakerArray};
 
 use super::instance::Instance;
 
@@ -102,7 +103,7 @@ enum ImportDialog {
     Config {
         source_url: Url,
         importer: ImporterId,
-        config: Box<dyn ImportConfig>,
+        config: Meta,
     },
     Error(ErrorDialog),
 }

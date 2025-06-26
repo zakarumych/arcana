@@ -5,8 +5,9 @@ use std::{
 };
 
 use arcana_alloc::Arena;
-use arcana_id::{SeqIdGen, Stid};
+use arcana_id::SeqIdGen;
 use arcana_intern::Name;
+use arcana_metatype::Stid;
 use arcana_model::Value;
 use edict::world::World;
 use hashbrown::{hash_map::Entry, HashMap, HashSet};

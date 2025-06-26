@@ -16,3 +16,4 @@ quote.workspace = true
 proc-macro2.workspace = true
 proc-easy.workspace = true
 ahash.workspace = true
+edict-proc-lib.workspace = true

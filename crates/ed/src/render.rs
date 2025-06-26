@@ -1,7 +1,16 @@
 use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 
-use arcana_intern::{Ident, Name};
-use edict::entity::EntityId;
+use arcana::{
+    ecs::entity::EntityId,
+    metatype::{Meta, Stid},
+    mev,
+    model::Value,
+    plugin::{JobInfo, Location},
+    project::Project,
+    render::RenderGraphId,
+    work_graph::{Cycle, Edge, HookId, Image2D, Job, JobDesc, JobId, JobIdx, PinId, WorkGraph},
+    Ident, Name,
+};
 use egui::Ui;
 use egui_snarl::{
     ui::{AnyPins, PinInfo, SnarlStyle, SnarlViewer},
@@ -9,21 +18,14 @@ use egui_snarl::{
 };
 use hashbrown::HashMap;
 
-use crate::{
-    id::Stid,
-    model::Value,
-    plugin::{JobInfo, Location},
-    project::Project,
-    render::RenderGraphId,
-    work::{Edge, HookId, Image2D, JobDesc, JobId, JobIdx, PinId},
-};
+use crate::model::ValueProbe;
 
 use super::{
     container::Container,
     hue_hash,
     ide::Ide,
     instance::Instance,
-    model::ValueProbe,
+    // model::ValueProbe,
     project::ProjectData,
     sample::ImageSample,
     ui::{Sampler, Selector, UserTextures},
@@ -39,7 +41,7 @@ pub struct RenderGraph {
 }
 
 impl RenderGraph {
-    pub fn make_work_graph(&self) -> Result<arcana::work::WorkGraph, arcana::work::Cycle> {
+    pub fn make_work_graph(&self) -> Result<WorkGraph, Cycle> {
         let jobs = self
             .snarl
             .node_ids()
@@ -73,7 +75,7 @@ impl RenderGraph {
             })
             .collect();
 
-        arcana::work::WorkGraph::new(jobs, edges)
+        WorkGraph::new(jobs, edges)
     }
 
     pub fn get_present(&self) -> Option<PinId> {
@@ -577,7 +579,7 @@ impl SnarlViewer<RenderGraphNode> for RenderGraphViewer<'_> {
                             name: job.name,
                             plugin,
                             desc: job.desc.clone(),
-                            params: job.desc.default_params(),
+                            params: default_params(&job.desc),
                             location: job.location.clone(),
                             active: true,
                         },
@@ -652,7 +654,7 @@ impl SnarlViewer<RenderGraphNode> for RenderGraphViewer<'_> {
                             name: job.name,
                             plugin,
                             desc: job.desc.clone(),
-                            params: job.desc.default_params(),
+                            params: default_params(&job.desc),
                             location: job.location.clone(),
                             active: true,
                         },
@@ -674,6 +676,13 @@ fn present_kind() -> Stid {
 #[inline(always)]
 fn present_pin_color() -> egui::Color32 {
     hue_hash(&present_kind())
+}
+
+fn default_params(desc: &JobDesc) -> HashMap<Name, Value> {
+    desc.params
+        .iter()
+        .map(|(name, model)| (name.clone(), model.default_value()))
+        .collect()
 }
 
 // fn show_preview(

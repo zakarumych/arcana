@@ -406,6 +406,10 @@ impl GamesTab {
 
         match game {
             None => {
+                let foo = const {
+                    format!("Launch new {}", egui_phosphor::regular::ROCKET_LAUNCH);
+                }
+
                 if self.id.is_none() {
                     ui.vertical_centered(|ui| {
                         ui.label("Game is not running");

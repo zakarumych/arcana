@@ -3,15 +3,14 @@ use std::{
     time::SystemTime,
 };
 
-use arcana_intern::Ident;
-use arcana_project::real_path;
-use hashbrown::HashMap;
-use url::Url;
-
-use crate::{
+use arcana::{
     assets::AssetId,
     hash::{sha256, sha256_file, Hash256},
+    project::real_path,
+    Ident,
 };
+use hashbrown::HashMap;
+use url::Url;
 
 use super::{
     content_address::{move_file_with_content_address, with_path_candidates, PREFIX_STARTING_LEN},

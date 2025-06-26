@@ -25,7 +25,7 @@ use hashbrown::{hash_map::RawEntryMut, HashMap, HashSet};
 use miette::{Context, Diagnostic, Severity};
 use thiserror::Error;
 
-use crate::{
+use arcana::{
     plugin::{check_arcana_instance, ArcanaPlugin},
     project::Dependency,
     Ident,
@@ -178,7 +178,9 @@ impl fmt::Debug for Container {
 impl Container {
     /// Create a new container from same library with the given plugins enabled.
     pub fn with_plugins(&self, enabled_plugins: &HashSet<Ident>) -> Self {
-        let active_plugins = get_active_plugins(&self.loaded, enabled_plugins);
+        let active_plugins = self.loaded.as_ref().map_or(HashSet::new(), |loaded| {
+            get_active_plugins(loaded, enabled_plugins)
+        });
         Container {
             loaded: self.loaded.clone(),
             active_plugins,
@@ -222,23 +224,23 @@ impl Container {
     pub fn plugins<'a>(&'a self) -> impl Iterator<Item = (Ident, &'a ArcanaPlugin)> + Clone + 'a {
         let plugins = self.loaded_plugins();
 
-        plugins.iter().filter_map(|loaded| {
-            loaded.plugins.iter().filter_map(|(name, plugin)| {
-                if self.active_plugins.contains(name) {
-                    Some((*name, plugin))
-                } else {
-                    None
-                }
-            })
+        plugins.iter().filter_map(|(name, plugin)| {
+            if self.active_plugins.contains(name) {
+                Some((*name, plugin))
+            } else {
+                None
+            }
         })
     }
 }
 
 impl PartialEq for Container {
     fn eq(&self, other: &Self) -> bool {
-        if !Arc::ptr_eq(&self.loaded, &other.loaded) {
-            return false;
-        }
+        match (&self.loaded, &other.loaded) {
+            (Some(lhs), Some(rhs)) if !Arc::ptr_eq(lhs, rhs) => return false,
+            (Some(_), None) | (None, Some(_)) => return false,
+            _ => {}
+        };
 
         if self.active_plugins != other.active_plugins {
             return false;
@@ -405,7 +407,7 @@ fn find_tmp_path(path: &Path) -> miette::Result<PathBuf> {
         })
         .wrap_err("Failed to open dylib file")?;
 
-    let hash = crate::hash::stable_hash_read(file)
+    let hash = arcana::hash::stable_hash_read(file)
         .map_err(|source| FileReadError {
             path: path.to_owned(),
             source,
@@ -464,7 +466,7 @@ impl Loader {
         let active_plugins = get_active_plugins(&loaded, enabled_plugins);
 
         Ok(Container {
-            loaded,
+            loaded: Some(loaded),
             active_plugins: active_plugins.into(),
         })
     }
@@ -542,9 +544,9 @@ fn load_lib(path: &Path, new_path: PathBuf) -> miette::Result<Loaded> {
         })?;
 
     let arcana_version = arcana_version();
-    if arcana_version != crate::version() {
+    if arcana_version != arcana::version() {
         return Err(PluginsLibraryEngineVersionMismatch {
-            expected: crate::version(),
+            expected: arcana::version(),
             found: arcana_version,
         }
         .into());

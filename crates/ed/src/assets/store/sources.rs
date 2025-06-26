@@ -4,6 +4,7 @@ use std::{
     time::SystemTime,
 };
 
+use arcana::hash::sha256;
 use base64::{
     alphabet::URL_SAFE,
     engine::general_purpose::{GeneralPurpose, NO_PAD},
@@ -11,8 +12,6 @@ use base64::{
 };
 use hashbrown::{hash_map::RawEntryMut, HashMap};
 use url::Url;
-
-use crate::hash::sha256;
 
 use super::content_address::store_data_with_content_address;
 

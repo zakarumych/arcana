@@ -12,6 +12,20 @@ mod system;
 use proc_macro::TokenStream;
 use stid::HasStid;
 
+#[proc_macro_derive(Component, attributes(edict))]
+pub fn derive_component(item: TokenStream) -> TokenStream {
+    let path: syn::Path = syn::parse_quote!(arcana::ecs);
+    let namespace = syn::parse_quote!(arcana);
+    edict_proc_lib::derive_component(item.into(), &path, &namespace).into()
+}
+
+#[proc_macro_derive(Relation, attributes(edict))]
+pub fn derive_relation(item: TokenStream) -> TokenStream {
+    let path: syn::Path = syn::parse_quote!(arcana::ecs);
+    let namespace = syn::parse_quote!(arcana);
+    edict_proc_lib::derive_relation(item.into(), &path, &namespace).into()
+}
+
 #[proc_macro_derive(HasStid, attributes(stid))]
 pub fn derive_has_stid(input: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(input as syn::DeriveInput);

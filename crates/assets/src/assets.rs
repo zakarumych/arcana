@@ -6,9 +6,9 @@ use std::{
 };
 
 use amity::flip_queue::FlipQueue;
-use hashbrown::{HashMap, HashSet};
+use arcana_metatype::Stid;
+use hashbrown::HashMap;
 use parking_lot::{Mutex, RwLock};
-use vtid::Vtid;
 
 use super::{
     asset::Asset,
@@ -44,10 +44,15 @@ struct AssetsInner {
 
     /// Arrays are indexed by `assets_array_index(id)`.
     /// This helps to distribute asset access across multiple locks.
-    types: RwLock<HashMap<Vtid, [Arc<dyn AnyTypedAssets>; ASSETS_ARRAY_SIZE]>>,
+    types: RwLock<HashMap<Stid, TypedAssetsArray>>,
 
     // Queue of assets to build.
-    to_build: FlipQueue<(Vtid, AssetId)>,
+    to_build: FlipQueue<(Stid, AssetId)>,
+}
+
+struct TypedAssetsArray {
+    version: u64,
+    array: [Arc<dyn AnyTypedAssets>; ASSETS_ARRAY_SIZE],
 }
 
 impl Assets {
@@ -91,16 +96,16 @@ impl Assets {
     /// This function is not intended for game code.
     /// Editor will use it before switching plugins.
     #[doc(hidden)]
-    pub fn drop_all_except(&self, keep: &HashSet<Vtid>) {
+    pub fn drop_all_except(&self, keep: &HashMap<Stid, u64>) {
         let mut types_write = self.inner.types.write();
-        types_write.retain(|vtid, map| {
-            if keep.contains(vtid) {
+        types_write.retain(|stid, typed| {
+            if keep.get(stid) != Some(&typed.version) {
                 return true;
             }
 
             // Cancel all loading assets.
             // This is important to make ongoing tasks to not insert new assets.
-            for typed_assets in map.iter() {
+            for typed_assets in typed.array.iter() {
                 typed_assets.cancel();
             }
             false
@@ -117,13 +122,13 @@ impl Assets {
         });
     }
 
-    fn typed_get(&self, vtid: Vtid, id: AssetId) -> Option<Arc<dyn AnyTypedAssets>> {
+    fn typed_get(&self, stid: Stid, id: AssetId) -> Option<Arc<dyn AnyTypedAssets>> {
         let index = assets_array_index(id);
 
         let types_read = self.inner.types.read();
 
-        let typed_assets = types_read.get(&vtid)?;
-        Some(typed_assets[index].clone())
+        let typed = types_read.get(&stid)?;
+        Some(typed.array[index].clone())
     }
 
     fn typed_entry<A>(&self, id: AssetId) -> Arc<TypedAssets<A>>
@@ -135,7 +140,7 @@ impl Assets {
         where
             A: Asset,
         {
-            let vtid = Vtid::of::<A>();
+            let meta = A::META;
 
             let new_typed_array = array::from_fn(|_| {
                 Arc::new(TypedAssets::<A> {
@@ -147,26 +152,29 @@ impl Assets {
                 unsafe { new_typed_array[index].clone().downcast_arc_unchecked() };
 
             let mut types_write = assets.inner.types.write();
-            match types_write.entry(vtid) {
+            match types_write.entry(meta.stid) {
                 hashbrown::hash_map::Entry::Occupied(entry) => {
                     // Another thread already inserted the value, use it.
-                    unsafe { entry.get()[index].clone().downcast_arc_unchecked() }
+                    unsafe { entry.get().array[index].clone().downcast_arc_unchecked() }
                 }
                 hashbrown::hash_map::Entry::Vacant(entry) => {
                     // We are the first thread to insert the value.
-                    entry.insert(new_typed_array);
+                    entry.insert(TypedAssetsArray {
+                        version: meta.volatile_version,
+                        array: new_typed_array,
+                    });
                     new_typed
                 }
             }
         }
 
         let index = assets_array_index(id);
-        let vtid = Vtid::of::<A>();
+        let stid = Stid::of::<A>();
 
         let types_read = self.inner.types.read();
 
-        if let Some(typed_assets) = types_read.get(&vtid) {
-            return unsafe { typed_assets[index].clone().downcast_arc_unchecked() };
+        if let Some(typed) = types_read.get(&stid) {
+            return unsafe { typed.array[index].clone().downcast_arc_unchecked() };
         }
 
         drop(types_read);
@@ -345,7 +353,7 @@ where
                                 };
 
                                 drop(cache);
-                                assets.inner.to_build.push_sync((Vtid::of::<A>(), id));
+                                assets.inner.to_build.push_sync((Stid::of::<A>(), id));
                             }
                             Err(error) => {
                                 *state = AssetState::Error { error };

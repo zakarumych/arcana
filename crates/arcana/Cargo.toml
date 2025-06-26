@@ -18,95 +18,24 @@ arcana-ecs = { path = "../ecs" }
 arcana-graphics = { path = "../graphics" }
 arcana-hash = { path = "../hash" }
 arcana-id = { path = "../id" }
+arcana-input = { path = "../input" }
 arcana-intern = { path = "../intern" }
 arcana-io = { path = "../io" }
 arcana-model = { path = "../model" }
+arcana-metatype = { path = "../metatype" }
 arcana-num2name = { path = "../num2name" }
 arcana-plugin = { path = "../plugin" }
 arcana-proc = { path = "../proc" }
 arcana-project = { path = "../project" }
-arcana-tany = { path = "../tany" }
 arcana-unfold = { path = "../unfold" }
 arcana-work-graph = { path = "../work-graph" }
 
-# Math
-approx.workspace = true
 athena.workspace = true
-simba.workspace = true
-
-# ECS
-edict.workspace = true
-
-# Time
+bytemuck.workspace = true
 gametime.workspace = true
-
-# Colors
-cint.workspace = true
-palette.workspace = true
-
-# Graphics
-mev.workspace = true
-
-# Async
-tokio.workspace = true
-
-# Error handling
-thiserror.workspace = true
-miette.workspace = true
-
-# Tracing
-tracing.workspace = true
-tracing-error.workspace = true
-tracing-subscriber.workspace = true
-
-# Serialization
-bincode.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-serde-nothing.workspace = true
-toml.workspace = true
-
-# Editor UI
-cursor-icon.workspace = true
-egui.workspace = true
-egui_dnd.workspace = true
-egui_tiles = { workspace = true, features = ["serde"] }
-egui_file.workspace = true
-egui-phosphor.workspace = true
-egui-probe = { workspace = true, features = ["derive"] }
-egui-snarl = { workspace = true, features = ["serde"] }
-# egui_tracing.workspace = true
-
-# System
-arboard.workspace = true
-camino.workspace = true
-dirs.workspace = true
-gilrs.workspace = true
-open.workspace = true
-winit = { workspace = true, features = ["serde"] }
-
-# Linking
-ctor.workspace = true
-libloading.workspace = true
-
-# Other stuff
-ahash.workspace = true
-amity = { workspace = true, features = ["flip-queue", "broad"] }
-arc-swap.workspace = true
-base64.workspace = true
-blink-alloc.workspace = true
-bit-vec.workspace = true
-bytemuck = { workspace = true, features = ["extern_crate_alloc"] }
-const-random.workspace = true
-flume.workspace = true
-futures.workspace = true
 hashbrown.workspace = true
-ordered-float.workspace = true
 parking_lot.workspace = true
-rand.workspace = true
-slab.workspace = true
-smallvec.workspace = true
-sha2.workspace = true
-tiny-fn.workspace = true
-url = { workspace = true, features = ["serde"] }
-vtid = { workspace = true, features = ["derive"] }
+tokio.workspace = true
+tracing.workspace = true
+mev.workspace = true
+smol_str.workspace = true

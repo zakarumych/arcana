@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use arcana_intern::{Ident, Name};
-use arcana_model::{Model, Value};
+use arcana_metatype::{primitive_meta, Meta};
 
 use crate::make_uid;
 
@@ -30,37 +30,34 @@ pub enum ImportError {
     },
 }
 
+pub struct ImporterDesc {
+    pub name: Name,
+    pub formats: Vec<Name>,
+    pub extensions: Vec<&'static str>,
+    pub target: Ident,
+}
+
+/// Special config type that should be used when importer does not require any configuration.
+pub struct EmptyConfig;
+
+primitive_meta!(EmptyConfig);
+
 /// Trait for an asset importer.
 pub trait Importer: Send + Sync + 'static {
-    /// Returns name of the importer
-    fn name(&self) -> Name
+    fn desc() -> ImporterDesc
     where
         Self: Sized;
 
-    /// Returns supported formats of the importer.
-    fn formats(&self) -> &[Name]
-    where
-        Self: Sized;
-
-    /// Returns supported file extensions of the importer.
-    fn extensions(&self) -> &[&'static str]
-    where
-        Self: Sized;
-
-    /// Returns target format of the importer.
-    fn target(&self) -> Ident
-    where
-        Self: Sized;
-
-    /// Returns configuration model of the importer.
-    fn config(&self) -> Model
-    where
-        Self: Sized;
-
-    /// Returns importer instance.
-    fn new() -> Self
-    where
-        Self: Sized;
+    /// Returns default configuration for this importer.
+    ///
+    /// Caller may update this value before passing it to `import` method.
+    ///
+    /// Caller should not change the inner type of the returned value.
+    ///
+    /// This Meta should support be `EmptyConfig` type or a type that supports inspection.
+    fn config(&self) -> Meta {
+        Meta::new(EmptyConfig)
+    }
 
     /// Reads data from `source` path and writes result at `output` path.
     /// Implementation may request additional sources and dependencies.
@@ -68,9 +65,9 @@ pub trait Importer: Send + Sync + 'static {
     /// with as much information as possible.
     fn import(
         &self,
-        config: &Value,
         source: &Path,
         output: &Path,
+        config: Option<Meta>,
         sources: &mut dyn AssetSources,
         dependencies: &mut dyn AssetDependencies,
     ) -> Result<(), ImportError>;

@@ -9,10 +9,10 @@ version.workspace = true
 [dependencies]
 arcana-id = { path = "../id" }
 arcana-assets = { path = "../assets" }
+arcana-metatype = { path = "../metatype" }
 
 edict.workspace = true
 mev.workspace = true
-vtid.workspace = true
 smallvec.workspace = true
 thiserror.workspace = true
 futures.workspace = true

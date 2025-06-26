@@ -1,20 +1,19 @@
 use std::future::Future;
 
+use arcana_metatype::primitive_meta;
 use basis_universal::{self, TranscodeError, TranscodeParameters, TranscoderTextureFormat};
 use edict::component::Component;
 use mev::Extent2;
 use smallvec::SmallVec;
-use vtid::HasVtid;
 
 use arcana_assets::{Asset, AssetBuilder, Assets, Error};
-use arcana_id::has_stid;
 
-#[derive(Clone, HasVtid)]
+#[derive(Clone)]
 pub struct Texture {
     pub image: mev::Image,
 }
 
-has_stid!(Texture);
+primitive_meta!(Texture);
 
 impl Component for Texture {
     fn name() -> &'static str {

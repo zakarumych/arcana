@@ -1,5 +1,4 @@
-use edict::{component::Component, entity::EntityId};
-
+use arcana_ecs::{component::Component, entity::EntityId};
 use arcana_id::make_uid;
 
 make_uid! {

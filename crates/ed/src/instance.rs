@@ -1,34 +1,32 @@
 //! Running instance of the project.
 
 use arcana::{
-    code::{builtin::emit_code_start, init_codes},
     ecs::{
         entity::EntityId,
         flow::{init_flows, wake_flows, Flows},
         query::Cpy,
         world::World,
     },
-    events::init_events,
-    gametime::{ClockRate, FrequencyNumExt, TimeSpan, TimeStamp},
+    format_name,
+    gametime::{ClockRate, ClockStep, FrequencyNumExt, FrequencyTicker, TimeSpan, TimeStamp},
+    id::{make_id, SeqIdGen},
     input::{DeviceId, Input, KeyCode, PhysicalKey, ViewInput},
-    make_id,
+    mev,
     plugin::PluginsHub,
     render::{CurrentRenderer, RenderGraphId, Renderer},
-    viewport::{ViewId, Viewport},
-    work::{CommandStream, HookId, Image2D, Image2DInfo, PinId, Target, WorkGraph},
+    work_graph::{CommandStream, HookId, Image2D, Image2DInfo, PinId, Target, WorkGraph},
     Name,
 };
-use arcana_intern::format_name;
-use blink_alloc::Blink;
 use egui::Ui;
-use gametime::{ClockStep, FrequencyTicker};
 use hashbrown::{HashMap, HashSet};
 use winit::{event::WindowEvent, window::WindowId};
 
-use crate::{ed::ui::Sampler, id::SeqIdGen};
+use crate::{
+    ui::Sampler,
+    viewport::{ViewId, Viewport},
+};
 
 use super::{
-    code::CodeContext,
     container::Container,
     project::ProjectData,
     systems::{self, Schedule, Systems},
@@ -87,8 +85,6 @@ pub struct Instance {
     /// Own ECS world.
     world: World,
 
-    blink: Blink,
-
     /// Plugins initialization hub.
     hub: PluginsHub,
 
@@ -100,9 +96,6 @@ pub struct Instance {
 
     /// Instance rate.
     rate: ClockRate,
-
-    /// Codes execution context.
-    code: CodeContext,
 
     /// Flows to run on each tick.
     flows: Flows,
@@ -126,14 +119,12 @@ impl Instance {
     pub fn new() -> Self {
         let mut world = World::new();
         let hub = PluginsHub::new();
-        let blink = Blink::new();
 
         let rate = ClockRate::new();
         let fix = FrequencyTicker::new(20.hz(), rate.now());
         let limiter = FrequencyTicker::new(120.hz(), TimeStamp::start());
 
         let flows = Flows::new();
-        let code: CodeContext = CodeContext::new();
 
         let schedule = Schedule::new();
 
@@ -141,13 +132,11 @@ impl Instance {
 
         Instance {
             world,
-            blink,
             hub,
             fix,
             limiter,
             rate,
             flows,
-            code,
             systems_modification: 0,
             schedule,
             container: None,
@@ -172,7 +161,6 @@ impl Instance {
                 init_world(&mut self.world);
 
                 self.rate.reset();
-                self.code.reset();
 
                 for view in self.views.values_mut() {
                     view.work_graph = WorkGraph::new(HashMap::new(), HashSet::new()).unwrap();
@@ -182,7 +170,6 @@ impl Instance {
 
                 self.hub = PluginsHub::new();
                 self.container = Some(new.clone());
-                self.blink.reset();
                 self.fix = FrequencyTicker::new(20.hz(), self.rate.now());
                 self.limiter = FrequencyTicker::new(120.hz(), TimeStamp::start());
 
@@ -235,8 +222,6 @@ impl Instance {
             self.systems_modification = systems.modification();
         }
 
-        emit_code_start(&mut self.world);
-
         let step = self.rate.step(step.step);
 
         self.fix.with_ticks(step.step, |fix| {
@@ -250,8 +235,6 @@ impl Instance {
             self.schedule
                 .run(systems::Category::Var, &mut self.world, &mut self.hub);
         }
-
-        self.code.execute(&self.hub, data, &mut self.world);
 
         wake_flows(&mut self.world);
         self.flows.execute(&mut self.world);
@@ -356,7 +339,7 @@ impl Instance {
             });
 
             view.work_graph
-                .run(queue, &mut self.world, &mut self.hub)
+                .run(queue, &mut self.world, &mut self.hub.jobs)
                 .unwrap();
 
             if let Some(texture_id) = view.texture_id {
@@ -396,10 +379,8 @@ impl Instance {
                         if view.contains_cursors.insert(device_id) {
                             data.funnel.filter(
                                 &mut self.hub,
-                                &self.blink,
                                 &mut self.world,
                                 &Input::ViewInput {
-                                    id: view_id,
                                     input: ViewInput::CursorEntered { device_id },
                                 },
                             );
@@ -407,10 +388,8 @@ impl Instance {
 
                         data.funnel.filter(
                             &mut self.hub,
-                            &self.blink,
                             &mut self.world,
                             &Input::ViewInput {
-                                id: view_id,
                                 input: ViewInput::CursorMoved {
                                     device_id,
                                     x: gx,
@@ -422,10 +401,8 @@ impl Instance {
                         if view.contains_cursors.remove(&device_id) {
                             data.funnel.filter(
                                 &mut self.hub,
-                                &self.blink,
                                 &mut self.world,
                                 &Input::ViewInput {
-                                    id: view_id,
                                     input: ViewInput::CursorLeft { device_id },
                                 },
                             );
@@ -441,12 +418,8 @@ impl Instance {
                 {
                     data.funnel.filter(
                         &mut self.hub,
-                        &self.blink,
                         &mut self.world,
-                        &Input::ViewInput {
-                            id: view_id,
-                            input: event,
-                        },
+                        &Input::ViewInput { input: event },
                     );
 
                     return true;
@@ -461,12 +434,8 @@ impl Instance {
                 ViewInput::KeyboardInput { .. } if view.focused => {
                     data.funnel.filter(
                         &mut self.hub,
-                        &self.blink,
                         &mut self.world,
-                        &Input::ViewInput {
-                            id: view_id,
-                            input: event,
-                        },
+                        &Input::ViewInput { input: event },
                     );
 
                     return true;
@@ -606,8 +575,6 @@ impl Simulation {
 
 fn init_world(world: &mut World) {
     init_flows(world);
-    init_events(world);
-    init_codes(world);
     world.insert_resource(ClockStep {
         now: TimeStamp::start(),
         step: TimeSpan::ZERO,

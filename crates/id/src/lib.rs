@@ -1,18 +1,13 @@
 //! Strong id utility.
 
 mod seqgen;
-mod stid;
 mod uidgen;
 
 use std::{fmt, hash::Hash, num::NonZeroU64};
 
 use arcana_base_encoding::base58;
 
-pub use self::{
-    seqgen::SeqIdGen,
-    stid::{HasStid, Stid},
-    uidgen::TimeUidGen,
-};
+pub use self::{seqgen::SeqIdGen, uidgen::TimeUidGen};
 
 /// ID trait to be implemented by all id types.
 pub trait Id: fmt::Debug + Copy + Ord + Eq + Hash {
@@ -423,17 +418,5 @@ impl<T> GenUid for &mut T where T: GenUid {}
 
 #[doc(hidden)]
 pub mod for_macro {
-    pub use arcana_proc::{has_stid, stable_hash_tokens};
-
     pub use ::serde::{de, ser};
-}
-
-#[macro_export]
-macro_rules! has_stid {
-    ($name:ident = $value:literal) => {
-        $crate::for_macro::has_stid!($name = $value @ arcana_id);
-    };
-    ($name:ident) => {
-        $crate::for_macro::has_stid!($name @ arcana_id);
-    };
 }

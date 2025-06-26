@@ -1,14 +1,17 @@
 [package]
-name = "arcana-ecs"
+name = "arcana-metatype"
 edition.workspace = true
 authors.workspace = true
 readme.workspace = true
 license.workspace = true
 version.workspace = true
 
+[features]
+probe = ["dep:egui", "dep:egui-probe"]
+
 [dependencies]
 arcana-id = { path = "../id" }
 arcana-proc = { path = "../proc" }
 
-edict = { workspace = true, features = ["flow", "serde"] }
-gametime.workspace = true
+egui = { workspace = true, optional = true }
+egui-probe = { workspace = true, optional = true }

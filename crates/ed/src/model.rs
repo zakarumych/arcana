@@ -1,7 +1,9 @@
 use std::hash::Hash;
 
-pub use ::arcana::model::{Model, Value};
-use arcana::model::{default_value, ColorModel, ColorValue};
+use arcana::{
+    model::{ColorModel, ColorValue, Model, Value},
+    smol_str::SmolStr,
+};
 use egui::{Id, Response, Ui, Widget};
 use egui_probe::{DeleteMe, EguiProbe, Style};
 use hashbrown::HashMap;
@@ -426,7 +428,12 @@ impl EguiProbe for ValueProbe<'_> {
                 }
             },
             Some(&Model::String) => match self.value {
-                Value::String(value) => value.probe(ui, style),
+                Value::String(value) => {
+                    let mut s = String::from(value.as_str());
+                    let r = s.probe(ui, style);
+                    *value = s.into();
+                    r
+                }
                 Value::Bool(value) => {
                     let (mut r, s) = convert_to_string(ui, value, "bool");
                     if let Some(s) = s {
@@ -460,7 +467,7 @@ impl EguiProbe for ValueProbe<'_> {
                                 self.value.kind()
                             ));
                             if ui.small_button("Reset to empty string").clicked() {
-                                *self.value = Value::String(String::new());
+                                *self.value = Value::String(SmolStr::default());
                                 changed = true;
                             }
                             ui.strong("?");
@@ -851,7 +858,7 @@ impl EguiProbe for ValueProbe<'_> {
                     value,
                     ui,
                     style,
-                    || Box::new(default_value(model.as_deref())),
+                    || Box::new(model.as_ref().map_or(Value::Unit, |m| m.default_value())),
                     |value, ui, style| {
                         ValueProbe::new(model.as_deref(), value, self.local_id.with("some"))
                             .probe(ui, style)
@@ -887,7 +894,9 @@ impl EguiProbe for ValueProbe<'_> {
 
                     if let Some(len) = len {
                         if values.len() != len {
-                            values.resize_with(len, || default_value(elem.as_deref()));
+                            values.resize_with(len, || {
+                                elem.as_ref().map_or(Value::Unit, |e| e.default_value())
+                            });
                             changed = true;
                         }
                     }
@@ -937,7 +946,9 @@ impl EguiProbe for ValueProbe<'_> {
                             if ui.small_button("Reset to default array").clicked() {
                                 *self.value = Value::Array(
                                     (0..len.unwrap_or(0))
-                                        .map(|_| default_value(elem.as_deref()))
+                                        .map(|_| {
+                                            elem.as_ref().map_or(Value::Unit, |e| e.default_value())
+                                        })
                                         .collect(),
                                 );
                                 changed = true;
@@ -986,7 +997,7 @@ impl EguiProbe for ValueProbe<'_> {
                             if r.clicked() {
                                 let value = elem.default_value();
 
-                                values.insert(std::mem::take(&mut new_key.0), value);
+                                values.insert(std::mem::take(&mut new_key.0).into(), value);
                                 changed = true;
                             }
 
@@ -1038,7 +1049,9 @@ impl EguiProbe for ValueProbe<'_> {
                                         let r = ui.selectable_label(vname == *name, vname.as_str());
                                         if r.clicked() && vname != *name {
                                             *name = vname;
-                                            **value = default_value(vmodel.as_ref());
+                                            **value = vmodel
+                                                .as_ref()
+                                                .map_or(Value::Unit, |m| m.default_value());
                                             changed = true;
                                         }
                                     }
@@ -1050,7 +1063,8 @@ impl EguiProbe for ValueProbe<'_> {
                                     if ui.small_button("Reset to first variant").clicked() {
                                         let v = &variants[0];
                                         *name = v.0;
-                                        **value = default_value(v.1.as_ref());
+                                        **value =
+                                            v.1.as_ref().map_or(Value::Unit, |m| m.default_value());
                                         changed = true;
                                     }
                                     ui.strong("?");
@@ -1115,8 +1129,12 @@ impl EguiProbe for ValueProbe<'_> {
                             ));
                             if ui.small_button("Reset to first variant").clicked() {
                                 let v = &variants[0];
-                                *self.value =
-                                    Value::Enum(v.0, Box::new(default_value(v.1.as_ref())));
+                                *self.value = Value::Enum(
+                                    v.0,
+                                    Box::new(
+                                        v.1.as_ref().map_or(Value::Unit, |m| m.default_value()),
+                                    ),
+                                );
                                 changed = true;
                             }
                             ui.strong("?");
@@ -1239,7 +1257,7 @@ fn convert_to_string<T: ToString>(
     ui: &mut Ui,
     value: &T,
     kind: &str,
-) -> (Response, Option<String>) {
+) -> (Response, Option<SmolStr>) {
     let mut convert = false;
     let s = value.to_string();
 
@@ -1253,7 +1271,7 @@ fn convert_to_string<T: ToString>(
         })
         .response;
 
-    (r, if convert { Some(s) } else { None })
+    (r, if convert { Some(s.into()) } else { None })
 }
 
 fn local_model(ui: &mut Ui, local_id: Id, style: &Style) -> (Response, Model) {

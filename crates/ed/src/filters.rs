@@ -5,11 +5,10 @@ use arcana::{
     project::Project,
     Ident, Name,
 };
-use blink_alloc::Blink;
 use egui::{Color32, Ui, WidgetText};
 use hashbrown::HashMap;
 
-use super::{container::Container, project::ProjectData, ide::Ide};
+use super::{container::Container, ide::Ide, project::ProjectData};
 
 #[derive(Clone, Debug, Hash, serde::Serialize, serde::Deserialize)]
 struct Filter {
@@ -35,17 +34,11 @@ pub struct Funnel {
 }
 
 impl Funnel {
-    pub fn filter(
-        &self,
-        hub: &mut PluginsHub,
-        blink: &Blink,
-        world: &mut World,
-        input: &Input,
-    ) -> bool {
+    pub fn filter(&self, hub: &mut PluginsHub, world: &mut World, input: &Input) -> bool {
         for filter in self.filters.iter() {
             if filter.enabled {
                 if let Some(filter) = hub.filters.get_mut(&filter.id) {
-                    if filter.filter(blink, world, input) {
+                    if filter.filter(world, input) {
                         return true;
                     }
                 }

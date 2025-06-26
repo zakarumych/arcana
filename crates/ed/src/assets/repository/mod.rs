@@ -5,7 +5,7 @@ use hashbrown::HashMap;
 
 use crate::{
     assets::{AssetData, AssetId, Error, Loader},
-    io::blobs::{BlobId, Blobs},
+    blobs::{BlobId, Blobs},
 };
 
 /// Asset manager for the Arcana engine.
