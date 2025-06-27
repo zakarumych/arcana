@@ -1,8 +1,13 @@
 use std::{fmt, path::Path};
 
-use camino::Utf8Path;
+use camino::{Utf8Path, Utf8PathBuf};
 
-use crate::{dependency::Dependency, path::make_relative, plugin::Plugin, WORKSPACE_DIR_NAME};
+use crate::{
+    dependency::Dependency,
+    path::{make_relative, normalizing_join},
+    plugin::Plugin,
+    WORKSPACE_DIR_NAME,
+};
 
 struct ArcanaDependency<'a>(&'a Dependency);
 
@@ -19,29 +24,6 @@ impl fmt::Display for ArcanaDependency<'_> {
             }
             Dependency::Path { path } => {
                 write!(f, "{{ path = \"{}\" }}", path.as_str().escape_default())
-            }
-        }
-    }
-}
-
-/// Dependency on a plugin crate.
-struct PluginDependency<'a> {
-    dep: &'a Dependency,
-}
-
-impl fmt::Display for PluginDependency<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.dep {
-            Dependency::Crates(version) => write!(f, "\"{}\"", version),
-            Dependency::Git { git, branch } => {
-                if let Some(branch) = branch {
-                    write!(f, "{{ git = \"{git}\", branch = \"{branch}\" }}",)
-                } else {
-                    write!(f, "{{ git = \"{git}\" }}")
-                }
-            }
-            Dependency::Path { path } => {
-                write!(f, "{{ path = \"{}\" }}", path.as_str().escape_default(),)
             }
         }
     }
@@ -156,7 +138,20 @@ pub fn init_workspace(
         )
     })?;
 
-    let engine = engine.clone().make_relative_from(".", WORKSPACE_DIR_NAME)?;
+    let engine = engine
+        .clone()
+        .make_relative_from(root, WORKSPACE_DIR_NAME)?;
+
+    let ed = match engine.clone() {
+        Dependency::Path { path } => {
+            let ed_path = normalizing_join(path.into_std_path_buf(), Path::new("../ed")).unwrap();
+
+            Dependency::Path {
+                path: Utf8PathBuf::from_path_buf(ed_path).unwrap(),
+            }
+        }
+        engine => engine,
+    };
 
     #[rustfmt::skip]
     let cargo_toml = format!(
@@ -171,9 +166,11 @@ members = ["plugins", "ed", "game"]
 
 [workspace.dependencies]
 arcana = {arcana}
+arcana-ed = {arcana_ed}
 "#,
         gh_issue = github_autogen_issue_template("workspace Cargo.toml"),
         arcana = ArcanaDependency(&engine),
+        arcana_ed = ArcanaDependency(&ed),
     );
 
     let cargo_toml_path = workspace.join("Cargo.toml");
@@ -230,6 +227,7 @@ edition = "2021"
 
 [dependencies]
 arcana = {{ workspace = true }}
+arcana-ed = {{ workspace = true }}
 "#,
         gh_issue = github_autogen_issue_template("ed/Cargo.toml")
     );
@@ -243,7 +241,7 @@ arcana = {{ workspace = true }}
         cargo_toml.push_str(&format!(
             "{name} = {dependency}\n",
             name = &plugin.name,
-            dependency = PluginDependency { dep: &dep }
+            dependency = ArcanaDependency(&dep)
         ));
     }
 
@@ -281,7 +279,7 @@ fn main() {{
     let _exe_path = args.next().unwrap();
     let project_path = args.next().unwrap();
 
-    arcana::ed::run(&project_path);
+    arcana_ed::run(&project_path);
 }}
 "#,
         gh_issue = github_autogen_issue_template("ed/src/main.rs")
@@ -328,6 +326,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 arcana = {{ workspace = true }}
+arcana-ed = {{ workspace = true }}
 "#,
         gh_issue = github_autogen_issue_template("plugins/Cargo.toml")
     );
@@ -341,7 +340,7 @@ arcana = {{ workspace = true }}
         cargo_toml.push_str(&format!(
             "{name} = {dependency}\n",
             name = &plugin.name,
-            dependency = PluginDependency { dep: &dep }
+            dependency = ArcanaDependency(&dep)
         ));
     }
 
@@ -458,7 +457,7 @@ arcana = {{ workspace = true }}
         cargo_toml.push_str(&format!(
             "{name} = {dependency}\n",
             name = &plugin.name,
-            dependency = PluginDependency { dep: &dep }
+            dependency = ArcanaDependency(&dep)
         ));
     }
 

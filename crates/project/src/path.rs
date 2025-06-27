@@ -44,7 +44,6 @@ fn normalized_extend(result: &mut PathBuf, components: std::path::Components) ->
 
                 match tmp.components().next() {
                     Some(Component::Prefix(prefix)) => {
-                        result.clear();
                         result.push(Component::Prefix(prefix));
                     }
                     _ => {}

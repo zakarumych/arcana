@@ -20,6 +20,7 @@ members = [
     "crates/num2name",
     "crates/arcana",
     "crates/ed",
+    "crates/launcher",
 ]
 resolver = "2"
 
@@ -33,10 +34,7 @@ version = "0.1.0"
 [workspace.dependencies]
 ahash = { version = "0.8.12" }
 alkahest = { version = "0.3.0", features = ["derive"] }
-amity = { git = "https://github.com/zakarumych/amity.git", features = [
-    "parking_lot",
-] }
-# amity = { version = "0.4.1", features = ["parking_lot"] }
+amity = { git = "https://github.com/zakarumych/amity.git", features = ["flip-queue", "broad"] }
 approx = { version = "0.5.1" }
 arboard = { version = "3.5.0" }
 arc-swap = { version = "1.7.1" }
@@ -49,7 +47,7 @@ bincode = "2.0.1"
 bitflags = "2.9.1"
 bit-vec = { version = "0.8.0" }
 blink-alloc = { version = "0.3.1", features = ["nightly"] }
-bytemuck = { version = "1.23.1", features = ["derive", "min_const_generics"] }
+bytemuck = { version = "1.23.1", features = ["derive", "min_const_generics", "extern_crate_alloc"] }
 camino = "1.1.10"
 cargo_toml = "0.22.1"
 chrono = "0.4.41"
@@ -66,7 +64,7 @@ edict = { version = "1.0.0-rc7", path = "../edict" }
 edict-proc-lib = { version = "1.0.0-rc7", path = "../edict/proc-lib" }
 egui = { version = "0.31.1", features = ["bytemuck", "serde", "cint"] }
 egui_dnd = { version = "0.12.0" }
-egui_tiles = { version = "0.12.0" }
+egui_dock = { version = "0.16.0" }
 egui_file = { version = "0.22.1" }
 egui-phosphor = { version = "0.9.0" }
 egui-probe = { path = "../egui-probe" }
@@ -112,7 +110,7 @@ smol_str = "0.3.2"
 simba = { version = "0.9.0" }
 syn = "2.0.104"
 thiserror = "2.0.12"
-tiny-fn = { version = "0.1.7" }
+tiny-fn = { version = "0.1.9" }
 tokio = { version = "1.45.1", features = [
     "rt",
     "time",

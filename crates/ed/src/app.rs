@@ -9,7 +9,7 @@ use arcana::{
     Ident,
 };
 use egui::{Id, TopBottomPanel, WidgetText};
-use egui_tiles::{TileId, Tree, UiResponse};
+use egui_dock::{DockArea, DockState, Tree};
 use miette::IntoDiagnostic;
 use winit::{
     dpi,
@@ -65,9 +65,6 @@ pub struct App {
 
     ui: Ui,
 
-    /// Graphics queue.
-    queue: mev::Queue,
-
     assets: AssetRepository,
     main: Instance,
 
@@ -87,12 +84,15 @@ pub struct App {
 
     plugins: Plugins,
     systems: Systems,
+
+    /// Graphics queue.
+    queue: mev::Queue,
 }
 
 struct AppView {
     window: Window,
     surface: Option<mev::Surface>,
-    tab_tree: Tree<Tab>,
+    dock_state: DockState<Tab>,
     viewport: UiViewport,
 }
 
@@ -231,12 +231,18 @@ impl App {
                                 });
                                 ui.menu_button("View", |ui| {
                                     if ui.button("Plugins").clicked() {
-                                        focus_or_add_tab(&mut view.tab_tree, Tab::Plugins);
+                                        focus_or_add_tab(
+                                            view.dock_state.main_surface_mut(),
+                                            Tab::Plugins,
+                                        );
                                         ui.close_menu();
                                     }
 
                                     if ui.button("Systems").clicked() {
-                                        focus_or_add_tab(&mut view.tab_tree, Tab::Systems);
+                                        focus_or_add_tab(
+                                            view.dock_state.main_surface_mut(),
+                                            Tab::Systems,
+                                        );
                                         ui.close_menu();
                                     }
 
@@ -269,7 +275,8 @@ impl App {
                                 systems: &mut self.systems,
                             };
 
-                            view.tab_tree.ui(&mut model, ui);
+                            let dock_area = DockArea::new(&mut view.dock_state);
+                            dock_area.show_inside(ui, &mut model);
                         });
 
                         if self.show_preferences {
@@ -351,7 +358,7 @@ impl App {
                             .unwrap_or_default()
                             .to_logical(scale_factor),
                         size: view.window.inner_size().to_logical(scale_factor),
-                        tab_tree: Cow::Borrowed(&view.tab_tree),
+                        tab_tree: Cow::Borrowed(view.dock_state.main_surface()),
                         maximized: view.window.is_maximized(),
                     }
                 })
@@ -395,10 +402,13 @@ impl App {
                         window.scale_factor() as f32,
                     );
 
+                    let mut dock_state = DockState::new(Vec::new());
+                    *dock_state.main_surface_mut() = view.tab_tree.into_owned();
+
                     let view = AppView {
                         window,
                         surface: None,
-                        tab_tree: view.tab_tree.into_owned(),
+                        dock_state,
                         viewport,
                     };
 
@@ -427,7 +437,7 @@ impl App {
             self.views.push(AppView {
                 window,
                 surface: None,
-                tab_tree: Tree::empty(Id::new("Ed tabs").with(self.views.len())),
+                dock_state: DockState::new(Vec::new()),
                 viewport,
             });
         }
@@ -435,9 +445,11 @@ impl App {
 }
 
 fn focus_or_add_tab(tree: &mut Tree<Tab>, tab: Tab) {
-    if let Some(_id) = tree.tiles.find_pane(&tab) {
+    if let Some((node_index, tab_index)) = tree.find_tab(&tab) {
+        tree.set_focused_node(node_index);
+        tree.set_active_tab(node_index, tab_index);
     } else {
-        let _ = tree.tiles.insert_pane(tab);
+        let _ = tree.push_to_focused_leaf(tab);
     }
 }
 
@@ -469,8 +481,10 @@ struct AppModel<'a> {
     systems: &'a mut Systems,
 }
 
-impl egui_tiles::Behavior<Tab> for AppModel<'_> {
-    fn pane_ui(&mut self, ui: &mut egui::Ui, _id: TileId, tab: &mut Tab) -> UiResponse {
+impl egui_dock::widgets::TabViewer for AppModel<'_> {
+    type Tab = Tab;
+
+    fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Tab) {
         match *tab {
             // Tab::Assets => self.assets.show(ui, self.main),
             Tab::Plugins => self.plugins.show(self.project, self.data, ui),
@@ -501,10 +515,9 @@ impl egui_tiles::Behavior<Tab> for AppModel<'_> {
                 );
             }
         }
-        UiResponse::default()
     }
 
-    fn tab_title_for_pane(&mut self, tab: &Tab) -> WidgetText {
+    fn title(&mut self, tab: &mut Tab) -> WidgetText {
         match *tab {
             // Tab::Assets => "Assets".into(),
             Tab::Plugins => "Plugins".into(),
@@ -519,16 +532,16 @@ impl egui_tiles::Behavior<Tab> for AppModel<'_> {
         }
     }
 
-    // fn scroll_bars(&self, tab: &Tab) -> [bool; 2] {
-    //     match tab {
-    //         Tab::Assets => [false, false],
-    //         // Tab::Console => [false, false],
-    //         Tab::Systems => [false, false],
-    //         Tab::Codes => [false, false],
-    //         Tab::Rendering => [false, false],
-    //         _ => [true, true],
-    //     }
-    // }
+    fn scroll_bars(&self, tab: &Tab) -> [bool; 2] {
+        match tab {
+            // Tab::Assets => [false, false],
+            // Tab::Console => [false, false],
+            Tab::Systems => [false, false],
+            // Tab::Codes => [false, false],
+            // Tab::Rendering => [false, false],
+            _ => [true, true],
+        }
+    }
 }
 
 fn app_state_path(create: bool, name: &str) -> Option<PathBuf> {

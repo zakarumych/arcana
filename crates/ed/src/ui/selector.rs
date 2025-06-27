@@ -1,5 +1,9 @@
 use std::hash::Hash;
 
+tiny_fn::tiny_fn! {
+    struct GetText<K, E> = <'a> Fn(key: &'a K, element: &'a E) -> &'a str;
+}
+
 enum OnAbsent<K> {
     Clear,
     PickFirst,
@@ -9,7 +13,7 @@ enum OnAbsent<K> {
 /// Selector widget to pick element from available options.
 pub struct Selector<K, E> {
     id: egui::Id,
-    get_text: Box<dyn for<'a> Fn(&'a K, &'a E) -> &'a str>,
+    get_text: GetText<'static, K, E>,
     on_absent: OnAbsent<K>,
 }
 
@@ -20,7 +24,7 @@ impl<K, E> Selector<K, E> {
     {
         Selector {
             id: egui::Id::new(id_source),
-            get_text: Box::new(get_text),
+            get_text: GetText::new(get_text),
             on_absent: OnAbsent::Clear,
         }
     }
@@ -67,7 +71,7 @@ impl<K, E> Selector<K, E> {
                 },
             },
             Some((k, e)) => {
-                current_text = (self.get_text)(k, e);
+                current_text = self.get_text.call(k, e);
             }
         }
 
@@ -75,7 +79,7 @@ impl<K, E> Selector<K, E> {
             .selected_text(current_text)
             .show_ui(ui, |ui| {
                 for (k, e) in options {
-                    let text = (self.get_text)(k, e);
+                    let text = self.get_text.call(k, e);
                     if ui
                         .selectable_label(current.as_ref() == Some(k), text)
                         .clicked_by(egui::PointerButton::Primary)

@@ -35,7 +35,7 @@ pub struct MetaProbeInfo {
     ),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug)]
 pub struct MetaTypeInfo {
     /// Stable Type Identifier.
     pub stid: Stid,

@@ -6,6 +6,9 @@ readme.workspace = true
 license.workspace = true
 version.workspace = true
 
+[lib]
+crate-type = ["dylib"]
+
 [dependencies]
 arcana = { path = "../arcana" }
 
@@ -37,7 +40,7 @@ toml.workspace = true
 cursor-icon.workspace = true
 egui.workspace = true
 egui_dnd.workspace = true
-egui_tiles = { workspace = true, features = ["serde"] }
+egui_dock = { workspace = true, features = ["serde"] }
 egui_file.workspace = true
 egui-phosphor.workspace = true
 egui-probe = { workspace = true, features = ["derive"] }
@@ -58,12 +61,12 @@ libloading.workspace = true
 
 # Other stuff
 ahash.workspace = true
-amity = { workspace = true, features = ["flip-queue", "broad"] }
+amity.workspace = true
 arc-swap.workspace = true
 base64.workspace = true
 blink-alloc.workspace = true
 bit-vec.workspace = true
-bytemuck = { workspace = true, features = ["extern_crate_alloc"] }
+bytemuck.workspace = true
 const-random.workspace = true
 flume.workspace = true
 futures.workspace = true
