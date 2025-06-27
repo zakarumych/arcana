@@ -56,12 +56,15 @@ enum Tab {
 pub struct App {
     should_quit: bool,
 
+    /// Graphics queue.
+    /// It should be placed higher in field order
+    /// to ensure that all processing is stopped and resources are released
+    /// before views are dropped where surfaces require acquired images to be freed.
+    queue: mev::Queue,
+
     // Project main state.
     project: Project,
     data: ProjectData,
-
-    /// App views correspond to windows.
-    views: Vec<AppView>,
 
     ui: Ui,
 
@@ -85,8 +88,8 @@ pub struct App {
     plugins: Plugins,
     systems: Systems,
 
-    /// Graphics queue.
-    queue: mev::Queue,
+    /// App views correspond to windows.
+    views: Vec<AppView>,
 }
 
 struct AppView {
@@ -94,6 +97,14 @@ struct AppView {
     surface: Option<mev::Surface>,
     dock_state: DockState<Tab>,
     viewport: UiViewport,
+}
+
+impl Drop for AppView {
+    fn drop(&mut self) {
+        if let Some(surface) = self.surface.take() {
+            drop(surface);
+        }
+    }
 }
 
 impl App {
