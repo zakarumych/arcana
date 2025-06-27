@@ -190,6 +190,15 @@ impl App {
     }
 
     pub fn tick(&mut self, step: ClockStep) {
+        self.plugins.tick(&mut self.project, &mut self.data);
+
+        if let Some(c) = self.plugins.take_updated() {
+            self.toolbox
+                .update_container(&mut self.project, &mut self.data, &c);
+            self.systems.update_container(&mut self.data, &c);
+            self.main.update_container(&c);
+        }
+
         self.toolbox
             .tick(&mut self.project, &mut self.data, &mut self.main);
 

@@ -176,7 +176,7 @@ impl Plugins {
 
                 let r = ui.button(egui_phosphor::regular::FOLDER_OPEN);
                 if r.clicked() {
-                    let mut dialog = FileDialog::select_folder(None);
+                    let mut dialog = FileDialog::select_folder(std::env::current_dir().ok());
                     dialog.open();
                     self.dialog = Some(PluginsDialog::FindPlugin(dialog));
                 } else {

@@ -143,6 +143,18 @@ impl Toolbox {
         }
     }
 
+    pub fn update_container(
+        &mut self,
+        project: &mut Project,
+        data: &mut ProjectData,
+        container: &Container,
+    ) {
+        self.container = container.clone();
+        for tool in self.tools.values_mut() {
+            tool.update_container(project, data, container);
+        }
+    }
+
     pub fn tick(&mut self, project: &mut Project, data: &mut ProjectData, instance: &mut Instance) {
         for tool in self.tools.values_mut() {
             tool.tick(project, data, instance);

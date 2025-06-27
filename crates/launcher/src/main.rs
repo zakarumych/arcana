@@ -150,9 +150,10 @@ impl eframe::App for App {
 
                 let r = ui.button("Add Engine path");
                 if r.clicked() {
-                    let mut dialog: FileDialog = FileDialog::select_folder(None)
-                        .title("Add engine")
-                        .show_new_folder(false);
+                    let mut dialog: FileDialog =
+                        FileDialog::select_folder(std::env::current_dir().ok())
+                            .title("Add engine")
+                            .show_new_folder(false);
                     dialog.open();
                     self.dialog = Some(AppDialog::AddEngine(dialog));
 
@@ -598,7 +599,8 @@ impl NewProject {
                             let r = ui.small_button(egui_phosphor::regular::DOTS_THREE);
                             if r.clicked() {
                                 let mut dialog =
-                                    FileDialog::select_folder(None).title("Select project path");
+                                    FileDialog::select_folder(std::env::current_dir().ok())
+                                        .title("Select project path");
                                 dialog.open();
                                 self.dialog = Some(NewProjectDialog::PickProjectPath(dialog));
                             }
@@ -628,7 +630,7 @@ impl NewProject {
 
                             let r = ui.small_button(egui_phosphor::regular::DOTS_THREE);
                             if r.clicked() {
-                                let mut dialog = FileDialog::select_folder(None)
+                                let mut dialog = FileDialog::select_folder(self.path.clone())
                                     .title("Select engine path")
                                     .show_new_folder(false);
                                 dialog.open();

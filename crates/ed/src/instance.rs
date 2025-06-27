@@ -145,7 +145,7 @@ impl Instance {
         }
     }
 
-    pub fn update_plugins(&mut self, new: &Container) {
+    pub fn update_container(&mut self, new: &Container) {
         tracing::info!("Updating plugins container");
 
         match self.container.take() {

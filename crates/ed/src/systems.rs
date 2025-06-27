@@ -140,7 +140,7 @@ impl Systems {
         }
     }
 
-    pub fn update_plugins(&mut self, data: &mut ProjectData, container: &Container) {
+    pub fn update_container(&mut self, data: &mut ProjectData, container: &Container) {
         let mut all_systems = HashMap::new();
 
         for (name, plugin) in container.plugins() {
