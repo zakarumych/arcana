@@ -1,6 +1,8 @@
 use futures::future::BoxFuture;
 
-use super::{error::Error, AssetId};
+use crate::AssetError;
+
+use super::AssetId;
 
 /// Asset data loaded from [`Store`].
 pub struct AssetData {
@@ -23,7 +25,7 @@ pub trait Loader: Send + Sync + 'static {
     /// In which case it is recommended to try other loaders.
     ///
     /// [`NotFound`]: crate::assets::NotFound
-    fn load<'a>(&'a self, id: AssetId) -> BoxFuture<'a, Result<AssetData, Error>>;
+    fn load<'a>(&'a self, id: AssetId) -> BoxFuture<'a, Result<AssetData, AssetError>>;
 
     /// Update asset data if newer is available.
     /// Use version from last returned [`AssetData`] for this asset.
@@ -33,5 +35,5 @@ pub trait Loader: Send + Sync + 'static {
         &'a self,
         id: AssetId,
         version: u64,
-    ) -> BoxFuture<'a, Result<Option<AssetData>, Error>>;
+    ) -> BoxFuture<'a, Result<Option<AssetData>, AssetError>>;
 }

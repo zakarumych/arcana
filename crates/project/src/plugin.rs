@@ -1,8 +1,9 @@
-use std::path::Path;
+use std::path::{absolute, Path};
 
-use camino::Utf8PathBuf;
+use arcana_error::Error;
+use camino::{absolute_utf8, Utf8PathBuf};
 
-use crate::{dependency::Dependency, real_path, Ident, CARGO_TOML_NAME};
+use crate::{dependency::Dependency, Ident, CARGO_TOML_NAME};
 
 /// Contains information about plugin.
 ///
@@ -32,17 +33,17 @@ pub struct Plugin {
 
 impl Plugin {
     /// Create plugin from dependency.
-    pub fn from_dependency(name: Ident, dependency: Dependency) -> miette::Result<Self> {
+    pub fn from_dependency(name: Ident, dependency: Dependency) -> Result<Self, Error> {
         match dependency {
             Dependency::Crates(version) => Ok(Plugin::released(name, version)),
             Dependency::Git { git, branch } => Ok(Plugin::from_git(name, git, branch)),
             Dependency::Path { path } => {
                 let plugin = Plugin::open_local(path)?;
                 if plugin.name != name {
-                    miette::bail!(
+                    return Err(Error::msg(format!(
                         "Plugin name mismatch: expected '{name}', found '{}'",
                         plugin.name
-                    );
+                    )));
                 }
                 Ok(plugin)
             }
@@ -68,9 +69,12 @@ impl Plugin {
     }
 
     /// Open local plugin from path.
-    pub fn open_local(path: Utf8PathBuf) -> miette::Result<Self> {
-        let Some(real_path) = real_path(path.as_std_path()) else {
-            miette::bail!("Failed to resolve plugin path: {}", path);
+    pub fn open_local(path: Utf8PathBuf) -> Result<Self, Error> {
+        let Ok(real_path) = absolute_utf8(&path) else {
+            return Err(Error::msg(format!(
+                "Failed to resolve plugin path: {}",
+                path
+            )));
         };
 
         let cargo_toml_path = real_path.join(CARGO_TOML_NAME);
@@ -78,23 +82,25 @@ impl Plugin {
         let manifest = match cargo_toml::Manifest::from_path(cargo_toml_path) {
             Ok(manifest) => manifest,
             Err(err) => {
-                miette::bail!("Failed to read plugin manifest '{path}/{CARGO_TOML_NAME}': {err:?}",);
+                return Err(Error::msg(format!(
+                    "Failed to read plugin manifest '{path}/{CARGO_TOML_NAME}': {err:?}"
+                )));
             }
         };
 
         let package = match manifest.package {
             Some(package) => package,
             None => {
-                miette::bail!(
+                return Err(Error::msg(format!(
                     "Plugin manifest '{path}/{CARGO_TOML_NAME}' does not contain package section",
-                );
+                )));
             }
         };
 
         let Ok(name) = Ident::from_string(package.name) else {
-            miette::bail!(
+            return Err(Error::msg(format!(
                 "Plugin manifest '{path}/{CARGO_TOML_NAME}' package name is not valid identifier",
-            );
+            )));
         };
 
         let description = match package.description {

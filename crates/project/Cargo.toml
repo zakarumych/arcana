@@ -9,14 +9,15 @@ description = "Crate to handle Arcana project files"
 
 [dependencies]
 arcana-intern = { path = "../intern" }
+arcana-error = { path = "../error" }
 
 ahash.workspace = true
 camino = { workspace = true, features = ["serde1"] }
 cargo_toml.workspace = true
 dirs.workspace = true
 hashbrown.workspace = true
-miette.workspace = true
 parking_lot.workspace = true
 serde.workspace = true
 toml.workspace = true
 tracing.workspace = true
+thiserror.workspace = true

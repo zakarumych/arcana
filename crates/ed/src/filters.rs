@@ -2,13 +2,14 @@ use arcana::{
     ecs::world::World,
     input::{FilterId, Input},
     plugin::{Location, PluginsHub},
-    project::Project,
     Ident, Name,
 };
 use egui::{Color32, Ui, WidgetText};
 use hashbrown::HashMap;
 
-use super::{container::Container, ide::Ide, project::ProjectData};
+use crate::project::Project;
+
+use super::{container::Container, ide::Ide};
 
 #[derive(Clone, Debug, Hash, serde::Serialize, serde::Deserialize)]
 struct Filter {
@@ -56,13 +57,7 @@ impl Filters {
         }
     }
 
-    pub fn show(
-        &mut self,
-        project: &Project,
-        data: &mut ProjectData,
-        ide: Option<&dyn Ide>,
-        ui: &mut Ui,
-    ) {
+    pub fn show(&mut self, project: &mut Project, ide: Option<&dyn Ide>, ui: &mut Ui) {
         let mut sync = false;
         let mut add_filter = None;
 
@@ -83,14 +78,14 @@ impl Filters {
 
         if let Some(idx) = add_filter {
             let filter = self.available.remove(idx);
-            data.funnel.filters.push(filter);
+            project.data.funnel.filters.push(filter);
             sync = true;
         }
 
         let mut toggle_filter = None;
         let mut remove_filter = None;
         let r = egui_dnd::dnd(ui, "filter-list").show(
-            data.funnel.filters.iter(),
+            project.data.funnel.filters.iter(),
             |ui, filter, handle, state| {
                 let mut heading = WidgetText::from(filter.name.as_str());
                 let mut tooltip = "";
@@ -166,27 +161,27 @@ impl Filters {
         );
 
         if let Some(idx) = toggle_filter {
-            data.funnel.filters[idx].enabled = !data.funnel.filters[idx].enabled;
+            project.data.funnel.filters[idx].enabled = !project.data.funnel.filters[idx].enabled;
             sync = true;
         }
 
         if let Some(idx) = remove_filter {
-            let info = data.funnel.filters.remove(idx);
+            let info = project.data.funnel.filters.remove(idx);
             self.available.push(info);
             sync = true;
         }
 
         if let Some(update) = r.update {
-            egui_dnd::utils::shift_vec(update.from, update.to, &mut data.funnel.filters);
+            egui_dnd::utils::shift_vec(update.from, update.to, &mut project.data.funnel.filters);
             sync = true;
         }
 
         if sync {
-            try_log_err!(data.sync(&project));
+            try_log_err!(project.sync());
         }
     }
 
-    pub fn update_plugins(&mut self, data: &mut ProjectData, container: &Container) {
+    pub fn update_plugins(&mut self, project: &mut Project, container: &Container) {
         let mut all_filters = HashMap::new();
 
         for (name, plugin) in container.plugins() {
@@ -195,7 +190,7 @@ impl Filters {
             }
         }
 
-        for filter in data.funnel.filters.iter_mut() {
+        for filter in project.data.funnel.filters.iter_mut() {
             if let Some((_, info)) = all_filters.remove(&filter.id) {
                 filter.location = info.location;
                 filter.active = true;

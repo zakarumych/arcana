@@ -1,12 +1,13 @@
-use std::{fmt, path::Path};
+use std::{
+    fmt, io,
+    path::{absolute, Path, PathBuf},
+};
 
+use arcana_error::Error;
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::Deserializer;
 
-use crate::{
-    path::{make_relative, normalizing_join},
-    real_path,
-};
+use crate::path::make_relative;
 
 /// Project dependency.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -43,7 +44,7 @@ impl Dependency {
     ///
     /// Current `path` and `base` must be both relative to the same base,
     /// or both be absolute.
-    pub fn make_relative<P>(self, base: P) -> miette::Result<Self>
+    pub fn make_relative<P>(self, base: P) -> Result<Self, Error>
     where
         P: AsRef<Path>,
     {
@@ -54,13 +55,16 @@ impl Dependency {
                 let tmp;
 
                 let path = if path.is_relative() {
-                    match real_path(path.as_std_path()) {
-                        Some(path) => {
+                    match absolute(path.as_std_path()) {
+                        Ok(path) => {
                             tmp = path;
                             &tmp
                         }
-                        None => {
-                            miette::bail!("Failed to resolve dependency path: {}", path);
+                        Err(err) => {
+                            return Err(Error::msg(format!(
+                                "Failed to resolve dependency path '{}': {}",
+                                path, err
+                            )));
                         }
                     }
                 } else {
@@ -69,7 +73,10 @@ impl Dependency {
 
                 let rel_path = make_relative(path, base);
                 let Ok(utf8_path) = Utf8PathBuf::from_path_buf(rel_path) else {
-                    miette::bail!("Dependency path is not UTF-8");
+                    return Err(Error::msg(format!(
+                        "Dependency path is not UTF-8: {:?}",
+                        path
+                    )));
                 };
                 Ok(Dependency::Path { path: utf8_path })
             }
@@ -79,7 +86,7 @@ impl Dependency {
 
     /// Make path dependency relative to the given base path.
     /// Dependency path if relative - relative to specified `old_base`.
-    pub fn make_relative_from<P1, P2>(self, old_base: P1, new_base: P2) -> miette::Result<Self>
+    pub fn make_relative_from<P1, P2>(self, old_base: P1, new_base: P2) -> Result<Self, Error>
     where
         P1: AsRef<Path>,
         P2: AsRef<Path>,
@@ -92,13 +99,16 @@ impl Dependency {
                 let tmp;
 
                 let path = if path.is_relative() {
-                    match normalizing_join(old_base.to_owned(), path.as_std_path()) {
-                        None => {
-                            miette::bail!("Failed to resolve dependency path: {}", path);
-                        }
-                        Some(path) => {
+                    match absolute(old_base.join(path.as_std_path())) {
+                        Ok(path) => {
                             tmp = path;
                             &tmp
+                        }
+                        Err(err) => {
+                            return Err(Error::msg(format!(
+                                "Failed to resolve dependency path '{}': {}",
+                                path, err
+                            )));
                         }
                     }
                 } else {
@@ -107,7 +117,10 @@ impl Dependency {
 
                 let rel_path = make_relative(path, new_base);
                 let Ok(utf8_path) = Utf8PathBuf::from_path_buf(rel_path) else {
-                    miette::bail!("Dependency path is not UTF-8");
+                    return Err(Error::msg(format!(
+                        "Dependency path is not UTF-8: {:?}",
+                        path
+                    )));
                 };
                 Ok(Dependency::Path { path: utf8_path })
             }

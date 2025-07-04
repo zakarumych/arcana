@@ -2,7 +2,7 @@
 
 use std::{
     collections::VecDeque,
-    path::{Path, PathBuf},
+    path::{absolute, Path, PathBuf},
     time::SystemTime,
 };
 
@@ -13,7 +13,6 @@ use arcana::{
     },
     id::TimeUidGen,
     plugin::PluginsHub,
-    project::real_path,
     Ident,
 };
 use hashbrown::{HashMap, HashSet};
@@ -141,7 +140,7 @@ pub struct Store {
 
 impl Store {
     pub fn new(base: &Path, meta: StoreInfo) -> Result<Self, OpenStoreError> {
-        let base = real_path(base).ok_or_else(|| OpenStoreError::PathError {
+        let base = absolute(base).map_err(|_| OpenStoreError::PathError {
             path: base.to_owned(),
         })?;
 

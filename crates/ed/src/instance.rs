@@ -22,14 +22,14 @@ use hashbrown::{HashMap, HashSet};
 use winit::{event::WindowEvent, window::WindowId};
 
 use crate::{
+    project::Project,
     ui::Sampler,
     viewport::{ViewId, Viewport},
 };
 
 use super::{
     container::Container,
-    project::ProjectData,
-    systems::{self, Schedule, Systems},
+    systems::{self, Schedule},
     ui::{Selector, UserTextures},
 };
 
@@ -216,8 +216,10 @@ impl Instance {
         &mut self.rate
     }
 
-    pub fn tick(&mut self, data: &ProjectData, step: ClockStep) {
-        data.systems
+    pub fn tick(&mut self, project: &Project, step: ClockStep) {
+        project
+            .data
+            .systems
             .update_schedule(self.systems_modification, &mut self.schedule);
 
         let step = self.rate.step(step.step);
@@ -245,7 +247,7 @@ impl Instance {
     pub fn render(
         &mut self,
         queue: &mut mev::Queue,
-        data: &ProjectData,
+        project: &Project,
         textures: &mut UserTextures,
     ) -> Result<(), mev::SurfaceError> {
         #[cold]
@@ -282,7 +284,7 @@ impl Instance {
                 return Ok(());
             };
 
-            let Some(render_graph) = data.render_graphs.get(&renderer.graph) else {
+            let Some(render_graph) = project.data.render_graphs.get(&renderer.graph) else {
                 // View render graph is not found
                 return Ok(());
             };
@@ -350,7 +352,7 @@ impl Instance {
 
     pub fn handle_event(
         &mut self,
-        data: &ProjectData,
+        project: &Project,
         window: WindowId,
         event: &WindowEvent,
     ) -> bool {
@@ -358,7 +360,7 @@ impl Instance {
             return false;
         };
 
-        for (&view_id, view) in self.views.iter_mut() {
+        for (&_view_id, view) in self.views.iter_mut() {
             if view.window != Some(window) {
                 continue;
             }
@@ -375,7 +377,7 @@ impl Instance {
 
                     if view.rect.contains(egui::pos2(px, py)) {
                         if view.contains_cursors.insert(device_id) {
-                            data.funnel.filter(
+                            project.data.funnel.filter(
                                 &mut self.hub,
                                 &mut self.world,
                                 &Input::ViewInput {
@@ -384,7 +386,7 @@ impl Instance {
                             );
                         }
 
-                        data.funnel.filter(
+                        project.data.funnel.filter(
                             &mut self.hub,
                             &mut self.world,
                             &Input::ViewInput {
@@ -397,7 +399,7 @@ impl Instance {
                         );
                     } else {
                         if view.contains_cursors.remove(&device_id) {
-                            data.funnel.filter(
+                            project.data.funnel.filter(
                                 &mut self.hub,
                                 &mut self.world,
                                 &Input::ViewInput {
@@ -414,7 +416,7 @@ impl Instance {
                 | ViewInput::MouseWheel { device_id, .. }
                     if view.focused && view.contains_cursors.contains(&device_id) =>
                 {
-                    data.funnel.filter(
+                    project.data.funnel.filter(
                         &mut self.hub,
                         &mut self.world,
                         &Input::ViewInput { input: event },
@@ -430,7 +432,7 @@ impl Instance {
                 }
 
                 ViewInput::KeyboardInput { .. } if view.focused => {
-                    data.funnel.filter(
+                    project.data.funnel.filter(
                         &mut self.hub,
                         &mut self.world,
                         &Input::ViewInput { input: event },

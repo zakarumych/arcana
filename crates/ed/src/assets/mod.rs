@@ -1,6 +1,6 @@
 use std::{
     future::Future,
-    path::Path,
+    path::{absolute, Path},
     pin::Pin,
     task::{Context, Poll},
 };
@@ -8,16 +8,12 @@ use std::{
 use arcana::{
     assets::{
         import::{EmptyConfig, ImporterDesc, ImporterId},
-        AssetData, AssetId, Error, Loader, NotFound,
+        AssetData, AssetId, Loader, NotFound,
     },
     metatype::Meta,
-    project::real_path,
     Ident,
 };
 use egui::Ui;
-
-mod repository;
-mod store;
 
 use egui_file::FileDialog;
 use futures::future::BoxFuture;
@@ -29,51 +25,7 @@ use crate::task::{TaskQueue, WakerArray};
 
 use super::instance::Instance;
 
-struct AssetDataRequest {
-    wakers: WakerArray,
-    data: Option<AssetData>,
-}
-
-impl Future for AssetDataRequest {
-    type Output = AssetData;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
-        self.get_mut().wakers.register(cx.waker());
-        Poll::Pending
-    }
-}
-
-pub struct AssetsLoader {
-    task_queue: TaskQueue<AssetRequest, Result<Option<AssetData>, Error>>,
-}
-
-enum AssetRequest {
-    Load { id: AssetId },
-    Update { id: AssetId, version: u64 },
-}
-
-impl Loader for AssetsLoader {
-    fn load<'a>(&'a self, id: AssetId) -> BoxFuture<'a, Result<AssetData, Error>> {
-        let response = self.task_queue.push(AssetRequest::Load { id });
-        Box::pin(async move {
-            match response.await {
-                Ok(None) => Err(Error::new(NotFound)), // Shouldn't happen for Load requests.
-                Ok(Some(data)) => Ok(data),
-                Err(e) => Err(e),
-            }
-        })
-    }
-
-    fn update<'a>(
-        &'a self,
-        id: AssetId,
-        version: u64,
-    ) -> BoxFuture<'a, Result<Option<AssetData>, Error>> {
-        let response = self.task_queue.push(AssetRequest::Update { id, version });
-        Box::pin(response)
-    }
-}
-
+mod loader;
 struct Lookup {
     // Type of asset to look for.
     target: String,
@@ -154,7 +106,7 @@ impl AssetRepository {
                     egui_file::State::Selected => {
                         let source = dialog.path().unwrap();
 
-                        let res = real_path(source).and_then(|path| {
+                        let res = absolute(source).ok().and_then(|path| {
                             let url = Url::from_file_path(&path).ok()?;
                             Some((path, url))
                         });

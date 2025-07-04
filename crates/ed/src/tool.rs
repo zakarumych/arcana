@@ -1,18 +1,12 @@
-use std::num::NonZeroU64;
-
 use arcana::{
     id::{make_uid, TimeUidGen},
-    ident,
     model::Value,
-    project::Project,
     Ident,
 };
 use egui::Ui;
 use hashbrown::HashMap;
 
-use crate::{ide::Ide, instance::Instance, plugins::Plugins, systems::Systems};
-
-use super::{container::Container, project::ProjectData};
+use crate::{container::Container, ide::Ide, instance::Instance, project::Project};
 
 make_uid! {
     /// ID of opened tool.
@@ -23,8 +17,8 @@ pub trait Tool {
     /// Called regularly to update tool state.
     ///
     /// Tool is allowed to modify `project`, `data` and `instance` as it needs.
-    fn tick(&mut self, project: &mut Project, data: &mut ProjectData, instance: &mut Instance) {
-        let _ = (project, data, instance);
+    fn tick(&mut self, project: &mut Project, instance: &mut Instance) {
+        let _ = (project, instance);
     }
 
     /// Shows the tool UI.
@@ -33,7 +27,6 @@ pub trait Tool {
     fn show(
         &mut self,
         project: &mut Project,
-        data: &mut ProjectData,
         ide: Option<&dyn Ide>,
         instance: &mut Instance,
         ui: &mut Ui,
@@ -51,13 +44,8 @@ pub trait Tool {
     }
 
     /// Updates the tool state with new container instance.
-    fn update_plugins(
-        &mut self,
-        project: &mut Project,
-        data: &mut ProjectData,
-        container: &Container,
-    ) {
-        let _ = (project, data, container);
+    fn update_plugins(&mut self, project: &mut Project, container: &Container) {
+        let _ = (project, container);
     }
 }
 
@@ -79,37 +67,32 @@ impl BoxedTool {
         }
     }
 
-    fn update_container(
-        &mut self,
-        project: &mut Project,
-        data: &mut ProjectData,
-        container: &Container,
-    ) {
+    fn update_container(&mut self, project: &mut Project, container: &Container) {
         // This is a tool from plugin. Reload it.
         self.save();
         self.tool = None;
 
         if let Some(plugin) = container.get_plugin(self.plugin) {
+            let _ = (project, plugin);
             todo!()
         }
     }
 
-    fn tick(&mut self, project: &mut Project, data: &mut ProjectData, instance: &mut Instance) {
+    fn tick(&mut self, project: &mut Project, instance: &mut Instance) {
         if let Some(tool) = &mut self.tool {
-            tool.tick(project, data, instance);
+            tool.tick(project, instance);
         }
     }
 
     fn show(
         &mut self,
         project: &mut Project,
-        data: &mut ProjectData,
         ide: Option<&dyn Ide>,
         instance: &mut Instance,
         ui: &mut Ui,
     ) {
         if let Some(tool) = &mut self.tool {
-            tool.show(project, data, ide, instance, ui);
+            tool.show(project, ide, instance, ui);
         } else {
             ui.horizontal_centered(|ui| {
                 ui.label(format!("Tool {} is not loaded", self.name));
@@ -143,21 +126,16 @@ impl Toolbox {
         }
     }
 
-    pub fn update_container(
-        &mut self,
-        project: &mut Project,
-        data: &mut ProjectData,
-        container: &Container,
-    ) {
+    pub fn update_container(&mut self, project: &mut Project, container: &Container) {
         self.container = container.clone();
         for tool in self.tools.values_mut() {
-            tool.update_container(project, data, container);
+            tool.update_container(project, container);
         }
     }
 
-    pub fn tick(&mut self, project: &mut Project, data: &mut ProjectData, instance: &mut Instance) {
+    pub fn tick(&mut self, project: &mut Project, instance: &mut Instance) {
         for tool in self.tools.values_mut() {
-            tool.tick(project, data, instance);
+            tool.tick(project, instance);
         }
     }
 
@@ -180,14 +158,13 @@ impl Toolbox {
         &mut self,
         id: ToolId,
         project: &mut Project,
-        data: &mut ProjectData,
         ide: Option<&dyn Ide>,
         instance: &mut Instance,
         ui: &mut Ui,
     ) {
         if let Some(tool) = self.tools.get_mut(&id) {
             if let Some(tool) = &mut tool.tool {
-                tool.show(project, data, ide, instance, ui);
+                tool.show(project, ide, instance, ui);
             } else {
                 ui.horizontal_centered(|ui| {
                     ui.label(format!("Tool {} is not loaded", tool.name));

@@ -33,22 +33,77 @@
 mod asset;
 mod assets;
 mod build;
-mod error;
-// mod id;
 pub mod import;
 mod loader;
 
+use std::fmt;
+
+use arcana_error::Error;
 use arcana_id::make_uid;
 
 pub use self::{
     asset::Asset,
     assets::Assets,
     build::{AssetBuildContext, AssetBuilder},
-    error::{Error, NotFound},
     loader::{AssetData, Loader},
 };
 
 make_uid! {
     /// A 64-bit ID used to identify an asset.
     pub AssetId;
+}
+
+/// Error type that is returned when an asset is not found.
+#[derive(Clone, Copy, Debug, thiserror::Error)]
+#[error("Asset not found")]
+pub struct NotFound;
+
+#[derive(Clone)]
+#[repr(transparent)]
+pub struct AssetError(std::sync::Arc<dyn std::error::Error + Send + Sync>);
+
+impl fmt::Debug for AssetError {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&*self.0, f)
+    }
+}
+
+impl fmt::Display for AssetError {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&*self.0, f)
+    }
+}
+
+impl std::error::Error for AssetError {
+    #[inline]
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&*self.0)
+    }
+}
+
+impl AssetError {
+    #[inline]
+    pub fn new<E>(error: E) -> Self
+    where
+        E: std::error::Error + Send + Sync + 'static,
+    {
+        AssetError(std::sync::Arc::new(error))
+    }
+
+    #[inline]
+    pub fn is<T>(&self) -> bool
+    where
+        T: std::error::Error + 'static,
+    {
+        self.0.is::<T>()
+    }
+}
+
+impl From<AssetError> for Error {
+    #[inline]
+    fn from(error: AssetError) -> Self {
+        Error::from_arc_error(error.0)
+    }
 }

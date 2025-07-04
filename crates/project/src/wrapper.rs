@@ -7,6 +7,8 @@ use std::{
     process::{Child, Command},
 };
 
+use arcana_error::Error;
+
 use crate::{path::make_relative, WORKSPACE_DIR_NAME};
 
 use super::Dependency;
@@ -87,7 +89,7 @@ pub fn build_game(root: &Path, profile: Profile) -> Command {
 /// Spawn async plugins building process.
 /// Returns BuildProcess that can be used to determine expected shared lib artefact
 /// and poll build completion.
-pub fn build_plugins(root: &Path, profile: Profile) -> miette::Result<BuildProcess> {
+pub fn build_plugins(root: &Path, profile: Profile) -> Result<BuildProcess, Error> {
     let workspace = root.join(WORKSPACE_DIR_NAME);
 
     let mut cmd = Command::new("cargo");
@@ -102,10 +104,10 @@ pub fn build_plugins(root: &Path, profile: Profile) -> miette::Result<BuildProce
         .current_dir(&workspace)
         .spawn()
         .map_err(|err| {
-            miette::miette!(
+            Error::msg(format!(
                 "Failed to start building plugins '{}'. {err:?}",
                 workspace.display()
-            )
+            ))
         })?;
 
     let artifact = plugins_lib_path(&workspace, profile);
@@ -140,18 +142,20 @@ impl BuildProcess {
     /// Returns error if process exit unsuccessfully.
     /// Returns Ok(true) if process is complete.
     /// Returns Ok(false) if process is still running.
-    pub fn finished(&mut self) -> miette::Result<bool> {
+    pub fn finished(&mut self) -> Result<bool, Error> {
         match self.child.try_wait() {
             Err(err) => {
-                miette::bail!("Failed to wait for build process to finish. {err:?}",);
+                return Err(Error::msg(format!(
+                    "Failed to wait for build process to finish. {err:?}"
+                )));
             }
             Ok(None) => Ok(false),
             Ok(Some(status)) if status.success() => Ok(true),
             Ok(Some(status)) => {
-                miette::bail!(
+                return Err(Error::msg(format!(
                     "Build process failed with status '{status}'.",
                     status = status
-                );
+                )));
             }
         }
     }

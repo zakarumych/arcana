@@ -2,15 +2,13 @@ use std::{borrow::Cow, hash::Hash, path::PathBuf};
 
 use arboard::Clipboard;
 use arcana::{
+    error::{error, fail, Error, UnifyError},
     gametime::{Clock, ClockStep, FrequencyNumExt, FrequencyTicker},
     input::ViewInput,
     mev,
-    project::Project,
-    Ident,
 };
-use egui::{Id, TopBottomPanel, WidgetText};
+use egui::{TopBottomPanel, WidgetText};
 use egui_dock::{DockArea, DockState, Tree};
-use miette::IntoDiagnostic;
 use winit::{
     dpi,
     event::WindowEvent,
@@ -18,21 +16,19 @@ use winit::{
     window::{Window, WindowId},
 };
 
-use crate::tool::{self, Toolbox};
-
-use super::{
+use crate::{
     assets::AssetRepository,
     filters::Filters,
     ide::{Ide, IdeType},
     init_mev,
     instance::Instance,
     plugins::Plugins,
-    project::ProjectData,
+    project::Project,
     render::Rendering,
     sample::ImageSample,
     subprocess::{filter_subprocesses, kill_subprocesses},
     systems::Systems,
-    tool::{Tool, ToolId},
+    tool::{Tool, ToolId, Toolbox},
     ui::{Ui, UiViewport, UserTextures},
 };
 
@@ -64,7 +60,6 @@ pub struct App {
 
     // Project main state.
     project: Project,
-    data: ProjectData,
 
     ui: Ui,
 
@@ -108,7 +103,7 @@ impl Drop for AppView {
 }
 
 impl App {
-    pub fn new(project: Project, data: ProjectData) -> Self {
+    pub fn new(project: Project) -> Self {
         let (device, queue) = init_mev();
 
         let plugins = Plugins::new();
@@ -147,7 +142,6 @@ impl App {
             should_quit: false,
 
             project,
-            data,
 
             views,
 
@@ -190,24 +184,22 @@ impl App {
     }
 
     pub fn tick(&mut self, step: ClockStep) {
-        self.plugins.tick(&mut self.project, &mut self.data);
+        self.plugins.tick(&mut self.project);
 
         if let Some(c) = self.plugins.take_updated() {
-            self.toolbox
-                .update_container(&mut self.project, &mut self.data, &c);
-            self.systems.update_container(&mut self.data, &c);
+            self.toolbox.update_container(&mut self.project, &c);
+            self.systems.update_container(&mut self.project, &c);
             self.main.update_container(&c);
         }
 
-        self.toolbox
-            .tick(&mut self.project, &mut self.data, &mut self.main);
+        self.toolbox.tick(&mut self.project, &mut self.main);
 
-        self.main.tick(&self.data, step);
+        self.main.tick(&self.project, step);
     }
 
     /// Runs rendering.
     pub fn handle_event(&mut self, window_id: WindowId, event: &WindowEvent) {
-        if self.main.handle_event(&self.data, window_id, event) {
+        if self.main.handle_event(&self.project, window_id, event) {
             return;
         }
 
@@ -283,7 +275,6 @@ impl App {
                             let mut model = AppModel {
                                 window: &view.window,
                                 project: &mut self.project,
-                                data: &mut self.data,
                                 assets: &mut self.assets,
                                 main: &mut self.main,
                                 sample: &self.image_sample,
@@ -360,7 +351,7 @@ impl App {
         }
 
         self.main
-            .render(&mut self.queue, &self.data, &mut self.ui.textures())
+            .render(&mut self.queue, &self.project, &mut self.ui.textures())
             .unwrap();
     }
 
@@ -408,7 +399,7 @@ impl App {
 
                     let window: Window = events
                         .create_window(builder)
-                        .map_err(|err| miette::miette!("Failed to create Ed window: {err:?}"))
+                        .map_err(|err| Error::msg(format!("Failed to create Ed window: {err:?}")))
                         .unwrap();
 
                     if view.maximized {
@@ -444,7 +435,7 @@ impl App {
 
             let window = events
                 .create_window(builder)
-                .map_err(|err| miette::miette!("Failed to create Ed window: {err:?}"))
+                .map_err(|err| Error::msg(format!("Failed to create Ed window: {err:?}")))
                 .unwrap();
 
             let size = window.inner_size();
@@ -489,7 +480,6 @@ struct AppState<'a> {
 struct AppModel<'a> {
     window: &'a Window,
     project: &'a mut Project,
-    data: &'a mut ProjectData,
     assets: &'a mut AssetRepository,
     main: &'a mut Instance,
     sample: &'a ImageSample,
@@ -507,9 +497,9 @@ impl egui_dock::widgets::TabViewer for AppModel<'_> {
     fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Tab) {
         match *tab {
             // Tab::Assets => self.assets.show(ui, self.main),
-            Tab::Plugins => self.plugins.show(self.project, self.data, ui),
+            Tab::Plugins => self.plugins.show(self.project, ui),
             // Tab::Console => self.console.show(ui),
-            Tab::Systems => self.systems.show(self.project, self.data, self.ide, ui),
+            Tab::Systems => self.systems.show(self.project, self.ide, ui),
             // Tab::Filters => self.filters.show(self.project, self.data, self.ide, ui),
             // Tab::Codes => self.code.show(self.project, self.data, ui),
             // Tab::Rendering => self.rendering.show(
@@ -525,14 +515,8 @@ impl egui_dock::widgets::TabViewer for AppModel<'_> {
             // Tab::Main => self.main.show(self.window.id(), &mut self.textures, ui),
             // Tab::Inspector => {} //Inspector::show(self.world, ui),
             Tab::Tool { id } => {
-                self.toolbox.show(
-                    id,
-                    self.project,
-                    self.data,
-                    self.ide.as_deref(),
-                    self.main,
-                    ui,
-                );
+                self.toolbox
+                    .show(id, self.project, self.ide.as_deref(), self.main, ui);
             }
         }
     }
@@ -584,22 +568,20 @@ fn app_state_path(create: bool, name: &str) -> Option<PathBuf> {
     Some(path)
 }
 
-fn load_app_state(name: &str) -> miette::Result<AppState<'static>> {
-    let path = app_state_path(true, name)
-        .ok_or_else(|| miette::miette!("Failed to get app state path"))?;
+fn load_app_state(name: &str) -> Result<AppState<'static>, Error> {
+    let path = app_state_path(true, name).ok_or_else(|| error!("Failed to get app state path"))?;
 
-    let mut file = std::fs::File::open(path).into_diagnostic()?;
+    let mut file = std::fs::File::open(path).unify_error()?;
 
-    let state = serde_json::from_reader(&mut file).into_diagnostic()?;
+    let state = serde_json::from_reader(&mut file).unify_error()?;
 
     Ok(state)
 }
 
-fn save_app_state(state: &AppState, name: &str) -> miette::Result<()> {
-    let path = app_state_path(true, name)
-        .ok_or_else(|| miette::miette!("Failed to get app state path"))?;
-    let mut file = std::fs::File::create(path).into_diagnostic()?;
-    serde_json::to_writer_pretty(&mut file, state).into_diagnostic()?;
+fn save_app_state(state: &AppState, name: &str) -> Result<(), Error> {
+    let path = app_state_path(true, name).ok_or_else(|| error!("Failed to get app state path"))?;
+    let mut file = std::fs::File::create(path).unify_error()?;
+    serde_json::to_writer_pretty(&mut file, state).unify_error()?;
     Ok(())
 }
 
@@ -623,20 +605,20 @@ fn app_cfg_path(create: bool) -> Option<PathBuf> {
     Some(path)
 }
 
-fn load_app_cfg() -> miette::Result<AppConfig> {
-    let path = app_cfg_path(true).ok_or_else(|| miette::miette!("Failed to get app cfg path"))?;
+fn load_app_cfg() -> Result<AppConfig, Error> {
+    let path = app_cfg_path(true).ok_or_else(|| error!("Failed to get app cfg path"))?;
 
-    let mut file = std::fs::File::open(path).into_diagnostic()?;
+    let mut file = std::fs::File::open(path).unify_error()?;
 
-    let state = serde_json::from_reader(&mut file).into_diagnostic()?;
+    let state = serde_json::from_reader(&mut file).unify_error()?;
 
     Ok(state)
 }
 
-fn save_app_cfg(config: &AppConfig) -> miette::Result<()> {
-    let path = app_cfg_path(true).ok_or_else(|| miette::miette!("Failed to get app state path"))?;
-    let mut file = std::fs::File::create(path).into_diagnostic()?;
-    serde_json::to_writer_pretty(&mut file, config).into_diagnostic()?;
+fn save_app_cfg(config: &AppConfig) -> Result<(), Error> {
+    let path = app_cfg_path(true).ok_or_else(|| error!("Failed to get app state path"))?;
+    let mut file = std::fs::File::create(path).unify_error()?;
+    serde_json::to_writer_pretty(&mut file, config).unify_error()?;
     Ok(())
 }
 

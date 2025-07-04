@@ -8,10 +8,11 @@ use std::{
     fs::{File, FileType},
     io::{Read, Seek, SeekFrom, Write},
     ops::Deref,
-    path::{Path, PathBuf, MAIN_SEPARATOR},
+    path::{absolute, Path, PathBuf, MAIN_SEPARATOR},
     process::Child,
 };
 
+use arcana_error::Error;
 use arcana_intern::{Ident, Name};
 use camino::{Utf8Path, Utf8PathBuf};
 
@@ -24,14 +25,12 @@ mod wrapper;
 
 use generator::init_workspace;
 use manifest::serialize_manifest;
-use miette::{Context, IntoDiagnostic};
-use path::{normalized_path, normalizing_join};
 
 pub use self::{
     dependency::Dependency,
     generator::new_plugin_crate,
     manifest::ProjectManifest,
-    path::{is_available, make_relative, real_path},
+    path::{is_available, make_relative},
     plugin::Plugin,
     wrapper::{game_bin_path, BuildProcess, Profile},
 };
@@ -84,44 +83,39 @@ impl Project {
     ///   Path dependency is invalid if it is not a valid path to directory containing `Cargo.toml`.
     /// * If `new` is true and `path` is already exists.
     /// * If `path` already contains Arcana project.
-    pub fn new(
-        name: Ident,
-        path: &Path,
-        mut engine: Dependency,
-        new: bool,
-    ) -> miette::Result<Self> {
+    pub fn new(name: Ident, path: &Path, mut engine: Dependency, new: bool) -> Result<Self, Error> {
         let manifest_file_name = format!("{}.{}", name, MANIFEST_FILE_EXT);
 
         if let Ok(m) = path.metadata() {
             if new {
-                miette::bail!(
+                return Err(Error::msg(format!(
                     "Cannot create new project. Path '{}' already exists",
                     path.display()
-                );
+                )));
             }
 
             if !m.is_dir() {
-                miette::bail!(
+                return Err(Error::msg(format!(
                     "Cannot create new project. Path '{}' is not a directory",
                     path.display()
-                );
+                )));
             }
 
             if path.join(&manifest_file_name).exists() {
-                miette::bail!(
+                return Err(Error::msg(format!(
                     "Cannot create new project. Path '{}' is already an Arcana project",
                     path.display()
-                );
+                )));
             }
         }
 
-        let path = match real_path(&path) {
-            Some(path) => path,
-            None => {
-                miette::bail!(
-                    "Cannot create new project. Failed to resolve path '{}'",
+        let path = match absolute(path) {
+            Ok(path) => path,
+            Err(err) => {
+                return Err(Error::msg(format!(
+                    "Cannot create new project. Failed to resolve path '{}': {err:?}",
                     path.display()
-                );
+                )));
             }
         };
 
@@ -135,23 +129,33 @@ impl Project {
         let manifest_str = match toml::to_string(&manifest) {
             Ok(s) => s,
             Err(err) => {
-                miette::bail!("Failed to serialize project manifest. {err:?}");
+                return Err(Error::msg(format!(
+                    "Failed to serialize project manifest. {err:?}"
+                )));
             }
         };
 
         if let Err(err) = std::fs::create_dir_all(&path) {
-            miette::bail!(
+            return Err(Error::msg(format!(
                 "Cannot create new project. Failed to create directory '{}': {err:?}",
                 path.display()
-            );
+            )));
         }
 
         let manifest_path = path.join(&manifest_file_name);
         if let Err(err) = std::fs::write(&*manifest_path, &*manifest_str) {
-            miette::bail!(
+            return Err(Error::msg(format!(
                 "Cannot create new project. Failed to write manifest to '{}': {err:?}",
                 manifest_path.display()
-            );
+            )));
+        }
+
+        let manifest_path = path.join(&manifest_file_name);
+        if let Err(err) = std::fs::write(&*manifest_path, &*manifest_str) {
+            return Err(Error::msg(format!(
+                "Cannot create new project. Failed to write manifest to '{}': {err:?}",
+                manifest_path.display()
+            )));
         }
 
         tracing::info!("Created project {name} at '{}'", path.display());
@@ -168,26 +172,29 @@ impl Project {
     /// # Errors
     ///
     /// * If `path` is not a valid path to Arcana project.
-    pub fn open(path: &Path) -> miette::Result<Self> {
-        let manifest_path = match real_path(path) {
-            Some(path) => path,
-            None => {
-                miette::bail!(
-                    "Cannot open project at '{}': failed to resolve path",
+    pub fn open(path: &Path) -> Result<Self, Error> {
+        let manifest_path = match absolute(path) {
+            Ok(path) => path,
+            Err(err) => {
+                return Err(Error::msg(format!(
+                    "Cannot open project at '{}': {err:?}",
                     path.display()
-                );
+                )));
             }
         };
 
         let Some(manifest_file_name) = manifest_path.file_name() else {
             if manifest_path != path {
-                miette::bail!(
+                return Err(Error::msg(format!(
                     "Cannot open project at '{}'(resolved to '{}'): no file name",
                     path.display(),
                     manifest_path.display(),
-                );
+                )));
             } else {
-                miette::bail!("Cannot open project at '{}': no file name", path.display());
+                return Err(Error::msg(format!(
+                    "Cannot open project at '{}': no file name",
+                    path.display()
+                )));
             }
         };
 
@@ -195,54 +202,57 @@ impl Project {
             Ok(m) => m,
             Err(err) => {
                 if manifest_path != path {
-                    miette::bail!(
+                    return Err(Error::msg(format!(
                         "Cannot open project file at '{}'(resolved to '{}'): {err:?}",
                         path.display(),
                         manifest_path.display()
-                    );
+                    )));
                 } else {
-                    miette::bail!("Cannot open project file at '{}': {err:?}", path.display());
+                    return Err(Error::msg(format!(
+                        "Cannot open project file at '{}': {err:?}",
+                        path.display()
+                    )));
                 }
             }
         };
 
         if m.is_symlink() {
             if manifest_path != path {
-                miette::bail!(
+                return Err(Error::msg(format!(
                     "Cannot open project at '{}'(resolved to '{}'): failed to follow symlink",
                     path.display(),
                     manifest_path.display()
-                );
+                )));
             } else {
-                miette::bail!(
+                return Err(Error::msg(format!(
                     "Cannot open project at '{}': failed to follow symlink",
                     path.display()
-                );
+                )));
             }
         }
 
         if m.is_dir() {
             if manifest_path != path {
-                miette::bail!(
+                return Err(Error::msg(format!(
                     "Cannot open project at '{}'(resolved to '{}'): is a directory",
                     path.display(),
                     manifest_path.display()
-                );
+                )));
             } else {
-                miette::bail!(
+                return Err(Error::msg(format!(
                     "Cannot open project at '{}': is a directory",
                     path.display()
-                );
+                )));
             }
         }
 
         let mut arcana_toml = match std::fs::read_to_string(&manifest_path) {
             Ok(s) => s,
             Err(err) => {
-                miette::bail!(
+                return Err(Error::msg(format!(
                     "Cannot open project at '{}': failed to read project manifest: {err:?}",
                     path.display()
-                );
+                )));
             }
         };
 
@@ -250,16 +260,16 @@ impl Project {
             Ok(manifest) => manifest,
             Err(err) => {
                 if manifest_path != path {
-                    miette::bail!(
+                    return Err(Error::msg(format!(
                         "Cannot deserialize project manifest from '{}'(resolved to '{}'): {err:?}",
                         path.display(),
                         manifest_path.display()
-                    );
+                    )));
                 } else {
-                    miette::bail!(
+                    return Err(Error::msg(format!(
                         "Cannot deserialize project manifest from '{}': {err:?}",
                         path.display()
-                    );
+                    )));
                 }
             }
         };
@@ -283,24 +293,24 @@ impl Project {
         &self.manifest_path
     }
 
-    pub fn sync(&mut self) -> miette::Result<()> {
+    pub fn sync(&mut self) -> Result<(), Error> {
         let serialized_manifest = serialize_manifest(&self.manifest)
-            .map_err(|err| miette::miette!("Cannot serialize project manifest: {err:?}"))?;
+            .map_err(|err| Error::msg(format!("Cannot serialize project manifest: {err:?}")))?;
 
         match std::fs::write(&self.manifest_path, serialized_manifest) {
             Ok(()) => Ok(()),
             Err(err) => {
-                miette::bail!(
+                return Err(Error::msg(format!(
                     "Cannot write project manifest to '{}': {:?}",
                     self.manifest_path.display(),
                     err,
-                );
+                )));
             }
         }
     }
 
     /// Initializes all plugin wrapper libs and workspace.
-    pub fn init_workspace(&self) -> miette::Result<()> {
+    pub fn init_workspace(&self) -> Result<(), Error> {
         init_workspace(
             self.root_path(),
             &self.manifest.name,
@@ -309,7 +319,7 @@ impl Project {
         )
     }
 
-    pub fn build_plugins_library(&self, profile: Profile) -> miette::Result<BuildProcess> {
+    pub fn build_plugins_library(&self, profile: Profile) -> Result<BuildProcess, Error> {
         self.init_workspace()?;
         wrapper::build_plugins(self.root_path(), profile)
     }
@@ -343,85 +353,85 @@ impl Project {
         &mut self.manifest.plugins
     }
 
-    pub fn run_editor(self, profile: Profile) -> miette::Result<()> {
+    pub fn run_editor(self, profile: Profile) -> Result<(), Error> {
         self.init_workspace()?;
         let status = wrapper::run_editor(self.root_path(), &self.manifest_path, profile)
             .status()
             .map_err(|err| {
-                miette::miette!(
+                Error::msg(format!(
                     "Cannot run \"ed\" on \"{}\": {err:?}",
                     self.manifest_path.display()
-                )
+                ))
             })?;
 
         match status.code() {
             Some(0) => Ok(()),
-            Some(code) => miette::bail!("\"ed\" exited with code {}", code),
-            None => miette::bail!("\"ed\" terminated by signal"),
+            Some(code) => return Err(Error::msg(format!("\"ed\" exited with code {}", code))),
+            None => return Err(Error::msg(format!("\"ed\" terminated by signal"))),
         }
     }
 
-    pub fn build_editor_non_blocking(&self, profile: Profile) -> miette::Result<Child> {
+    pub fn build_editor_non_blocking(&self, profile: Profile) -> Result<Child, Error> {
         self.init_workspace()?;
         match wrapper::build_editor(self.root_path(), profile).spawn() {
             Ok(child) => Ok(child),
             Err(err) => {
-                miette::bail!(
+                return Err(Error::msg(format!(
                     "Cannot build \"ed\" on \"{}\": {err:?}",
                     self.manifest_path.display()
-                )
+                )));
             }
         }
     }
 
-    pub fn run_editor_non_blocking(&self, profile: Profile) -> miette::Result<Child> {
+    pub fn run_editor_non_blocking(&self, profile: Profile) -> Result<Child, Error> {
         self.init_workspace()?;
         match wrapper::run_editor(self.root_path(), &self.manifest_path, profile).spawn() {
             Ok(child) => Ok(child),
             Err(err) => {
-                miette::bail!(
+                return Err(Error::msg(format!(
                     "Cannot run \"ed\" on \"{}\": {err:?}",
                     self.manifest_path.display()
-                )
+                )));
             }
         }
     }
 
-    pub fn build_game(self, profile: Profile) -> miette::Result<PathBuf> {
+    pub fn build_game(self, profile: Profile) -> Result<PathBuf, Error> {
         self.init_workspace()?;
         let status = wrapper::build_game(self.root_path(), profile)
             .status()
             .map_err(|err| {
-                miette::miette!(
+                Error::msg(format!(
                     "Cannot build game \"{}\": {err:?}",
                     self.manifest_path.display(),
-                )
+                ))
             })?;
 
         match status.code() {
             Some(0) => {}
-            Some(code) => miette::bail!("Game build exited with code {}", code),
-            None => miette::bail!("Game build terminated by signal"),
+            Some(code) => return Err(Error::msg(format!("Game build exited with code {}", code))),
+            None => return Err(Error::msg(format!("Game build terminated by signal"))),
         }
 
         Ok(game_bin_path(&self.manifest.name, self.root_path()))
     }
 
-    pub fn run_game(self, profile: Profile) -> miette::Result<()> {
+    pub fn run_game(self, profile: Profile) -> Result<(), Error> {
         self.init_workspace()?;
         let status = wrapper::run_game(self.root_path(), profile)
             .status()
             .map_err(|err| {
-                miette::miette!(
+                Error::msg(format!(
                     "Cannot run game on \"{}\": {err:?}",
                     self.manifest_path.display()
-                )
+                ))
             })?;
 
         match status.code() {
             Some(0) => Ok(()),
-            Some(code) => miette::bail!("Game exited with code {}", code),
-            None => miette::bail!("Game terminated by signal"),
+            Some(code) => return Err(Error::msg(format!("Game exited with code {}", code))),
+            None => return Err(Error::msg(format!("Game terminated by signal"))),
         }
     }
 
@@ -429,7 +439,7 @@ impl Project {
         self.manifest.has_plugin(name)
     }
 
-    pub fn add_plugin(&mut self, mut plugin: Plugin) -> miette::Result<bool> {
+    pub fn add_plugin(&mut self, mut plugin: Plugin) -> Result<bool, Error> {
         if self.manifest.has_plugin(plugin.name) {
             return Ok(false);
         }
@@ -464,33 +474,41 @@ fn is_in_cargo_workspace(path: &Path) -> bool {
     false
 }
 
-pub fn process_path_ident(path: &Path, name: Option<Ident>) -> miette::Result<(PathBuf, Ident)> {
-    let path = match real_path(&path) {
-        Some(path) => path,
-        None => miette::bail!(
-            "Failed to get project destination path from {}",
-            path.display()
-        ),
+pub fn process_path_ident(path: &Path, name: Option<Ident>) -> Result<(PathBuf, Ident), Error> {
+    let path = match absolute(path) {
+        Ok(path) => path,
+        Err(err) => {
+            return Err(Error::msg(format!(
+                "Failed to get project destination path from {}: {err:?}",
+                path.display()
+            )))
+        }
     };
 
     let name = match name {
         None => {
             let Some(file_name) = path.file_name() else {
-                miette::bail!("Failed to get project name destination path");
+                return Err(Error::msg(format!(
+                    "Failed to get project name destination path"
+                )));
             };
 
             if file_name.is_empty() || file_name == "." || file_name == ".." {
-                miette::bail!("Failed to get project name destination path");
+                return Err(Error::msg(format!(
+                    "Failed to get project name destination path"
+                )));
             }
 
             let Some(file_name) = file_name.to_str() else {
-                miette::bail!("Failed to get project name destination path");
+                return Err(Error::msg(format!(
+                    "Failed to get project name destination path"
+                )));
             };
 
             let Ok(file_name) = Ident::from_str(file_name) else {
-                miette::bail!(
+                return Err(Error::msg(format!(
                     "Project's directory name cannot be used as project name is it is not valid identifier. Specify name manually"
-                );
+                )));
             };
 
             file_name.to_owned()
@@ -501,32 +519,36 @@ pub fn process_path_ident(path: &Path, name: Option<Ident>) -> miette::Result<(P
     Ok((path, name))
 }
 
-pub fn validate_engine_path(engine_path: &Path) -> miette::Result<Dependency> {
-    let Some(engine_path) = normalized_path(engine_path) else {
-        miette::bail!("Failed to normalize engine path: {}", engine_path.display());
-    };
+pub fn validate_engine_path(engine_path: &Path) -> Result<Dependency, Error> {
+    if !engine_path.is_absolute() {
+        return Err(Error::msg(format!("Engine path must be absolute")));
+    }
 
-    let mut engine_path = match Utf8PathBuf::from_path_buf(engine_path) {
-        Ok(path) => path,
-        Err(path) => {
-            miette::bail!("Engine path is not UTF-8: {}", path.display());
+    let mut engine_path = match Utf8Path::from_path(engine_path) {
+        Some(path) => path,
+        None => {
+            return Err(Error::msg(format!(
+                "Engine path is not UTF-8: {}",
+                engine_path.display()
+            )));
         }
     };
-
-    if !engine_path.is_absolute() {
-        miette::bail!("Engine path must be absolute");
-    }
 
     match engine_path.metadata() {
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            miette::bail!("Engine path '{engine_path}' does not exist");
+            return Err(Error::msg(format!(
+                "Engine path '{engine_path}' does not exist"
+            )));
         }
         Err(err) => {
-            miette::bail!("Failed to read engine path '{engine_path}': {err:?}");
+            return Err(Error::msg(format!(
+                "Failed to read engine path '{engine_path}': {err:?}"
+            )));
         }
         Ok(metadata) => match metadata.file_type() {
             ft if ft.is_file() => match engine_path.file_name() {
                 Some(file_name) if file_name == "Cargo.toml" => {
+                    let mut engine_path = engine_path.to_owned();
                     validate_engine_manifest(&engine_path)?;
 
                     assert!(
@@ -537,44 +559,55 @@ pub fn validate_engine_path(engine_path: &Path) -> miette::Result<Dependency> {
                     Ok(Dependency::Path { path: engine_path })
                 }
                 _ => {
-                    miette::bail!("Engine path '{engine_path}' is a file, but is not a crate manifest Cargo.toml");
+                    return Err(Error::msg(format!("Engine path '{engine_path}' is a file, but is not a crate manifest Cargo.toml")));
                 }
             },
             ft if ft.is_dir() => {
                 let cargo_toml_path = engine_path.join(CARGO_TOML_NAME);
 
                 if !cargo_toml_path.exists() {
-                    miette::bail!("Engine path '{engine_path}' is a directory, but is not a crate");
+                    return Err(Error::msg(format!(
+                        "Engine path '{engine_path}' is a directory, but is not a crate"
+                    )));
                 }
 
                 validate_engine_manifest(&cargo_toml_path)?;
 
+                let engine_path = engine_path.to_owned();
                 Ok(Dependency::Path { path: engine_path })
             }
             _ => {
-                miette::bail!("Engine path '{engine_path}' is not a file or directory");
+                return Err(Error::msg(format!(
+                    "Engine path '{engine_path}' is not a file or directory"
+                )));
             }
         },
     }
 }
 
-pub fn validate_engine_manifest(cargo_toml_path: &Utf8Path) -> miette::Result<()> {
+pub fn validate_engine_manifest(cargo_toml_path: &Utf8Path) -> Result<(), Error> {
     let manifest: cargo_toml::Manifest = match cargo_toml::Manifest::from_path(cargo_toml_path) {
         Ok(manifest) => manifest,
         Err(err) => {
-            miette::bail!("Failed to read crate manifest '{cargo_toml_path}': {err:?}",);
+            return Err(Error::msg(format!(
+                "Failed to read crate manifest '{cargo_toml_path}': {err:?}"
+            )));
         }
     };
 
     let package = match &manifest.package {
         Some(package) => package,
         None => {
-            miette::bail!("'{cargo_toml_path}' is not an Arcana engine crate");
+            return Err(Error::msg(format!(
+                "'{cargo_toml_path}' is not an Arcana engine crate"
+            )));
         }
     };
 
     if package.name != "arcana" {
-        miette::bail!("'{cargo_toml_path}' is not an Arcana engine crate");
+        return Err(Error::msg(format!(
+            "'{cargo_toml_path}' is not an Arcana engine crate"
+        )));
     }
 
     Ok(())

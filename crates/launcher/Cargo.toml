@@ -14,6 +14,8 @@ path = "src/main.rs"
 [dependencies]
 arcana-intern = { path = "../intern" }
 arcana-project = { path = "../project" }
+arcana-error = { path = "../error" }
+
 camino = { workspace = true, features = ["serde1"] }
 clap.workspace = true
 denvars = { workspace = true, features = ["toml"] }
@@ -25,7 +27,6 @@ egui-phosphor.workspace = true
 eframe.workspace = true
 figa = { workspace = true, features = ["derive"] }
 hashbrown.workspace = true
-miette = { workspace = true, features = ["fancy"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 toml.workspace = true

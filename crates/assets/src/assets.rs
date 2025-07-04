@@ -6,14 +6,16 @@ use std::{
 };
 
 use amity::flip_queue::FlipQueue;
+use arcana_error::Error;
 use arcana_metatype::Stid;
 use hashbrown::HashMap;
 use parking_lot::{Mutex, RwLock};
 
+use crate::{AssetError, NotFound};
+
 use super::{
     asset::Asset,
     build::AssetBuilder,
-    error::{Error, NotFound},
     loader::{AssetData, Loader},
     AssetId,
 };
@@ -74,7 +76,15 @@ impl Assets {
     where
         A: Asset,
     {
-        self.typed_entry::<A>(id).poll_asset(id, self, None)
+        match self.typed_entry::<A>(id).poll_asset(id, self, None) {
+            Poll::Ready(Ok(asset)) => Poll::Ready(Ok(asset)),
+            Poll::Ready(Err(error)) => Poll::Ready(Err(Error::from(error))),
+            Poll::Pending => {
+                // If asset is not ready, we return Pending.
+                // This will wake up the task when asset is ready.
+                Poll::Pending
+            }
+        }
     }
 
     /// Returns asset by ID.
@@ -88,7 +98,15 @@ impl Assets {
     where
         A: Asset,
     {
-        self.typed_entry::<A>(id).poll_asset(id, self, Some(cx))
+        match self.typed_entry::<A>(id).poll_asset(id, self, Some(cx)) {
+            Poll::Ready(Ok(asset)) => Poll::Ready(Ok(asset)),
+            Poll::Ready(Err(error)) => Poll::Ready(Err(Error::from(error))),
+            Poll::Pending => {
+                // If asset is not ready, we return Pending.
+                // This will wake up the task when asset is ready.
+                Poll::Pending
+            }
+        }
     }
 
     /// Drops all assets except assets of listed types.
@@ -255,7 +273,7 @@ enum AssetState<A: Asset> {
     },
 
     /// Asset loading failed.
-    Error { error: Error },
+    Error { error: AssetError },
 
     /// Asset is ready.
     Ready { asset: A },
@@ -274,7 +292,7 @@ where
         id: AssetId,
         assets: &Assets,
         cx: Option<&mut Context>,
-    ) -> Poll<Result<A, Error>> {
+    ) -> Poll<Result<A, AssetError>> {
         match self.cache.lock().entry(id) {
             hashbrown::hash_map::Entry::Occupied(mut entry) => match entry.get_mut() {
                 AssetState::Loading { wakers } => {
@@ -380,7 +398,7 @@ where
     }
 }
 
-async fn load_from_any(loaders: &[Arc<dyn Loader>], id: AssetId) -> Result<AssetData, Error> {
+async fn load_from_any(loaders: &[Arc<dyn Loader>], id: AssetId) -> Result<AssetData, AssetError> {
     let mut not_found_error = None;
 
     for loader in loaders {
@@ -397,5 +415,5 @@ async fn load_from_any(loaders: &[Arc<dyn Loader>], id: AssetId) -> Result<Asset
         }
     }
 
-    Err(not_found_error.unwrap_or_else(|| Error::new(NotFound)))
+    Err(not_found_error.unwrap_or_else(|| AssetError::new(NotFound)))
 }

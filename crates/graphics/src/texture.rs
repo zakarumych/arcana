@@ -6,7 +6,7 @@ use edict::component::Component;
 use mev::Extent2;
 use smallvec::SmallVec;
 
-use arcana_assets::{Asset, AssetBuilder, Assets, Error};
+use arcana_assets::{Asset, AssetBuilder, AssetError, Assets};
 
 #[derive(Clone)]
 pub struct Texture {
@@ -50,11 +50,11 @@ impl Asset for Texture {
     fn load(
         data: &[u8],
         assets: &Assets,
-    ) -> impl Future<Output = Result<Self::Loaded, Error>> + Send {
-        futures::future::ready(load_texture(data, assets))
+    ) -> impl Future<Output = Result<Self::Loaded, AssetError>> + Send {
+        futures::future::ready(load_texture(data, assets).map_err(AssetError::new))
     }
 
-    fn build(loaded: LoadedTexture, builder: &mut AssetBuilder) -> Result<Self, Error> {
+    fn build(loaded: LoadedTexture, builder: &mut AssetBuilder) -> Result<Self, AssetError> {
         let image = builder
             .device()
             .new_image(mev::ImageDesc {
@@ -65,7 +65,7 @@ impl Asset for Texture {
                 levels: loaded.level_offsets.len() as u32,
                 name: "texture",
             })
-            .map_err(Error::new)?;
+            .map_err(AssetError::new)?;
 
         let scratch = builder
             .device()
@@ -75,7 +75,7 @@ impl Asset for Texture {
                 memory: mev::Memory::Upload,
                 name: "scratch",
             })
-            .map_err(Error::new)?;
+            .map_err(AssetError::new)?;
 
         let mut encoder = builder.encoder().copy();
 
@@ -103,25 +103,25 @@ impl Asset for Texture {
     }
 }
 
-fn load_texture(data: &[u8], _assets: &Assets) -> Result<LoadedTexture, Error> {
+fn load_texture(data: &[u8], _assets: &Assets) -> Result<LoadedTexture, TextureError> {
     let mut transcoder = basis_universal::Transcoder::new();
 
     if !transcoder.validate_header(&data) {
-        return Err(Error::new(TextureError::InvalidData));
+        return Err(TextureError::InvalidData);
     }
 
     match transcoder.basis_texture_type(&data) {
         basis_universal::BasisTextureType::TextureType2D => {
             let image_count = transcoder.image_count(&data);
             if image_count != 1 {
-                return Err(Error::new(TextureError::InvalidImageCount));
+                return Err(TextureError::InvalidImageCount);
             }
 
             let info = transcoder.image_info(&data, 0).unwrap();
 
             let image_level_count = transcoder.image_level_count(&data, 0);
             if image_level_count == 0 {
-                return Err(Error::msg("No image levels found"));
+                return Err(TextureError::NoImageLevels);
             }
 
             let mut level_offsets = SmallVec::new();
@@ -129,7 +129,7 @@ fn load_texture(data: &[u8], _assets: &Assets) -> Result<LoadedTexture, Error> {
 
             for l in 0..image_level_count {
                 if let Err(()) = transcoder.prepare_transcoding(&data) {
-                    return Err(Error::new(TextureError::NoImageLevels));
+                    return Err(TextureError::NoImageLevels);
                 }
 
                 let result = transcoder.transcode_image_level(
@@ -146,14 +146,12 @@ fn load_texture(data: &[u8], _assets: &Assets) -> Result<LoadedTexture, Error> {
 
                 match result {
                     Err(TranscodeError::TranscodeFormatNotSupported) => {
-                        return Err(Error::new(TextureError::FormatNotSupported));
+                        return Err(TextureError::FormatNotSupported);
                     }
                     Err(TranscodeError::ImageLevelNotFound) => {
                         unreachable!();
                     }
-                    Err(TranscodeError::TranscodeFailed) => {
-                        return Err(Error::new(TextureError::DecodeFailed))
-                    }
+                    Err(TranscodeError::TranscodeFailed) => return Err(TextureError::DecodeFailed),
                     Ok(bytes) => {
                         if l != 0 {
                             level_offsets.push(transcoded_bytes.len());
@@ -169,6 +167,6 @@ fn load_texture(data: &[u8], _assets: &Assets) -> Result<LoadedTexture, Error> {
                 transcoded_bytes,
             })
         }
-        _ => return Err(Error::new(TextureError::ImageTypeNotSupported)),
+        _ => return Err(TextureError::ImageTypeNotSupported),
     }
 }

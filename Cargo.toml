@@ -20,7 +20,7 @@ members = [
     "crates/num2name",
     "crates/arcana",
     "crates/ed",
-    "crates/launcher",
+    "crates/launcher", "crates/error",
 ]
 resolver = "2"
 
@@ -84,7 +84,6 @@ libloading = "0.8.8"
 # linkme = "0.3"
 #mev = { git = "https://github.com/zakarumych/mev.git" }
 mev = { path = "../mev" }
-miette = "7.6.0"
 # na = { package = "nalgebra", version = "0.33", features = [
 #     "libm",
 #     "serde-serialize",

@@ -1,5 +1,6 @@
 use std::{path::PathBuf, str::FromStr};
 
+use arcana_error::Error;
 use arcana_intern::Ident;
 use arcana_launcher::Start;
 use arcana_project::{Dependency, Profile};
@@ -151,7 +152,7 @@ struct Cli {
     command: Option<Command>,
 }
 
-pub fn run_cli() -> miette::Result<()> {
+pub fn run_cli() -> Result<(), Error> {
     let cli = Cli::parse();
     let start = Start::new();
 

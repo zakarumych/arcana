@@ -1,22 +1,21 @@
-use std::path::{Path, PathBuf};
+use std::path::{absolute, PathBuf};
 
 use arcana::{
-    project::{
-        new_plugin_crate, real_path, BuildProcess, Dependency, Plugin, Profile, Project,
-        ProjectManifest,
-    },
+    error::{fail, Error},
     validate_ident, Ident,
+};
+use arcana_project::{
+    new_plugin_crate, BuildProcess, Dependency, Plugin, Profile, ProjectManifest,
 };
 use camino::{Utf8Path, Utf8PathBuf};
 use egui::{Color32, RichText, Ui};
 use egui_file::FileDialog;
 
-use crate::instance::Instance;
+use crate::project::Project;
 
 use super::{
     container::{Container, Loader, PluginsError},
     get_profile,
-    project::ProjectData,
 };
 
 /// Tool to manage plugins libraries
@@ -36,7 +35,7 @@ pub(super) struct Plugins {
 
     /// Displaying plugins build failure report.
     /// Unset when build is successful or report widget is closed.
-    failure: Option<miette::Report>,
+    failure: Option<Error>,
 
     /// Running build process.
     /// Unset when build is finished.
@@ -93,9 +92,9 @@ impl Plugins {
         name: Ident,
         dep: Dependency,
         project: &mut Project,
-    ) -> miette::Result<()> {
+    ) -> Result<(), Error> {
         if project.has_plugin(name) {
-            miette::bail!("Plugin '{}' already exists", name);
+            fail!("Plugin '{}' already exists", name);
         }
 
         let plugin = Plugin::from_dependency(name, dep)?;
@@ -117,7 +116,7 @@ impl Plugins {
         self.updated.take()
     }
 
-    pub fn show(&mut self, project: &mut Project, data: &mut ProjectData, ui: &mut Ui) {
+    pub fn show(&mut self, project: &mut Project, ui: &mut Ui) {
         let mut sync = false;
         let mut rebuild = false;
 
@@ -194,7 +193,7 @@ impl Plugins {
             egui::Grid::new("plugins-list")
                 .striped(true)
                 .show(ui, |ui| {
-                    for (idx, plugin) in project.plugins().iter().enumerate() {
+                    for (idx, plugin) in project.inner.plugins().iter().enumerate() {
                         let mut heading = RichText::from(plugin.name.as_str());
 
                         let mut tooltip = "";
@@ -207,7 +206,7 @@ impl Plugins {
                                 tooltip = "Plugin is missing in library";
                                 heading = heading.color(ui.visuals().error_fg_color);
                             }
-                        } else if !data.enabled_plugins.contains(&plugin.name) {
+                        } else if !project.data.enabled_plugins.contains(&plugin.name) {
                             heading = heading.color(ui.visuals().warn_fg_color);
                         } else if !self
                             .linked
@@ -220,7 +219,7 @@ impl Plugins {
                             heading = heading.color(Color32::LIGHT_GREEN);
                         }
 
-                        let was_enabled = data.enabled_plugins.contains(&plugin.name);
+                        let was_enabled = project.data.enabled_plugins.contains(&plugin.name);
                         let mut enabled = was_enabled;
                         let r = ui.checkbox(&mut enabled, heading);
 
@@ -229,17 +228,17 @@ impl Plugins {
                         }
 
                         if !was_enabled && enabled {
-                            data.enabled_plugins.insert(plugin.name.clone());
+                            project.data.enabled_plugins.insert(plugin.name.clone());
                             sync = true;
                         } else if was_enabled && !enabled {
-                            data.enabled_plugins.remove(&plugin.name);
+                            project.data.enabled_plugins.remove(&plugin.name);
                             sync = true;
                         }
 
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             let r = ui.button(egui_phosphor::regular::TRASH);
                             if r.clicked() {
-                                data.enabled_plugins.remove(&plugin.name);
+                                project.data.enabled_plugins.remove(&plugin.name);
                                 remove_plugin = Some(idx);
                                 sync = true;
                                 rebuild = true;
@@ -357,22 +356,20 @@ impl Plugins {
                             new_plugin.ready = validate_ident(&new_plugin.name).is_ok();
 
                             if new_plugin.ready {
-                                match real_path(Path::new(&new_plugin.path)) {
-                                    None => new_plugin.ready = false,
-                                    Some(real_path) => {
-                                        match Utf8PathBuf::from_path_buf(real_path) {
-                                            Err(_) => {
-                                                new_plugin.ready = false;
-                                            }
-                                            Ok(real_path) => {
-                                                new_plugin.real_path = real_path;
-                                                new_plugin.real_path.push(&new_plugin.name);
-                                                new_plugin.ready = arcana::project::is_available(
-                                                    new_plugin.real_path.as_std_path(),
-                                                );
-                                            }
+                                match absolute(&new_plugin.path) {
+                                    Err(_) => new_plugin.ready = false,
+                                    Ok(real_path) => match Utf8PathBuf::from_path_buf(real_path) {
+                                        Err(_) => {
+                                            new_plugin.ready = false;
                                         }
-                                    }
+                                        Ok(real_path) => {
+                                            new_plugin.real_path = real_path;
+                                            new_plugin.real_path.push(&new_plugin.name);
+                                            new_plugin.ready = crate::project::is_available(
+                                                new_plugin.real_path.as_std_path(),
+                                            );
+                                        }
+                                    },
                                 };
                             }
                         }
@@ -424,11 +421,9 @@ impl Plugins {
         assert!(sync || !rebuild, "Rebuild without sync");
 
         if sync {
-            try_log_err!(data.sync(&project));
+            try_log_err!(project.sync());
 
             if rebuild {
-                try_log_err!(project.sync());
-
                 self.build = None;
                 self.pending = None;
                 try_log_err!(project.init_workspace());
@@ -436,14 +431,14 @@ impl Plugins {
             }
 
             if let Some(c) = &self.pending {
-                self.pending = Some(c.with_plugins(&data.enabled_plugins));
+                self.pending = Some(c.with_plugins(&project.data.enabled_plugins));
             } else if let Some(c) = &self.linked {
-                self.pending = Some(c.with_plugins(&data.enabled_plugins));
+                self.pending = Some(c.with_plugins(&project.data.enabled_plugins));
             }
         }
     }
 
-    pub fn tick(&mut self, project: &mut Project, data: &mut ProjectData) {
+    pub fn tick(&mut self, project: &mut Project) {
         if let Some(mut build) = self.build.take() {
             match build.finished() {
                 Ok(false) => self.build = Some(build),
@@ -453,7 +448,7 @@ impl Plugins {
                         build.artifact().display()
                     );
                     let path = build.artifact();
-                    match self.loader.load(&path, &data.enabled_plugins) {
+                    match self.loader.load(&path, &project.data.enabled_plugins) {
                         Ok(container) => {
                             if !Self::check_plugins(project.manifest(), &container) {
                                 tracing::warn!("Not all plugins are linked. Rebuilding");
@@ -467,32 +462,30 @@ impl Plugins {
                                 self.failure = None;
                             }
                         }
-                        Err(mut err) => {
+                        Err(err) => {
                             let mut rebuild = false;
                             tracing::error!("Failed to load plugins library. {err:?}");
 
-                            if let Some(err) = err.downcast_mut::<PluginsError>() {
-                                for md in err.missing_dependencies.drain(..) {
+                            if let Some(plugins_error) = err.downcast_ref::<PluginsError>() {
+                                for md in plugins_error.missing_dependencies.iter() {
                                     rebuild = true;
                                     tracing::error!("Missing dependency: {md:?}");
 
                                     if let Err(err) =
-                                        self.add_plugin(md.plugin, md.dependency, project)
+                                        self.add_plugin(md.plugin, md.dependency.clone(), project)
                                     {
                                         tracing::error!(
                                             "Failed to add missing dependency. {err:?}"
                                         );
                                     }
                                 }
-                            }
 
-                            if let Some(mut related) = err.related() {
-                                for err in &mut related {
-                                    tracing::error!("Related error: {err:?}");
+                                if !plugins_error.circular_dependencies.is_empty() {
+                                    self.failure = Some(err);
                                 }
+                            } else {
+                                self.failure = Some(err);
                             }
-
-                            self.failure = Some(err);
 
                             if rebuild {
                                 try_log_err!(project.sync());
@@ -541,7 +534,7 @@ impl Plugins {
 }
 
 /// Adds new plugins library
-fn add_plugin_with_path(path: Utf8PathBuf, project: &mut Project) -> miette::Result<bool> {
+fn add_plugin_with_path(path: Utf8PathBuf, project: &mut Project) -> Result<bool, Error> {
     let plugin = Plugin::open_local(path)?;
 
     project.add_plugin(plugin)

@@ -15,6 +15,7 @@ arcana-alloc = { path = "../alloc" }
 arcana-assets = { path = "../assets" }
 arcana-base-encoding = { path = "../base-encoding" }
 arcana-ecs = { path = "../ecs" }
+arcana-error = { path = "../error" }
 arcana-graphics = { path = "../graphics" }
 arcana-hash = { path = "../hash" }
 arcana-id = { path = "../id" }

@@ -2,9 +2,7 @@ use std::collections::VecDeque;
 
 use arcana::{
     ecs::{action::ActionBufferSliceExt, world::World, SystemId},
-    id::tokens_hash_id,
     plugin::{Location, PluginsHub},
-    project::Project,
     Ident, Name,
 };
 use egui::{Color32, Ui};
@@ -14,9 +12,9 @@ use egui_snarl::{
 };
 use hashbrown::{HashMap, HashSet};
 
-use crate::tool::{Tool, ToolId};
+use crate::project::Project;
 
-use super::{container::Container, ide::Ide, project::ProjectData, toggle_ui};
+use super::{container::Container, ide::Ide, toggle_ui};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Category {
@@ -114,13 +112,7 @@ impl Systems {
         }
     }
 
-    pub fn show(
-        &mut self,
-        project: &mut Project,
-        data: &mut ProjectData,
-        ide: Option<&dyn Ide>,
-        ui: &mut Ui,
-    ) {
+    pub fn show(&mut self, project: &mut Project, ide: Option<&dyn Ide>, ui: &mut Ui) {
         const STYLE: SnarlStyle = SnarlStyle::new();
 
         let mut viewer = SystemViewer {
@@ -129,18 +121,22 @@ impl Systems {
             ide,
         };
 
-        data.systems.snarl.show(&mut viewer, &STYLE, "systems", ui);
+        project
+            .data
+            .systems
+            .snarl
+            .show(&mut viewer, &STYLE, "systems", ui);
 
         if viewer.modified {
-            try_log_err!(data.sync(&project));
+            try_log_err!(project.sync());
         }
 
         if viewer.modified {
-            data.systems.modification += 1;
+            project.data.systems.modification += 1;
         }
     }
 
-    pub fn update_container(&mut self, data: &mut ProjectData, container: &Container) {
+    pub fn update_container(&mut self, project: &mut Project, container: &Container) {
         let mut all_systems = HashMap::new();
 
         for (name, plugin) in container.plugins() {
@@ -149,7 +145,7 @@ impl Systems {
             }
         }
 
-        for node in data.systems.snarl.nodes_mut() {
+        for node in project.data.systems.snarl.nodes_mut() {
             if let Some((_, info)) = all_systems.remove(&node.system) {
                 node.location = info.location;
                 node.active = true;
@@ -172,7 +168,7 @@ impl Systems {
         self.available = new_systems;
         self.available.sort_by_cached_key(|node| node.name.clone());
 
-        data.systems.modification += 1;
+        project.data.systems.modification += 1;
     }
 }
 

@@ -2,16 +2,11 @@
 
 use std::path::PathBuf;
 
-use miette::Diagnostic;
 use thiserror::Error;
 
 /// Error type for file open errors.
-#[derive(Debug, Error, Diagnostic)]
+#[derive(Debug, Error)]
 #[error("Failed to open file at {path}")]
-#[diagnostic(
-    code(ed::io::file_open_error),
-    help("Ensure file exists and is accessible")
-)]
 pub struct FileOpenError {
     pub path: PathBuf,
 
@@ -20,12 +15,8 @@ pub struct FileOpenError {
 }
 
 /// Error type for file read errors.
-#[derive(Debug, Error, Diagnostic)]
+#[derive(Debug, Error)]
 #[error("Failed to read file at {path}")]
-#[diagnostic(
-    code(ed::io::file_read_error),
-    help("Ensure file exists and is accessible")
-)]
 pub struct FileReadError {
     pub path: PathBuf,
 
@@ -34,12 +25,8 @@ pub struct FileReadError {
 }
 
 /// Error type for file copy errors.
-#[derive(Debug, Error, Diagnostic)]
+#[derive(Debug, Error)]
 #[error("Failed to copy file from {from} to {to}")]
-#[diagnostic(
-    code(ed::io::file_copy_error),
-    help("Ensure file '{from}' exists and is accessible and path '{to}' is accessible", from = self.from.display(), to = self.to.display())
-)]
 pub struct FileCopyError {
     pub from: PathBuf,
     pub to: PathBuf,

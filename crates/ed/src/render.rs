@@ -2,13 +2,12 @@ use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 
 use arcana::{
     ecs::entity::EntityId,
-    metatype::{Meta, Stid},
+    metatype::Stid,
     mev,
     model::Value,
     plugin::{JobInfo, Location},
-    project::Project,
     render::RenderGraphId,
-    work_graph::{Cycle, Edge, HookId, Image2D, Job, JobDesc, JobId, JobIdx, PinId, WorkGraph},
+    work_graph::{Cycle, Edge, HookId, Image2D, JobDesc, JobId, JobIdx, PinId, WorkGraph},
     Ident, Name,
 };
 use egui::Ui;
@@ -18,15 +17,13 @@ use egui_snarl::{
 };
 use hashbrown::HashMap;
 
-use crate::model::ValueProbe;
+use crate::{model::ValueProbe, project::Project};
 
 use super::{
     container::Container,
     hue_hash,
     ide::Ide,
     instance::Instance,
-    // model::ValueProbe,
-    project::ProjectData,
     sample::ImageSample,
     ui::{Sampler, Selector, UserTextures},
 };
@@ -117,7 +114,7 @@ impl Rendering {
         }
     }
 
-    pub fn update_plugins(&mut self, data: &mut ProjectData, container: &Container) {
+    pub fn update_plugins(&mut self, project: &mut Project, container: &Container) {
         let mut all_jobs = HashMap::new();
         self.available.clear();
 
@@ -132,7 +129,7 @@ impl Rendering {
             jobs.sort_by_key(|node| node.name);
         }
 
-        for render_graph in data.render_graphs.values_mut() {
+        for render_graph in project.data.render_graphs.values_mut() {
             let mut add_present_node = true;
             for node in render_graph.snarl.nodes_mut() {
                 match node {
@@ -170,8 +167,7 @@ impl Rendering {
 
     pub fn show(
         &mut self,
-        project: &Project,
-        data: &mut ProjectData,
+        project: &mut Project,
         sample: &ImageSample,
         device: &mev::Device,
         main: &mut Instance,
@@ -186,7 +182,11 @@ impl Rendering {
                         graph.name.as_str()
                     });
 
-                selector.show(&mut self.render_graph, data.render_graphs.iter(), ui);
+                selector.show(
+                    &mut self.render_graph,
+                    project.data.render_graphs.iter(),
+                    ui,
+                );
             });
 
             let Some(render_graph_id) = self.render_graph else {
@@ -248,7 +248,11 @@ impl Rendering {
                 ..SnarlStyle::new()
             };
 
-            let render_graph = data.render_graphs.get_mut(&render_graph_id).unwrap();
+            let render_graph = project
+                .data
+                .render_graphs
+                .get_mut(&render_graph_id)
+                .unwrap();
 
             render_graph
                 .snarl
@@ -256,7 +260,7 @@ impl Rendering {
 
             if viewer.modified {
                 render_graph.modification += 1;
-                try_log_err!(data.sync(&project));
+                try_log_err!(project.sync());
             }
         });
     }

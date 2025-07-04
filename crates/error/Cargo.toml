@@ -1,0 +1,9 @@
+[package]
+name = "arcana-error"
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]

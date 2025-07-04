@@ -6,7 +6,6 @@ use std::{
 use arcana::{
     assets::AssetId,
     hash::{sha256, sha256_file, Hash256},
-    project::real_path,
     Ident,
 };
 use hashbrown::HashMap;
@@ -402,7 +401,9 @@ fn get_meta_path(source: &Url, base: &Path, external: &Path) -> Result<(PathBuf,
     if source.scheme() == "file" {
         match source.to_file_path() {
             Ok(path) => {
-                let path = real_path(&path).ok_or_else(|| MetaError::PathError { path })?;
+                let path = path
+                    .canonicalize()
+                    .map_err(|_| MetaError::PathError { path })?;
 
                 if path.starts_with(base) {
                     // Files inside `base` directory has meta attached to them as sibling file with `.arc` extension added.

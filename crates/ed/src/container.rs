@@ -22,90 +22,84 @@ use std::{
 };
 
 use hashbrown::{hash_map::RawEntryMut, HashMap, HashSet};
-use miette::{Context, Diagnostic, Severity};
-use thiserror::Error;
 
 use arcana::{
+    error::{error, msg_error, Error, UnifyError, WithContext},
     plugin::{check_arcana_instance, ArcanaPlugin},
-    project::Dependency,
     Ident,
 };
 
+use crate::project::Dependency;
+
 use super::error::{FileCopyError, FileOpenError, FileReadError};
 
-#[derive(Diagnostic, Error, Debug)]
+#[derive(thiserror::Error, Debug)]
 #[error("Plugin not found")]
-#[diagnostic(code(ed::container::plugin_not_found), url(docsrs))]
 pub struct PluginNotFound {
     #[source]
     source: libloading::Error,
     path: PathBuf,
 }
 
-#[derive(Diagnostic, Error, Debug)]
+#[derive(thiserror::Error, Debug)]
 #[error("Dynamic lib is not a plugins library")]
-#[diagnostic(code(ed::container::plugin_not_found), url(docsrs))]
 pub struct NotPluginsLibrary {
     #[source]
     source: libloading::Error,
     path: PathBuf,
 }
 
-#[derive(Diagnostic, Error, Debug)]
+#[derive(thiserror::Error, Debug)]
 #[error("Plugins library engine version mismatch. Expected: {expected}, found: {found}")]
-#[diagnostic(
-    code(ed::container::version_mismatch),
-    help("update engine version in plugins lib"),
-    url(docsrs)
-)]
 pub struct PluginsLibraryEngineVersionMismatch {
     expected: &'static str,
     found: &'static str,
 }
 
-#[derive(Diagnostic, Error, Debug)]
+#[derive(thiserror::Error, Debug)]
 #[error("Plugins library engine is not linked")]
-#[diagnostic(
-    code(ed::container::engine_not_linked),
-    help("investigate why plugins library linked to a different instance of the engine"),
-    url(docsrs)
-)]
 pub struct PluginsLibraryEngineUnlinked;
 
-#[derive(Diagnostic, Error, Debug)]
+#[derive(thiserror::Error, Debug)]
 #[error("Circular dependency between plugins: {0} <-> {1}")]
-#[diagnostic(
-    code(ed::container::circular_dependency),
-    help("Break circular dependency"),
-    url(docsrs)
-)]
 pub struct CircularDependency(pub Ident, pub Ident);
 
-#[derive(Diagnostic, Error, Debug)]
+#[derive(thiserror::Error, Debug)]
 #[error("Missing dependency: {dependency} for plugin {plugin}")]
-#[diagnostic(
-    code(ed::container::missing_dependency),
-    help("Add missing dependency"),
-    url(docsrs)
-)]
 pub struct MissingDependency {
     pub plugin: Ident,
     pub dependency: Dependency,
 }
 
-#[derive(Diagnostic, Error, Debug)]
-#[error("Failed to load plugins")]
-#[diagnostic(
-    code(ed::container::plugins_error),
-    help("Fix related errors"),
-    url(docsrs)
-)]
+#[derive(thiserror::Error, Debug)]
 pub struct PluginsError {
-    #[related]
     pub circular_dependencies: Vec<CircularDependency>,
-
-    #[related]
     pub missing_dependencies: Vec<MissingDependency>,
+}
+
+impl fmt::Display for PluginsError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Plugins error: ")?;
+
+        if !self.circular_dependencies.is_empty() {
+            write!(f, "Circular dependencies found: ")?;
+            for dep in &self.circular_dependencies {
+                write!(f, "{} <-> {} ", dep.0, dep.1)?;
+            }
+        }
+
+        if !self.missing_dependencies.is_empty() {
+            if !self.circular_dependencies.is_empty() {
+                write!(f, "\n")?;
+            }
+            write!(f, "Missing dependencies: ")?;
+            for dep in &self.missing_dependencies {
+                write!(f, "{} for plugin {} ", dep.dependency, dep.plugin)?;
+            }
+        }
+
+        Ok(())
+    }
 }
 
 /// Container holds an instance of plugin library and must be supplied to the game instance to use plugins.
@@ -362,14 +356,16 @@ impl Drop for TmpPath {
 
 /// Find new appropriate name for the dylib at the given path.
 /// Copies the dylib to the new path and returns the new path.
-fn copy_dylib(path: &Path, new_path: PathBuf) -> miette::Result<TmpPath> {
+fn copy_dylib(path: &Path, new_path: PathBuf) -> Result<TmpPath, Error> {
     let mut copied = false;
     if !new_path.exists() {
-        std::fs::copy(&path, &new_path).map_err(|source| FileCopyError {
-            from: path.to_owned(),
-            to: new_path.to_owned(),
-            source,
-        })?;
+        std::fs::copy(&path, &new_path)
+            .map_err(|source| FileCopyError {
+                from: path.to_owned(),
+                to: new_path.to_owned(),
+                source,
+            })
+            .unify_error()?;
 
         tracing::info!(
             "Copied dylib from '{}' to '{}'",
@@ -388,14 +384,9 @@ fn copy_dylib(path: &Path, new_path: PathBuf) -> miette::Result<TmpPath> {
 
 /// Find new appropriate name for the dylib at the given path.
 /// Copies the dylib to the new path and returns the new path.
-fn find_tmp_path(path: &Path) -> miette::Result<PathBuf> {
+fn find_tmp_path(path: &Path) -> Result<PathBuf, Error> {
     let Some(file_stem) = path.file_stem() else {
-        return Err(miette::miette! {
-            severity = Severity::Error,
-            code = "copy_dylib::filename",
-            help = "Dylib path must have a filename",
-            "Bad dylib path: {}", path.display()
-        });
+        return Err(msg_error!("Bad dylib path: {}", path.display()));
     };
 
     let ext = path.extension();
@@ -405,14 +396,14 @@ fn find_tmp_path(path: &Path) -> miette::Result<PathBuf> {
             path: path.to_owned(),
             source,
         })
-        .wrap_err("Failed to open dylib file")?;
+        .with_context("Failed to open dylib file")?;
 
     let hash = arcana::hash::stable_hash_read(file)
         .map_err(|source| FileReadError {
             path: path.to_owned(),
             source,
         })
-        .wrap_err("Failed to hash dylib file")?;
+        .with_context("Failed to hash dylib file")?;
 
     let mut new_filename = file_stem.to_owned();
     new_filename.push(format!("-{}", hash));
@@ -450,8 +441,8 @@ impl Loader {
         &mut self,
         path: &Path,
         enabled_plugins: &HashSet<Ident>,
-    ) -> miette::Result<Container> {
-        let new_path = find_tmp_path(path).wrap_err("Failed to find temp path for dylib")?;
+    ) -> Result<Container, Error> {
+        let new_path = find_tmp_path(path).with_context("Failed to find temp path for dylib")?;
 
         let loaded = match self.loaded.raw_entry_mut().from_key(&*new_path) {
             RawEntryMut::Occupied(entry) => entry.get().clone(),
@@ -495,10 +486,10 @@ fn get_active_plugins(loaded: &Loaded, enabled_plugins: &HashSet<Ident>) -> Hash
     active_set
 }
 
-fn load_lib(path: &Path, new_path: PathBuf) -> miette::Result<Loaded> {
+fn load_lib(path: &Path, new_path: PathBuf) -> Result<Loaded, Error> {
     tracing::info!("Loading library from '{}'", path.display());
 
-    let tmp = copy_dylib(path, new_path).wrap_err("Failed to copy dylib")?;
+    let tmp = copy_dylib(path, new_path).with_context("Failed to copy dylib")?;
 
     // Safety: nope.
     let r = unsafe { libloading::Library::new(&tmp.path) };
@@ -509,8 +500,8 @@ fn load_lib(path: &Path, new_path: PathBuf) -> miette::Result<Loaded> {
             return Err(PluginNotFound {
                 source,
                 path: path.to_owned(),
-            }
-            .into())
+            })
+            .unify_error()
         }
     };
 
@@ -519,45 +510,42 @@ fn load_lib(path: &Path, new_path: PathBuf) -> miette::Result<Loaded> {
     type ArcanaLinkedFn = fn(&AtomicBool) -> bool;
     type ArcanaPluginsFn = fn() -> Vec<(Ident, ArcanaPlugin)>;
 
-    let arcana_version =
-        unsafe { lib.get::<ArcanaVersionFn>(b"arcana_version\0") }.map_err(|source| {
-            PluginNotFound {
-                source,
-                path: path.to_owned(),
-            }
-        })?;
+    let arcana_version = unsafe { lib.get::<ArcanaVersionFn>(b"arcana_version\0") }
+        .map_err(|source| PluginNotFound {
+            source,
+            path: path.to_owned(),
+        })
+        .unify_error()?;
 
-    let arcana_linked =
-        unsafe { lib.get::<ArcanaLinkedFn>(b"arcana_linked\0") }.map_err(|source| {
-            NotPluginsLibrary {
-                source,
-                path: path.to_owned(),
-            }
-        })?;
+    let arcana_linked = unsafe { lib.get::<ArcanaLinkedFn>(b"arcana_linked\0") }
+        .map_err(|source| NotPluginsLibrary {
+            source,
+            path: path.to_owned(),
+        })
+        .unify_error()?;
 
-    let arcana_plugins =
-        unsafe { lib.get::<ArcanaPluginsFn>(b"arcana_plugins\0") }.map_err(|source| {
-            NotPluginsLibrary {
-                source,
-                path: path.to_owned(),
-            }
-        })?;
+    let arcana_plugins = unsafe { lib.get::<ArcanaPluginsFn>(b"arcana_plugins\0") }
+        .map_err(|source| NotPluginsLibrary {
+            source,
+            path: path.to_owned(),
+        })
+        .unify_error()?;
 
     let arcana_version = arcana_version();
     if arcana_version != arcana::version() {
         return Err(PluginsLibraryEngineVersionMismatch {
             expected: arcana::version(),
             found: arcana_version,
-        }
-        .into());
+        })
+        .unify_error();
     }
 
     if !check_arcana_instance(*arcana_linked) {
-        return Err(PluginsLibraryEngineUnlinked.into());
+        return Err(PluginsLibraryEngineUnlinked).unify_error();
     }
 
     let mut plugins = arcana_plugins();
-    sort_plugins(&mut plugins)?;
+    sort_plugins(&mut plugins).unify_error()?;
 
     Ok(Loaded {
         plugins: plugins.into(),

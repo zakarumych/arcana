@@ -9,6 +9,7 @@ description = "Asset pipeline and loader for Arcana engine"
 
 [dependencies]
 arcana-intern = { path = "../intern" }
+arcana-error = { path = "../error" }
 arcana-id = { path = "../id" }
 arcana-metatype = { path = "../metatype" }
 

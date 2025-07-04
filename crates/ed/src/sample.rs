@@ -1,7 +1,9 @@
 use std::mem::size_of;
 
-use arcana::mev::{self, Arguments};
-use miette::IntoDiagnostic;
+use arcana::{
+    error::{Error, UnifyError},
+    mev::{self, Arguments},
+};
 
 #[derive(mev::DeviceRepr)]
 struct ImageSampleConstants {
@@ -23,13 +25,13 @@ pub struct ImageSample {
 }
 
 impl ImageSample {
-    pub fn new(device: &mev::Device) -> miette::Result<Self> {
+    pub fn new(device: &mev::Device) -> Result<Self, Error> {
         let library = device
             .new_shader_library(mev::LibraryDesc {
                 name: "image-sampler",
                 input: mev::include_library!("./shaders/sample.wgsl" as mev::ShaderLanguage::Wgsl),
             })
-            .into_diagnostic()?;
+            .unify_error()?;
 
         let pipeline = device
             .new_render_pipeline(mev::RenderPipelineDesc {
@@ -51,11 +53,11 @@ impl ImageSample {
                 constants: size_of::<ImageSampleConstants>(),
                 arguments: &[ImageSampleArguments::LAYOUT],
             })
-            .into_diagnostic()?;
+            .unify_error()?;
 
         let sampler = device
             .new_sampler(mev::SamplerDesc::default())
-            .into_diagnostic()?;
+            .unify_error()?;
 
         Ok(ImageSample { pipeline, sampler })
     }
@@ -65,7 +67,7 @@ impl ImageSample {
         src: mev::Image,
         dst: mev::Image,
         encoder: &mut mev::CommandEncoder,
-    ) -> miette::Result<()> {
+    ) -> Result<(), Error> {
         let dims = dst.extent().expect_2d();
         let constants = ImageSampleConstants {
             extent: mev::vec2(dims.width() as f32, dims.height() as f32),

@@ -1,15 +1,13 @@
-use std::{hash::Hash, io::ErrorKind, path::Path};
+use std::{hash::Hash, path::Path};
 
-use arcana::{
-    mev,
-    project::{Profile, Project},
-};
+use arcana::{error::Error, mev};
+use arcana_project::Profile;
 use winit::event_loop::EventLoop;
 
 #[cfg(windows)]
 use winit::platform::windows::EventLoopBuilderExtWindows;
 
-use crate::project::ProjectData;
+use crate::project::Project;
 
 /// Result::ok, but logs Err case.
 macro_rules! ok_log_err {
@@ -67,12 +65,12 @@ pub fn run(project_path: impl AsRef<Path>) {
     }
 }
 
-fn _run(project_path: &Path) -> miette::Result<()> {
+fn _run(project_path: &Path) -> Result<(), Error> {
     // Marks the running instance of Arcana library.
     // This flag is checked in plugins to ensure they are linked to this arcana.
     arcana::plugin::set_running_arcana_instance();
 
-    let (project, data) = load_project(project_path)?;
+    let project = Project::load(project_path)?;
 
     // let event_collector = egui_tracing::EventCollector::default();
 
@@ -98,7 +96,7 @@ fn _run(project_path: &Path) -> miette::Result<()> {
     let events = builder
         .build()
         .expect("Event loop should be created successfully");
-    let mut app = app::App::new(project, data);
+    let mut app = app::App::new(project);
 
     events.run_app(&mut app).unwrap();
 
@@ -117,27 +115,6 @@ fn _run(project_path: &Path) -> miette::Result<()> {
 //         sub.rotate_right(1);
 //     }
 // }
-
-fn load_project(path: &Path) -> miette::Result<(Project, ProjectData)> {
-    let project = Project::open(path)?;
-
-    let path = project.root_path().join("Arcana.bin");
-
-    let data = match std::fs::File::open(path) {
-        Err(err) if err.kind() == ErrorKind::NotFound => ProjectData::default(),
-        Ok(file) => match serde_json::from_reader(file) {
-            Ok(data) => data,
-            Err(err) => {
-                miette::bail!("Failed to deserialize project data: {}", err);
-            }
-        },
-        Err(err) => {
-            miette::bail!("Failed to open Arcana.bin to load project data: {}", err);
-        }
-    };
-
-    Ok((project, data))
-}
 
 fn toggle_ui(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
     let desired_size = ui.spacing().interact_size.y * egui::vec2(2.0, 1.0);

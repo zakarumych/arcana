@@ -11,6 +11,7 @@ crate-type = ["dylib"]
 
 [dependencies]
 arcana = { path = "../arcana" }
+arcana-project = { path = "../project" }
 
 # Math
 approx.workspace = true
@@ -22,7 +23,6 @@ palette.workspace = true
 
 # Error handling
 thiserror.workspace = true
-miette.workspace = true
 
 # Tracing
 tracing.workspace = true

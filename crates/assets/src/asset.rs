@@ -2,7 +2,9 @@ use std::{any::Any, future::Future};
 
 use arcana_metatype::MetaType;
 
-use super::{assets::Assets, build::AssetBuilder, error::Error};
+use crate::AssetError;
+
+use super::{assets::Assets, build::AssetBuilder};
 
 /// Asset trait must be implemented for a type to be loaded as an Asset.
 pub trait Asset: MetaType + Send + Sync + Clone {
@@ -13,10 +15,10 @@ pub trait Asset: MetaType + Send + Sync + Clone {
     fn load(
         data: &[u8],
         assets: &Assets,
-    ) -> impl Future<Output = Result<Self::Loaded, Error>> + Send;
+    ) -> impl Future<Output = Result<Self::Loaded, AssetError>> + Send;
 
     /// Build asset from raw data.
     ///
     /// Loader is provided to load sub-assets.
-    fn build(loaded: Self::Loaded, builder: &mut AssetBuilder) -> Result<Self, Error>;
+    fn build(loaded: Self::Loaded, builder: &mut AssetBuilder) -> Result<Self, AssetError>;
 }

@@ -5,6 +5,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use arcana_error::Error;
 use arcana_project::{new_plugin_crate, process_path_ident, Plugin};
 use camino::Utf8PathBuf;
 use figa::Figa;
@@ -152,20 +153,20 @@ impl Start {
         name: Option<Ident>,
         engine: Dependency,
         new: bool,
-    ) -> miette::Result<Project> {
+    ) -> Result<Project, Error> {
         let (path, name) = process_path_ident(path, name)?;
         Project::new(name, &path, engine, new)
     }
 
-    pub fn open(&self, path: &Path) -> miette::Result<Project> {
+    pub fn open(&self, path: &Path) -> Result<Project, Error> {
         Project::open(path)
     }
 
-    pub fn init_workspace(&self, path: &Path) -> miette::Result<()> {
+    pub fn init_workspace(&self, path: &Path) -> Result<(), Error> {
         Project::open(path)?.init_workspace()
     }
 
-    pub fn run_ed(&self, path: &Path, profile: Profile) -> miette::Result<()> {
+    pub fn run_ed(&self, path: &Path, profile: Profile) -> Result<(), Error> {
         let p = Project::open(path)?;
         p.run_editor(profile)
     }
@@ -175,25 +176,28 @@ impl Start {
         path: &Path,
         name: Option<Ident>,
         engine: Dependency,
-    ) -> miette::Result<Plugin> {
+    ) -> Result<Plugin, Error> {
         let (path, name) = process_path_ident(path, name)?;
         let path = match Utf8PathBuf::from_path_buf(path) {
             Ok(path) => path,
             Err(path) => {
-                miette::bail!("Plugin path is not UTF-8: {}", path.display());
+                return Err(Error::msg(format!(
+                    "Plugin path is not UTF-8: {}",
+                    path.display()
+                )));
             }
         };
 
         new_plugin_crate(&name, &path, engine, None)
     }
 
-    pub fn build_game(&self, path: &Path, profile: Profile) -> miette::Result<PathBuf> {
+    pub fn build_game(&self, path: &Path, profile: Profile) -> Result<PathBuf, Error> {
         let p = Project::open(path)?;
         p.init_workspace()?;
         p.build_game(profile)
     }
 
-    pub fn run_game(&self, path: &Path, profile: Profile) -> miette::Result<()> {
+    pub fn run_game(&self, path: &Path, profile: Profile) -> Result<(), Error> {
         let p = Project::open(path)?;
         p.init_workspace()?;
         p.run_game(profile)
@@ -237,7 +241,7 @@ impl Start {
     }
 }
 
-// fn map_engine_dep(dep: Option<&Dependency>, base: &Path) -> miette::Result<Option<Dependency>> {
+// fn map_engine_dep(dep: Option<&Dependency>, base: &Path) -> Result<Option<Dependency>> {
 //     match dep {
 //         Some(Dependency::Path { path }) if !path.is_absolute() => Ok(Some(Dependency::Path {
 //             path: rebase_dep_path(path.as_ref(), base)?,
@@ -247,7 +251,7 @@ impl Start {
 //     }
 // }
 
-// fn rebase_dep_path(path: &Path, base: &Path) -> miette::Result<Utf8PathBuf> {
+// fn rebase_dep_path(path: &Path, base: &Path) -> Result<Utf8PathBuf> {
 //     let path = real_path(path).into_diagnostic()?;
 //     let path = make_relative(&path, &base);
 //     let path = Utf8PathBuf::try_from(path).into_diagnostic()?;

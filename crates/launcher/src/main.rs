@@ -1,8 +1,9 @@
 use std::{
-    path::PathBuf,
+    path::{absolute, PathBuf},
     process::{Child, ExitCode, Termination},
 };
 
+use arcana_error::Error;
 use arcana_launcher::{validate_engine_path, Dependency, Ident, Profile, Project, Start};
 use egui_file::FileDialog;
 use hashbrown::HashMap;
@@ -486,7 +487,7 @@ impl Drop for AppChild {
 pub struct App {
     start: Start,
     profile: Profile,
-    recent: HashMap<PathBuf, Result<Project, miette::Report>>,
+    recent: HashMap<PathBuf, Result<Project, Error>>,
 
     /// Open dialog.
     dialog: Option<AppDialog>,
@@ -680,22 +681,30 @@ impl NewProject {
                     }
                     egui_file::State::Selected => {
                         if let Some(path) = file_dialog.path() {
-                            match validate_engine_path(path) {
-                                Ok(dep) => {
-                                    start.add_engine(dep.clone());
-                                    self.dialog = None;
-                                    self.engine = Some(dep);
-                                }
+                            match absolute(path) {
+                                Ok(path) => match validate_engine_path(&path) {
+                                    Ok(dep) => {
+                                        start.add_engine(dep.clone());
+                                        self.dialog = None;
+                                        self.engine = Some(dep);
+                                    }
+                                    Err(err) => {
+                                        self.dialog = Some(NewProjectDialog::Error(ErrorDialog {
+                                            title: format!(
+                                                "Failed to add engine from path '{}'",
+                                                path.display()
+                                            ),
+                                            message: err.to_string(),
+                                        }));
+                                    }
+                                },
                                 Err(err) => {
                                     self.dialog = Some(NewProjectDialog::Error(ErrorDialog {
-                                        title: format!(
-                                            "Failed to add engine from path '{}'",
-                                            path.display()
-                                        ),
+                                        title: "Failed to resolve engine path".to_owned(),
                                         message: err.to_string(),
                                     }));
                                 }
-                            }
+                            };
                         } else {
                             self.dialog = None;
                         }
