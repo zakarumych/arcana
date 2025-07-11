@@ -4,14 +4,13 @@ use arcana::{
     error::{fail, Error},
     validate_ident, Ident,
 };
-use arcana_project::{
-    new_plugin_crate, BuildProcess, Dependency, Plugin, Profile, ProjectManifest,
-};
 use camino::{Utf8Path, Utf8PathBuf};
 use egui::{Color32, RichText, Ui};
 use egui_file::FileDialog;
 
-use crate::project::Project;
+use crate::project::{
+    new_plugin_crate, BuildProcess, Dependency, Plugin, Profile, Project, ProjectManifest,
+};
 
 use super::{
     container::{Container, Loader, PluginsError},

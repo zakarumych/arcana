@@ -12,6 +12,7 @@ arcana-intern = { path = "../intern" }
 arcana-error = { path = "../error" }
 arcana-id = { path = "../id" }
 arcana-metatype = { path = "../metatype" }
+arcana-model = { path = "../model" }
 
 mev.workspace = true
 
@@ -20,4 +21,5 @@ thiserror.workspace = true
 amity = { workspace = true, features = ["flip-queue"] }
 hashbrown.workspace = true
 parking_lot.workspace = true
+smol_str.workspace = true
 tokio.workspace = true

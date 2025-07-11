@@ -6,7 +6,6 @@
 use arcana_intern::Name;
 use athena::{Matrix2, Matrix3, Matrix4, Vector2, Vector3, Vector4};
 
-use edict::entity::EntityId;
 use gametime::TimeSpan;
 use hashbrown::HashMap;
 use smol_str::SmolStr;
@@ -60,9 +59,6 @@ pub enum Model {
 
     /// Time span
     TimeSpan,
-
-    /// Entity id.
-    Entity,
 
     /// 2 component vector.
     Vec2,
@@ -132,7 +128,6 @@ impl Model {
                 Value::Color(ColorValue::Hsva(palette::Hsva::new(0.0, 0.0, 0.0, 1.0)))
             }
             Model::TimeSpan => Value::TimeSpan(TimeSpan::ZERO),
-            Model::Entity => Value::Entity(EntityId::dangling()),
             Model::Vec2 => Value::Vec2(Vector2::new(0.0, 0.0)),
             Model::Vec3 => Value::Vec3(Vector3::new(0.0, 0.0, 0.0)),
             Model::Vec4 => Value::Vec4(Vector4::new(0.0, 0.0, 0.0, 0.0)),

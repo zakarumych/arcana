@@ -192,7 +192,7 @@ impl Filters {
 
         for filter in project.data.funnel.filters.iter_mut() {
             if let Some((_, info)) = all_filters.remove(&filter.id) {
-                filter.location = info.location;
+                filter.location = info.location.clone();
                 filter.active = true;
             } else {
                 filter.active = false;
@@ -206,12 +206,12 @@ impl Filters {
                 plugin: plugin.to_owned(),
                 id,
                 enabled: false,
-                location: info.location,
+                location: info.location.clone(),
                 active: true,
             })
             .collect::<Vec<_>>();
 
         self.available = new_filters;
-        self.available.sort_by_cached_key(|info| info.name.clone());
+        self.available.sort_by_cached_key(|info| info.name);
     }
 }

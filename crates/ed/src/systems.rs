@@ -147,7 +147,7 @@ impl Systems {
 
         for node in project.data.systems.snarl.nodes_mut() {
             if let Some((_, info)) = all_systems.remove(&node.system) {
-                node.location = info.location;
+                node.location = info.location.clone();
                 node.active = true;
             }
         }
@@ -160,13 +160,13 @@ impl Systems {
                 plugin,
                 active: true,
                 category: Category::Fix,
-                location: info.location,
+                location: info.location.clone(),
                 enabled: false,
             })
             .collect::<Vec<_>>();
 
         self.available = new_systems;
-        self.available.sort_by_cached_key(|node| node.name.clone());
+        self.available.sort_by_cached_key(|node| node.name);
 
         project.data.systems.modification += 1;
     }

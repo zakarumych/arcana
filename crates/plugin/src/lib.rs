@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 
-use arcana_assets::import::{Importer, ImporterId};
+use arcana_assets::import::{Importer, ImporterDesc, ImporterId};
 use arcana_ecs::SystemId;
 use arcana_input::{FilterId, InputFilter, IntoInputFilter};
 use arcana_intern::{Ident, Name};
@@ -70,6 +70,9 @@ pub struct ImporterInfo {
 
     /// Name of the importer.
     pub name: Name,
+
+    /// Description of the importer.
+    pub desc: ImporterDesc,
 
     /// Location of the importer in the source code.
     pub location: Option<Location>,
@@ -240,16 +243,20 @@ impl ArcanaPlugin {
         }
     }
 
-    pub fn filters(&self) -> Vec<FilterInfo> {
-        self.filters.clone()
+    pub fn filters(&self) -> &[FilterInfo] {
+        &self.filters
     }
 
-    pub fn systems(&self) -> Vec<SystemInfo> {
-        self.systems.clone()
+    pub fn systems(&self) -> &[SystemInfo] {
+        &self.systems
     }
 
-    pub fn jobs(&self) -> Vec<JobInfo> {
-        self.jobs.clone()
+    pub fn jobs(&self) -> &[JobInfo] {
+        &self.jobs
+    }
+
+    pub fn importers(&self) -> &[ImporterInfo] {
+        &self.importers
     }
 }
 

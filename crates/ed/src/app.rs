@@ -2,13 +2,14 @@ use std::{borrow::Cow, hash::Hash, path::PathBuf};
 
 use arboard::Clipboard;
 use arcana::{
-    error::{error, fail, Error, UnifyError},
+    error::{error, Error, UnifyError},
     gametime::{Clock, ClockStep, FrequencyNumExt, FrequencyTicker},
     input::ViewInput,
     mev,
 };
 use egui::{TopBottomPanel, WidgetText};
 use egui_dock::{DockArea, DockState, Tree};
+use egui_probe::Probe;
 use winit::{
     dpi,
     event::WindowEvent,
@@ -18,6 +19,7 @@ use winit::{
 
 use crate::{
     assets::AssetRepository,
+    error::ErrorDialog,
     filters::Filters,
     ide::{Ide, IdeType},
     init_mev,
@@ -28,7 +30,7 @@ use crate::{
     sample::ImageSample,
     subprocess::{filter_subprocesses, kill_subprocesses},
     systems::Systems,
-    tool::{Tool, ToolId, Toolbox},
+    tool::{ToolId, Toolbox},
     ui::{Ui, UiViewport, UserTextures},
 };
 
@@ -43,6 +45,7 @@ pub enum UserEvent {}
 enum Tab {
     Plugins,
     Systems,
+    Assets,
 
     Tool { id: ToolId },
 }
@@ -78,13 +81,14 @@ pub struct App {
     ide: Option<Box<dyn Ide>>,
     toolbox: Toolbox,
 
-    show_preferences: bool,
-
     plugins: Plugins,
     systems: Systems,
 
     /// App views correspond to windows.
     views: Vec<AppView>,
+
+    preferences: Preferences,
+    error: ErrorDialog,
 }
 
 struct AppView {
@@ -103,7 +107,7 @@ impl Drop for AppView {
 }
 
 impl App {
-    pub fn new(project: Project) -> Self {
+    pub fn new(project: Project) -> Result<Self, Error> {
         let (device, queue) = init_mev();
 
         let plugins = Plugins::new();
@@ -135,10 +139,10 @@ impl App {
             Some(ide) => Some(ide.get()),
         };
 
-        let assets = AssetRepository::new(&project.root_path().join("Assets"));
+        let assets = AssetRepository::new(&project)?;
 
         let toolbox = Toolbox::new();
-        App {
+        Ok(App {
             should_quit: false,
 
             project,
@@ -157,15 +161,17 @@ impl App {
 
             clock,
             limiter,
-            cfg,
+            cfg: cfg.clone(),
 
             ide,
             toolbox,
-            show_preferences: false,
 
             plugins,
             systems,
-        }
+
+            preferences: Preferences::new(cfg),
+            error: ErrorDialog::new(),
+        })
     }
 
     pub fn try_tick(&mut self, events: &ActiveEventLoop) {
@@ -232,7 +238,7 @@ impl App {
                             ui.horizontal(|ui| {
                                 ui.menu_button("File", |ui| {
                                     if ui.button("Preferences").clicked() {
-                                        self.show_preferences = true;
+                                        self.preferences.open(cx.viewport_id());
                                         ui.close_menu();
                                     }
 
@@ -254,6 +260,14 @@ impl App {
                                         focus_or_add_tab(
                                             view.dock_state.main_surface_mut(),
                                             Tab::Systems,
+                                        );
+                                        ui.close_menu();
+                                    }
+
+                                    if ui.button("Assets").clicked() {
+                                        focus_or_add_tab(
+                                            view.dock_state.main_surface_mut(),
+                                            Tab::Assets,
                                         );
                                         ui.close_menu();
                                     }
@@ -290,25 +304,11 @@ impl App {
                             dock_area.show_inside(ui, &mut model);
                         });
 
-                        if self.show_preferences {
-                            egui::Window::new("Preferences")
-                                .collapsible(false)
-                                .title_bar(true)
-                                .resizable(false)
-                                .open(&mut self.show_preferences)
-                                .show(cx, |ui| {
-                                    egui_probe::Probe::new(&mut self.cfg).show(ui);
-
-                                    if let Err(err) = save_app_cfg(&self.cfg) {
-                                        tracing::error!("Failed to save app cfg: {err:?}");
-                                    }
-
-                                    match self.cfg.ide {
-                                        None => self.ide = None,
-                                        Some(ide) => self.ide = Some(ide.get()),
-                                    }
-                                });
+                        if let Err(err) = self.preferences.show(cx, &mut self.cfg) {
+                            self.error
+                                .push_error(cx.viewport_id(), "Preferences Error", err);
                         }
+                        self.error.show(cx);
                     },
                 );
 
@@ -514,6 +514,9 @@ impl egui_dock::widgets::TabViewer for AppModel<'_> {
             // ),
             // Tab::Main => self.main.show(self.window.id(), &mut self.textures, ui),
             // Tab::Inspector => {} //Inspector::show(self.world, ui),
+            Tab::Assets => {
+                self.assets.show(ui, &self.project);
+            }
             Tab::Tool { id } => {
                 self.toolbox
                     .show(id, self.project, self.ide.as_deref(), self.main, ui);
@@ -523,7 +526,6 @@ impl egui_dock::widgets::TabViewer for AppModel<'_> {
 
     fn title(&mut self, tab: &mut Tab) -> WidgetText {
         match *tab {
-            // Tab::Assets => "Assets".into(),
             Tab::Plugins => "Plugins".into(),
             // Tab::Console => "Console".into(),
             Tab::Systems => "Systems".into(),
@@ -532,13 +534,14 @@ impl egui_dock::widgets::TabViewer for AppModel<'_> {
             // Tab::Rendering => "Rendering".into(),
             // Tab::Main => "Main".into(),
             // Tab::Inspector => "Inspector".into(),
+            Tab::Assets => "Assets".into(),
             Tab::Tool { id } => self.toolbox.title(id).into(),
         }
     }
 
     fn scroll_bars(&self, tab: &Tab) -> [bool; 2] {
         match tab {
-            // Tab::Assets => [false, false],
+            Tab::Assets => [false, false],
             // Tab::Console => [false, false],
             Tab::Systems => [false, false],
             // Tab::Codes => [false, false],
@@ -664,5 +667,63 @@ impl winit::application::ApplicationHandler<UserEvent> for App {
     fn exiting(&mut self, _events: &ActiveEventLoop) {
         self.save_state();
         kill_subprocesses();
+    }
+}
+
+struct Preferences {
+    cfg: AppConfig,
+    open: Option<egui::ViewportId>,
+}
+
+impl Preferences {
+    fn new(cfg: AppConfig) -> Self {
+        Preferences { cfg, open: None }
+    }
+
+    fn open(&mut self, viewport_id: egui::ViewportId) {
+        self.open = Some(viewport_id);
+    }
+
+    fn show(&mut self, cx: &egui::Context, cfg: &mut AppConfig) -> Result<(), Error> {
+        let mut error = None;
+        if self.open == Some(cx.viewport_id()) {
+            egui::Modal::new(egui::Id::new("arcana-ed-preferences")).show(cx, |ui| {
+                ui.vertical(|ui| {
+                    ui.label("Editor Preferences");
+
+                    egui::Frame::group(ui.style()).show(ui, |ui| {
+                        Probe::new(&mut self.cfg).show(ui);
+                    });
+
+                    ui.horizontal(|ui| {
+                        if ui.button("Accept").clicked() {
+                            if let Err(err) = save_app_cfg(&self.cfg) {
+                                tracing::error!("Failed to save app config: {err:?}");
+                                error = Some(err);
+                            }
+                            *cfg = self.cfg.clone();
+                        }
+
+                        if ui.button("OK").clicked() {
+                            if let Err(err) = save_app_cfg(&self.cfg) {
+                                tracing::error!("Failed to save app config: {err:?}");
+                                error = Some(err);
+                            }
+                            *cfg = self.cfg.clone();
+                            self.open = None;
+                        }
+
+                        if ui.button("Cancel").clicked() {
+                            self.open = None;
+                        }
+                    });
+                });
+            });
+        }
+
+        match error {
+            None => Ok(()),
+            Some(err) => Err(err),
+        }
     }
 }

@@ -5,7 +5,7 @@ use arcana::{
     smol_str::SmolStr,
 };
 use egui::{Id, Response, Ui, Widget};
-use egui_probe::{DeleteMe, EguiProbe, Style};
+use egui_probe::{DeleteMe, EguiProbe, Probe, Style};
 use hashbrown::HashMap;
 
 pub struct ModelProbe<'a> {
@@ -287,6 +287,10 @@ impl<'a> ValueProbe<'a> {
             value,
             id_source: Id::new(id_source),
         }
+    }
+
+    pub fn show(mut self, ui: &mut Ui) -> Response {
+        Probe::new(&mut self).show(ui)
     }
 }
 

@@ -11,6 +11,8 @@ use arcana::{
     io::fs::{file_eq_blob, files_eq},
 };
 
+const MIN_BLOB_HASH_PREFIX: u64 = 8;
+
 /// Stores blobs in the FS,
 /// returns ID on insertion,
 /// and allows to retrieve and remove them by ID.
@@ -19,17 +21,32 @@ pub struct Blobs {
     path: PathBuf,
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum NewBlobsError {
+    #[error("Path '{0}' is not a directory")]
     PathIsNotDir(PathBuf),
+
+    #[error("Failed to create directory at '{0}'")]
     DirectoryCreationFailed(io::Error),
+
+    #[error("Failed to open directory at '{0}'")]
     DirectoryOpenFailed(io::Error),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct BlobId {
     hash: Hash256,
+
+    #[serde(skip_serializing_if = "is_default_index", default = "default_index")]
     index: u64,
+}
+
+const fn is_default_index(index: &u64) -> bool {
+    *index == default_index()
+}
+
+const fn default_index() -> u64 {
+    MIN_BLOB_HASH_PREFIX
 }
 
 impl Blobs {
@@ -117,11 +134,9 @@ fn insert_blob(base: &Path, blob: EitherBlob) -> io::Result<BlobId> {
         EitherBlob::CopyFile(path) | EitherBlob::MoveFile(path) => sha256_file(path).unwrap(),
     };
 
-    let hex = format!("{hash:x}");
-
     let mut candidate = base.to_path_buf();
 
-    for index in 8u64..u64::MAX {
+    for index in MIN_BLOB_HASH_PREFIX..u64::MAX {
         push_path(&mut candidate, hash, index);
 
         match candidate.metadata() {

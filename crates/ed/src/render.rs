@@ -123,7 +123,7 @@ impl Rendering {
 
             for info in plugin.jobs() {
                 all_jobs.insert(info.id, info.clone());
-                jobs.push(info);
+                jobs.push(info.clone());
             }
 
             jobs.sort_by_key(|node| node.name);

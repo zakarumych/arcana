@@ -28,16 +28,16 @@ impl Future for AssetDataRequest {
     }
 }
 
-pub struct AssetsLoader {
+pub struct RepositoryAssetLoader {
     task_queue: TaskQueue<AssetRequest, Result<Option<AssetData>, AssetError>>,
 }
 
-enum AssetRequest {
+pub enum AssetRequest {
     Load { id: AssetId },
     Update { id: AssetId, version: u64 },
 }
 
-impl Loader for AssetsLoader {
+impl Loader for RepositoryAssetLoader {
     fn load<'a>(&'a self, id: AssetId) -> BoxFuture<'a, Result<AssetData, AssetError>> {
         let response = self.task_queue.push(AssetRequest::Load { id });
         Box::pin(async move {
@@ -56,5 +56,29 @@ impl Loader for AssetsLoader {
     ) -> BoxFuture<'a, Result<Option<AssetData>, AssetError>> {
         let response = self.task_queue.push(AssetRequest::Update { id, version });
         Box::pin(response)
+    }
+}
+
+pub struct RepositoryAssetProvider {
+    task_queue: TaskQueue<AssetRequest, Result<Option<AssetData>, AssetError>>,
+}
+
+impl RepositoryAssetProvider {
+    pub fn new() -> Self {
+        let task_queue = TaskQueue::new();
+        Self { task_queue }
+    }
+
+    pub fn provide(
+        &mut self,
+        f: impl FnMut(AssetRequest) -> Result<Option<AssetData>, AssetError>,
+    ) {
+        self.task_queue.process_all(f);
+    }
+
+    pub fn loader(&self) -> RepositoryAssetLoader {
+        RepositoryAssetLoader {
+            task_queue: self.task_queue.clone(),
+        }
     }
 }

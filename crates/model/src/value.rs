@@ -3,7 +3,6 @@ use core::fmt;
 use arcana_base_encoding::base58;
 use arcana_intern::Name;
 use athena::{Matrix2, Matrix3, Matrix4, Vector2, Vector3, Vector4};
-use edict::entity::EntityId;
 use gametime::TimeSpan;
 use hashbrown::HashMap;
 use palette::IntoColor;
@@ -121,7 +120,6 @@ pub enum Value {
     String(SmolStr),
     Color(ColorValue),
     TimeSpan(TimeSpan),
-    Entity(EntityId),
     Vec2(Vector2<f64>),
     Vec3(Vector3<f64>),
     Vec4(Vector4<f64>),
@@ -162,7 +160,6 @@ impl Value {
             Value::Mat3(_) => "Mat3",
             Value::Mat4(_) => "Mat4",
             Value::Option(_) => "Option",
-            Value::Entity(_) => "Entity",
             Value::Array(_) => "Array",
             Value::Map(_) => "Map",
             Value::Enum(_, _) => "Enum",
@@ -185,7 +182,6 @@ impl Value {
             Value::Mat3(_) => Model::Mat3,
             Value::Mat4(_) => Model::Mat4,
             Value::Option(_) => Model::Option(None),
-            Value::Entity(_) => Model::Entity,
             Value::Array(_) => Model::Array {
                 elem: None,
                 len: None,
@@ -535,7 +531,6 @@ impl<'de> serde::de::Deserializer<'de> for Value {
             )),
             Value::Option(None) => visitor.visit_none(),
             Value::Option(Some(value)) => visitor.visit_some(*value),
-            Value::Entity(entity) => visitor.visit_u64(entity.bits()),
             Value::Array(array) => {
                 visitor.visit_seq(serde::de::value::SeqDeserializer::new(array.into_iter()))
             }

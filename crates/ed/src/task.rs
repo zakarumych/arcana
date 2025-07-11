@@ -52,10 +52,18 @@ impl WakerArray {
 ///
 /// Use this for communication between coroutines and ordinary functions.
 /// It can be freely cloned to share between tasks and other parts of the process.
-#[derive(Clone)]
 pub struct TaskQueue<T, U> {
     requests: Arc<Mutex<Requests<T>>>,
     responses: Arc<Mutex<Responses<U>>>,
+}
+
+impl<T, U> Clone for TaskQueue<T, U> {
+    fn clone(&self) -> Self {
+        TaskQueue {
+            requests: self.requests.clone(),
+            responses: self.responses.clone(),
+        }
+    }
 }
 
 impl<T, U> TaskQueue<T, U> {

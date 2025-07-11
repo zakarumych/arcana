@@ -1,8 +1,11 @@
+//! Data model for type-erased and runtime-typed values.
+//!
+//! Supports serialization and UI editing for all modelled types.
+
 mod model;
 mod value;
 
 use athena::{Matrix2, Matrix3, Matrix4, Vector2, Vector3, Vector4};
-use edict::entity::EntityId;
 use gametime::TimeSpan;
 use palette::{Hsv, Hsva, LinLuma, LinLumaa, Srgb, Srgba};
 use smol_str::SmolStr;
@@ -273,26 +276,6 @@ impl TypeModel for TimeSpan {
     fn try_clone_from_value(value: &Value) -> Option<Self> {
         match value {
             Value::TimeSpan(ts) => Some(ts.clone()),
-            _ => None,
-        }
-    }
-}
-
-impl TypeModel for EntityId {
-    fn model() -> Model {
-        Model::Entity
-    }
-
-    fn try_from_value(value: Value) -> Option<Self> {
-        match value {
-            Value::Entity(id) => Some(id),
-            _ => None,
-        }
-    }
-
-    fn try_clone_from_value(value: &Value) -> Option<Self> {
-        match value {
-            Value::Entity(id) => Some(id.clone()),
             _ => None,
         }
     }

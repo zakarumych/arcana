@@ -28,7 +28,7 @@ impl Error {
             Ok(error) => error,
             Err(error) => Error {
                 inner: Box::new(ErrorInner {
-                    source: Arc::new(error),
+                    error: Arc::new(error),
                     backtrace: Backtrace::capture(),
                 }),
             },
@@ -55,7 +55,7 @@ impl Error {
 
         Error {
             inner: Box::new(ErrorInner {
-                source: Arc::new(MsgError(msg)),
+                error: Arc::new(MsgError(msg)),
                 backtrace: Backtrace::capture(),
             }),
         }
@@ -65,7 +65,7 @@ impl Error {
     pub fn from_arc_error(source: Arc<dyn std::error::Error + Send + Sync>) -> Self {
         Error {
             inner: Box::new(ErrorInner {
-                source,
+                error: source,
                 backtrace: Backtrace::capture(),
             }),
         }
@@ -81,7 +81,37 @@ impl Error {
     where
         E: std::error::Error + 'static,
     {
-        self.inner.source.downcast_ref::<E>()
+        self.inner.error.downcast_ref::<E>()
+    }
+
+    pub fn source_chain(&self) -> impl Iterator<Item = &(dyn std::error::Error + 'static)> + '_ {
+        std::iter::successors(self.inner.error.source(), |e| e.source())
+    }
+
+    fn display_chain(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for error in self.source_chain() {
+            if f.alternate() {
+                write!(f, "\nCaused by: {:#}", error)?;
+            } else {
+                write!(f, "\nCaused by: {}", error)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn debug_chain(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for error in self.source_chain() {
+            if f.alternate() {
+                write!(f, "\nCaused by: {:#?}", error)?;
+            } else {
+                write!(f, "\nCaused by: {:?}", error)?;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn fmt_chain(&self) -> FormatChain<'_> {
+        FormatChain { error: self }
     }
 }
 
@@ -90,29 +120,45 @@ impl fmt::Debug for Error {
         write!(
             f,
             "Error: {:?}\nBacktrace: {:?}",
-            self.inner.source, self.inner.backtrace
+            self.inner.error, self.inner.backtrace
         )
     }
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(&*self.inner.source, f)
+        fmt::Display::fmt(&*self.inner.error, f)
     }
 }
 
 impl std::error::Error for Error {
     fn cause(&self) -> Option<&dyn std::error::Error> {
-        Some(&*self.inner.source)
+        self.inner.error.source()
     }
 
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Some(&*self.inner.source)
+        self.inner.error.source()
+    }
+}
+
+pub struct FormatChain<'a> {
+    error: &'a Error,
+}
+
+impl fmt::Debug for FormatChain<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.error.debug_chain(f)
+    }
+}
+
+impl fmt::Display for FormatChain<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.error.display_chain(f)
     }
 }
 
 struct ErrorInner {
-    source: Arc<dyn std::error::Error + Send + Sync>,
+    error: Arc<dyn std::error::Error + Send + Sync>,
     backtrace: Backtrace,
 }
 
@@ -229,8 +275,8 @@ where
 
     impl std::error::Error for DummyError {}
 
-    let source = std::mem::replace(&mut error.inner.source, Arc::new(DummyError));
-    error.inner.source = Arc::new(ErrorContext { source, context });
+    let source = std::mem::replace(&mut error.inner.error, Arc::new(DummyError));
+    error.inner.error = Arc::new(ErrorContext { source, context });
     error
 }
 

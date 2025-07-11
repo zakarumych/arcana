@@ -46,6 +46,7 @@ mod filters;
 mod ide;
 mod inspector;
 mod instance;
+// mod modal;
 mod model;
 mod plugins;
 mod project;
@@ -96,7 +97,7 @@ fn _run(project_path: &Path) -> Result<(), Error> {
     let events = builder
         .build()
         .expect("Event loop should be created successfully");
-    let mut app = app::App::new(project);
+    let mut app = app::App::new(project)?;
 
     events.run_app(&mut app).unwrap();
 

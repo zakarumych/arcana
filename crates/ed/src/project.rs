@@ -17,7 +17,7 @@ use hashbrown::{HashMap, HashSet};
 use super::{filters::Funnel, render::RenderGraph, systems::SystemGraph};
 
 pub use arcana_project::{
-    is_available, new_plugin_crate, BuildProcess, Dependency, Plugin, ProjectManifest,
+    is_available, new_plugin_crate, BuildProcess, Dependency, Plugin, Profile, ProjectManifest,
 };
 
 pub struct Project {

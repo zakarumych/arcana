@@ -12,6 +12,7 @@ use arcana::{
         AssetId,
     },
     id::TimeUidGen,
+    model::Value,
     plugin::PluginsHub,
     Ident,
 };
@@ -19,11 +20,12 @@ use hashbrown::{HashMap, HashSet};
 use parking_lot::{Mutex, RwLock};
 use url::Url;
 
-mod content_address;
 mod meta;
 mod scheme;
 mod sources;
 mod temp;
+
+use crate::blobs::{BlobId, Blobs};
 
 use self::{
     meta::{AssetMeta, MetaError, SourceMeta},
@@ -131,11 +133,12 @@ pub struct Store {
     external: PathBuf,
     temp: PathBuf,
 
-    artifacts: RwLock<HashMap<AssetId, AssetItem>>,
-    scanned: RwLock<bool>,
-    id_gen: Mutex<TimeUidGen>,
+    artifacts: HashMap<AssetId, AssetItem>,
 
-    importers: RwLock<HashMap<ImporterId, ImporterDesc>>,
+    scanned: bool,
+    id_gen: TimeUidGen,
+
+    importers: HashMap<ImporterId, ImporterDesc>,
 }
 
 impl Store {
@@ -169,22 +172,23 @@ impl Store {
             artifacts_base: artifacts,
             external,
             temp,
-            artifacts: RwLock::new(HashMap::new()),
-            scanned: RwLock::new(false),
-            id_gen: Mutex::new(TimeUidGen::random()),
-            importers: RwLock::new(HashMap::new()),
+            artifacts: HashMap::new(),
+            scanned: false,
+            id_gen: TimeUidGen::random(),
+            importers: HashMap::new(),
         })
     }
 
     /// Import an asset.
-    #[tracing::instrument(skip(self, hub))]
+    #[tracing::instrument(skip(self, blobs, hub))]
     pub fn store(
-        &self,
+        &mut self,
         source: &str,
         target: Ident,
         format: Option<&str>,
+        blobs: &Blobs,
         hub: &PluginsHub,
-    ) -> Result<(AssetId, PathBuf, SystemTime), StoreError> {
+    ) -> Result<(AssetId, BlobId, SystemTime), StoreError> {
         let source = self
             .base_url
             .join(source)
@@ -194,18 +198,19 @@ impl Store {
                 source: source.to_owned(),
             })?;
 
-        self.store_from_url(source, target, format, hub)
+        self.store_from_url(source, target, format, blobs, hub)
     }
 
     /// Import an asset.
-    #[tracing::instrument(skip(self, hub))]
+    #[tracing::instrument(skip(self, blobs, hub))]
     pub fn store_from_url(
-        &self,
+        &mut self,
         source: Url,
         target: Ident,
         format: Option<&str>,
+        blobs: &Blobs,
         hub: &PluginsHub,
-    ) -> Result<(AssetId, PathBuf, SystemTime), StoreError> {
+    ) -> Result<(AssetId, BlobId, SystemTime), StoreError> {
         self.ensure_scanned();
 
         let mut sources = Sources::new();
@@ -258,8 +263,7 @@ impl Store {
                     stack.pop().unwrap();
 
                     if stack.is_empty() {
-                        let path = asset.artifact_path(&self.artifacts_base);
-                        return Ok((asset.id(), path, asset.latest_modified()));
+                        return Ok((asset.id(), asset.blob(), asset.latest_modified()));
                     }
                     continue;
                 }
@@ -276,8 +280,8 @@ impl Store {
             let output_path = make_temporary(&self.temp);
             let result;
 
-            let importers = self.importers.read();
-            let selected_importers = importers
+            let selected_importers = self
+                .importers
                 .iter()
                 .filter_map(|(id, desc)| {
                     if desc.target != item.target {
@@ -344,7 +348,7 @@ impl Store {
             result = selected_importer.import(
                 &source_path,
                 &output_path,
-                None,
+                Value::Unit,
                 &mut Fn(|src: &str| {
                     let src = item.source.join(src).ok()?; // If parsing fails - source will be listed in `ImportResult::RequireSources`.
                     let (path, modified) = sources.get(&src)?;
@@ -449,7 +453,7 @@ impl Store {
                 }
             }
 
-            let new_id = AssetId::generate(&mut *self.id_gen.lock());
+            let new_id = AssetId::generate(&mut self.id_gen);
             let item = stack.pop().unwrap();
 
             let make_relative_source = |source| match self.base_url.make_relative(source) {
