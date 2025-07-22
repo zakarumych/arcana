@@ -88,7 +88,7 @@ pub struct App {
     views: Vec<AppView>,
 
     preferences: Preferences,
-    error: ErrorDialog,
+    errors: ErrorDialog,
 }
 
 struct AppView {
@@ -170,7 +170,7 @@ impl App {
             systems,
 
             preferences: Preferences::new(cfg),
-            error: ErrorDialog::new(),
+            errors: ErrorDialog::new(),
         })
     }
 
@@ -196,10 +196,11 @@ impl App {
             self.toolbox.update_container(&mut self.project, &c);
             self.systems.update_container(&mut self.project, &c);
             self.main.update_container(&c);
+            self.assets.update_container(&c);
         }
 
+        self.assets.tick();
         self.toolbox.tick(&mut self.project, &mut self.main);
-
         self.main.tick(&self.project, step);
     }
 
@@ -298,6 +299,7 @@ impl App {
                                 toolbox: &mut self.toolbox,
                                 plugins: &mut self.plugins,
                                 systems: &mut self.systems,
+                                errors: &mut self.errors,
                             };
 
                             let dock_area = DockArea::new(&mut view.dock_state);
@@ -305,10 +307,10 @@ impl App {
                         });
 
                         if let Err(err) = self.preferences.show(cx, &mut self.cfg) {
-                            self.error
+                            self.errors
                                 .push_error(cx.viewport_id(), "Preferences Error", err);
                         }
-                        self.error.show(cx);
+                        self.errors.show(cx);
                     },
                 );
 
@@ -489,6 +491,7 @@ struct AppModel<'a> {
     toolbox: &'a mut Toolbox,
     plugins: &'a mut Plugins,
     systems: &'a mut Systems,
+    errors: &'a mut ErrorDialog,
 }
 
 impl egui_dock::widgets::TabViewer for AppModel<'_> {
@@ -515,7 +518,10 @@ impl egui_dock::widgets::TabViewer for AppModel<'_> {
             // Tab::Main => self.main.show(self.window.id(), &mut self.textures, ui),
             // Tab::Inspector => {} //Inspector::show(self.world, ui),
             Tab::Assets => {
-                self.assets.show(ui, &self.project);
+                if let Err(err) = self.assets.show(ui, &self.project) {
+                    self.errors
+                        .push_error(ui.ctx().viewport_id(), "Assets error", err);
+                }
             }
             Tab::Tool { id } => {
                 self.toolbox

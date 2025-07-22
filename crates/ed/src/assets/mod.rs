@@ -61,8 +61,63 @@ impl AssetRepository {
         }
     }
 
-    pub fn show(&mut self, ui: &mut Ui, project: &Project) {
+    pub fn show(&mut self, ui: &mut Ui, project: &Project) -> Result<(), Error> {
         self.pick_asset.show(ui.ctx(), project);
+
+        if !self.config.is_open() {
+            if let Some(source) = self.pick_asset.take_selected() {
+                let res = absolute(&source).ok();
+
+                match res {
+                    None => {
+                        fail!("Invalid asset source file path: {}", source.display());
+                    }
+                    Some(source) => {
+                        let ext = match source.extension() {
+                            None => None,
+                            Some(ext) => ext.to_str(),
+                        };
+
+                        let mut selected_importers = Vec::new();
+                        for (id, importer) in self.importers.iter() {
+                            if let Some(ext) = ext {
+                                if importer.extensions.iter().all(|e| **e != *ext) {
+                                    continue;
+                                }
+                            }
+
+                            selected_importers.push((*id, importer));
+                        }
+
+                        if selected_importers.is_empty() {
+                            tracing::warn!(
+                                "No importers found for asset source file path '{}'",
+                                source.display()
+                            );
+                        }
+
+                        if selected_importers.len() != 1 {
+                            tracing::info!(
+                                "Multiple importers found for asset source file path '{}': {:?}",
+                                source.display(),
+                                selected_importers
+                            );
+                        }
+
+                        let config = ImportConfig {
+                            source: source,
+                            importer: selected_importers.first().map(|(id, desc)| ImporterConfig {
+                                id: *id,
+                                value: desc.config.1.clone(),
+                            }),
+                        };
+
+                        self.config.open(config);
+                    }
+                };
+            }
+        }
+
         self.config.show(ui.ctx(), &self.importers);
 
         egui::Frame::menu(ui.style()).show(ui, |ui| {
@@ -118,67 +173,11 @@ impl AssetRepository {
         //         }
         //     });
         // });
-    }
-
-    pub fn tick(&mut self, instance: &Instance) -> Result<(), Error> {
-        if !self.config.is_open() {
-            if let Some(source) = self.pick_asset.take_selected() {
-                let res = absolute(&source).ok();
-
-                match res {
-                    None => {
-                        fail!("Invalid asset source file path: {}", source.display());
-                    }
-                    Some(source) => {
-                        let ext = match source.extension() {
-                            None => None,
-                            Some(ext) => ext.to_str(),
-                        };
-
-                        let mut selected_importers = Vec::new();
-                        for (id, importer) in self.importers.iter() {
-                            if let Some(ext) = ext {
-                                if importer.extensions.iter().all(|e| **e != *ext) {
-                                    continue;
-                                }
-                            }
-
-                            selected_importers.push((*id, importer));
-                        }
-
-                        if selected_importers.is_empty() {
-                            tracing::warn!(
-                                "No importers found for asset source file path '{}'",
-                                source.display()
-                            );
-                        }
-
-                        if selected_importers.len() != 1 {
-                            tracing::info!(
-                                "Multiple importers found for asset source file path '{}': {:?}",
-                                source.display(),
-                                selected_importers
-                            );
-                        }
-
-                        let selected_importer = selected_importers.first().copied().unwrap();
-
-                        let config = ImportConfig {
-                            source: source,
-                            importer: Some(ImporterConfig {
-                                id: selected_importer.0,
-                                value: selected_importer.1.config.1.clone(),
-                            }),
-                        };
-
-                        self.config.open(config);
-                    }
-                };
-            }
-        }
 
         Ok(())
     }
+
+    pub fn tick(&mut self) {}
 }
 
 struct PickAsset {
@@ -344,20 +343,27 @@ impl ConfigDialog {
                         );
 
                         probe.show(ui);
-
-                        if ui.label("Ok").clicked() {
-                            self.configured.extend(self.config.take());
-                        }
-
-                        if ui.label("Cancel").clicked() {
-                            self.config = None;
-                        }
                     } else {
                         config.importer = None;
                     }
                 } else {
                     ui.label("Select an importer to configure");
                 }
+
+                let has_importer = config.importer.is_some();
+
+                ui.horizontal(|ui| {
+                    if ui
+                        .add_enabled(has_importer, egui::Button::new("Ok"))
+                        .clicked()
+                    {
+                        self.configured.extend(self.config.take());
+                    }
+
+                    if ui.button("Cancel").clicked() {
+                        self.config = None;
+                    }
+                });
             });
         }
     }
