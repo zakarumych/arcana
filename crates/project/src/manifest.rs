@@ -38,14 +38,3 @@ impl ProjectManifest {
         self.plugins.remove(idx);
     }
 }
-
-pub(super) fn serialize_manifest(manifest: &ProjectManifest) -> Result<String, toml::ser::Error> {
-    use serde::Serialize;
-    use std::fmt::Write;
-
-    let mut output = String::new();
-
-    manifest.serialize(toml::Serializer::new(&mut output))?;
-
-    Ok(output)
-}

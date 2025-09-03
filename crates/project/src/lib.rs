@@ -24,7 +24,6 @@ mod plugin;
 mod wrapper;
 
 use generator::init_workspace;
-use manifest::serialize_manifest;
 
 pub use self::{
     dependency::Dependency,
@@ -294,7 +293,7 @@ impl Project {
     }
 
     pub fn sync(&mut self) -> Result<(), Error> {
-        let serialized_manifest = serialize_manifest(&self.manifest)
+        let serialized_manifest = toml::to_string_pretty(&self.manifest)
             .map_err(|err| Error::msg(format!("Cannot serialize project manifest: {err:?}")))?;
 
         match std::fs::write(&self.manifest_path, serialized_manifest) {

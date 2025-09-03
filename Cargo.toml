@@ -36,7 +36,7 @@ ahash = { version = "0.8.12" }
 alkahest = { version = "0.3.0", features = ["derive"] }
 amity = { git = "https://github.com/zakarumych/amity.git", features = ["flip-queue", "broad"] }
 approx = { version = "0.5.1" }
-arboard = { version = "3.5.0" }
+arboard = { version = "3.6.0" }
 arc-swap = { version = "1.7.1" }
 athena = { git = "https://github.com/zakarumych/athena.git" }
 #athena = { path = "../athena" }
@@ -52,7 +52,7 @@ camino = "1.1.10"
 cargo_toml = "0.22.1"
 chrono = "0.4.41"
 cint = "0.3.1"
-clap = { version = "4.5.40", features = ["derive"] }
+clap = { version = "4.5.41", features = ["derive"] }
 codespan-reporting = "0.12.0"
 const-random = "0.1.18"
 # core-graphics-types = { version = "0.1" }
@@ -62,15 +62,15 @@ denvars = { version = "0.3.2" }
 dirs = { version = "6.0.0" }
 edict = { version = "1.0.0-rc7", path = "../edict" }
 edict-proc-lib = { version = "1.0.0-rc7", path = "../edict/proc-lib" }
-egui = { version = "0.31.1", features = ["bytemuck", "serde", "cint"] }
-egui_dnd = { version = "0.12.0" }
-egui_dock = { version = "0.16.0" }
-egui_file = { version = "0.22.1" }
-egui-phosphor = { version = "0.9.0" }
+egui = { version = "0.32.0", features = ["bytemuck", "serde", "cint"] }
+egui_dnd = { version = "0.13.0" }
+egui_dock = { version = "0.17.0" }
+egui_file = { version = "0.23.0" }
+egui-phosphor = { version = "0.10.0" }
 egui-probe = { path = "../egui-probe" }
 egui-snarl = { path = "../egui-snarl" }
 # egui_tracing = { version = "0.2.6" }
-eframe = { version = "0.31.1" }
+eframe = { version = "0.32.0" }
 flume = "0.11.1"
 figa = { version = "0.3.0" }
 foldhash = { version = "0.1.5" }
@@ -94,13 +94,13 @@ palette = { version = "0.7.6", features = ["serializing"] }
 parking_lot = "0.12.4"
 percent-encoding = "2.3.1"
 proc-macro2 = "1.0.95"
-rand = "0.9.1"
+rand = "0.9.2"
 proc-easy = "0.4.0"
 quote = "1.0.40"
 raw-window-handle = "0.6.2"
 relevant = "0.4.2"
 serde = { version = "1.0.219" }
-serde_json = { version = "1.0.140" }
+serde_json = { version = "1.0.141" }
 serde-nothing = "0.1.1"
 sha2 = "0.10.9"
 slab = "0.4.10"
@@ -110,13 +110,13 @@ simba = { version = "0.9.0" }
 syn = "2.0.104"
 thiserror = "2.0.12"
 tiny-fn = { version = "0.1.9" }
-tokio = { version = "1.45.1", features = [
+tokio = { version = "1.46.1", features = [
     "rt",
     "time",
     "net",
     "io-util",
 ], default-features = false }
-toml = "0.8.23"
+toml = "0.9.2"
 tracing = "0.1.41"
 tracing-error = "0.2.1"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }

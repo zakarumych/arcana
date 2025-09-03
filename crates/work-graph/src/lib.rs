@@ -27,6 +27,7 @@ primitive_meta!(Image2D);
 impl Deref for Image2D {
     type Target = mev::Image;
 
+    #[inline]
     fn deref(&self) -> &mev::Image {
         &self.0
     }
@@ -72,7 +73,7 @@ impl target::Target for Image2D {
 /// Generic 2d image target.
 /// It does not hold particular meaning behind pixel values.
 /// Consumers are going to sample it,
-/// so its actual extent and format is irrelevant,
+/// so its actual extent and format is flexible,
 /// but consumers may still provide desired extent and usage.
 ///
 /// Largest required extent is used and usage is merged.
@@ -84,6 +85,7 @@ primitive_meta!(SampledImage2D);
 impl Deref for SampledImage2D {
     type Target = mev::Image;
 
+    #[inline]
     fn deref(&self) -> &mev::Image {
         &self.0
     }
