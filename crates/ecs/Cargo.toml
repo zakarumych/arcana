@@ -5,6 +5,7 @@ authors.workspace = true
 readme.workspace = true
 license.workspace = true
 version.workspace = true
+description = "Extension of Edict ECS for Arcana Engine"
 
 [dependencies]
 arcana-id = { path = "../id" }

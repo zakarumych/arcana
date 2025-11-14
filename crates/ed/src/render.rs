@@ -616,7 +616,7 @@ impl SnarlViewer<RenderGraphNode> for RenderGraphViewer<'_> {
                         }
                     }
 
-                    ui.close_menu();
+                    ui.close();
                     return;
                 }
             }
@@ -664,7 +664,7 @@ impl SnarlViewer<RenderGraphNode> for RenderGraphViewer<'_> {
                         },
                     );
 
-                    ui.close_menu();
+                    ui.close();
                     return;
                 }
             }

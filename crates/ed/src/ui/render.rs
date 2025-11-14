@@ -104,7 +104,7 @@ impl Render {
                 let delta_size = textures_delta.set.iter().fold(0, |acc, (_, delta)| {
                     acc + match &delta.image {
                         egui::ImageData::Color(color) => std::mem::size_of_val(&color.pixels[..]),
-                        egui::ImageData::Font(font) => std::mem::size_of_val(&font.pixels[..]),
+                        // egui::ImageData::Font(font) => std::mem::size_of_val(&font.pixels[..]),
                     }
                 });
 
@@ -123,11 +123,11 @@ impl Render {
                                 .write_unchecked(offset, bytemuck::cast_slice(&color.pixels[..]));
                             offset += std::mem::size_of_val(&color.pixels[..]);
                         },
-                        egui::ImageData::Font(font) => unsafe {
-                            upload_buffer
-                                .write_unchecked(offset, bytemuck::cast_slice(&font.pixels[..]));
-                            offset += std::mem::size_of_val(&font.pixels[..]);
-                        },
+                        // egui::ImageData::Font(font) => unsafe {
+                        //     upload_buffer
+                        //         .write_unchecked(offset, bytemuck::cast_slice(&font.pixels[..]));
+                        //     offset += std::mem::size_of_val(&font.pixels[..]);
+                        // },
                     }
                 }
 
@@ -139,14 +139,14 @@ impl Render {
 
                     let format = match &delta.image {
                         egui::ImageData::Color(_) => mev::PixelFormat::Rgba8Srgb,
-                        egui::ImageData::Font(_) => mev::PixelFormat::R32Float,
+                        // egui::ImageData::Font(_) => mev::PixelFormat::R32Float,
                     };
 
                     let mut image: mev::Image;
 
                     match textures.entry(id) {
                         Entry::Vacant(entry) => {
-                            let mut new_image = queue.new_image(mev::ImageDesc {
+                            let new_image = queue.new_image(mev::ImageDesc {
                                 extent: mev::Extent2::new(size[0] as u32, size[1] as u32).into(),
                                 format,
                                 usage: mev::ImageUsage::SAMPLED
@@ -163,12 +163,12 @@ impl Render {
                                 &new_image,
                             );
 
-                            if let egui::ImageData::Font(_) = &delta.image {
-                                new_image = new_image.view(
-                                    queue,
-                                    mev::ViewDesc::new(format).swizzle(mev::Swizzle::RRRR),
-                                )?;
-                            }
+                            // if let egui::ImageData::Font(_) = &delta.image {
+                            //     new_image = new_image.view(
+                            //         queue,
+                            //         mev::ViewDesc::new(format).swizzle(mev::Swizzle::RRRR),
+                            //     )?;
+                            // }
 
                             image = entry
                                 .insert((new_image, Sampler::from_options(delta.options)))
@@ -182,7 +182,7 @@ impl Render {
                             if (extent.width() as usize) < size[0]
                                 || (extent.height() as usize) < size[1]
                             {
-                                let mut new_image = queue.new_image(mev::ImageDesc {
+                                let new_image = queue.new_image(mev::ImageDesc {
                                     extent: mev::Extent2::new(size[0] as u32, size[1] as u32)
                                         .into(),
                                     format,
@@ -200,12 +200,12 @@ impl Render {
                                     &new_image,
                                 );
 
-                                if let egui::ImageData::Font(_) = &delta.image {
-                                    new_image = new_image.view(
-                                        queue,
-                                        mev::ViewDesc::new(format).swizzle(mev::Swizzle::RRRR),
-                                    )?;
-                                }
+                                // if let egui::ImageData::Font(_) = &delta.image {
+                                //     new_image = new_image.view(
+                                //         queue,
+                                //         mev::ViewDesc::new(format).swizzle(mev::Swizzle::RRRR),
+                                //     )?;
+                                // }
 
                                 copy_encoder.copy_image_region(
                                     &image,
@@ -241,10 +241,9 @@ impl Render {
                     match &delta.image {
                         egui::ImageData::Color(color) => {
                             offset += std::mem::size_of_val(&color.pixels[..]);
-                        }
-                        egui::ImageData::Font(font) => {
-                            offset += std::mem::size_of_val(&font.pixels[..]);
-                        }
+                        } // egui::ImageData::Font(font) => {
+                          //     offset += std::mem::size_of_val(&font.pixels[..]);
+                          // }
                     }
                 }
 

@@ -1,3 +1,12 @@
+//! Plugin API
+//!
+//! Plugin system is the heart of Arcana.
+//! It allows adding systems, input filters, GPU jobs, asset importers and more.
+//!
+//! Plugins are implemented as Rust crates that depend on `arcana` engine crate, and use proc-attributes for exports.
+//! At development time, Arcana Ed will collect added plugins into a plugins library that can be loaded at runtime.
+//! For release plugins will be statically linked to the game binary, removing performance overhead.
+
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 

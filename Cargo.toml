@@ -20,12 +20,13 @@ members = [
     "crates/num2name",
     "crates/arcana",
     "crates/ed",
-    "crates/launcher", "crates/error",
+    "crates/launcher",
+    "crates/error",
 ]
 resolver = "2"
 
 [workspace.package]
-edition = "2021"
+edition = "2024"
 authors = ["me"]
 readme = "README.md"
 license = "MIT OR Apache-2.0"
@@ -62,15 +63,15 @@ denvars = { version = "0.3.2" }
 dirs = { version = "6.0.0" }
 edict = { version = "1.0.0-rc7", path = "../edict" }
 edict-proc-lib = { version = "1.0.0-rc7", path = "../edict/proc-lib" }
-egui = { version = "0.32.0", features = ["bytemuck", "serde", "cint"] }
-egui_dnd = { version = "0.13.0" }
-egui_dock = { version = "0.17.0" }
-egui_file = { version = "0.23.0" }
-egui-phosphor = { version = "0.10.0" }
+egui = { version = "0.33.0", features = ["bytemuck", "serde", "cint"] }
+egui_dnd = { version = "0.14.0" }
+egui_dock = { version = "0.18.0" }
+egui_file = { version = "0.24.0" }
+egui-phosphor = { version = "0.10.0", git = "https://github.com/bircni/egui-phosphor.git", branch = "feature/egui-0.33" }
 egui-probe = { path = "../egui-probe" }
 egui-snarl = { path = "../egui-snarl" }
 # egui_tracing = { version = "0.2.6" }
-eframe = { version = "0.32.0" }
+eframe = { version = "0.33.0" }
 flume = "0.11.1"
 figa = { version = "0.3.0" }
 foldhash = { version = "0.1.5" }

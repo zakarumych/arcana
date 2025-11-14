@@ -7,13 +7,13 @@ use super::Ide;
 /// This integration is used to open files in VSCode with a specific line number.
 pub struct VSCode;
 
-#[derive(Debug, thiserror::Error)]
-pub enum VSCodeError {
-    #[error("IO error: {0}")]
-    Io(std::io::Error),
-    #[error("VSCode exited with code: {0:?}")]
-    ExitError(Option<i32>),
-}
+// #[derive(Debug, thiserror::Error)]
+// pub enum VSCodeError {
+//     #[error("IO error: {0}")]
+//     Io(std::io::Error),
+//     #[error("VSCode exited with code: {0:?}")]
+//     ExitError(Option<i32>),
+// }
 
 impl Ide for VSCode {
     fn open(&self, path: &Path, line: Option<u32>) -> bool {

@@ -2,19 +2,19 @@
 
 use std::{
     collections::VecDeque,
-    path::{absolute, Path, PathBuf},
+    path::{Path, PathBuf, absolute},
     time::SystemTime,
 };
 
 use arcana::{
+    Ident,
     assets::{
-        import::{AssetDependencies, AssetSources, ImportError, ImporterDesc, ImporterId},
         AssetId,
+        import::{AssetDependencies, AssetSources, ImportError, ImporterDesc, ImporterId},
     },
     id::TimeUidGen,
     model::Value,
     plugin::PluginsHub,
-    Ident,
 };
 use hashbrown::{HashMap, HashSet};
 use parking_lot::{Mutex, RwLock};

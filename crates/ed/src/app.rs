@@ -2,7 +2,7 @@ use std::{borrow::Cow, hash::Hash, path::PathBuf};
 
 use arboard::Clipboard;
 use arcana::{
-    error::{error, Error, UnifyError},
+    error::{Error, UnifyError, error},
     gametime::{Clock, ClockStep, FrequencyNumExt, FrequencyTicker},
     input::ViewInput,
     mev,
@@ -18,7 +18,7 @@ use winit::{
 };
 
 use crate::{
-    assets::AssetRepository,
+    assets::AssetStore,
     error::ErrorDialog,
     filters::Filters,
     ide::{Ide, IdeType},
@@ -66,7 +66,7 @@ pub struct App {
 
     ui: Ui,
 
-    assets: AssetRepository,
+    assets: AssetStore,
     main: Instance,
 
     image_sample: ImageSample,
@@ -139,7 +139,7 @@ impl App {
             Some(ide) => Some(ide.get()),
         };
 
-        let assets = AssetRepository::new(&project)?;
+        let assets = AssetStore::new(&project)?;
 
         let toolbox = Toolbox::new();
         Ok(App {
@@ -199,7 +199,6 @@ impl App {
             self.assets.update_container(&c);
         }
 
-        self.assets.tick();
         self.toolbox.tick(&mut self.project, &mut self.main);
         self.main.tick(&self.project, step);
     }
@@ -240,12 +239,12 @@ impl App {
                                 ui.menu_button("File", |ui| {
                                     if ui.button("Preferences").clicked() {
                                         self.preferences.open(cx.viewport_id());
-                                        ui.close_menu();
+                                        ui.close();
                                     }
 
                                     if ui.button("Exit").clicked() {
                                         self.should_quit = true;
-                                        ui.close_menu();
+                                        ui.close();
                                     }
                                 });
                                 ui.menu_button("View", |ui| {
@@ -254,7 +253,7 @@ impl App {
                                             view.dock_state.main_surface_mut(),
                                             Tab::Plugins,
                                         );
-                                        ui.close_menu();
+                                        ui.close();
                                     }
 
                                     if ui.button("Systems").clicked() {
@@ -262,7 +261,7 @@ impl App {
                                             view.dock_state.main_surface_mut(),
                                             Tab::Systems,
                                         );
-                                        ui.close_menu();
+                                        ui.close();
                                     }
 
                                     if ui.button("Assets").clicked() {
@@ -270,7 +269,7 @@ impl App {
                                             view.dock_state.main_surface_mut(),
                                             Tab::Assets,
                                         );
-                                        ui.close_menu();
+                                        ui.close();
                                     }
 
                                     for (plugin, name) in self.toolbox.enumerate() {
@@ -279,7 +278,7 @@ impl App {
                                             // let id = self.toolbox.add(plugin, name);
 
                                             // view.tab_tree.tiles.insert_pane(Tab::Tool { id });
-                                            // ui.close_menu();
+                                            // ui.close();
                                         }
                                     }
                                 });
@@ -482,7 +481,7 @@ struct AppState<'a> {
 struct AppModel<'a> {
     window: &'a Window,
     project: &'a mut Project,
-    assets: &'a mut AssetRepository,
+    assets: &'a mut AssetStore,
     main: &'a mut Instance,
     sample: &'a ImageSample,
     device: &'a mev::Device,
@@ -518,7 +517,7 @@ impl egui_dock::widgets::TabViewer for AppModel<'_> {
             // Tab::Main => self.main.show(self.window.id(), &mut self.textures, ui),
             // Tab::Inspector => {} //Inspector::show(self.world, ui),
             Tab::Assets => {
-                if let Err(err) = self.assets.show(ui, &self.project) {
+                if let Err(err) = self.assets.show(ui) {
                     self.errors
                         .push_error(ui.ctx().viewport_id(), "Assets error", err);
                 }

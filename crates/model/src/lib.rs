@@ -12,7 +12,7 @@ use smol_str::SmolStr;
 
 pub use self::{
     model::{ColorModel, Model},
-    value::{ColorValue, Value},
+    value::{serialize_to_value, ColorValue, Value},
 };
 
 /// Trait for types that matches some data model.

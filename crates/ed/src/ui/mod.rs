@@ -332,15 +332,35 @@ fn handle_platform_output(
         }
     }
 
-    if let Some(url) = output.open_url {
-        if let Err(err) = open::that_detached(url.url) {
-            tracing::error!("Failed to open URL: {}", err);
-        }
-    }
+    for command in output.commands {
+        match command {
+            egui::OutputCommand::CopyText(text) => {
+                if let Err(err) = clipboard.set_text(text) {
+                    tracing::error!("Failed to set clipboard text: {}", err);
+                }
+            }
+            egui::OutputCommand::CopyImage(image) => {
+                let bytes = image
+                    .pixels
+                    .iter()
+                    .flat_map(|p| p.to_srgba_unmultiplied())
+                    .collect();
 
-    if !output.copied_text.is_empty() {
-        if let Err(err) = clipboard.set_text(output.copied_text) {
-            tracing::error!("Failed to set clipboard text: {}", err);
+                let image = arboard::ImageData {
+                    width: image.width(),
+                    height: image.height(),
+                    bytes,
+                };
+
+                if let Err(err) = clipboard.set_image(image) {
+                    tracing::error!("Failed to set clipboard text: {}", err);
+                }
+            }
+            egui::OutputCommand::OpenUrl(url) => {
+                if let Err(err) = open::that_detached(url.url) {
+                    tracing::error!("Failed to open URL: {}", err);
+                }
+            }
         }
     }
 }

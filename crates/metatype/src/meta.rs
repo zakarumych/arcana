@@ -127,8 +127,7 @@ impl VTable {
 /// `dyn Any` with fixed-size inlined storage.
 /// Types that fit in the storage are stored without allocation.
 /// Types that are larger than 24 bytes or have alignment greater than 16 bytes are boxed.
-/// Requires `Send` or `Sync`.
-/// For thread-local version see [`LTAny`].
+/// Requires `MetaType`, `Send` and `Sync`.
 pub struct Meta {
     vtable: &'static VTable,
     storage: InlineStorage,

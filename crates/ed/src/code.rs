@@ -29,7 +29,7 @@ use crate::{
     Ident, Name, NameError,
 };
 
-use super::{container::Container, project::ProjectData, hue_hash, ui::Selector};
+use super::{container::Container, hue_hash, project::ProjectData, ui::Selector};
 
 #[derive(Default)]
 struct OutputCacheEntry {
@@ -699,7 +699,7 @@ impl SnarlViewer<CodeNode> for CodeViewer<'_> {
                             },
                         );
 
-                        ui.close_menu();
+                        ui.close();
                         return;
                     }
                 }
@@ -745,7 +745,7 @@ impl SnarlViewer<CodeNode> for CodeViewer<'_> {
                             },
                         );
 
-                        ui.close_menu();
+                        ui.close();
                         return;
                     }
                 }

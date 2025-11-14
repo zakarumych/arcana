@@ -70,7 +70,7 @@ impl Filters {
                 let r = ui.button(filter.name.as_str());
                 if r.clicked() {
                     add_filter = Some(idx);
-                    ui.close_menu();
+                    ui.close();
                 }
                 r.on_hover_text(format!("From {}", filter.plugin.as_str()));
             }

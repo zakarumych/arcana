@@ -66,8 +66,15 @@ fn update_config_from_path(config: &mut Config, path: &Path) {
         }
     };
 
-    if let Err(err) = config.update(toml::Deserializer::new(&s)) {
-        tracing::warn!("Failed to update config from {}: {}", path.display(), err);
+    match toml::Deserializer::parse(&s) {
+        Ok(d) => {
+            if let Err(err) = config.update(d) {
+                tracing::warn!("Failed to update config from {}: {}", path.display(), err);
+            }
+        }
+        Err(err) => {
+            tracing::warn!("Failed to parse config from {}: {}", path.display(), err);
+        }
     }
 }
 

@@ -432,7 +432,7 @@ impl SnarlViewer<SystemNode> for SystemViewer<'_> {
         for idx in 0..self.available.len() {
             let s = &self.available[idx];
             if ui.button(s.name.as_str()).clicked() {
-                ui.close_menu();
+                ui.close();
                 let s = self.available.remove(idx);
                 let new_node = snarl.insert_node(pos, s);
 
@@ -482,7 +482,7 @@ impl SnarlViewer<SystemNode> for SystemViewer<'_> {
         for idx in 0..self.available.len() {
             let s = &self.available[idx];
             if ui.button(s.name.as_str()).clicked() {
-                ui.close_menu();
+                ui.close();
                 let s = self.available.remove(idx);
                 snarl.insert_node(pos, s);
                 return;

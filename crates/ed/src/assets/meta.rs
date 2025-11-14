@@ -1,14 +1,17 @@
 use std::{
-    path::{absolute, Path, PathBuf},
+    ffi::OsStr,
+    io::Write,
+    path::{Path, PathBuf},
     str::FromStr,
     time::SystemTime,
 };
 
-use arcana::{assets::AssetId, hash::sha256, smol_str::SmolStr, Ident, Name};
+use arcana::{assets::AssetId, model::Value, smol_str::SmolStr, Ident, Name};
 use hashbrown::HashMap;
+use serde::ser::SerializeSeq;
 use url::Url;
 
-use crate::blobs::{BlobId, Blobs};
+use crate::blobs::BlobId;
 
 /// URL schemas supported by the store.
 /// Matches should use this enum instead of matching on strings.
@@ -39,53 +42,48 @@ const DOT_EXTENSION: &'static str = ".arc";
 
 #[derive(Debug, thiserror::Error)]
 pub enum MetaError {
-    #[error("Failed to calculate hash of the file '{path}': {error}")]
-    HashError {
-        error: std::io::Error,
-        path: PathBuf,
-    },
-
-    #[error("Failed to save artifact file")]
-    SaveArtifactError {
-        error: std::io::Error,
-        path: PathBuf,
-    },
-
-    #[error("Failed to get real path of '{path}'")]
-    PathError { path: PathBuf },
-
-    #[error("Failed to convert path '{path}' to URL")]
-    UrlFromPathError { path: PathBuf },
-
-    #[error("Failed to read file '{path}': {error}")]
+    #[error("Failed to read file '{meta_path}': {error}")]
     ReadError {
         error: std::io::Error,
-        path: PathBuf,
+        meta_path: PathBuf,
     },
 
-    #[error("Failed to read file '{path}': {error}")]
+    #[error("Failed to read file '{meta_path}': {error}")]
     WriteError {
         error: std::io::Error,
-        path: PathBuf,
+        meta_path: PathBuf,
     },
 
-    #[error("Failed to deserialize TOML '{path}': {error}")]
+    #[error("Failed to deserialize TOML '{meta_path}': {error}")]
     DeserializeError {
         error: serde_json::Error,
-        path: PathBuf,
+        meta_path: PathBuf,
     },
 
-    #[error("Failed to serialize TOML '{path}': {error}")]
+    #[error("Failed to serialize TOML '{meta_path}': {error}")]
     SerializeError {
         error: serde_json::Error,
-        path: PathBuf,
+        meta_path: PathBuf,
     },
-
-    #[error("Failed to create directory '{path}': {error}")]
-    CreateDirError {
-        error: std::io::Error,
-        path: PathBuf,
-    },
+    // #[error("Failed to calculate hash of the file '{path}': {error}")]
+    // HashError {
+    //     error: std::io::Error,
+    //     path: PathBuf,
+    // },
+    // #[error("Failed to save artifact file")]
+    // SaveArtifactError {
+    //     error: std::io::Error,
+    //     path: PathBuf,
+    // },
+    // #[error("Failed to get real path of '{path}'")]
+    // PathError { path: PathBuf },
+    // #[error("Failed to convert path '{path}' to URL")]
+    // UrlFromPathError { path: PathBuf },
+    // #[error("Failed to create directory '{path}': {error}")]
+    // CreateDirError {
+    //     error: std::io::Error,
+    //     path: PathBuf,
+    // },
 }
 
 /// Metadata for a single asset.
@@ -94,73 +92,32 @@ pub enum MetaError {
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct AssetMeta {
     /// Asset ID.
-    id: AssetId,
+    pub id: AssetId,
 
     /// Target identifier of the asset.
-    target: Ident,
+    pub target: Ident,
 
     /// Blob ID of the asset file.
-    blob: BlobId,
+    pub blob: BlobId,
 
     /// Asset format if specified.
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    format: Option<Name>,
+    pub format: Option<Name>,
 
     // Array of dependencies for this asset.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    dependencies: Vec<AssetId>,
+    pub dependencies: Vec<AssetId>,
 
     // All additional sources of the asset and their last modified time when asset was imported.
     #[serde(skip_serializing_if = "HashMap::is_empty", default)]
-    sources: HashMap<SmolStr, SystemTime>,
+    pub sources: HashMap<SmolStr, SystemTime>,
+
+    /// Config value used for asset importing.
+    #[serde(skip_serializing_if = "Value::is_unit", default)]
+    pub config: Value,
 }
 
 impl AssetMeta {
-    /// Creates new asset metadata.
-    /// Puts output to the artifacts directory.
-    ///
-    /// This function is when new asset is imported.
-    ///
-    /// `output` contain temporary path to imported asset artifact.
-    /// `artifacts` is path to artifact directory.
-    ///
-    /// Filename of the output gets chosen using first N characters of the sha512 hash.
-    /// Where N is the minimal length required to avoid collisions between files with same hash prefixes.
-    /// It can also get a suffix if there is a complete hash collision.
-    ///
-    /// If artifact with the same hash already exists in the `artifacts` directory,
-    /// it will be shared between assets.
-    pub fn new(
-        id: AssetId,
-        blob: BlobId,
-        target: Ident,
-        format: Option<Name>,
-        sources: Vec<(SmolStr, SystemTime)>,
-        dependencies: Vec<AssetId>,
-        output: &Path,
-    ) -> Self {
-        AssetMeta {
-            id,
-            target,
-            format,
-            blob,
-            sources: sources.into_iter().collect(),
-            dependencies,
-        }
-    }
-
-    pub fn id(&self) -> AssetId {
-        self.id
-    }
-
-    pub fn blob(&self) -> BlobId {
-        self.blob
-    }
-
-    pub fn format(&self) -> Option<&str> {
-        self.format.as_deref()
-    }
-
     pub fn needs_reimport(&self, base: &Url) -> bool {
         for (url, last_modified) in &self.sources {
             let url = match base.join(url) {
@@ -225,79 +182,250 @@ impl AssetMeta {
 }
 
 /// Metadata associated with asset source file.
-/// This metadata is stored in sibling file with `.argosy` extension.
-/// Or in 'external' directory if source is not in the base directory or
-/// one of its subdirectories. Or if source is not a file.
+/// This metadata is stored in sibling file with `.arc` extension.
 pub struct SourceMeta {
-    source: PathBuf,
+    meta_path: PathBuf,
     assets: HashMap<Ident, AssetMeta>,
 }
 
 impl SourceMeta {
-    pub fn open_or_create(source: PathBuf) -> Result<SourceMeta, MetaError> {
-        SourceMeta::new(source, true)
-    }
+    pub const EXTENSION: &'static str = EXTENSION;
 
-    pub fn open(source: PathBuf) -> Result<SourceMeta, MetaError> {
-        SourceMeta::new(source, false)
-    }
+    pub fn open_or_create(source: PathBuf) -> Result<Self, MetaError> {
+        let meta_path = source_to_meta_path(source);
 
-    fn new(source: PathBuf, allow_missing: bool) -> Result<Self, MetaError> {
-        let meta_path = source_to_meta_path(source.clone());
+        let data = match std::fs::read_to_string(&*meta_path) {
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                // Crete file, but only if it doesn't exist yet.
+                // Avoid race condition with someone else creating it in parallel.
+                match std::fs::File::create_new(&*meta_path) {
+                    Ok(mut file) => {
+                        let new_source_meta = SourceMeta {
+                            meta_path,
+                            assets: HashMap::new(),
+                        };
 
-        match std::fs::read_to_string(&meta_path) {
-            Err(err) if allow_missing && err.kind() == std::io::ErrorKind::NotFound => {
-                Ok(SourceMeta {
-                    source,
-                    assets: HashMap::new(),
-                })
+                        let string = match new_source_meta.serialize() {
+                            Ok(string) => string,
+                            Err(err) => return Err(err),
+                        };
+
+                        if let Err(err) = file.write_all(string.as_bytes()) {
+                            return Err(MetaError::WriteError {
+                                error: err,
+                                meta_path: new_source_meta.meta_path,
+                            });
+                        }
+
+                        return Ok(new_source_meta);
+                    }
+                    Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+                        // Ok, try read again.
+                        match std::fs::read_to_string(&*meta_path) {
+                            Ok(data) => data,
+                            Err(err) => {
+                                return Err(MetaError::ReadError {
+                                    error: err,
+                                    meta_path,
+                                })
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        return Err(MetaError::WriteError {
+                            error: err,
+                            meta_path,
+                        })
+                    }
+                }
             }
+            Err(error) => return Err(MetaError::ReadError { error, meta_path }),
+            Ok(data) => data,
+        };
+
+        SourceMeta::deserialize(&data, meta_path)
+    }
+
+    pub fn open(source: PathBuf) -> Result<Self, MetaError> {
+        let meta_path = source_to_meta_path(source);
+
+        SourceMeta::open_meta(meta_path)
+    }
+
+    pub fn open_meta(meta_path: PathBuf) -> Result<Self, MetaError> {
+        match std::fs::read_to_string(&meta_path) {
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(SourceMeta {
+                meta_path,
+                assets: HashMap::new(),
+            }),
             Err(error) => Err(MetaError::ReadError {
                 error,
-                path: meta_path.to_owned(),
+                meta_path: meta_path.to_owned(),
             }),
-            Ok(data) => {
-                let assets =
-                    serde_json::from_str(&data).map_err(|error| MetaError::DeserializeError {
-                        error,
-                        path: meta_path.to_owned(),
-                    })?;
-                Ok(SourceMeta { source, assets })
-            }
+            Ok(data) => SourceMeta::deserialize(&data, meta_path),
         }
+    }
+
+    pub fn meta_path(&self) -> &Path {
+        &self.meta_path
+    }
+
+    pub fn source(&self) -> &Path {
+        source_from_meta_path(&*self.meta_path)
     }
 
     pub fn get_asset(&self, target: Ident) -> Option<&AssetMeta> {
         self.assets.get(&target)
     }
 
-    pub fn assets(&self) -> impl Iterator<Item = (Ident, &AssetMeta)> + '_ {
-        self.assets.iter().map(|(target, meta)| (*target, meta))
+    pub fn assets(&self) -> impl Iterator<Item = &AssetMeta> + '_ {
+        self.assets.iter().map(|(_, meta)| meta)
     }
 
-    pub fn add_asset(&mut self, target: Ident, asset: AssetMeta) -> Result<(), MetaError> {
-        self.assets.insert(target, asset);
+    pub fn add_asset(&mut self, asset: AssetMeta) -> Result<(), MetaError> {
+        let target = asset.target;
+        let old = self.assets.insert(target, asset);
 
-        let path = &self.source;
-
-        let data = serde_json::to_string_pretty(&self.assets).map_err(|error| {
-            MetaError::SerializeError {
-                error,
-                path: path.to_owned(),
+        match self.flush() {
+            Ok(()) => Ok(()),
+            Err(err) => {
+                // Restore state on failure
+                match old {
+                    None => {
+                        self.assets.remove(&target);
+                    }
+                    Some(old) => {
+                        self.assets.insert(target, old);
+                    }
+                }
+                Err(err)
             }
-        })?;
+        }
+    }
 
-        std::fs::write(path, data.as_bytes()).map_err(|error| MetaError::WriteError {
-            error,
-            path: path.to_owned(),
-        })?;
+    // Called on each modification to keep data in file up to date.
+    fn flush(&self) -> Result<(), MetaError> {
+        let data = self.serialize()?;
 
-        Ok(())
+        match std::fs::write(&*self.meta_path, data.as_bytes()) {
+            Ok(()) => Ok(()),
+            Err(err) => Err(MetaError::WriteError {
+                error: err,
+                meta_path: self.meta_path.clone(),
+            }),
+        }
+    }
+
+    fn serialize(&self) -> Result<String, MetaError> {
+        let source_meta_ser = SourceMetaSer {
+            assets: &self.assets,
+        };
+        match serde_json::to_string_pretty(&source_meta_ser) {
+            Ok(data) => Ok(data),
+            Err(err) => Err(MetaError::SerializeError {
+                error: err,
+                meta_path: self.meta_path.clone(),
+            }),
+        }
+    }
+
+    fn deserialize(string: &str, meta_path: PathBuf) -> Result<Self, MetaError> {
+        match serde_json::from_str::<SourceMetaDe>(string) {
+            Ok(source_meta) => Ok(SourceMeta {
+                meta_path,
+                assets: source_meta.assets,
+            }),
+            Err(err) => Err(MetaError::DeserializeError {
+                error: err,
+                meta_path,
+            }),
+        }
     }
 }
 
 fn source_to_meta_path(source: PathBuf) -> PathBuf {
-    let mut filename = source.file_name().unwrap_or("".as_ref()).to_owned();
-    filename.push(DOT_EXTENSION);
-    source.with_file_name(filename)
+    let mut path = source.into_os_string();
+    path.push(DOT_EXTENSION);
+    PathBuf::from(path)
+}
+
+fn source_from_meta_path(meta_path: &Path) -> &Path {
+    const {
+        assert!(DOT_EXTENSION.is_ascii());
+    }
+
+    let string = meta_path.as_os_str();
+    match string
+        .as_encoded_bytes()
+        .strip_suffix(DOT_EXTENSION.as_bytes())
+    {
+        None => {
+            panic!(
+                "Invalid meta path {}, Valid meta path must end with {}",
+                meta_path.display(),
+                DOT_EXTENSION,
+            )
+        }
+        Some(prefix) => {
+            // SAFETY:
+            // - Prefix is substring of slice obtained from `OsStr::as_encoded_bytes`
+            // - Suffix stripped is non-empty UTF-8 substring
+            let prefix_string = unsafe { OsStr::from_encoded_bytes_unchecked(prefix) };
+
+            Path::new(prefix_string)
+        }
+    }
+}
+
+struct SourceMetaSer<'a> {
+    assets: &'a HashMap<Ident, AssetMeta>,
+}
+
+impl<'a> serde::Serialize for SourceMetaSer<'a> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut serializer = serializer.serialize_seq(Some(self.assets.len()))?;
+        for (_, asset) in self.assets {
+            serializer.serialize_element(asset)?;
+        }
+        serializer.end()
+    }
+}
+
+struct SourceMetaDe {
+    assets: HashMap<Ident, AssetMeta>,
+}
+
+impl<'de> serde::de::Deserialize<'de> for SourceMetaDe {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_seq(SourceMetaVisitor)
+    }
+}
+
+struct SourceMetaVisitor;
+
+impl<'de> serde::de::Visitor<'de> for SourceMetaVisitor {
+    type Value = SourceMetaDe;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(formatter, "Sequence or map with two elements")
+    }
+
+    fn visit_seq<A>(self, mut seq: A) -> Result<SourceMetaDe, A::Error>
+    where
+        A: serde::de::SeqAccess<'de>,
+    {
+        let mut assets = HashMap::new();
+
+        while let Some(element) = seq.next_element::<AssetMeta>()? {
+            assets.insert(element.target, element);
+        }
+
+        Ok(SourceMetaDe { assets })
+    }
 }

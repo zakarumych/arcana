@@ -85,7 +85,7 @@ pub enum ImportError {
     /// Importer requires data.
     Requires {
         /// Required sources to build this asset.
-        sources: Vec<String>,
+        sources: Vec<SmolStr>,
 
         /// Assets this asset depends on.
         dependencies: Vec<AssetDependency>,

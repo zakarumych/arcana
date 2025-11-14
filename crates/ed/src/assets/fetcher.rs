@@ -1,4 +1,5 @@
 use std::{
+    fs, io,
     mem::size_of_val,
     path::{Path, PathBuf},
     time::SystemTime,
@@ -6,14 +7,24 @@ use std::{
 
 use arcana::hash::sha256;
 use base64::{
+    Engine,
     alphabet::URL_SAFE,
     engine::general_purpose::{GeneralPurpose, NO_PAD},
-    Engine,
 };
-use hashbrown::{hash_map::RawEntryMut, HashMap};
+use hashbrown::{HashMap, hash_map::RawEntryMut};
 use url::Url;
 
-use super::content_address::store_data_with_content_address;
+#[derive(Debug, thiserror::Error)]
+pub enum NewSourcesError {
+    #[error("Path '{0}' is not a directory")]
+    PathIsNotDir(PathBuf),
+
+    #[error("Failed to create directory at '{0}'")]
+    DirectoryCreationFailed(io::Error),
+
+    #[error("Failed to open directory at '{0}'")]
+    DirectoryOpenFailed(io::Error),
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum SourcesError {
@@ -25,7 +36,7 @@ pub enum SourcesError {
 
     #[error("Failed to access file '{path}' from file URL '{url}'")]
     FileError {
-        error: std::io::Error,
+        error: io::Error,
         url: Url,
         path: PathBuf,
     },
@@ -36,7 +47,8 @@ pub enum SourcesError {
 
 /// Fetches and caches sources.
 /// Saves remote sources to temporaries.
-pub struct Sources {
+pub struct Fetcher {
+    path: PathBuf,
     fetched: HashMap<Url, PathBuf>,
 }
 
@@ -58,11 +70,28 @@ pub(crate) fn source_modified(url: &Url, path: &Path) -> Result<SystemTime, Sour
     }
 }
 
-impl Sources {
-    pub fn new() -> Self {
-        Sources {
-            fetched: HashMap::new(),
+impl Fetcher {
+    pub fn new(path: PathBuf) -> Result<Self, NewSourcesError> {
+        match path.metadata() {
+            Ok(meta) => {
+                if !meta.is_dir() {
+                    return Err(NewSourcesError::PathIsNotDir(path));
+                }
+            }
+            Err(err) if err.kind() == io::ErrorKind::NotFound => {
+                if let Err(err) = fs::create_dir_all(&path) {
+                    return Err(NewSourcesError::DirectoryCreationFailed(err));
+                }
+            }
+            Err(err) => {
+                return Err(NewSourcesError::DirectoryOpenFailed(err));
+            }
         }
+
+        Ok(Fetcher {
+            path,
+            fetched: HashMap::new(),
+        })
     }
 
     pub fn get(&self, source: &Url) -> Option<(&Path, SystemTime)> {
@@ -71,11 +100,7 @@ impl Sources {
         Some((path, modified))
     }
 
-    pub fn fetch(
-        &mut self,
-        temporaries: &Path,
-        source: &Url,
-    ) -> Result<(&Path, SystemTime), SourcesError> {
+    pub fn fetch(&mut self, source: &Url) -> Result<(&Path, SystemTime), SourcesError> {
         match self.fetched.raw_entry_mut().from_key(source) {
             RawEntryMut::Occupied(entry) => {
                 let path = &*entry.into_mut();
@@ -121,12 +146,15 @@ impl Sources {
 
                     let sha256 = sha256(data);
                     let hex = format!("{:x}", sha256);
-                    let (path, _) = store_data_with_content_address(&hex, data, temporaries)
-                        .map_err(|error| SourcesError::FileError {
-                            error,
+                    let path = self.path.join(hex);
+
+                    if let Err(err) = std::fs::write(&*path, data) {
+                        return Err(SourcesError::FileError {
+                            error: err,
                             url: source.clone(),
-                            path: temporaries.to_owned(),
-                        })?;
+                            path,
+                        });
+                    }
 
                     let (_, path) = entry.insert(source.clone(), path);
                     Ok((path, SystemTime::UNIX_EPOCH))

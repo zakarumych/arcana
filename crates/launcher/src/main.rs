@@ -28,7 +28,7 @@ fn main() -> ExitCode {
 
     let native_options = eframe::NativeOptions::default();
     return eframe::run_native(
-        "My egui App",
+        "Arcana Launcher",
         native_options,
         Box::new(|cc| Ok(Box::new(App::new(cc)))),
     )
@@ -127,7 +127,7 @@ impl eframe::App for App {
                 if r.clicked() {
                     let engine = self.start.list_engine_versions().first().cloned();
                     self.dialog = Some(AppDialog::NewProject(NewProject::new(engine)));
-                    ui.close_menu();
+                    ui.close();
                 } else {
                     r.on_hover_ui(|ui| {
                         ui.label("Create new project");
@@ -142,7 +142,7 @@ impl eframe::App for App {
                     dialog.open();
                     self.dialog = Some(AppDialog::OpenProject(dialog));
 
-                    ui.close_menu();
+                    ui.close();
                 } else {
                     r.on_hover_ui(|ui| {
                         ui.label("Create new project");
@@ -158,7 +158,7 @@ impl eframe::App for App {
                     dialog.open();
                     self.dialog = Some(AppDialog::AddEngine(dialog));
 
-                    ui.close_menu();
+                    ui.close();
                 } else {
                     r.on_hover_ui(|ui| {
                         ui.label("Add new engine to Arcana Launcher");
@@ -206,7 +206,7 @@ impl eframe::App for App {
                     if r.clicked() {
                         let engine = self.start.list_engine_versions().first().cloned();
                         self.dialog = Some(AppDialog::NewProject(NewProject::new(engine)));
-                        ui.close_menu();
+                        ui.close();
                     } else {
                         r.on_hover_ui(|ui| {
                             ui.label("Create new project");

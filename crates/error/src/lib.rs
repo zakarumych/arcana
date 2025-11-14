@@ -35,6 +35,31 @@ impl Error {
         }
     }
 
+    pub fn with_context<C>(mut self, context: C) -> Error
+    where
+        C: fmt::Display + Send + Sync + 'static,
+    {
+        struct DummyError;
+
+        impl fmt::Debug for DummyError {
+            fn fmt(&self, _f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                unreachable!()
+            }
+        }
+
+        impl fmt::Display for DummyError {
+            fn fmt(&self, _f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                unreachable!()
+            }
+        }
+
+        impl std::error::Error for DummyError {}
+
+        let source = std::mem::replace(&mut self.inner.error, Arc::new(DummyError));
+        self.inner.error = Arc::new(ErrorContext { source, context });
+        self
+    }
+
     /// Creates a new `Error` with a static message.
     pub fn msg(msg: String) -> Self {
         struct MsgError(String);
@@ -231,13 +256,24 @@ where
     where
         C: fmt::Display + Send + Sync + 'static,
     {
+        // Optimize for the happy path.
+        #[cold]
+        fn error_with_context<E, C>(error: E, context: C) -> Error
+        where
+            E: std::error::Error + Send + Sync + 'static,
+            C: fmt::Display + Send + Sync + 'static,
+        {
+            Error::wrap(error).with_context(context)
+        }
+
         match self {
             Ok(value) => Ok(value),
-            Err(e) => Err(error_with_context(Error::wrap(e), context)),
+            Err(error) => Err(error_with_context(error, context)),
         }
     }
 }
 
+#[inline]
 fn cast_same<A: 'static, B: 'static>(a: A) -> Result<B, A> {
     if std::any::TypeId::of::<A>() == std::any::TypeId::of::<B>() {
         let mut md = std::mem::ManuallyDrop::new(a);
@@ -251,33 +287,6 @@ fn cast_same<A: 'static, B: 'static>(a: A) -> Result<B, A> {
     } else {
         Err(a)
     }
-}
-
-// Optimize for the happy path.
-#[cold]
-fn error_with_context<C>(mut error: Error, context: C) -> Error
-where
-    C: fmt::Display + Send + Sync + 'static,
-{
-    struct DummyError;
-
-    impl fmt::Debug for DummyError {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            f.write_str("DummyError")
-        }
-    }
-
-    impl fmt::Display for DummyError {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            f.write_str("DummyError")
-        }
-    }
-
-    impl std::error::Error for DummyError {}
-
-    let source = std::mem::replace(&mut error.inner.error, Arc::new(DummyError));
-    error.inner.error = Arc::new(ErrorContext { source, context });
-    error
 }
 
 #[doc(hidden)]
@@ -321,20 +330,27 @@ pub mod for_macro {
 #[macro_export]
 macro_rules! error {
     ($fmt:literal $(, $args:expr)* $(,)?) => {
-        $crate::for_macro::closure_error(move |f| write!(f, $fmt $(, $args)*))
+        $crate::for_macro::closure_error(move |f| std::write!(f, $fmt $(, $args)*))
     };
 }
 
 #[macro_export]
 macro_rules! msg_error {
     ($fmt:literal $(, $args:expr)* $(,)?) => {
-        $crate::Error::msg(format!($fmt $(, $args)*))
+        $crate::Error::msg(std::format!($fmt $(, $args)*))
     };
 }
 
 #[macro_export]
 macro_rules! fail {
     ($fmt:literal $(, $args:expr)* $(,)?) => {
-        return Err($crate::for_macro::closure_error(move |f| write!(f, $fmt $(, $args)*)))
+        return Err($crate::for_macro::closure_error(move |f| std::write!(f, $fmt $(, $args)*)))
+    };
+}
+
+#[macro_export]
+macro_rules! msg_fail {
+    ($fmt:literal $(, $args:expr)* $(,)?) => {
+        return Err($crate::Error::msg(std::format!($fmt $(, $args)*)))
     };
 }

@@ -85,7 +85,7 @@ impl<K, E> Selector<K, E> {
                         .clicked_by(egui::PointerButton::Primary)
                     {
                         *current = Some(k.clone());
-                        ui.close_menu();
+                        ui.close();
                     }
                 }
             });

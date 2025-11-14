@@ -190,6 +190,10 @@ impl Value {
             Value::Enum(_, _) => Model::Enum(Vec::new()),
         }
     }
+
+    pub fn is_unit(&self) -> bool {
+        matches!(self, Value::Unit)
+    }
 }
 
 #[derive(Clone, Debug, thiserror::Error)]
@@ -809,7 +813,7 @@ impl<'a> ValueSerializer<'a> {
         let array = Vec::with_capacity(len.unwrap_or(0));
         *self.0 = Value::Array(array);
         match self.0 {
-            Value::Array(ref mut array) => ValueArraySerializer(array),
+            Value::Array(array) => ValueArraySerializer(array),
             _ => unreachable!(),
         }
     }
@@ -818,7 +822,7 @@ impl<'a> ValueSerializer<'a> {
         let map = HashMap::with_capacity(len.unwrap_or(0));
         *self.0 = Value::Map(map);
         match self.0 {
-            Value::Map(ref mut map) => ValueMapSerializer { map, new_key: None },
+            Value::Map(map) => ValueMapSerializer { map, new_key: None },
             _ => unreachable!(),
         }
     }
@@ -1196,4 +1200,15 @@ impl<'a> serde::ser::SerializeStructVariant for ValueMapSerializer<'a> {
     fn end(self) -> Result<Self::Ok, Self::Error> {
         Ok(ValueSerializerOk { _private: () })
     }
+}
+
+/// Serialize a value into a `Value` using the `serde`.
+pub fn serialize_to_value<T>(value: &T) -> Result<Value, ValueError>
+where
+    T: ?Sized + serde::ser::Serialize,
+{
+    let mut result = Value::Unit;
+    let serializer = ValueSerializer(&mut result);
+    value.serialize(serializer)?;
+    Ok(result)
 }

@@ -1234,7 +1234,7 @@ impl EguiProbe for ValueProbe<'_> {
                     _ => {}
                 }
             }
-            Some(Model::Enum(ref variants)) => match *self.value {
+            Some(Model::Enum(variants)) => match *self.value {
                 Value::Enum(name, ref mut value) => {
                     let local;
                     let model = match variants.iter().find(|v| v.0 == name) {

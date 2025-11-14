@@ -32,14 +32,14 @@ pub struct RepositoryAssetLoader {
     task_queue: TaskQueue<AssetRequest, Result<Option<AssetData>, AssetError>>,
 }
 
-pub enum AssetRequest {
-    Load { id: AssetId },
-    Update { id: AssetId, version: u64 },
+pub struct AssetRequest {
+    id: AssetId,
+    min_version: u64,
 }
 
 impl Loader for RepositoryAssetLoader {
     fn load<'a>(&'a self, id: AssetId) -> BoxFuture<'a, Result<AssetData, AssetError>> {
-        let response = self.task_queue.push(AssetRequest::Load { id });
+        let response = self.task_queue.push(AssetRequest { id, min_version: 0 });
         Box::pin(async move {
             match response.await {
                 Ok(None) => Err(AssetError::new(NotFound)), // Shouldn't happen for Load requests.
@@ -54,7 +54,10 @@ impl Loader for RepositoryAssetLoader {
         id: AssetId,
         version: u64,
     ) -> BoxFuture<'a, Result<Option<AssetData>, AssetError>> {
-        let response = self.task_queue.push(AssetRequest::Update { id, version });
+        let response = self.task_queue.push(AssetRequest {
+            id,
+            min_version: version.wrapping_add(1),
+        });
         Box::pin(response)
     }
 }

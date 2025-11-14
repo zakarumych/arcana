@@ -1,6 +1,6 @@
 use std::{hash::Hash, path::Path};
 
-use arcana::{error::Error, mev};
+use arcana::{error::Error, hash::sha256, mev};
 use arcana_project::Profile;
 use winit::event_loop::EventLoop;
 
@@ -26,7 +26,7 @@ macro_rules! ok_log_err {
 /// Returns with provided expression if one specified.
 macro_rules! try_log_err {
     ($res:expr $(; $ret:expr)?) => {
-        match {$res} {
+        match { $res } {
             Ok(ok) => ok,
             Err(err) => {
                 tracing::error!("{err:?}");
@@ -34,6 +34,22 @@ macro_rules! try_log_err {
             }
         }
     };
+}
+
+struct InPlaceSeed<'a, T: 'a>(pub &'a mut T);
+
+impl<'a, 'de, T> serde::de::DeserializeSeed<'de> for InPlaceSeed<'a, T>
+where
+    T: serde::de::Deserialize<'de>,
+{
+    type Value = ();
+
+    fn deserialize<D>(self, deserializer: D) -> Result<(), D::Error>
+    where
+        D: serde::de::Deserializer<'de>,
+    {
+        T::deserialize_in_place(deserializer, self.0)
+    }
 }
 
 mod app;
@@ -177,4 +193,11 @@ where
 {
     let [r, g, b] = ::arcana::hash::hue_hash(value);
     egui::Color32::from_rgb(r, g, b)
+}
+
+fn store_data_with_content_address(data: &[u8], base: impl AsRef<Path>) -> std::io::Result<()> {
+    let sha256 = sha256(data);
+    let hex = format!("{:x}.content", sha256);
+    let path = base.as_ref().join(hex);
+    std::fs::write(&*path, data)
 }
