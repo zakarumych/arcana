@@ -7,7 +7,7 @@ use std::{
 };
 
 use arcana::{
-    hash::{sha256, sha256_file, Hash256},
+    hash::{Hash256, sha256, sha256_file},
     io::fs::{file_eq_blob, files_eq},
 };
 
@@ -63,13 +63,13 @@ impl Blobs {
                     return Err(NewBlobsError::PathIsNotDir(path));
                 }
             }
-            Err(err) if err.kind() == io::ErrorKind::NotFound => {
-                if let Err(err) = fs::create_dir_all(&path) {
-                    return Err(NewBlobsError::DirectoryCreationFailed(err));
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                if let Err(error) = fs::create_dir_all(&path) {
+                    return Err(NewBlobsError::DirectoryCreationFailed(error));
                 }
             }
-            Err(err) => {
-                return Err(NewBlobsError::DirectoryOpenFailed(err));
+            Err(error) => {
+                return Err(NewBlobsError::DirectoryOpenFailed(error));
             }
         }
 
@@ -161,7 +161,7 @@ fn insert_blob(base: &Path, blob: EitherBlob) -> io::Result<BlobId> {
                 }
                 // Path is not a file, continue searching.
             }
-            Err(err) if err.kind() == io::ErrorKind::NotFound => match blob {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => match blob {
                 EitherBlob::Bytes(bytes) => {
                     fs::write(&candidate, bytes)?;
                     return Ok(BlobId { hash, index });
@@ -175,7 +175,7 @@ fn insert_blob(base: &Path, blob: EitherBlob) -> io::Result<BlobId> {
                     return Ok(BlobId { hash, index });
                 }
             },
-            Err(err) => return Err(err),
+            Err(error) => return Err(error),
         }
 
         candidate.pop();

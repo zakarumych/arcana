@@ -86,8 +86,8 @@ pub fn has_stid(stid: Option<StidValue>, input: &syn::DeriveInput) -> syn::Resul
                 .chars()
                 .filter(|c| "0123456789abcdef".contains(*c))
                 .collect::<String>();
-            u64::from_str_radix(&s, 16).map_err(|err| {
-                syn::Error::new(str.span(), format!("Failed to parse STID: {}", err))
+            u64::from_str_radix(&s, 16).map_err(|error| {
+                syn::Error::new(str.span(), format!("Failed to parse STID: {}", error))
             })?
         }
     };
@@ -177,8 +177,8 @@ pub fn has_stid_fn(input: HasStid) -> syn::Result<TokenStream> {
                 .chars()
                 .filter(|c| "0123456789abcdef".contains(*c))
                 .collect::<String>();
-            u64::from_str_radix(&s, 16).map_err(|err| {
-                syn::Error::new(str.span(), format!("Failed to parse STID: {}", err))
+            u64::from_str_radix(&s, 16).map_err(|error| {
+                syn::Error::new(str.span(), format!("Failed to parse STID: {}", error))
             })?
         }
     };

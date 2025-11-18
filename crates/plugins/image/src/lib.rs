@@ -1,12 +1,13 @@
 use std::path::Path;
 
 use arcana::{
+    Ident,
     assets::import::{AssetDependencies, AssetSources, ImportError},
-    ident, Ident,
+    ident,
 };
 
 // This line allows this crate to function as a plugin for Arcana Engine.
-arcana::declare_plugin!();
+arcana::plugin::declare_plugin!();
 
 #[arcana::importer]
 struct RGBAImageImporter;
@@ -18,6 +19,12 @@ impl RGBAImageImporter {
 }
 
 impl arcana::assets::import::Importer for RGBAImageImporter {
+    fn desc() -> ImporterDesc {
+        ImporterDesc {
+            name: ident!(RGBAImageImporter),
+        }
+    }
+
     fn formats(&self) -> &[&str] {
         &["png", "jpg", "bmp"]
     }
@@ -38,10 +45,10 @@ impl arcana::assets::import::Importer for RGBAImageImporter {
         _dependencies: &mut dyn AssetDependencies,
     ) -> Result<(), ImportError> {
         let image = match image::open(source) {
-            Err(err) => {
+            Err(error) => {
                 return Err(ImportError::Other {
-                    reason: format!("Failed to open image: {}", err),
-                })
+                    reason: format!("Failed to open image: {}", error),
+                });
             }
             Ok(image) => image,
         };
@@ -49,10 +56,10 @@ impl arcana::assets::import::Importer for RGBAImageImporter {
         let rgba_image = image.to_rgba8();
 
         match std::fs::write(output, rgba_image.as_raw()) {
-            Err(err) => {
+            Err(error) => {
                 return Err(ImportError::Other {
-                    reason: format!("Failed to write image: {}", err),
-                })
+                    reason: format!("Failed to write image: {}", error),
+                });
             }
             Ok(_) => {}
         }

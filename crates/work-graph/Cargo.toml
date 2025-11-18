@@ -12,7 +12,6 @@ arcana-id = { path = "../id" }
 arcana-intern = { path = "../intern" }
 arcana-hash = { path = "../hash" }
 arcana-model = { path = "../model" }
-arcana-metatype = { path = "../metatype" }
 arcana-proc = { path = "../proc" }
 
 edict.workspace = true

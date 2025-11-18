@@ -581,8 +581,8 @@ impl<'de> serde::de::Deserializer<'de> for Value {
         match self {
             Value::String(value) => {
                 let mut bytes = Vec::new();
-                if let Err(err) = base58::decode_to_vec(value.as_bytes(), &mut bytes) {
-                    return Err(ValueError::Custom(err.to_string()));
+                if let Err(error) = base58::decode_to_vec(value.as_bytes(), &mut bytes) {
+                    return Err(ValueError::Custom(error.to_string()));
                 }
                 visitor.visit_byte_buf(bytes)
             }

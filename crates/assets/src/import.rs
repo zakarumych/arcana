@@ -32,7 +32,7 @@
 //!     ) -> Result<(), ImportError> {
 //!         match std::fs::copy(source, output) {
 //!           Ok(_) => Ok(()),
-//!           Err(err) => Err(ImportError::Other { reason: "SOMETHING WENT WRONG".to_owned() }),
+//!           Err(error) => Err(ImportError::Other { reason: "SOMETHING WENT WRONG".to_owned() }),
 //!         }
 //!     }
 //! }
@@ -44,16 +44,19 @@ use arcana_intern::{Ident, Name};
 use arcana_model::{Model, Value};
 use smol_str::SmolStr;
 
-use crate::{make_uid, AssetId};
+use crate::{AssetId, make_uid};
 
 /// Single dependency for a asset.
 #[derive(Debug)]
 pub struct AssetDependency {
+    /// Target format.
+    pub target: Ident,
+
     /// Source path.
     pub source: SmolStr,
 
-    /// Target format.
-    pub target: Ident,
+    /// Source format if specified.
+    pub format: Option<Name>,
 }
 
 /// Indicates that requested item is missing.

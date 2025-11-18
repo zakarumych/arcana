@@ -1,8 +1,7 @@
 use std::hash::Hash;
 
-use arcana_id::make_uid;
+use arcana_id::{HasStid, Stid, make_uid};
 use arcana_intern::Name;
-use arcana_metatype::{MetaType, Stid};
 use arcana_model::Model;
 use edict::world::World;
 
@@ -24,7 +23,7 @@ pub struct TargetCreateDesc {
 }
 
 impl TargetCreateDesc {
-    pub fn new<T: MetaType>(name: Name) -> Self {
+    pub fn new<T: HasStid>(name: Name) -> Self {
         TargetCreateDesc {
             name,
             ty: T::stid(),
@@ -42,7 +41,7 @@ pub struct TargetUpdateDesc {
 }
 
 impl TargetUpdateDesc {
-    pub fn new<T: MetaType>(name: Name) -> Self {
+    pub fn new<T: HasStid>(name: Name) -> Self {
         TargetUpdateDesc {
             name,
             ty: T::stid(),
@@ -60,7 +59,7 @@ pub struct TargetReadDesc {
 }
 
 impl TargetReadDesc {
-    pub fn new<T: MetaType>(name: Name) -> Self {
+    pub fn new<T: HasStid>(name: Name) -> Self {
         TargetReadDesc {
             name,
             ty: T::stid(),

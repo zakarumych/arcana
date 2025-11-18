@@ -1,10 +1,10 @@
 use std::{
-    path::{absolute, PathBuf},
+    path::{PathBuf, absolute},
     process::{Child, ExitCode, Termination},
 };
 
 use arcana_error::Error;
-use arcana_launcher::{validate_engine_path, Dependency, Ident, Profile, Project, Start};
+use arcana_launcher::{Dependency, Ident, Profile, Project, Start, validate_engine_path};
 use egui_file::FileDialog;
 use hashbrown::HashMap;
 
@@ -13,13 +13,13 @@ mod cli;
 fn main() -> ExitCode {
     use tracing_subscriber::layer::SubscriberExt as _;
 
-    if let Err(err) = tracing::subscriber::set_global_default(
+    if let Err(error) = tracing::subscriber::set_global_default(
         tracing_subscriber::fmt()
             // .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
             .finish()
             .with(tracing_error::ErrorLayer::default()),
     ) {
-        panic!("Failed to install tracing subscriber: {}", err);
+        panic!("Failed to install tracing subscriber: {}", error);
     }
 
     if std::env::args().len() > 1 {
@@ -40,10 +40,10 @@ impl eframe::App for App {
         match self.child {
             AppChild::None => {}
             AppChild::EditorBuilding(ref mut child, _) => match child.try_wait() {
-                Err(err) => {
+                Err(error) => {
                     self.dialog = Some(AppDialog::Error(ErrorDialog {
                         title: "Failed to check if build finished".to_owned(),
-                        message: err.to_string(),
+                        message: error.to_string(),
                     }));
                     self.child = AppChild::None;
                 }
@@ -55,10 +55,10 @@ impl eframe::App for App {
                                 self.child = AppChild::None;
 
                                 match project.run_editor_non_blocking(self.profile) {
-                                    Err(err) => {
+                                    Err(error) => {
                                         self.dialog = Some(AppDialog::Error(ErrorDialog {
                                             title: "Failed to run Arcana Ed".to_owned(),
-                                            message: err.to_string(),
+                                            message: error.to_string(),
                                         }));
                                     }
                                     Ok(child) => {
@@ -81,10 +81,10 @@ impl eframe::App for App {
             },
             AppChild::EditorRunning(ref mut child) => {
                 match child.try_wait() {
-                    Err(err) => {
+                    Err(error) => {
                         self.dialog = Some(AppDialog::Error(ErrorDialog {
                             title: "Failed to check if Arcana Ed closed".to_owned(),
-                            message: err.to_string(),
+                            message: error.to_string(),
                         }));
                         self.child = AppChild::None;
                     }
@@ -224,7 +224,7 @@ impl eframe::App for App {
                         };
 
                         match result {
-                            Err(err) => {
+                            Err(error) => {
                                 egui::Frame::group(ui.style())
                                     .stroke(egui::Stroke::new(1.0, egui::Color32::DARK_RED))
                                     .show(ui, |ui| {
@@ -240,7 +240,7 @@ impl eframe::App for App {
                                             );
 
                                             ui.vertical(|ui| {
-                                                ui.label(format!("cannot open project. {err:?}"));
+                                                ui.label(format!("cannot open project. {error:?}"));
                                                 ui.label(path.display().to_string());
                                             });
                                             let r = ui.button(egui_phosphor::regular::X);
@@ -324,10 +324,10 @@ impl eframe::App for App {
                                     self.recent.entry(path.to_owned()).insert(result).into_mut();
 
                                 match result {
-                                    Err(err) => {
+                                    Err(error) => {
                                         self.dialog = Some(AppDialog::Error(ErrorDialog {
                                             title: "Failed to open project".to_owned(),
-                                            message: err.to_string(),
+                                            message: error.to_string(),
                                         }));
                                     }
                                     Ok(project) => {
@@ -410,10 +410,10 @@ impl eframe::App for App {
                 let project = self.recent.get(&path).unwrap().as_ref().unwrap();
 
                 match project.build_editor_non_blocking(self.profile) {
-                    Err(err) => {
+                    Err(error) => {
                         self.dialog = Some(AppDialog::Error(ErrorDialog {
                             title: "Failed to run project".to_owned(),
-                            message: err.to_string(),
+                            message: error.to_string(),
                         }));
                     }
                     Ok(child) => {
@@ -493,7 +493,7 @@ pub struct App {
     dialog: Option<AppDialog>,
 
     /// Running child app.
-    /// When this is `Some`, laucher is not interactive,
+    /// When this is `Some`, launcher is not interactive,
     /// window is hidden.
     /// But event-loop is still running.
     ///
@@ -688,20 +688,20 @@ impl NewProject {
                                         self.dialog = None;
                                         self.engine = Some(dep);
                                     }
-                                    Err(err) => {
+                                    Err(error) => {
                                         self.dialog = Some(NewProjectDialog::Error(ErrorDialog {
                                             title: format!(
                                                 "Failed to add engine from path '{}'",
                                                 path.display()
                                             ),
-                                            message: err.to_string(),
+                                            message: error.to_string(),
                                         }));
                                     }
                                 },
-                                Err(err) => {
+                                Err(error) => {
                                     self.dialog = Some(NewProjectDialog::Error(ErrorDialog {
                                         title: "Failed to resolve engine path".to_owned(),
-                                        message: err.to_string(),
+                                        message: error.to_string(),
                                     }));
                                 }
                             };
@@ -729,10 +729,10 @@ impl NewProject {
                 Ok(project) => {
                     return Some(Some(project));
                 }
-                Err(err) => {
+                Err(error) => {
                     self.dialog = Some(NewProjectDialog::Error(ErrorDialog {
                         title: "Failed to create project".to_owned(),
-                        message: err.to_string(),
+                        message: error.to_string(),
                     }));
                 }
             }

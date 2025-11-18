@@ -1,12 +1,12 @@
 use arcana::{
-    id::{make_uid, TimeUidGen},
-    model::Value,
     Ident,
+    id::{TimeUidGen, make_uid},
+    model::Value,
 };
 use egui::Ui;
 use hashbrown::HashMap;
 
-use crate::{container::Container, ide::Ide, instance::Instance, project::Project};
+use crate::{ide::Ide, instance::Instance, plugins::Plugins, project::Project};
 
 make_uid! {
     /// ID of opened tool.
@@ -43,9 +43,9 @@ pub trait Tool {
         let _ = state;
     }
 
-    /// Updates the tool state with new container instance.
-    fn update_plugins(&mut self, project: &mut Project, container: &Container) {
-        let _ = (project, container);
+    /// Updates the tool state with new [`Plugins`] instance.
+    fn update_plugins(&mut self, project: &mut Project, plugins: &Plugins) {
+        let _ = (project, plugins);
     }
 }
 
@@ -67,12 +67,12 @@ impl BoxedTool {
         }
     }
 
-    fn update_container(&mut self, project: &mut Project, container: &Container) {
+    fn update_plugins(&mut self, project: &mut Project, plugins: &Plugins) {
         // This is a tool from plugin. Reload it.
         self.save();
         self.tool = None;
 
-        if let Some(plugin) = container.get_plugin(self.plugin) {
+        if let Some(plugin) = plugins.get(self.plugin) {
             let _ = (project, plugin);
             todo!()
         }
@@ -114,7 +114,7 @@ impl BoxedTool {
 pub struct Toolbox {
     tools: HashMap<ToolId, BoxedTool>,
     idgen: TimeUidGen,
-    container: Container,
+    plugins: Plugins,
 }
 
 impl Toolbox {
@@ -122,14 +122,14 @@ impl Toolbox {
         Toolbox {
             tools: HashMap::new(),
             idgen: TimeUidGen::random(),
-            container: Container::default(),
+            plugins: Plugins::default(),
         }
     }
 
-    pub fn update_container(&mut self, project: &mut Project, container: &Container) {
-        self.container = container.clone();
+    pub fn update_plugins(&mut self, project: &mut Project, plugins: &Plugins) {
+        self.plugins = plugins.clone();
         for tool in self.tools.values_mut() {
-            tool.update_container(project, container);
+            tool.update_plugins(project, plugins);
         }
     }
 

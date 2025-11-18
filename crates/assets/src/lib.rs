@@ -42,7 +42,7 @@ use arcana_error::Error;
 use arcana_id::make_uid;
 
 pub use self::{
-    asset::Asset,
+    asset::{Asset, AssetVersion},
     assets::Assets,
     build::{AssetBuildContext, AssetBuilder},
     loader::{AssetData, Loader},

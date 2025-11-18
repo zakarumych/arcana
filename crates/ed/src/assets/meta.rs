@@ -6,7 +6,7 @@ use std::{
     time::SystemTime,
 };
 
-use arcana::{assets::AssetId, model::Value, smol_str::SmolStr, Ident, Name};
+use arcana::{Ident, Name, assets::AssetId, model::Value, smol_str::SmolStr};
 use hashbrown::HashMap;
 use serde::ser::SerializeSeq;
 use url::Url;
@@ -40,6 +40,7 @@ impl FromStr for Scheme {
 const EXTENSION: &'static str = "arc";
 const DOT_EXTENSION: &'static str = ".arc";
 
+/// Error that may be returned from [`SourceMeta`]'s and [`AssetMeta`]'s methods.
 #[derive(Debug, thiserror::Error)]
 pub enum MetaError {
     #[error("Failed to read file '{meta_path}': {error}")]
@@ -65,25 +66,6 @@ pub enum MetaError {
         error: serde_json::Error,
         meta_path: PathBuf,
     },
-    // #[error("Failed to calculate hash of the file '{path}': {error}")]
-    // HashError {
-    //     error: std::io::Error,
-    //     path: PathBuf,
-    // },
-    // #[error("Failed to save artifact file")]
-    // SaveArtifactError {
-    //     error: std::io::Error,
-    //     path: PathBuf,
-    // },
-    // #[error("Failed to get real path of '{path}'")]
-    // PathError { path: PathBuf },
-    // #[error("Failed to convert path '{path}' to URL")]
-    // UrlFromPathError { path: PathBuf },
-    // #[error("Failed to create directory '{path}': {error}")]
-    // CreateDirError {
-    //     error: std::io::Error,
-    //     path: PathBuf,
-    // },
 }
 
 /// Metadata for a single asset.
@@ -122,12 +104,12 @@ impl AssetMeta {
         for (url, last_modified) in &self.sources {
             let url = match base.join(url) {
                 Ok(url) => url,
-                Err(err) => {
+                Err(error) => {
                     tracing::error!(
                         "Failed to figure out source URL from base: {} and source: {}. {:#}. Asset can be outdated",
                         base,
                         url,
-                        err,
+                        error,
                     );
                     continue;
                 }
@@ -144,10 +126,10 @@ impl AssetMeta {
                     };
 
                     let modified = match path.metadata().and_then(|meta| meta.modified()) {
-                        Err(err) => {
+                        Err(error) => {
                             tracing::error!(
                                 "Failed to check how new the source file is. {:#}",
-                                err
+                                error
                             );
                             continue;
                         }
@@ -155,7 +137,9 @@ impl AssetMeta {
                     };
 
                     if modified < *last_modified {
-                        tracing::warn!("Source file is older than when asset was imported. Could be clock change. Reimort just in case");
+                        tracing::warn!(
+                            "Source file is older than when asset was imported. Could be clock change. Reimort just in case"
+                        );
                         return true;
                     }
 
@@ -195,7 +179,7 @@ impl SourceMeta {
         let meta_path = source_to_meta_path(source);
 
         let data = match std::fs::read_to_string(&*meta_path) {
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 // Crete file, but only if it doesn't exist yet.
                 // Avoid race condition with someone else creating it in parallel.
                 match std::fs::File::create_new(&*meta_path) {
@@ -207,35 +191,35 @@ impl SourceMeta {
 
                         let string = match new_source_meta.serialize() {
                             Ok(string) => string,
-                            Err(err) => return Err(err),
+                            Err(error) => return Err(error),
                         };
 
-                        if let Err(err) = file.write_all(string.as_bytes()) {
+                        if let Err(error) = file.write_all(string.as_bytes()) {
                             return Err(MetaError::WriteError {
-                                error: err,
+                                error: error,
                                 meta_path: new_source_meta.meta_path,
                             });
                         }
 
                         return Ok(new_source_meta);
                     }
-                    Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
                         // Ok, try read again.
                         match std::fs::read_to_string(&*meta_path) {
                             Ok(data) => data,
-                            Err(err) => {
+                            Err(error) => {
                                 return Err(MetaError::ReadError {
-                                    error: err,
+                                    error: error,
                                     meta_path,
-                                })
+                                });
                             }
                         }
                     }
-                    Err(err) => {
+                    Err(error) => {
                         return Err(MetaError::WriteError {
-                            error: err,
+                            error: error,
                             meta_path,
-                        })
+                        });
                     }
                 }
             }
@@ -254,7 +238,7 @@ impl SourceMeta {
 
     pub fn open_meta(meta_path: PathBuf) -> Result<Self, MetaError> {
         match std::fs::read_to_string(&meta_path) {
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(SourceMeta {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(SourceMeta {
                 meta_path,
                 assets: HashMap::new(),
             }),
@@ -288,7 +272,7 @@ impl SourceMeta {
 
         match self.flush() {
             Ok(()) => Ok(()),
-            Err(err) => {
+            Err(error) => {
                 // Restore state on failure
                 match old {
                     None => {
@@ -298,7 +282,7 @@ impl SourceMeta {
                         self.assets.insert(target, old);
                     }
                 }
-                Err(err)
+                Err(error)
             }
         }
     }
@@ -309,8 +293,8 @@ impl SourceMeta {
 
         match std::fs::write(&*self.meta_path, data.as_bytes()) {
             Ok(()) => Ok(()),
-            Err(err) => Err(MetaError::WriteError {
-                error: err,
+            Err(error) => Err(MetaError::WriteError {
+                error: error,
                 meta_path: self.meta_path.clone(),
             }),
         }
@@ -322,8 +306,8 @@ impl SourceMeta {
         };
         match serde_json::to_string_pretty(&source_meta_ser) {
             Ok(data) => Ok(data),
-            Err(err) => Err(MetaError::SerializeError {
-                error: err,
+            Err(error) => Err(MetaError::SerializeError {
+                error: error,
                 meta_path: self.meta_path.clone(),
             }),
         }
@@ -335,8 +319,8 @@ impl SourceMeta {
                 meta_path,
                 assets: source_meta.assets,
             }),
-            Err(err) => Err(MetaError::DeserializeError {
-                error: err,
+            Err(error) => Err(MetaError::DeserializeError {
+                error: error,
                 meta_path,
             }),
         }

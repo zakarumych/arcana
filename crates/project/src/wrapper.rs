@@ -103,9 +103,9 @@ pub fn build_plugins(root: &Path, profile: Profile) -> Result<BuildProcess, Erro
         .env("RUSTFLAGS", "-Zshare-generics=off -Cprefer-dynamic=yes")
         .current_dir(&workspace)
         .spawn()
-        .map_err(|err| {
+        .map_err(|error| {
             Error::msg(format!(
-                "Failed to start building plugins '{}'. {err:?}",
+                "Failed to start building plugins '{}'. {error:?}",
                 workspace.display()
             ))
         })?;
@@ -144,9 +144,9 @@ impl BuildProcess {
     /// Returns Ok(false) if process is still running.
     pub fn finished(&mut self) -> Result<bool, Error> {
         match self.child.try_wait() {
-            Err(err) => {
+            Err(error) => {
                 return Err(Error::msg(format!(
-                    "Failed to wait for build process to finish. {err:?}"
+                    "Failed to wait for build process to finish. {error:?}"
                 )));
             }
             Ok(None) => Ok(false),

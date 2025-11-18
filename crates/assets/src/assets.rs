@@ -7,17 +7,17 @@ use std::{
 
 use amity::flip_queue::FlipQueue;
 use arcana_error::Error;
-use arcana_metatype::Stid;
+use arcana_id::Stid;
 use hashbrown::HashMap;
 use parking_lot::{Mutex, RwLock};
 
-use crate::{AssetError, NotFound};
+use crate::{AssetError, NotFound, asset::AssetVersion};
 
 use super::{
+    AssetId,
     asset::Asset,
     build::AssetBuilder,
     loader::{AssetData, Loader},
-    AssetId,
 };
 
 const ASSETS_ARRAY_SIZE: usize = 97; // Prime number near 100. Arbitrary choice.
@@ -158,7 +158,8 @@ impl Assets {
         where
             A: Asset,
         {
-            let meta = A::META;
+            let stid = Stid::of::<A>();
+            let version = <A as AssetVersion>::version();
 
             let new_typed_array = array::from_fn(|_| {
                 Arc::new(TypedAssets::<A> {
@@ -170,15 +171,16 @@ impl Assets {
                 unsafe { new_typed_array[index].clone().downcast_arc_unchecked() };
 
             let mut types_write = assets.inner.types.write();
-            match types_write.entry(meta.stid) {
+            match types_write.entry(stid) {
                 hashbrown::hash_map::Entry::Occupied(entry) => {
+                    assert_eq!(entry.get().version, version);
                     // Another thread already inserted the value, use it.
                     unsafe { entry.get().array[index].clone().downcast_arc_unchecked() }
                 }
                 hashbrown::hash_map::Entry::Vacant(entry) => {
                     // We are the first thread to insert the value.
                     entry.insert(TypedAssetsArray {
-                        version: meta.volatile_version,
+                        version: version,
                         array: new_typed_array,
                     });
                     new_typed

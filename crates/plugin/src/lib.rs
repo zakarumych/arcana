@@ -302,99 +302,109 @@ macro_rules! declare_plugin {
     ($([$($dependency:ident $($kind:tt)*)+])?) => {
         #[doc(hidden)]
         pub mod arcana_plugin {
-            pub fn dependency() -> $crate::project::Dependency {
-                $crate::project::Dependency::Crates(env!("CARGO_PKG_VERSION").to_owned())
+            pub fn dependency() -> $crate::for_macro::Dependency {
+                $crate::for_macro::Dependency::Crates(env!("CARGO_PKG_VERSION").to_owned())
             }
 
-            pub fn path_dependency() -> $crate::project::Dependency {
-                $crate::project::Dependency::from_path(env!("CARGO_MANIFEST_DIR")).unwrap()
+            pub fn path_dependency() -> $crate::for_macro::Dependency {
+                $crate::for_macro::Dependency::from_path(env!("CARGO_MANIFEST_DIR")).unwrap()
             }
 
-            pub fn get() -> $crate::plugin::ArcanaPlugin {
-                // Safety: This value is accessed mutably at cdylib load time.
-                // Afterwards it can only be accessed immutably here.
-                unsafe { ARCANA_PLUGIN_REGISTRY.plugin() }
+            pub fn get() -> $crate::ArcanaPlugin {
+                // // Safety: This value is accessed mutably at cdylib load time.
+                // // Afterwards it can only be accessed immutably here.
+                // unsafe { ARCANA_PLUGIN_REGISTRY.plugin() }
+
+                let mut plugin = ArcanaPlugin::new();
+                for add in ARCANA_PLUGIN_REGISTRY {
+                    add(&mut plugin);
+                }
+
+                $($(
+                        plugin.add_dependency($crate::for_macro::ident!($dependency), $crate::plugin_dependency_kind!($dependency $($kind)*));
+                )+)*
+
+                plugin.location = Some(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+                plugin
             }
 
-            pub static mut ARCANA_PLUGIN_REGISTRY: $crate::plugin::init::Registry =
-                ::arcana::plugin::init::Registry::new();
+            // pub static mut ARCANA_PLUGIN_REGISTRY: $crate::for_macro::Registry =
+            //     $crate::for_macro::Registry::new();
+
+            #[$crate::for_macro::distributed_slice(crate = $crate::for_macro::linkme)]
+            pub(crate) static ARCANA_PLUGIN_REGISTRY: [fn(&mut ArcanaPlugin)];
         }
-
-        $(
-            $crate::plugin_ctor_add!(plugin => {
-                $(
-                    plugin.add_dependency($crate::ident!($dependency), $crate::plugin_dependency_kind!($dependency $($kind)*));
-                )+
-            });
-        )*
     };
 }
 
 #[doc(hidden)]
-pub mod init {
-    use std::collections::BTreeMap;
+pub mod for_macro {
+    use std::{collections::BTreeMap, path::PathBuf};
 
-    use super::*;
-
+    pub use arcana_intern::{Ident, ident};
+    pub use arcana_project::Dependency;
     pub use ctor::ctor;
+    pub use linkme::{self as linkme, distributed_slice};
 
-    #[derive(Clone, Copy)]
-    pub struct CtorNode {
-        ctor: fn(&mut ArcanaPlugin),
-        next: Option<&'static CtorNode>,
-    }
+    use super::ArcanaPlugin;
 
-    impl CtorNode {
-        pub const fn new(ctor: fn(&mut ArcanaPlugin)) -> Self {
-            CtorNode { ctor, next: None }
-        }
-    }
+    // #[derive(Clone, Copy)]
+    // pub struct CtorNode {
+    //     ctor: fn(&mut ArcanaPlugin),
+    //     next: Option<&'static CtorNode>,
+    // }
 
-    pub struct Registry {
-        manifest_dir: &'static str,
-        list: Option<&'static CtorNode>,
-        dependencies: BTreeMap<Ident, Dependency>,
-    }
+    // impl CtorNode {
+    //     pub const fn new(ctor: fn(&mut ArcanaPlugin)) -> Self {
+    //         CtorNode { ctor, next: None }
+    //     }
+    // }
 
-    impl Registry {
-        pub const fn new() -> Self {
-            Registry {
-                manifest_dir: env!("CARGO_MANIFEST_DIR"),
-                list: None,
-                dependencies: BTreeMap::new(),
-            }
-        }
+    // pub struct Registry {
+    //     manifest_dir: &'static str,
+    //     list: Option<&'static CtorNode>,
+    //     dependencies: BTreeMap<Ident, Dependency>,
+    // }
 
-        pub fn register(&mut self, node: &'static mut CtorNode) {
-            node.next = self.list;
-            self.list = Some(node);
-        }
+    // impl Registry {
+    //     pub const fn new() -> Self {
+    //         Registry {
+    //             manifest_dir: env!("CARGO_MANIFEST_DIR"),
+    //             list: None,
+    //             dependencies: BTreeMap::new(),
+    //         }
+    //     }
 
-        pub fn plugin(&mut self) -> ArcanaPlugin {
-            let mut plugin = ArcanaPlugin::new();
-            plugin.dependencies = self
-                .dependencies
-                .iter()
-                .map(|(n, d)| (*n, d.clone()))
-                .collect();
+    //     pub fn register(&mut self, node: &'static mut CtorNode) {
+    //         node.next = self.list;
+    //         self.list = Some(node);
+    //     }
 
-            plugin.location = Some(PathBuf::from(self.manifest_dir));
+    //     pub fn plugin(&mut self) -> ArcanaPlugin {
+    //         let mut plugin = ArcanaPlugin::new();
+    //         plugin.dependencies = self
+    //             .dependencies
+    //             .iter()
+    //             .map(|(n, d)| (*n, d.clone()))
+    //             .collect();
 
-            let mut node = self.list;
-            while let Some(n) = node {
-                (n.ctor)(&mut plugin);
-                node = n.next;
-            }
+    //         plugin.location = Some(PathBuf::from(self.manifest_dir));
 
-            plugin
-        }
-    }
+    //         let mut node = self.list;
+    //         while let Some(n) = node {
+    //             (n.ctor)(&mut plugin);
+    //             node = n.next;
+    //         }
+
+    //         plugin
+    //     }
+    // }
 
     #[doc(hidden)]
     #[macro_export]
     macro_rules! pkg_name {
         () => {
-            $crate::Ident::from_str(env!("CARGO_PKG_NAME")).unwrap()
+            $crate::for_macro::Ident::from_str(env!("CARGO_PKG_NAME")).unwrap()
         };
     }
 
@@ -403,22 +413,30 @@ pub mod init {
     macro_rules! plugin_ctor_add {
         ($plugin:ident => $($code:tt)*) => {
             const _: () = {
-                #[$crate::plugin::init::ctor]
-                fn add() {
-                    static mut CTOR_NODE: $crate::plugin::init::CtorNode =
-                        $crate::plugin::init::CtorNode::new(
-                            |$plugin: &mut $crate::plugin::ArcanaPlugin| {
-                                // At this point cdylib is initialized and any code can be executed.
-                                $($code)*
-                            },
-                        );
+                // #[$crate::for_macro::ctor]
+                // fn add() {
+                //     static mut CTOR_NODE: $crate::for_macro::CtorNode =
+                //         $crate::for_macro::CtorNode::new(
+                //             |$plugin: &mut $crate::ArcanaPlugin| {
+                //                 // At this point cdylib is initialized and any code can be executed.
+                //                 $($code)*
+                //             },
+                //         );
 
-                    // Safety: This code is executed at cdylib load time
-                    // sequentially with other ctors.
-                    unsafe {
-                        crate::arcana_plugin::ARCANA_PLUGIN_REGISTRY.register(&mut CTOR_NODE);
-                    }
+                //     // Safety: This code is executed at cdylib load time
+                //     // sequentially with other ctors.
+                //     unsafe {
+                //         crate::arcana_plugin::ARCANA_PLUGIN_REGISTRY.register(&mut CTOR_NODE);
+                //     }
+                // }
+
+                fn add($plugin: &mut $crate::ArcanaPlugin) {
+                    // At this point cdylib is initialized and any code can be executed.
+                    $($code)*
                 }
+
+                #[$crate::for_macro::distributed_slice(crate = $crate::for_macro::linkme, crate::arcana_plugin::ARCANA_PLUGIN_REGISTRY)]
+                static ADD: fn(&mut ArcanaPlugin) = add;
             };
         };
     }

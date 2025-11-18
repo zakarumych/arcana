@@ -56,11 +56,11 @@ fn dependency_sort(a: &Dependency, b: &Dependency) -> Ordering {
 fn update_config_from_path(config: &mut Config, path: &Path) {
     let s = match std::fs::read_to_string(path) {
         Ok(s) => s,
-        Err(err) => {
-            if err.kind() == std::io::ErrorKind::NotFound {
+        Err(error) => {
+            if error.kind() == std::io::ErrorKind::NotFound {
                 tracing::debug!("No config found at {}", path.display());
             } else {
-                tracing::warn!("Failed to read config from {}: {}", path.display(), err);
+                tracing::warn!("Failed to read config from {}: {}", path.display(), error);
             }
             return;
         }
@@ -68,12 +68,12 @@ fn update_config_from_path(config: &mut Config, path: &Path) {
 
     match toml::Deserializer::parse(&s) {
         Ok(d) => {
-            if let Err(err) = config.update(d) {
-                tracing::warn!("Failed to update config from {}: {}", path.display(), err);
+            if let Err(error) = config.update(d) {
+                tracing::warn!("Failed to update config from {}: {}", path.display(), error);
             }
         }
-        Err(err) => {
-            tracing::warn!("Failed to parse config from {}: {}", path.display(), err);
+        Err(error) => {
+            tracing::warn!("Failed to parse config from {}: {}", path.display(), error);
         }
     }
 }
@@ -81,8 +81,8 @@ fn update_config_from_path(config: &mut Config, path: &Path) {
 fn save_config_to_path(config: &Config, path: &Path) {
     let s = match toml::to_string_pretty(config) {
         Ok(s) => s,
-        Err(err) => {
-            tracing::warn!("Failed to serialize config to {}: {}", path.display(), err);
+        Err(error) => {
+            tracing::warn!("Failed to serialize config to {}: {}", path.display(), error);
             return;
         }
     };
@@ -100,30 +100,30 @@ fn save_config_to_path(config: &Config, path: &Path) {
                     // Try to save file anyway.
                 }
             }
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 // Create the parent directory.
-                if let Err(err) = std::fs::create_dir_all(parent) {
+                if let Err(error) = std::fs::create_dir_all(parent) {
                     tracing::warn!(
                         "Failed to create parent of config path: {}: {}",
                         parent.display(),
-                        err
+                        error
                     );
                     // Try to save file anyway.
                 }
             }
-            Err(err) => {
+            Err(error) => {
                 tracing::warn!(
                     "Failed to check parent of config path: {}: {}",
                     parent.display(),
-                    err
+                    error
                 );
                 // Try to save file anyway.
             }
         }
     }
 
-    if let Err(err) = std::fs::write(path, s) {
-        tracing::warn!("Failed to write config to {}: {}", path.display(), err);
+    if let Err(error) = std::fs::write(path, s) {
+        tracing::warn!("Failed to write config to {}: {}", path.display(), error);
     }
 }
 
@@ -131,8 +131,8 @@ fn update_config_from_env(config: &mut Config) {
     let de = denvars::Deserializer::from_prefixed_env_vars("ARCANA_")
         .with_options(denvars::Options::toml());
 
-    if let Err(err) = config.update(de) {
-        tracing::warn!("Failed to update config from environment: {}", err);
+    if let Err(error) = config.update(de) {
+        tracing::warn!("Failed to update config from environment: {}", error);
     }
 }
 

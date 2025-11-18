@@ -78,7 +78,7 @@ pub fn is_available(path: &Path) -> bool {
 
     for ancestor in parent.ancestors() {
         match ancestor.metadata() {
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 continue;
             }
             Err(_) => {

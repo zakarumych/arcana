@@ -81,9 +81,9 @@ impl Plugin {
 
         let manifest = match cargo_toml::Manifest::from_path(cargo_toml_path) {
             Ok(manifest) => manifest,
-            Err(err) => {
+            Err(error) => {
                 return Err(Error::msg(format!(
-                    "Failed to read plugin manifest '{path}/{CARGO_TOML_NAME}': {err:?}"
+                    "Failed to read plugin manifest '{path}/{CARGO_TOML_NAME}': {error:?}"
                 )));
             }
         };

@@ -1,12 +1,11 @@
 use std::{
     any::TypeId,
     hash::Hash,
-    mem::{transmute, ManuallyDrop},
+    mem::{ManuallyDrop, transmute},
 };
 
-use arcana_hash::{no_hash_map, NoHashMap};
-use arcana_id::make_id;
-use arcana_metatype::MetaType;
+use arcana_hash::{NoHashMap, no_hash_map};
+use arcana_id::{HasStid, make_id};
 use hashbrown::HashMap;
 
 make_id! {
@@ -14,7 +13,7 @@ make_id! {
     pub TargetId;
 }
 
-pub trait Target: MetaType + 'static {
+pub trait Target: HasStid + 'static {
     type Info: Eq + 'static;
 
     fn allocate(device: &mev::Device, name: &str, info: &Self::Info) -> Self

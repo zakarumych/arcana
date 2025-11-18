@@ -60,10 +60,10 @@ impl Dependency {
                             tmp = path;
                             &tmp
                         }
-                        Err(err) => {
+                        Err(error) => {
                             return Err(Error::msg(format!(
                                 "Failed to resolve dependency path '{}': {}",
-                                path, err
+                                path, error
                             )));
                         }
                     }
@@ -104,10 +104,10 @@ impl Dependency {
                             tmp = path;
                             &tmp
                         }
-                        Err(err) => {
+                        Err(error) => {
                             return Err(Error::msg(format!(
                                 "Failed to resolve dependency path '{}': {}",
-                                path, err
+                                path, error
                             )));
                         }
                     }

@@ -1,3 +1,4 @@
+use core::fmt;
 use std::{borrow::Cow, hash::Hash, path::PathBuf};
 
 use arboard::Clipboard;
@@ -19,12 +20,12 @@ use winit::{
 
 use crate::{
     assets::AssetStore,
-    error::ErrorDialog,
+    error::Errors,
     filters::Filters,
     ide::{Ide, IdeType},
     init_mev,
     instance::Instance,
-    plugins::Plugins,
+    plugins::{Plugins, PluginsManager, PluginsWidget},
     project::Project,
     render::Rendering,
     sample::ImageSample,
@@ -41,13 +42,38 @@ pub struct AppConfig {
 
 pub enum UserEvent {}
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, serde::Serialize, serde::Deserialize)]
-enum Tab {
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum TabKind {
     Plugins,
-    Systems,
-    Assets,
+}
 
-    Tool { id: ToolId },
+impl fmt::Display for TabKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TabKind::Plugins => f.write_str("Plugins"),
+        }
+    }
+}
+
+impl TabKind {
+    fn build(&self) -> Tab {
+        match self {
+            TabKind::Plugins => Tab::Plugins(PluginsWidget::new()),
+        }
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+enum Tab {
+    Plugins(PluginsWidget),
+}
+
+impl Tab {
+    fn kind(&self) -> TabKind {
+        match self {
+            Tab::Plugins(_) => TabKind::Plugins,
+        }
+    }
 }
 
 /// Editor app instance.
@@ -81,14 +107,14 @@ pub struct App {
     ide: Option<Box<dyn Ide>>,
     toolbox: Toolbox,
 
-    plugins: Plugins,
+    plugins: PluginsManager,
     systems: Systems,
 
     /// App views correspond to windows.
     views: Vec<AppView>,
 
     preferences: Preferences,
-    errors: ErrorDialog,
+    errors: Errors,
 }
 
 struct AppView {
@@ -110,7 +136,7 @@ impl App {
     pub fn new(project: Project) -> Result<Self, Error> {
         let (device, queue) = init_mev();
 
-        let plugins = Plugins::new();
+        let plugins = PluginsManager::new();
         // let console = Console::new(event_collector);
         let systems = Systems::new();
         let filters = Filters::new();
@@ -128,8 +154,8 @@ impl App {
 
         let cfg: AppConfig = match load_app_cfg() {
             Ok(cfg) => cfg,
-            Err(err) => {
-                tracing::warn!("Failed to load app cfg: {err:?}");
+            Err(error) => {
+                tracing::warn!("Failed to load app cfg: {error:?}");
                 AppConfig::default()
             }
         };
@@ -170,7 +196,7 @@ impl App {
             systems,
 
             preferences: Preferences::new(cfg),
-            errors: ErrorDialog::new(),
+            errors: Errors::new(),
         })
     }
 
@@ -193,10 +219,10 @@ impl App {
         self.plugins.tick(&mut self.project);
 
         if let Some(c) = self.plugins.take_updated() {
-            self.toolbox.update_container(&mut self.project, &c);
-            self.systems.update_container(&mut self.project, &c);
-            self.main.update_container(&c);
-            self.assets.update_container(&c);
+            self.toolbox.update_plugins(&mut self.project, &c);
+            self.systems.update_plugins(&mut self.project, &c);
+            self.main.update_plugins(&c);
+            self.assets.update_plugins(&c);
         }
 
         self.toolbox.tick(&mut self.project, &mut self.main);
@@ -251,26 +277,26 @@ impl App {
                                     if ui.button("Plugins").clicked() {
                                         focus_or_add_tab(
                                             view.dock_state.main_surface_mut(),
-                                            Tab::Plugins,
+                                            TabKind::Plugins,
                                         );
                                         ui.close();
                                     }
 
-                                    if ui.button("Systems").clicked() {
-                                        focus_or_add_tab(
-                                            view.dock_state.main_surface_mut(),
-                                            Tab::Systems,
-                                        );
-                                        ui.close();
-                                    }
+                                    // if ui.button("Systems").clicked() {
+                                    //     focus_or_add_tab(
+                                    //         view.dock_state.main_surface_mut(),
+                                    //         Tab::Systems,
+                                    //     );
+                                    //     ui.close();
+                                    // }
 
-                                    if ui.button("Assets").clicked() {
-                                        focus_or_add_tab(
-                                            view.dock_state.main_surface_mut(),
-                                            Tab::Assets,
-                                        );
-                                        ui.close();
-                                    }
+                                    // if ui.button("Assets").clicked() {
+                                    //     focus_or_add_tab(
+                                    //         view.dock_state.main_surface_mut(),
+                                    //         Tab::Assets,
+                                    //     );
+                                    //     ui.close();
+                                    // }
 
                                     for (plugin, name) in self.toolbox.enumerate() {
                                         if ui.button(format!("{name} @ {plugin}")).clicked() {
@@ -287,9 +313,8 @@ impl App {
 
                         egui::containers::CentralPanel::default().show(cx, |ui| {
                             let mut model = AppModel {
-                                window: &view.window,
+                                // window: &view.window,
                                 project: &mut self.project,
-                                assets: &mut self.assets,
                                 main: &mut self.main,
                                 sample: &self.image_sample,
                                 device: &device,
@@ -305,9 +330,9 @@ impl App {
                             dock_area.show_inside(ui, &mut model);
                         });
 
-                        if let Err(err) = self.preferences.show(cx, &mut self.cfg) {
+                        if let Err(error) = self.preferences.show(cx, &mut self.cfg) {
                             self.errors
-                                .push_error(cx.viewport_id(), "Preferences Error", err);
+                                .push_error(cx.viewport_id(), "Preferences Error", error);
                         }
                         self.errors.show(cx);
                     },
@@ -329,8 +354,8 @@ impl App {
                     Some(surface) => surface,
                     slot => match self.queue.new_surface(&view.window, &view.window) {
                         Ok(surface) => slot.get_or_insert(surface),
-                        Err(err) => {
-                            tracing::error!("Failed to create surface: {err}");
+                        Err(error) => {
+                            tracing::error!("Failed to create surface: {error}");
                             return;
                         }
                     },
@@ -338,8 +363,8 @@ impl App {
 
                 let frame = match surface.next_frame() {
                     Ok(frame) => frame,
-                    Err(err) => {
-                        tracing::error!("Failed to acquire frame: {err}");
+                    Err(error) => {
+                        tracing::error!("Failed to acquire frame: {error}");
                         view.surface = None;
                         return;
                     }
@@ -357,28 +382,28 @@ impl App {
     }
 
     fn save_state(&self) {
-        let state = AppState {
+        let state = AppStateRef {
             views: self
                 .views
                 .iter()
                 .map(|view| {
                     let scale_factor = view.window.scale_factor();
-                    AppViewState {
+                    AppViewStateRef {
                         pos: view
                             .window
                             .inner_position()
                             .unwrap_or_default()
                             .to_logical(scale_factor),
                         size: view.window.inner_size().to_logical(scale_factor),
-                        tab_tree: Cow::Borrowed(view.dock_state.main_surface()),
+                        tab_tree: view.dock_state.main_surface(),
                         maximized: view.window.is_maximized(),
                     }
                 })
                 .collect(),
         };
 
-        if let Err(err) = save_app_state(&state, &self.project.name()) {
-            tracing::error!("Failed to save app state: {err:?}");
+        if let Err(error) = save_app_state(&state, &self.project.name()) {
+            tracing::error!("Failed to save app state: {error:?}");
         }
     }
 
@@ -386,8 +411,8 @@ impl App {
         let state = load_app_state(&self.project.name());
 
         match state {
-            Err(err) => {
-                tracing::warn!("Failed to load app state: {err:?}");
+            Err(error) => {
+                tracing::warn!("Failed to load app state: {error:?}");
             }
             Ok(state) => {
                 self.views.clear();
@@ -400,7 +425,9 @@ impl App {
 
                     let window: Window = events
                         .create_window(builder)
-                        .map_err(|err| Error::msg(format!("Failed to create Ed window: {err:?}")))
+                        .map_err(|error| {
+                            Error::msg(format!("Failed to create Ed window: {error:?}"))
+                        })
                         .unwrap();
 
                     if view.maximized {
@@ -415,7 +442,7 @@ impl App {
                     );
 
                     let mut dock_state = DockState::new(Vec::new());
-                    *dock_state.main_surface_mut() = view.tab_tree.into_owned();
+                    *dock_state.main_surface_mut() = view.tab_tree;
 
                     let view = AppView {
                         window,
@@ -436,7 +463,7 @@ impl App {
 
             let window = events
                 .create_window(builder)
-                .map_err(|err| Error::msg(format!("Failed to create Ed window: {err:?}")))
+                .map_err(|error| Error::msg(format!("Failed to create Ed window: {error:?}")))
                 .unwrap();
 
             let size = window.inner_size();
@@ -456,99 +483,100 @@ impl App {
     }
 }
 
-fn focus_or_add_tab(tree: &mut Tree<Tab>, tab: Tab) {
-    if let Some((node_index, tab_index)) = tree.find_tab(&tab) {
+fn focus_or_add_tab(tree: &mut Tree<Tab>, kind: TabKind) {
+    if let Some((node_index, tab_index)) = tree.find_tab_from(|t| t.kind() == kind) {
         tree.set_focused_node(node_index);
         tree.set_active_tab(node_index, tab_index);
     } else {
-        let _ = tree.push_to_focused_leaf(tab);
+        let _ = tree.push_to_focused_leaf(kind.build());
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
-struct AppViewState<'a> {
+#[derive(serde::Serialize)]
+struct AppViewStateRef<'a> {
     pos: dpi::LogicalPosition<f64>,
     size: dpi::LogicalSize<f64>,
     maximized: bool,
-    tab_tree: Cow<'a, Tree<Tab>>,
+    tab_tree: &'a Tree<Tab>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
-struct AppState<'a> {
-    views: Vec<AppViewState<'a>>,
+struct AppViewState {
+    pos: dpi::LogicalPosition<f64>,
+    size: dpi::LogicalSize<f64>,
+    maximized: bool,
+    tab_tree: Tree<Tab>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct AppState {
+    views: Vec<AppViewState>,
+}
+
+#[derive(serde::Serialize)]
+struct AppStateRef<'a> {
+    views: Vec<AppViewStateRef<'a>>,
 }
 
 struct AppModel<'a> {
-    window: &'a Window,
+    // window: &'a Window,
     project: &'a mut Project,
-    assets: &'a mut AssetStore,
     main: &'a mut Instance,
     sample: &'a ImageSample,
     device: &'a mev::Device,
     textures: UserTextures<'a>,
     ide: Option<&'a dyn Ide>,
     toolbox: &'a mut Toolbox,
-    plugins: &'a mut Plugins,
+    plugins: &'a mut PluginsManager,
     systems: &'a mut Systems,
-    errors: &'a mut ErrorDialog,
+    errors: &'a mut Errors,
 }
 
 impl egui_dock::widgets::TabViewer for AppModel<'_> {
     type Tab = Tab;
 
     fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Tab) {
-        match *tab {
+        match tab {
             // Tab::Assets => self.assets.show(ui, self.main),
-            Tab::Plugins => self.plugins.show(self.project, ui),
+            Tab::Plugins(widget) => widget.show(self.plugins, self.project, self.errors, ui),
             // Tab::Console => self.console.show(ui),
-            Tab::Systems => self.systems.show(self.project, self.ide, ui),
-            // Tab::Filters => self.filters.show(self.project, self.data, self.ide, ui),
-            // Tab::Codes => self.code.show(self.project, self.data, ui),
-            // Tab::Rendering => self.rendering.show(
-            //     self.project,
-            //     self.data,
-            //     self.sample,
-            //     self.device,
-            //     self.main,
-            //     &mut self.textures,
-            //     self.ide,
-            //     ui,
-            // ),
-            // Tab::Main => self.main.show(self.window.id(), &mut self.textures, ui),
-            // Tab::Inspector => {} //Inspector::show(self.world, ui),
-            Tab::Assets => {
-                if let Err(err) = self.assets.show(ui) {
-                    self.errors
-                        .push_error(ui.ctx().viewport_id(), "Assets error", err);
-                }
-            }
-            Tab::Tool { id } => {
-                self.toolbox
-                    .show(id, self.project, self.ide.as_deref(), self.main, ui);
-            }
+            // Tab::Systems => self.systems.show(self.project, self.ide, ui),
+            // // Tab::Filters => self.filters.show(self.project, self.data, self.ide, ui),
+            // // Tab::Codes => self.code.show(self.project, self.data, ui),
+            // // Tab::Rendering => self.rendering.show(
+            // //     self.project,
+            // //     self.data,
+            // //     self.sample,
+            // //     self.device,
+            // //     self.main,
+            // //     &mut self.textures,
+            // //     self.ide,
+            // //     ui,
+            // // ),
+            // // Tab::Main => self.main.show(self.window.id(), &mut self.textures, ui),
+            // // Tab::Inspector => {} //Inspector::show(self.world, ui),
+            // Tab::Assets => {
+            //     if let Err(error) = self.assets.show(ui) {
+            //         self.errors
+            //             .push_error(ui.ctx().viewport_id(), "Assets error", error);
+            //     }
+            // }
+            // Tab::Tool { id } => {
+            //     self.toolbox
+            //         .show(id, self.project, self.ide.as_deref(), self.main, ui);
+            // }
         }
     }
 
     fn title(&mut self, tab: &mut Tab) -> WidgetText {
-        match *tab {
-            Tab::Plugins => "Plugins".into(),
-            // Tab::Console => "Console".into(),
-            Tab::Systems => "Systems".into(),
-            // Tab::Filters => "Filters".into(),
-            // Tab::Codes => "Codes".into(),
-            // Tab::Rendering => "Rendering".into(),
-            // Tab::Main => "Main".into(),
-            // Tab::Inspector => "Inspector".into(),
-            Tab::Assets => "Assets".into(),
-            Tab::Tool { id } => self.toolbox.title(id).into(),
-        }
+        tab.kind().to_string().into()
     }
 
     fn scroll_bars(&self, tab: &Tab) -> [bool; 2] {
         match tab {
-            Tab::Assets => [false, false],
+            // Tab::Assets => [false, false],
             // Tab::Console => [false, false],
-            Tab::Systems => [false, false],
+            // Tab::Systems => [false, false],
             // Tab::Codes => [false, false],
             // Tab::Rendering => [false, false],
             _ => [true, true],
@@ -576,7 +604,7 @@ fn app_state_path(create: bool, name: &str) -> Option<PathBuf> {
     Some(path)
 }
 
-fn load_app_state(name: &str) -> Result<AppState<'static>, Error> {
+fn load_app_state(name: &str) -> Result<AppState, Error> {
     let path = app_state_path(true, name).ok_or_else(|| error!("Failed to get app state path"))?;
 
     let mut file = std::fs::File::open(path).unify_error()?;
@@ -586,7 +614,7 @@ fn load_app_state(name: &str) -> Result<AppState<'static>, Error> {
     Ok(state)
 }
 
-fn save_app_state(state: &AppState, name: &str) -> Result<(), Error> {
+fn save_app_state(state: &AppStateRef, name: &str) -> Result<(), Error> {
     let path = app_state_path(true, name).ok_or_else(|| error!("Failed to get app state path"))?;
     let mut file = std::fs::File::create(path).unify_error()?;
     serde_json::to_writer_pretty(&mut file, state).unify_error()?;
@@ -690,7 +718,8 @@ impl Preferences {
     }
 
     fn show(&mut self, cx: &egui::Context, cfg: &mut AppConfig) -> Result<(), Error> {
-        let mut error = None;
+        let mut result = Ok(());
+
         if self.open == Some(cx.viewport_id()) {
             egui::Modal::new(egui::Id::new("arcana-ed-preferences")).show(cx, |ui| {
                 ui.vertical(|ui| {
@@ -702,17 +731,17 @@ impl Preferences {
 
                     ui.horizontal(|ui| {
                         if ui.button("Accept").clicked() {
-                            if let Err(err) = save_app_cfg(&self.cfg) {
-                                tracing::error!("Failed to save app config: {err:?}");
-                                error = Some(err);
+                            if let Err(error) = save_app_cfg(&self.cfg) {
+                                tracing::error!("Failed to save app config: {error:?}");
+                                result = Err(error);
                             }
                             *cfg = self.cfg.clone();
                         }
 
                         if ui.button("OK").clicked() {
-                            if let Err(err) = save_app_cfg(&self.cfg) {
-                                tracing::error!("Failed to save app config: {err:?}");
-                                error = Some(err);
+                            if let Err(error) = save_app_cfg(&self.cfg) {
+                                tracing::error!("Failed to save app config: {error:?}");
+                                result = Err(error);
                             }
                             *cfg = self.cfg.clone();
                             self.open = None;
@@ -726,9 +755,6 @@ impl Preferences {
             });
         }
 
-        match error {
-            None => Ok(()),
-            Some(err) => Err(err),
-        }
+        result
     }
 }

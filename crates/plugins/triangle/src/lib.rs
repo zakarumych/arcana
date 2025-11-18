@@ -1,10 +1,11 @@
 use std::mem::size_of;
 
 use arcana::{
+    Component, Name, Res, View,
     code::CodeGraphId,
     edict::{self, query::Cpy, world::World},
-    events::{emit_event, Event},
-    flow::{sleep, FlowEntity},
+    events::{Event, emit_event},
+    flow::{FlowEntity, sleep},
     gametime::{ClockStep, TimeSpan},
     hash_id,
     hashbrown::HashMap,
@@ -13,10 +14,9 @@ use arcana::{
     model::{ColorModel, ColorValue, Model, Value},
     name,
     work::{Exec, Image2D, Job, JobDesc, JobIdx, Planner},
-    Component, Name, Res, View,
 };
 
-arcana::declare_plugin!([dummy ...]);
+arcana::plugin::declare_plugin!([dummy ...]);
 
 #[derive(mev::Arguments)]
 pub struct DTArguments {

@@ -62,13 +62,13 @@ pub use {
     arcana_ecs as ecs, arcana_error as error, arcana_graphics as graphics, arcana_hash as hash,
     arcana_id as id, arcana_input as input,
     arcana_intern::{
-        format_ident, format_name, ident, name, try_format_ident, try_format_name, validate_ident,
-        validate_name, Ident, IdentError, Name, NameError,
+        Ident, IdentError, Name, NameError, format_ident, format_name, ident, name,
+        try_format_ident, try_format_name, validate_ident, validate_name,
     },
-    arcana_io as io, arcana_metatype as metatype, arcana_model as model,
-    arcana_num2name as num2name, arcana_plugin as plugin, arcana_unfold as unfold,
-    arcana_work_graph as work_graph, athena, bytemuck, gametime, hashbrown, mev, parking_lot,
-    smol_str, tokio, tracing,
+    arcana_io as io, arcana_model as model, arcana_num2name as num2name, arcana_plugin as plugin,
+    arcana_proc::*,
+    arcana_unfold as unfold, arcana_work_graph as work_graph, athena, bytemuck, gametime,
+    hashbrown, mev, parking_lot, smol_str, tokio, tracing,
 };
 
 extern crate self as arcana;

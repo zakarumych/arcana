@@ -1,119 +1,154 @@
-pub struct AssetRegistry {}
+use std::path::{PathBuf, absolute};
 
-pub fn show(&mut self, ui: &mut Ui, project: &Project) -> Result<(), Error> {
-    self.pick_asset.show(ui.ctx(), project);
+use arcana::{
+    assets::import::{ImporterDesc, ImporterId},
+    error::{Error, fail},
+    model::Value,
+};
+use arcana_project::Project;
+use egui::Ui;
+use egui_file::FileDialog;
+use hashbrown::HashMap;
+use smallvec::SmallVec;
 
-    if !self.config.is_open() {
-        if let Some(source) = self.pick_asset.take_selected() {
-            let res = absolute(&source).ok();
+use crate::{assets::AssetStore, model::ValueProbe};
 
-            match res {
-                None => {
-                    fail!("Invalid asset source file path: {}", source.display());
+enum ImportState {
+    PickAsset(PickAsset),
+    Configure(Configure),
+}
+
+pub struct AssetBrowser {
+    store: AssetStore,
+    import_state: Option<ImportState>,
+}
+
+impl AssetBrowser {
+    pub fn show(&mut self, ui: &mut Ui, project: &Project) -> Result<(), Error> {
+        match &mut self.import_state {
+            None => {}
+            Some(ImportState::PickAsset(pick_asset)) => {
+                pick_asset.show(ui.ctx(), project);
+                match pick_asset.take_selected() {
+                    None => {}
+                    Some(selected_asset) => {}
                 }
-                Some(source) => {
-                    let ext = match source.extension() {
-                        None => None,
-                        Some(ext) => ext.to_str(),
-                    };
-
-                    let mut selected_importers = Vec::new();
-                    for (id, importer) in self.importers.iter() {
-                        if let Some(ext) = ext {
-                            if importer.extensions.iter().all(|e| **e != *ext) {
-                                continue;
-                            }
-                        }
-
-                        selected_importers.push((*id, importer));
-                    }
-
-                    if selected_importers.is_empty() {
-                        tracing::warn!(
-                            "No importers found for asset source file path '{}'",
-                            source.display()
-                        );
-                    }
-
-                    if selected_importers.len() != 1 {
-                        tracing::info!(
-                            "Multiple importers found for asset source file path '{}': {:?}",
-                            source.display(),
-                            selected_importers
-                        );
-                    }
-
-                    let config = ImportConfig {
-                        source: source,
-                        importer: selected_importers.first().map(|(id, desc)| ImporterConfig {
-                            id: *id,
-                            value: desc.config.1.clone(),
-                        }),
-                    };
-
-                    self.config.open(config);
-                }
-            };
-        }
-    }
-
-    self.config.show(ui.ctx(), &self.importers);
-
-    egui::Frame::menu(ui.style()).show(ui, |ui| {
-        ui.horizontal(|ui| {
-            if ui.button("Import").clicked() {
-                self.pick_asset.open(project);
             }
-        });
-    });
+            Some(ImportState::Configure(configure)) => {}
+        }
 
-    // egui::Frame::group(ui.style()).show(ui, |ui| {
-    //     ui.horizontal(|ui| {
-    //         ui.label("Target");
+        // if !self.config.is_open() {
+        //     if let Some(source) = self.pick_asset.take_selected() {
+        //         let res = absolute(&source).ok();
 
-    //         egui::TextEdit::singleline(&mut self.lookup.target)
-    //             .hint_text("Type of asset to look for")
-    //             .desired_width(200.0)
-    //             .show(ui);
+        //         match res {
+        //             None => {
+        //                 fail!("Invalid asset source file path: {}", source.display());
+        //             }
+        //             Some(source) => {
+        //                 let ext = match source.extension() {
+        //                     None => None,
+        //                     Some(ext) => ext.to_str(),
+        //                 };
 
-    //         ui.label("Path");
+        //                 let mut selected_importers = Vec::new();
+        //                 for (id, importer) in self.importers.iter() {
+        //                     if let Some(ext) = ext {
+        //                         if importer.extensions.iter().all(|e| **e != *ext) {
+        //                             continue;
+        //                         }
+        //                     }
 
-    //         egui::TextEdit::singleline(&mut self.lookup.path)
-    //             .hint_text("Base path to look for assets")
-    //             .desired_width(200.0)
-    //             .show(ui);
-    //     });
-    // });
+        //                     selected_importers.push((*id, importer));
+        //                 }
 
-    // egui::Frame::group(ui.style()).show(ui, |ui| {
-    //     let target = match &*self.lookup.target {
-    //         "" => None,
-    //         target => match Ident::from_str(target) {
-    //             Ok(target) => Some(target),
-    //             Err(_) => {
-    //                 ui.label("Invalid target");
-    //                 return;
-    //             }
-    //         },
-    //     };
+        //                 if selected_importers.is_empty() {
+        //                     tracing::warn!(
+        //                         "No importers found for asset source file path '{}'",
+        //                         source.display()
+        //                     );
+        //                 }
 
-    //     let path = match &*self.lookup.path {
-    //         "" => None,
-    //         path => Some(path),
-    //     };
+        //                 if selected_importers.len() != 1 {
+        //                     tracing::info!(
+        //                         "Multiple importers found for asset source file path '{}': {:?}",
+        //                         source.display(),
+        //                         selected_importers
+        //                     );
+        //                 }
 
-    //     let assets = self.store.select(target, path);
+        //                 let config = ImportConfig {
+        //                     source: source,
+        //                     importer: selected_importers.first().map(|(id, desc)| ImporterConfig {
+        //                         id: *id,
+        //                         value: desc.config.1.clone(),
+        //                     }),
+        //                 };
 
-    //     ui.vertical(|ui| {
-    //         for (id, asset) in assets {
-    //             ui.horizontal(|ui| {
-    //                 ui.label(id.to_string());
-    //             });
-    //         }
-    //     });
-    // });
+        //                 self.config.open(config);
+        //             }
+        //         };
+        //     }
+        // }
 
-    Ok(())
+        // self.config.show(ui.ctx(), &self.importers);
+
+        // egui::Frame::menu(ui.style()).show(ui, |ui| {
+        //     ui.horizontal(|ui| {
+        //         if ui.button("Import").clicked() {
+        //             self.pick_asset.open(project);
+        //         }
+        //     });
+        // });
+
+        // egui::Frame::group(ui.style()).show(ui, |ui| {
+        //     ui.horizontal(|ui| {
+        //         ui.label("Target");
+
+        //         egui::TextEdit::singleline(&mut self.lookup.target)
+        //             .hint_text("Type of asset to look for")
+        //             .desired_width(200.0)
+        //             .show(ui);
+
+        //         ui.label("Path");
+
+        //         egui::TextEdit::singleline(&mut self.lookup.path)
+        //             .hint_text("Base path to look for assets")
+        //             .desired_width(200.0)
+        //             .show(ui);
+        //     });
+        // });
+
+        // egui::Frame::group(ui.style()).show(ui, |ui| {
+        //     let target = match &*self.lookup.target {
+        //         "" => None,
+        //         target => match Ident::from_str(target) {
+        //             Ok(target) => Some(target),
+        //             Err(_) => {
+        //                 ui.label("Invalid target");
+        //                 return;
+        //             }
+        //         },
+        //     };
+
+        //     let path = match &*self.lookup.path {
+        //         "" => None,
+        //         path => Some(path),
+        //     };
+
+        //     let assets = self.store.select(target, path);
+
+        //     ui.vertical(|ui| {
+        //         for (id, asset) in assets {
+        //             ui.horizontal(|ui| {
+        //                 ui.label(id.to_string());
+        //             });
+        //         }
+        //     });
+        // });
+
+        Ok(())
+    }
 }
 
 struct PickAsset {
@@ -186,14 +221,14 @@ struct ImporterConfig {
     value: Value,
 }
 
-struct ConfigDialog {
+struct Configure {
     config: Option<ImportConfig>,
     configured: SmallVec<[ImportConfig; 2]>,
 }
 
-impl ConfigDialog {
+impl Configure {
     fn new() -> Self {
-        ConfigDialog {
+        Configure {
             config: None,
             configured: SmallVec::new(),
         }

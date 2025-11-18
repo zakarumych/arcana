@@ -8,7 +8,7 @@ mod target;
 
 use std::ops::Deref;
 
-use arcana_metatype::primitive_meta;
+use arcana_id::has_stid;
 use hashbrown::HashMap;
 
 pub use self::{
@@ -22,7 +22,7 @@ pub use self::{
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Image2D(pub mev::Image);
 
-primitive_meta!(Image2D);
+has_stid!(Image2D @ arcana_id);
 
 impl Deref for Image2D {
     type Target = mev::Image;
@@ -80,7 +80,7 @@ impl target::Target for Image2D {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct SampledImage2D(pub mev::Image);
 
-primitive_meta!(SampledImage2D);
+has_stid!(SampledImage2D @ arcana_id);
 
 impl Deref for SampledImage2D {
     type Target = mev::Image;

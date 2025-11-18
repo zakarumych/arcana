@@ -1,4 +1,4 @@
-arcana::declare_plugin!();
+arcana::plugin::declare_plugin!();
 
 #[cfg(feature = "dim2")]
 pub mod dim2 {

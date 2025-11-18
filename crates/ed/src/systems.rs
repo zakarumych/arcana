@@ -1,20 +1,20 @@
 use std::collections::VecDeque;
 
 use arcana::{
-    ecs::{action::ActionBufferSliceExt, world::World, SystemId},
-    plugin::{Location, PluginsHub},
     Ident, Name,
+    ecs::{SystemId, action::ActionBufferSliceExt, world::World},
+    plugin::{Location, PluginsHub},
 };
 use egui::{Color32, Ui};
 use egui_snarl::{
-    ui::{AnyPins, PinInfo, PinShape, SnarlStyle, SnarlViewer},
     InPin, InPinId, NodeId, OutPin, OutPinId, Snarl,
+    ui::{AnyPins, PinInfo, PinShape, SnarlStyle, SnarlViewer},
 };
 use hashbrown::{HashMap, HashSet};
 
-use crate::project::Project;
+use crate::{error::Errors, project::Project};
 
-use super::{container::Container, ide::Ide, toggle_ui};
+use super::{ide::Ide, plugins::Plugins, toggle_ui};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Category {
@@ -112,7 +112,13 @@ impl Systems {
         }
     }
 
-    pub fn show(&mut self, project: &mut Project, ide: Option<&dyn Ide>, ui: &mut Ui) {
+    pub fn show(
+        &mut self,
+        project: &mut Project,
+        errors: &mut Errors,
+        ide: Option<&dyn Ide>,
+        ui: &mut Ui,
+    ) {
         const STYLE: SnarlStyle = SnarlStyle::new();
 
         let mut viewer = SystemViewer {
@@ -128,7 +134,7 @@ impl Systems {
             .show(&mut viewer, &STYLE, "systems", ui);
 
         if viewer.modified {
-            try_log_err!(project.sync());
+            project.sync_in_ui(ui.ctx(), errors);
         }
 
         if viewer.modified {
@@ -136,10 +142,10 @@ impl Systems {
         }
     }
 
-    pub fn update_container(&mut self, project: &mut Project, container: &Container) {
+    pub fn update_plugins(&mut self, project: &mut Project, plugins: &Plugins) {
         let mut all_systems = HashMap::new();
 
-        for (name, plugin) in container.plugins() {
+        for (name, plugin) in plugins.iter() {
             for info in plugin.systems() {
                 all_systems.insert(info.id, (name, info));
             }

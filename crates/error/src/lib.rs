@@ -330,27 +330,13 @@ pub mod for_macro {
 #[macro_export]
 macro_rules! error {
     ($fmt:literal $(, $args:expr)* $(,)?) => {
-        $crate::for_macro::closure_error(move |f| std::write!(f, $fmt $(, $args)*))
-    };
-}
-
-#[macro_export]
-macro_rules! msg_error {
-    ($fmt:literal $(, $args:expr)* $(,)?) => {
-        $crate::Error::msg(std::format!($fmt $(, $args)*))
+        $crate::Error::msg(::std::format!($fmt $(, $args)*))
     };
 }
 
 #[macro_export]
 macro_rules! fail {
     ($fmt:literal $(, $args:expr)* $(,)?) => {
-        return Err($crate::for_macro::closure_error(move |f| std::write!(f, $fmt $(, $args)*)))
-    };
-}
-
-#[macro_export]
-macro_rules! msg_fail {
-    ($fmt:literal $(, $args:expr)* $(,)?) => {
-        return Err($crate::Error::msg(std::format!($fmt $(, $args)*)))
+        return Err($crate::Error::msg(::std::format!($fmt $(, $args)*)))
     };
 }

@@ -5,7 +5,7 @@ use arcana::assets::import::{
 };
 
 // This line allows this crate to function as a plugin for Arcana Engine.
-arcana::declare_plugin!();
+arcana::plugin::declare_plugin!();
 
 struct ImageImporter;
 

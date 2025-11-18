@@ -55,8 +55,8 @@ impl Ui {
                                 Ok(content) => {
                                     viewport.raw_input.events.push(egui::Event::Text(content))
                                 }
-                                Err(err) => {
-                                    tracing::error!("Failed to get text from clipboard: {:?}", err);
+                                Err(error) => {
+                                    tracing::error!("Failed to get text from clipboard: {:?}", error);
                                 }
                             }
                         } else {

@@ -23,7 +23,6 @@ arcana-input = { path = "../input" }
 arcana-intern = { path = "../intern" }
 arcana-io = { path = "../io" }
 arcana-model = { path = "../model" }
-arcana-metatype = { path = "../metatype" }
 arcana-num2name = { path = "../num2name" }
 arcana-plugin = { path = "../plugin" }
 arcana-proc = { path = "../proc" }

@@ -1,4 +1,8 @@
-use arcana::{tracing, ClockStep, Res, State, TimeSpan, TimeStamp};
+use arcana::{
+    ecs::{resources::Res, system::State},
+    gametime::{ClockStep, TimeSpan, TimeStamp},
+    tracing,
+};
 
 #[arcana::system]
 fn dummy_system(clock: Res<ClockStep>, mut last: State<Option<TimeStamp>>) {

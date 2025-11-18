@@ -182,8 +182,8 @@ impl Ui {
             viewport.scale_factor,
         );
 
-        if let Err(err) = r {
-            tracing::error!("UI render error: {}", err);
+        if let Err(error) = r {
+            tracing::error!("UI render error: {}", error);
         }
     }
 }
@@ -335,8 +335,8 @@ fn handle_platform_output(
     for command in output.commands {
         match command {
             egui::OutputCommand::CopyText(text) => {
-                if let Err(err) = clipboard.set_text(text) {
-                    tracing::error!("Failed to set clipboard text: {}", err);
+                if let Err(error) = clipboard.set_text(text) {
+                    tracing::error!("Failed to set clipboard text: {}", error);
                 }
             }
             egui::OutputCommand::CopyImage(image) => {
@@ -352,13 +352,13 @@ fn handle_platform_output(
                     bytes,
                 };
 
-                if let Err(err) = clipboard.set_image(image) {
-                    tracing::error!("Failed to set clipboard text: {}", err);
+                if let Err(error) = clipboard.set_image(image) {
+                    tracing::error!("Failed to set clipboard text: {}", error);
                 }
             }
             egui::OutputCommand::OpenUrl(url) => {
-                if let Err(err) = open::that_detached(url.url) {
-                    tracing::error!("Failed to open URL: {}", err);
+                if let Err(error) = open::that_detached(url.url) {
+                    tracing::error!("Failed to open URL: {}", error);
                 }
             }
         }

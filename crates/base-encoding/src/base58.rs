@@ -313,7 +313,7 @@ fn base58_dec_io(read: impl std::io::Read, write: impl std::io::Write) -> std::i
     'a: loop {
         while let [a, b, c, ..] = buf[start..end] {
             let bytes = base58_dec_step([a, b, c])
-                .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))?;
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
             write.write_all(&bytes)?;
             start += 3;
         }
@@ -347,12 +347,12 @@ fn base58_dec_io(read: impl std::io::Read, write: impl std::io::Write) -> std::i
         [] => {}
         [a] => {
             let bytes = base58_dec_rem_one(a)
-                .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))?;
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
             write.write_all(&[bytes])?;
         }
         [a, b] => {
             let bytes = base58_dec_rem_two([a, b])
-                .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))?;
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
             write.write_all(&[bytes])?;
         }
         _ => unreachable!(),

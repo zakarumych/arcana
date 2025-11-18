@@ -1,21 +1,21 @@
 //! Running instance of the project.
 
 use arcana::{
+    Name,
     ecs::{
         entity::EntityId,
-        flow::{init_flows, wake_flows, Flows},
+        flow::{Flows, init_flows, wake_flows},
         query::Cpy,
         world::World,
     },
     format_name,
     gametime::{ClockRate, ClockStep, FrequencyNumExt, FrequencyTicker, TimeSpan, TimeStamp},
-    id::{make_id, SeqIdGen},
+    id::{SeqIdGen, make_id},
     input::{DeviceId, Input, KeyCode, PhysicalKey, ViewInput},
     mev,
     plugin::PluginsHub,
     render::{CurrentRenderer, RenderGraphId, Renderer},
     work_graph::{CommandStream, HookId, Image2D, Image2DInfo, PinId, Target, WorkGraph},
-    Name,
 };
 use egui::Ui;
 use hashbrown::{HashMap, HashSet};
@@ -28,7 +28,7 @@ use crate::{
 };
 
 use super::{
-    container::Container,
+    plugins::Plugins,
     systems::{self, Schedule},
     ui::{Selector, UserTextures},
 };
@@ -101,7 +101,7 @@ pub struct Instance {
     flows: Flows,
 
     /// Container in which plugins reside.
-    container: Option<Container>,
+    plugins: Option<Plugins>,
 
     /// Modification id of the systems graph.
     systems_modification: u64,
@@ -139,20 +139,20 @@ impl Instance {
             flows,
             systems_modification: 0,
             schedule,
-            container: None,
+            plugins: None,
             views: HashMap::new(),
             view_id_gen: SeqIdGen::new(),
         }
     }
 
-    pub fn update_container(&mut self, new: &Container) {
+    pub fn update_plugins(&mut self, plugins: &Plugins) {
         tracing::info!("Updating plugins container");
 
-        match self.container.take() {
+        match self.plugins.take() {
             None => {
-                self.container = Some(new.clone());
+                self.plugins = Some(plugins.clone());
 
-                for (_, p) in new.plugins() {
+                for (_, p) in plugins.iter() {
                     p.init(&mut self.world, &mut self.hub);
                 }
             }
@@ -169,11 +169,11 @@ impl Instance {
                 }
 
                 self.hub = PluginsHub::new();
-                self.container = Some(new.clone());
+                self.plugins = Some(plugins.clone());
                 self.fix = FrequencyTicker::new(20.hz(), self.rate.now());
                 self.limiter = FrequencyTicker::new(120.hz(), TimeStamp::start());
 
-                for (_, p) in new.plugins() {
+                for (_, p) in plugins.iter() {
                     p.init(&mut self.world, &mut self.hub);
                 }
 
@@ -294,8 +294,8 @@ impl Instance {
             {
                 let work_graph = match render_graph.make_work_graph() {
                     Ok(work_graph) => work_graph,
-                    Err(err) => {
-                        tracing::error!("Failed to make work graph: {err:?}");
+                    Err(error) => {
+                        tracing::error!("Failed to make work graph: {error:?}");
                         return Ok(());
                     }
                 };

@@ -1,6 +1,6 @@
 use arcana::input::Input;
 
-arcana::declare_plugin!();
+arcana::plugin::declare_plugin!();
 
 mod system;
 

@@ -122,7 +122,7 @@ impl Viewport {
                             surface.take();
                             continue;
                         }
-                        Err(err) => return Err(err),
+                        Err(error) => return Err(error),
                     };
                     return Ok(Some((frame.image().clone(), Some(frame))));
                 }

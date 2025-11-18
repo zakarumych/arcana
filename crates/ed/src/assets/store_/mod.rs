@@ -364,8 +364,8 @@ impl Store {
                             item.dependencies.insert(asset.id());
                             Some(asset.id())
                         }
-                        Err(err) => {
-                            tracing::error!("Fetching dependency failed. {:#}", err);
+                        Err(error) => {
+                            tracing::error!("Fetching dependency failed. {:#}", error);
                             None
                         }
                     }
@@ -441,14 +441,14 @@ impl Store {
             }
 
             if !artifacts_base.exists() {
-                if let Err(err) = std::fs::create_dir_all(artifacts_base) {
-                    tracing::error!("Failed to create artifacts directory. {:#}", err);
+                if let Err(error) = std::fs::create_dir_all(artifacts_base) {
+                    tracing::error!("Failed to create artifacts directory. {:#}", error);
                 }
 
-                if let Err(err) = std::fs::write(artifacts_base.join(".gitignore"), "*") {
+                if let Err(error) = std::fs::write(artifacts_base.join(".gitignore"), "*") {
                     tracing::error!(
                         "Failed to place .gitignore into artifacts directory. {:#}",
-                        err
+                        error
                     );
                 }
             }
@@ -540,12 +540,12 @@ impl Store {
             None => {
                 drop(meta);
                 match self.store(source, target, None, hub) {
-                    Err(err) => {
+                    Err(error) => {
                         tracing::warn!(
                             "Failed to store '{}' as '{}' on lookup. {:#}",
                             source,
                             target,
-                            err
+                            error
                         );
                         Ok(None)
                     }
@@ -625,15 +625,15 @@ fn scan_external(
     artifacts: &mut Vec<(AssetId, AssetItem)>,
 ) {
     let dir = match std::fs::read_dir(&external) {
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             tracing::info!("External directory does not exists");
             return;
         }
-        Err(err) => {
+        Err(error) => {
             tracing::error!(
                 "Failed to scan directory '{}'. {:#}",
                 external.display(),
-                err
+                error
             );
             return;
         }
@@ -641,11 +641,11 @@ fn scan_external(
     };
     for e in dir {
         let e = match e {
-            Err(err) => {
+            Err(error) => {
                 tracing::error!(
                     "Failed to read entry in directory '{}'. {:#}",
                     external.display(),
-                    err,
+                    error,
                 );
                 return;
             }
@@ -654,16 +654,16 @@ fn scan_external(
         let name = e.file_name();
         let path = external.join(&name);
         let ft = match e.file_type() {
-            Err(err) => {
-                tracing::error!("Failed to check '{}'. {:#}", path.display(), err);
+            Err(error) => {
+                tracing::error!("Failed to check '{}'. {:#}", path.display(), error);
                 continue;
             }
             Ok(ft) => ft,
         };
         if ft.is_file() && !SourceMeta::is_local_meta_path(&path) {
             let meta = match SourceMeta::open_external(&path) {
-                Err(err) => {
-                    tracing::error!("Failed to scan meta file '{}'. {:#}", path.display(), err);
+                Err(error) => {
+                    tracing::error!("Failed to scan meta file '{}'. {:#}", path.display(), error);
                     continue;
                 }
                 Ok(meta) => meta,
@@ -704,11 +704,11 @@ fn scan_local(
 
     while let Some(dir_path) = queue.pop_front() {
         let dir = match std::fs::read_dir(&dir_path) {
-            Err(err) => {
+            Err(error) => {
                 tracing::error!(
                     "Failed to scan directory '{}'. {:#}",
                     dir_path.display(),
-                    err
+                    error
                 );
                 continue;
             }
@@ -716,11 +716,11 @@ fn scan_local(
         };
         for e in dir {
             let e = match e {
-                Err(err) => {
+                Err(error) => {
                     tracing::error!(
                         "Failed to read entry in directory '{}'. {:#}",
                         dir_path.display(),
-                        err,
+                        error,
                     );
                     continue;
                 }
@@ -729,8 +729,8 @@ fn scan_local(
             let name = e.file_name();
             let path = dir_path.join(&name);
             let ft = match e.file_type() {
-                Err(err) => {
-                    tracing::error!("Failed to check '{}'. {:#}", path.display(), err);
+                Err(error) => {
+                    tracing::error!("Failed to check '{}'. {:#}", path.display(), error);
                     continue;
                 }
                 Ok(ft) => ft,
@@ -740,8 +740,8 @@ fn scan_local(
                 queue.push_back(path);
             } else if ft.is_file() && SourceMeta::is_local_meta_path(&path) {
                 let meta = match SourceMeta::open_local(&path) {
-                    Err(err) => {
-                        tracing::error!("Failed to scan meta file '{}'. {:#}", path.display(), err);
+                    Err(error) => {
+                        tracing::error!("Failed to scan meta file '{}'. {:#}", path.display(), error);
                         continue;
                     }
                     Ok(meta) => meta,

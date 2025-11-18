@@ -1,13 +1,18 @@
 //! Strong id utility.
 
 mod seqgen;
+mod stid;
 mod uidgen;
 
 use std::{fmt, hash::Hash, num::NonZeroU64};
 
 use arcana_base_encoding::base58;
 
-pub use self::{seqgen::SeqIdGen, uidgen::TimeUidGen};
+pub use self::{
+    seqgen::SeqIdGen,
+    stid::{HasStid, Stid, has_stid},
+    uidgen::TimeUidGen,
+};
 
 /// ID trait to be implemented by all id types.
 pub trait Id: fmt::Debug + Copy + Ord + Eq + Hash {

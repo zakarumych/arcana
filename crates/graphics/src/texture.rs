@@ -1,19 +1,18 @@
 use std::future::Future;
 
-use arcana_metatype::primitive_meta;
+use arcana_assets::{Asset, AssetBuilder, AssetError, AssetVersion, Assets};
+use arcana_id::has_stid;
 use basis_universal::{self, TranscodeError, TranscodeParameters, TranscoderTextureFormat};
 use edict::component::Component;
 use mev::Extent2;
 use smallvec::SmallVec;
-
-use arcana_assets::{Asset, AssetBuilder, AssetError, Assets};
 
 #[derive(Clone)]
 pub struct Texture {
     pub image: mev::Image,
 }
 
-primitive_meta!(Texture);
+has_stid!(Texture @ arcana_id);
 
 impl Component for Texture {
     fn name() -> &'static str {
@@ -42,6 +41,15 @@ enum TextureError {
     FormatNotSupported,
     #[error("Decode failed")]
     DecodeFailed,
+}
+
+impl AssetVersion for Texture {
+    fn version() -> u64
+    where
+        Self: Sized,
+    {
+        0
+    }
 }
 
 impl Asset for Texture {

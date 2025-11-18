@@ -41,16 +41,16 @@ pub fn job(attr: proc_macro::TokenStream, item: syn::ItemImpl) -> syn::Result<To
     }
 
     tokens.extend(quote::quote! {
-        ::arcana::plugin_ctor_add!(plugin => {
+        ::arcana::plugin::plugin_ctor_add!(plugin => {
             fn job_is_job<T: #job_trait_path>() {
                 ::arcana::for_macro::is_job::<T>();
             }
             job_is_job::<#type_path>();
 
-            let id: ::arcana::work::JobId = ::arcana::local_name_hash_id!(#ident);
+            let id: ::arcana::work::JobId = ::arcana::id::local_name_hash_id!(#ident);
 
             let add = |hub: &mut ::arcana::plugin::PluginsHub| {
-                let id: ::arcana::work::JobId = ::arcana::local_name_hash_id!(#ident);
+                let id: ::arcana::work::JobId = ::arcana::id::local_name_hash_id!(#ident);
                 hub.add_job(id, < #type_path as ::arcana::work::Job >::new());
             };
 

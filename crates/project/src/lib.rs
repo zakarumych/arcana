@@ -8,7 +8,7 @@ use std::{
     fs::{File, FileType},
     io::{Read, Seek, SeekFrom, Write},
     ops::Deref,
-    path::{absolute, Path, PathBuf, MAIN_SEPARATOR},
+    path::{MAIN_SEPARATOR, Path, PathBuf, absolute},
     process::Child,
 };
 
@@ -31,7 +31,7 @@ pub use self::{
     manifest::ProjectManifest,
     path::{is_available, make_relative},
     plugin::Plugin,
-    wrapper::{game_bin_path, BuildProcess, Profile},
+    wrapper::{BuildProcess, Profile, game_bin_path},
 };
 
 const MANIFEST_FILE_EXT: &'static str = "arcana";
@@ -110,9 +110,9 @@ impl Project {
 
         let path = match absolute(path) {
             Ok(path) => path,
-            Err(err) => {
+            Err(error) => {
                 return Err(Error::msg(format!(
-                    "Cannot create new project. Failed to resolve path '{}': {err:?}",
+                    "Cannot create new project. Failed to resolve path '{}': {error:?}",
                     path.display()
                 )));
             }
@@ -127,32 +127,32 @@ impl Project {
 
         let manifest_str = match toml::to_string(&manifest) {
             Ok(s) => s,
-            Err(err) => {
+            Err(error) => {
                 return Err(Error::msg(format!(
-                    "Failed to serialize project manifest. {err:?}"
+                    "Failed to serialize project manifest. {error:?}"
                 )));
             }
         };
 
-        if let Err(err) = std::fs::create_dir_all(&path) {
+        if let Err(error) = std::fs::create_dir_all(&path) {
             return Err(Error::msg(format!(
-                "Cannot create new project. Failed to create directory '{}': {err:?}",
+                "Cannot create new project. Failed to create directory '{}': {error:?}",
                 path.display()
             )));
         }
 
         let manifest_path = path.join(&manifest_file_name);
-        if let Err(err) = std::fs::write(&*manifest_path, &*manifest_str) {
+        if let Err(error) = std::fs::write(&*manifest_path, &*manifest_str) {
             return Err(Error::msg(format!(
-                "Cannot create new project. Failed to write manifest to '{}': {err:?}",
+                "Cannot create new project. Failed to write manifest to '{}': {error:?}",
                 manifest_path.display()
             )));
         }
 
         let manifest_path = path.join(&manifest_file_name);
-        if let Err(err) = std::fs::write(&*manifest_path, &*manifest_str) {
+        if let Err(error) = std::fs::write(&*manifest_path, &*manifest_str) {
             return Err(Error::msg(format!(
-                "Cannot create new project. Failed to write manifest to '{}': {err:?}",
+                "Cannot create new project. Failed to write manifest to '{}': {error:?}",
                 manifest_path.display()
             )));
         }
@@ -174,9 +174,9 @@ impl Project {
     pub fn open(path: &Path) -> Result<Self, Error> {
         let manifest_path = match absolute(path) {
             Ok(path) => path,
-            Err(err) => {
+            Err(error) => {
                 return Err(Error::msg(format!(
-                    "Cannot open project at '{}': {err:?}",
+                    "Cannot open project at '{}': {error:?}",
                     path.display()
                 )));
             }
@@ -199,16 +199,16 @@ impl Project {
 
         let m = match manifest_path.metadata() {
             Ok(m) => m,
-            Err(err) => {
+            Err(error) => {
                 if manifest_path != path {
                     return Err(Error::msg(format!(
-                        "Cannot open project file at '{}'(resolved to '{}'): {err:?}",
+                        "Cannot open project file at '{}'(resolved to '{}'): {error:?}",
                         path.display(),
                         manifest_path.display()
                     )));
                 } else {
                     return Err(Error::msg(format!(
-                        "Cannot open project file at '{}': {err:?}",
+                        "Cannot open project file at '{}': {error:?}",
                         path.display()
                     )));
                 }
@@ -247,9 +247,9 @@ impl Project {
 
         let mut arcana_toml = match std::fs::read_to_string(&manifest_path) {
             Ok(s) => s,
-            Err(err) => {
+            Err(error) => {
                 return Err(Error::msg(format!(
-                    "Cannot open project at '{}': failed to read project manifest: {err:?}",
+                    "Cannot open project at '{}': failed to read project manifest: {error:?}",
                     path.display()
                 )));
             }
@@ -257,16 +257,16 @@ impl Project {
 
         let manifest: ProjectManifest = match toml::from_str(&arcana_toml) {
             Ok(manifest) => manifest,
-            Err(err) => {
+            Err(error) => {
                 if manifest_path != path {
                     return Err(Error::msg(format!(
-                        "Cannot deserialize project manifest from '{}'(resolved to '{}'): {err:?}",
+                        "Cannot deserialize project manifest from '{}'(resolved to '{}'): {error:?}",
                         path.display(),
                         manifest_path.display()
                     )));
                 } else {
                     return Err(Error::msg(format!(
-                        "Cannot deserialize project manifest from '{}': {err:?}",
+                        "Cannot deserialize project manifest from '{}': {error:?}",
                         path.display()
                     )));
                 }
@@ -292,17 +292,17 @@ impl Project {
         &self.manifest_path
     }
 
-    pub fn sync(&mut self) -> Result<(), Error> {
+    pub fn sync(&self) -> Result<(), Error> {
         let serialized_manifest = toml::to_string_pretty(&self.manifest)
-            .map_err(|err| Error::msg(format!("Cannot serialize project manifest: {err:?}")))?;
+            .map_err(|error| Error::msg(format!("Cannot serialize project manifest: {error:?}")))?;
 
         match std::fs::write(&self.manifest_path, serialized_manifest) {
             Ok(()) => Ok(()),
-            Err(err) => {
+            Err(error) => {
                 return Err(Error::msg(format!(
                     "Cannot write project manifest to '{}': {:?}",
                     self.manifest_path.display(),
-                    err,
+                    error,
                 )));
             }
         }
@@ -356,9 +356,9 @@ impl Project {
         self.init_workspace()?;
         let status = wrapper::run_editor(self.root_path(), &self.manifest_path, profile)
             .status()
-            .map_err(|err| {
+            .map_err(|error| {
                 Error::msg(format!(
-                    "Cannot run \"ed\" on \"{}\": {err:?}",
+                    "Cannot run \"ed\" on \"{}\": {error:?}",
                     self.manifest_path.display()
                 ))
             })?;
@@ -374,9 +374,9 @@ impl Project {
         self.init_workspace()?;
         match wrapper::build_editor(self.root_path(), profile).spawn() {
             Ok(child) => Ok(child),
-            Err(err) => {
+            Err(error) => {
                 return Err(Error::msg(format!(
-                    "Cannot build \"ed\" on \"{}\": {err:?}",
+                    "Cannot build \"ed\" on \"{}\": {error:?}",
                     self.manifest_path.display()
                 )));
             }
@@ -387,9 +387,9 @@ impl Project {
         self.init_workspace()?;
         match wrapper::run_editor(self.root_path(), &self.manifest_path, profile).spawn() {
             Ok(child) => Ok(child),
-            Err(err) => {
+            Err(error) => {
                 return Err(Error::msg(format!(
-                    "Cannot run \"ed\" on \"{}\": {err:?}",
+                    "Cannot run \"ed\" on \"{}\": {error:?}",
                     self.manifest_path.display()
                 )));
             }
@@ -400,9 +400,9 @@ impl Project {
         self.init_workspace()?;
         let status = wrapper::build_game(self.root_path(), profile)
             .status()
-            .map_err(|err| {
+            .map_err(|error| {
                 Error::msg(format!(
-                    "Cannot build game \"{}\": {err:?}",
+                    "Cannot build game \"{}\": {error:?}",
                     self.manifest_path.display(),
                 ))
             })?;
@@ -420,9 +420,9 @@ impl Project {
         self.init_workspace()?;
         let status = wrapper::run_game(self.root_path(), profile)
             .status()
-            .map_err(|err| {
+            .map_err(|error| {
                 Error::msg(format!(
-                    "Cannot run game on \"{}\": {err:?}",
+                    "Cannot run game on \"{}\": {error:?}",
                     self.manifest_path.display()
                 ))
             })?;
@@ -476,11 +476,11 @@ fn is_in_cargo_workspace(path: &Path) -> bool {
 pub fn process_path_ident(path: &Path, name: Option<Ident>) -> Result<(PathBuf, Ident), Error> {
     let path = match absolute(path) {
         Ok(path) => path,
-        Err(err) => {
+        Err(error) => {
             return Err(Error::msg(format!(
-                "Failed to get project destination path from {}: {err:?}",
+                "Failed to get project destination path from {}: {error:?}",
                 path.display()
-            )))
+            )));
         }
     };
 
@@ -534,14 +534,14 @@ pub fn validate_engine_path(engine_path: &Path) -> Result<Dependency, Error> {
     };
 
     match engine_path.metadata() {
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             return Err(Error::msg(format!(
                 "Engine path '{engine_path}' does not exist"
             )));
         }
-        Err(err) => {
+        Err(error) => {
             return Err(Error::msg(format!(
-                "Failed to read engine path '{engine_path}': {err:?}"
+                "Failed to read engine path '{engine_path}': {error:?}"
             )));
         }
         Ok(metadata) => match metadata.file_type() {
@@ -558,7 +558,9 @@ pub fn validate_engine_path(engine_path: &Path) -> Result<Dependency, Error> {
                     Ok(Dependency::Path { path: engine_path })
                 }
                 _ => {
-                    return Err(Error::msg(format!("Engine path '{engine_path}' is a file, but is not a crate manifest Cargo.toml")));
+                    return Err(Error::msg(format!(
+                        "Engine path '{engine_path}' is a file, but is not a crate manifest Cargo.toml"
+                    )));
                 }
             },
             ft if ft.is_dir() => {
@@ -587,9 +589,9 @@ pub fn validate_engine_path(engine_path: &Path) -> Result<Dependency, Error> {
 pub fn validate_engine_manifest(cargo_toml_path: &Utf8Path) -> Result<(), Error> {
     let manifest: cargo_toml::Manifest = match cargo_toml::Manifest::from_path(cargo_toml_path) {
         Ok(manifest) => manifest,
-        Err(err) => {
+        Err(error) => {
             return Err(Error::msg(format!(
-                "Failed to read crate manifest '{cargo_toml_path}': {err:?}"
+                "Failed to read crate manifest '{cargo_toml_path}': {error:?}"
             )));
         }
     };

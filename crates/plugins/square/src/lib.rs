@@ -5,7 +5,7 @@ use arcana::{
     work::{Exec, Image2D, Job, JobDesc, Planner},
 };
 
-arcana::declare_plugin!();
+arcana::plugin::declare_plugin!();
 
 #[derive(mev::Arguments)]
 pub struct DSArguments {

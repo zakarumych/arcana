@@ -5,15 +5,14 @@ use std::{
 };
 
 use arcana_alloc::Arena;
-use arcana_id::SeqIdGen;
+use arcana_id::{SeqIdGen, Stid};
 use arcana_intern::Name;
-use arcana_metatype::Stid;
 use arcana_model::Value;
 use edict::world::World;
-use hashbrown::{hash_map::Entry, HashMap, HashSet};
+use hashbrown::{HashMap, HashSet, hash_map::Entry};
 use slab::Slab;
 
-use crate::{job::invalid_output_pin, Job, JobsSet};
+use crate::{Job, JobsSet, job::invalid_output_pin};
 
 use super::{
     job::{JobDesc, JobId},

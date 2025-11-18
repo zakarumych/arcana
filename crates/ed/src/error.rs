@@ -71,13 +71,13 @@ impl ErrorWidget {
 ///
 /// Usually there can't be more than one error at a time, since when dialog has one error it
 /// prevents interaction with the rest of the UI.
-pub struct ErrorDialog {
-    widgets: SmallVec<[(ErrorWidget, egui::ViewportId); 2]>,
+pub struct Errors {
+    widgets: SmallVec<[(ErrorWidget, egui::ViewportId); 16]>,
 }
 
-impl ErrorDialog {
+impl Errors {
     pub fn new() -> Self {
-        ErrorDialog {
+        Errors {
             widgets: SmallVec::new(),
         }
     }
@@ -155,4 +155,13 @@ impl ErrorIcon {
             self.widget.show(ui);
         });
     }
+}
+
+macro_rules! try_sink_error {
+    ($e:expr) => {
+        $crate::errors::try_sink_error!($e => errors)
+    };
+    ($e:expr) => {
+        $crate::errors::try_sink_error!($e => errors)
+    };
 }

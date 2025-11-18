@@ -41,17 +41,17 @@ pub fn importer(attr: proc_macro::TokenStream, item: syn::ItemImpl) -> syn::Resu
     }
 
     tokens.extend(quote::quote! {
-        ::arcana::plugin_ctor_add!(plugin => {
+        ::arcana::plugin::plugin_ctor_add!(plugin => {
             #[allow(dead_code)]
             fn importer_is_importer<T: #importer_trait_path>() {
                 ::arcana::for_macro::is_importer::<T>();
             }
             importer_is_importer::<#type_path>();
 
-            let id: ::arcana::assets::import::ImporterId = ::arcana::local_name_hash_id!(#ident);
+            let id: ::arcana::assets::import::ImporterId = ::arcana::id::local_name_hash_id!(#ident);
 
             let add = |hub: &mut ::arcana::plugin::PluginsHub| {
-                let id: ::arcana::assets::import::ImporterId = ::arcana::local_name_hash_id!(#ident);
+                let id: ::arcana::assets::import::ImporterId = ::arcana::id::local_name_hash_id!(#ident);
                 hub.add_importer(id, < #type_path as ::arcana::assets::import::Importer >::new());
             };
 

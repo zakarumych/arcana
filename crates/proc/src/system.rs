@@ -10,11 +10,11 @@ pub fn system(attr: proc_macro::TokenStream, item: syn::ItemFn) -> syn::Result<T
 
     let ident = &item.sig.ident;
     Ok(quote::quote! {
-        ::arcana::plugin_ctor_add!(plugin => {
-            let id: ::arcana::plugin::SystemId = ::arcana::local_name_hash_id!(#ident);
+        ::arcana::plugin::plugin_ctor_add!(plugin => {
+            let id: ::arcana::plugin::SystemId = ::arcana::id::local_name_hash_id!(#ident);
 
             let add = |hub: &mut ::arcana::plugin::PluginsHub| {
-                let id: ::arcana::plugin::SystemId = ::arcana::local_name_hash_id!(#ident);
+                let id: ::arcana::plugin::SystemId = ::arcana::id::local_name_hash_id!(#ident);
                 hub.add_system(id, #ident);
             };
 

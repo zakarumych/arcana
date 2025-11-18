@@ -1,49 +1,21 @@
-use std::path::{absolute, PathBuf};
+use std::path::{PathBuf, absolute};
 
-use arcana::{
-    error::{fail, Error},
-    validate_ident, Ident,
-};
+use arcana::{Ident, error::Error, validate_ident};
+use arcana_project::Plugin;
 use camino::{Utf8Path, Utf8PathBuf};
 use egui::{Color32, RichText, Ui};
 use egui_file::FileDialog;
 
-use crate::project::{
-    new_plugin_crate, BuildProcess, Dependency, Plugin, Profile, Project, ProjectManifest,
-};
+use crate::{error::Errors, project::Project};
 
-use super::{
-    container::{Container, Loader, PluginsError},
-    get_profile,
-};
+use super::PluginsManager;
 
-/// Tool to manage plugins libraries
-/// and enable/disable self.
-pub(super) struct Plugins {
-    loader: Loader,
-
-    /// Currently linked plugins container.
-    linked: Option<Container>,
-
-    /// Same as `linked`, but is cleared in Tool::__new_container.
-    updated: Option<Container>,
-
-    // Pending plugins container.
-    // Will become linked on first occasion.
-    pending: Option<Container>,
-
-    /// Displaying plugins build failure report.
-    /// Unset when build is successful or report widget is closed.
-    failure: Option<Error>,
-
-    /// Running build process.
-    /// Unset when build is finished.
-    build: Option<BuildProcess>,
-
+/// Widget to control [`PluginsManager`]
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct PluginsWidget {
     /// Open dialog widget.
+    #[serde(skip)]
     dialog: Option<PluginsDialog>,
-
-    profile: Profile,
 }
 
 enum PluginsDialog {
@@ -56,80 +28,34 @@ struct NewPlugin {
     path: String,
     real_path: Utf8PathBuf,
     path_dialog: Option<FileDialog>,
-    dirty: bool,
     ready: bool,
 }
 
-impl Plugins {
+impl PluginsWidget {
     pub fn new() -> Self {
-        Plugins {
-            loader: Loader::new(),
-            linked: None,
-            updated: None,
-            pending: None,
-            failure: None,
-            build: None,
-            dialog: None,
-            profile: get_profile(),
-        }
+        PluginsWidget { dialog: None }
     }
 
-    /// Checks of all plugins from manifest are present in linked library.
-    fn check_plugins(project: &ProjectManifest, container: &Container) -> bool {
-        project.plugins.iter().all(|p| {
-            let has = container.has(p.name);
-            if !has {
-                tracing::debug!("Plugin '{}' is not linked", p.name);
-            }
-            has
-        })
-    }
-
-    /// Adds plugin to project.
-    pub fn add_plugin(
+    pub fn show(
         &mut self,
-        name: Ident,
-        dep: Dependency,
+        manager: &mut PluginsManager,
         project: &mut Project,
-    ) -> Result<(), Error> {
-        if project.has_plugin(name) {
-            fail!("Plugin '{}' already exists", name);
-        }
-
-        let plugin = Plugin::from_dependency(name, dep)?;
-        project.add_plugin(plugin)?;
-
-        if self.build.is_some() {
-            // Stop current build if there was one.
-            tracing::info!(
-                "Stopping current build process to re-build plugins library with new plugin"
-            );
-            self.build = None;
-        }
-
-        // Set of active plugins doesn't change yet.
-        Ok(())
-    }
-
-    pub fn take_updated(&mut self) -> Option<Container> {
-        self.updated.take()
-    }
-
-    pub fn show(&mut self, project: &mut Project, ui: &mut Ui) {
-        let mut sync = false;
-        let mut rebuild = false;
-
+        errors: &mut Errors,
+        ui: &mut Ui,
+    ) {
         // Building status
+        let mut sync_project = false;
+        let mut rebuild_plugins = false;
 
         ui.add_enabled_ui(self.dialog.is_none(), |ui| {
             ui.allocate_ui_with_layout(
                 ui.style().spacing.interact_size,
                 egui::Layout::left_to_right(egui::Align::Center),
                 |ui| {
-                    if self.build.is_some() {
+                    if manager.is_building() {
                         ui.spinner();
                         ui.label("Building");
-                    } else if let Some(failure) = &self.failure {
+                    } else if let Some(failure) = manager.last_failure() {
                         let r = ui.label(
                             egui::RichText::from("Plugins build: failed")
                                 .color(ui.visuals().error_fg_color),
@@ -145,15 +71,14 @@ impl Plugins {
 
             // Top menu
             ui.horizontal(|ui| {
-                let r = match self.build.is_none() {
+                let r = match !manager.is_building() {
                     false => {
                         ui.add_enabled(false, egui::Button::new(egui_phosphor::regular::HAMMER))
                     }
                     true => ui.button(egui_phosphor::regular::HAMMER),
                 };
                 if r.clicked() {
-                    let build = try_log_err!(project.build_plugins_library(self.profile));
-                    self.build = Some(build);
+                    manager.start_new_build(project);
                 }
                 let r = ui.button(egui_phosphor::regular::PLUS);
 
@@ -163,7 +88,6 @@ impl Plugins {
                         path: String::new(),
                         real_path: Utf8PathBuf::new(),
                         path_dialog: None,
-                        dirty: true,
                         ready: false,
                     }));
                 } else {
@@ -196,9 +120,9 @@ impl Plugins {
                         let mut heading = RichText::from(plugin.name.as_str());
 
                         let mut tooltip = "";
-                        if !self.linked.as_ref().map_or(false, |c| c.has(plugin.name)) {
+                        if !manager.linked().map_or(false, |c| c.has(plugin.name)) {
                             // Not linked plugin may not be active.
-                            if self.pending.is_some() || self.build.is_some() {
+                            if manager.has_pending() || manager.is_building() {
                                 tooltip = "Pending";
                                 heading = heading.color(ui.visuals().warn_fg_color);
                             } else {
@@ -207,11 +131,7 @@ impl Plugins {
                             }
                         } else if !project.data.enabled_plugins.contains(&plugin.name) {
                             heading = heading.color(ui.visuals().warn_fg_color);
-                        } else if !self
-                            .linked
-                            .as_ref()
-                            .map_or(false, |c| c.is_active(plugin.name))
-                        {
+                        } else if !manager.linked().map_or(false, |c| c.is_active(plugin.name)) {
                             tooltip = "Dependencies are not enabled";
                             heading = heading.color(ui.visuals().warn_fg_color);
                         } else {
@@ -228,10 +148,10 @@ impl Plugins {
 
                         if !was_enabled && enabled {
                             project.data.enabled_plugins.insert(plugin.name.clone());
-                            sync = true;
+                            sync_project = true;
                         } else if was_enabled && !enabled {
                             project.data.enabled_plugins.remove(&plugin.name);
-                            sync = true;
+                            sync_project = true;
                         }
 
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -239,8 +159,8 @@ impl Plugins {
                             if r.clicked() {
                                 project.data.enabled_plugins.remove(&plugin.name);
                                 remove_plugin = Some(idx);
-                                sync = true;
-                                rebuild = true;
+                                sync_project = true;
+                                rebuild_plugins = true;
                             }
                         });
 
@@ -268,14 +188,13 @@ impl Plugins {
                         match Utf8Path::from_path(path) {
                             Some(path) => match add_plugin_with_path(path.to_path_buf(), project) {
                                 Ok(true) => {
-                                    sync = true;
-                                    rebuild = true;
+                                    project.sync();
                                 }
                                 Ok(false) => {
                                     tracing::warn!("Plugin already exists");
                                 }
-                                Err(err) => {
-                                    tracing::error!("Failed to add plugin. {err:?}");
+                                Err(error) => {
+                                    tracing::error!("Failed to add plugin. {error:?}");
                                 }
                             },
                             None => {
@@ -314,13 +233,15 @@ impl Plugins {
                 egui::Window::new("New Plugin")
                     .auto_sized()
                     .show(ui.ctx(), |ui| {
+                        let mut dirty = false;
+
                         let o = egui::TextEdit::singleline(&mut new_plugin.name)
                             .hint_text("Plugin name")
                             .clip_text(false)
                             .show(ui);
 
                         if o.response.changed() {
-                            new_plugin.dirty = true;
+                            dirty = true;
                         }
 
                         ui.horizontal(|ui| {
@@ -330,7 +251,7 @@ impl Plugins {
                                 .show(ui);
 
                             if o.response.changed() {
-                                new_plugin.dirty = true;
+                                dirty = true;
                             }
 
                             let r = ui.add_enabled(
@@ -351,7 +272,7 @@ impl Plugins {
                             }
                         });
 
-                        if new_plugin.dirty {
+                        if dirty {
                             new_plugin.ready = validate_ident(&new_plugin.name).is_ok();
 
                             if new_plugin.ready {
@@ -378,29 +299,17 @@ impl Plugins {
                                 .add_enabled(new_plugin.ready, egui::Button::new("OK"))
                                 .clicked()
                             {
-                                match new_plugin_crate(
-                                    &new_plugin.name,
-                                    &new_plugin.real_path,
-                                    project.engine().clone(),
-                                    Some(project.root_path()),
-                                ) {
-                                    Ok(plugin) => {
+                                let name = Ident::from_str(&new_plugin.name).unwrap();
+                                match manager.new_plugin(name, &new_plugin.real_path, project) {
+                                    Ok(()) => {
                                         close = true;
-                                        match project.add_plugin(plugin) {
-                                            Ok(true) => {
-                                                sync = true;
-                                                rebuild = true;
-                                            }
-                                            Ok(false) => {
-                                                tracing::warn!("Plugin already exists");
-                                            }
-                                            Err(err) => {
-                                                tracing::error!("Failed to add plugin. {err:?}");
-                                            }
-                                        }
                                     }
-                                    Err(err) => {
-                                        tracing::error!("Failed to create new plugin. {err:?}");
+                                    Err(error) => {
+                                        errors.push_error(
+                                            ui.ctx().viewport_id(),
+                                            "New plugins errors",
+                                            error,
+                                        );
                                     }
                                 }
                             }
@@ -417,117 +326,13 @@ impl Plugins {
             }
         }
 
-        assert!(sync || !rebuild, "Rebuild without sync");
-
-        if sync {
-            try_log_err!(project.sync());
-
-            if rebuild {
-                self.build = None;
-                self.pending = None;
-                try_log_err!(project.init_workspace());
-                self.build = ok_log_err!(project.build_plugins_library(self.profile));
-            }
-
-            if let Some(c) = &self.pending {
-                self.pending = Some(c.with_plugins(&project.data.enabled_plugins));
-            } else if let Some(c) = &self.linked {
-                self.pending = Some(c.with_plugins(&project.data.enabled_plugins));
-            }
-        }
-    }
-
-    pub fn tick(&mut self, project: &mut Project) {
-        if let Some(mut build) = self.build.take() {
-            match build.finished() {
-                Ok(false) => self.build = Some(build),
-                Ok(true) => {
-                    tracing::info!(
-                        "Finished building plugins library {}",
-                        build.artifact().display()
-                    );
-                    let path = build.artifact();
-                    match self.loader.load(&path, &project.data.enabled_plugins) {
-                        Ok(container) => {
-                            if !Self::check_plugins(project.manifest(), &container) {
-                                tracing::warn!("Not all plugins are linked. Rebuilding");
-                                self.build =
-                                    ok_log_err!(project.build_plugins_library(self.profile));
-                            } else {
-                                tracing::info!(
-                                    "New plugins container version pending. {container:#?}"
-                                );
-                                self.pending = Some(container);
-                                self.failure = None;
-                            }
-                        }
-                        Err(err) => {
-                            let mut rebuild = false;
-                            tracing::error!("Failed to load plugins library. {err:?}");
-
-                            if let Some(plugins_error) = err.downcast_ref::<PluginsError>() {
-                                for md in plugins_error.missing_dependencies.iter() {
-                                    rebuild = true;
-                                    tracing::error!("Missing dependency: {md:?}");
-
-                                    if let Err(err) =
-                                        self.add_plugin(md.plugin, md.dependency.clone(), project)
-                                    {
-                                        tracing::error!(
-                                            "Failed to add missing dependency. {err:?}"
-                                        );
-                                    }
-                                }
-
-                                if !plugins_error.circular_dependencies.is_empty() {
-                                    self.failure = Some(err);
-                                }
-                            } else {
-                                self.failure = Some(err);
-                            }
-
-                            if rebuild {
-                                try_log_err!(project.sync());
-
-                                match project.build_plugins_library(self.profile) {
-                                    Ok(build) => {
-                                        self.build = Some(build);
-                                    }
-                                    Err(err) => {
-                                        self.failure = Some(err);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                Err(err) => {
-                    tracing::error!("Failed building plugins library. {err:?}");
-                    self.failure = Some(err);
-                }
-            }
+        if sync_project {
+            project.sync_in_ui(ui.ctx(), errors);
+            manager.refresh_enabled_plugins(project);
         }
 
-        match self.pending.take() {
-            None => {
-                if self.linked.is_none() && self.failure.is_none() && self.build.is_none() {
-                    tracing::info!("Make initial plugins library build");
-
-                    match project.build_plugins_library(self.profile) {
-                        Ok(build) => {
-                            self.build = Some(build);
-                        }
-                        Err(err) => {
-                            self.failure = Some(err);
-                        }
-                    }
-                }
-            }
-            Some(c) => {
-                tracing::info!("New plugins container version linked. {c:#?}");
-                self.linked = Some(c);
-                self.updated = self.linked.clone();
-            }
+        if rebuild_plugins {
+            manager.start_new_build(project);
         }
     }
 }
@@ -535,6 +340,5 @@ impl Plugins {
 /// Adds new plugins library
 fn add_plugin_with_path(path: Utf8PathBuf, project: &mut Project) -> Result<bool, Error> {
     let plugin = Plugin::open_local(path)?;
-
     project.add_plugin(plugin)
 }

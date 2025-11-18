@@ -40,7 +40,7 @@ impl TypedValueParser for IdentValueParser {
         };
         match Ident::from_str(s) {
             Ok(ident) => Ok(ident.to_owned()),
-            Err(err) => Err(clap::Error::raw(clap::error::ErrorKind::InvalidValue, err)),
+            Err(error) => Err(clap::Error::raw(clap::error::ErrorKind::InvalidValue, error)),
         }
     }
 }
@@ -204,8 +204,8 @@ pub fn run_cli() -> Result<(), Error> {
             //                     std::process::exit(status.code().unwrap_or(1));
             //                 }
             //             }
-            //             Err(err) => {
-            //                 eprintln!("Failed to run game: {}", err);
+            //             Err(error) => {
+            //                 eprintln!("Failed to run game: {}", error);
             //                 std::process::exit(1);
             //             }
             //         }

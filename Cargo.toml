@@ -8,7 +8,6 @@ members = [
     "crates/hash",
     "crates/id",
     "crates/project",
-    "crates/metatype",
     "crates/model",
     "crates/assets",
     "crates/unfold",
@@ -67,7 +66,7 @@ egui = { version = "0.33.0", features = ["bytemuck", "serde", "cint"] }
 egui_dnd = { version = "0.14.0" }
 egui_dock = { version = "0.18.0" }
 egui_file = { version = "0.24.0" }
-egui-phosphor = { version = "0.10.0", git = "https://github.com/bircni/egui-phosphor.git", branch = "feature/egui-0.33" }
+egui-phosphor = { version = "0.10.0", git = "https://github.com/zakarumych/egui-phosphor.git", branch = "egui-0.33" }
 egui-probe = { path = "../egui-probe" }
 egui-snarl = { path = "../egui-snarl" }
 # egui_tracing = { version = "0.2.6" }
@@ -82,7 +81,7 @@ hashbrown = { version = "0.15.4", features = ["nightly", "serde"] }
 hidden-trait = "0.1.2"
 image = "0.25.6"
 libloading = "0.8.8"
-# linkme = "0.3"
+linkme = "0.3"
 #mev = { git = "https://github.com/zakarumych/mev.git" }
 mev = { path = "../mev" }
 # na = { package = "nalgebra", version = "0.33", features = [

@@ -1,9 +1,9 @@
 use std::{fmt, io, path::Path};
 
 use arcana_error::{Error, UnifyError};
-use camino::{absolute_utf8, Utf8Path, Utf8PathBuf};
+use camino::{Utf8Path, Utf8PathBuf, absolute_utf8};
 
-use crate::{dependency::Dependency, path::make_relative, plugin::Plugin, WORKSPACE_DIR_NAME};
+use crate::{WORKSPACE_DIR_NAME, dependency::Dependency, path::make_relative, plugin::Plugin};
 
 struct ArcanaDependency<'a>(&'a Dependency);
 
@@ -41,9 +41,9 @@ pub fn new_plugin_crate(
         )));
     }
 
-    std::fs::create_dir_all(&path).map_err(|err| {
+    std::fs::create_dir_all(&path).map_err(|error| {
         Error::msg(format!(
-            "Failed to create plugin directory: '{}'. {err:?}",
+            "Failed to create plugin directory: '{}'. {error:?}",
             path
         ))
     })?;
@@ -68,17 +68,17 @@ arcana = {engine}
     );
 
     let cargo_toml_path = path.join("Cargo.toml");
-    write_file(&cargo_toml_path, &cargo_toml).map_err(|err| {
+    write_file(&cargo_toml_path, &cargo_toml).map_err(|error| {
         Error::msg(format!(
-            "Failed to create plugin file: '{}'. {err:?}",
+            "Failed to create plugin file: '{}'. {error:?}",
             cargo_toml_path
         ))
     })?;
 
     let src_path = path.join("src");
-    std::fs::create_dir_all(&src_path).map_err(|err| {
+    std::fs::create_dir_all(&src_path).map_err(|error| {
         Error::msg(format!(
-            "Failed to create plugin source directory: '{}'. {err:?}",
+            "Failed to create plugin source directory: '{}'. {error:?}",
             src_path
         ))
     })?;
@@ -87,14 +87,14 @@ arcana = {engine}
     let lib_rs = format!(
 r#"
 // This line allows this crate to function as a plugin for Arcana Engine.
-arcana::declare_plugin!();
+arcana::plugin::declare_plugin!();
 "#
     );
 
     let lib_rs_path = src_path.join("lib.rs");
-    write_file(&lib_rs_path, &lib_rs).map_err(|err| {
+    write_file(&lib_rs_path, &lib_rs).map_err(|error| {
         Error::msg(format!(
-            "Failed to create plugin file: '{}'. {err:?}",
+            "Failed to create plugin file: '{}'. {error:?}",
             lib_rs_path
         ))
     })?;
@@ -118,18 +118,18 @@ pub fn init_workspace(
     plugins: &[Plugin],
 ) -> Result<(), Error> {
     let workspace = root.join(WORKSPACE_DIR_NAME);
-    std::fs::create_dir_all(&*workspace).map_err(|err| {
+    std::fs::create_dir_all(&*workspace).map_err(|error| {
         Error::msg(format!(
-            "Failed to create project workspace directory: '{}'. {err:?}",
+            "Failed to create project workspace directory: '{}'. {error:?}",
             workspace.display()
         ))
     })?;
 
     let gitignore = "crates\nArcana.bin.bak\n";
     let gitignore_path = workspace.join(".gitignore");
-    std::fs::write(&gitignore_path, gitignore).map_err(|err| {
+    std::fs::write(&gitignore_path, gitignore).map_err(|error| {
         Error::msg(format!(
-            "Failed to create project workspace .gitignore: '{}'. {err:?}",
+            "Failed to create project workspace .gitignore: '{}'. {error:?}",
             workspace.display()
         ))
     })?;
@@ -169,9 +169,9 @@ arcana-ed = {arcana_ed}
     );
 
     let cargo_toml_path = workspace.join("Cargo.toml");
-    write_file(&cargo_toml_path, &cargo_toml).map_err(|err| {
+    write_file(&cargo_toml_path, &cargo_toml).map_err(|error| {
         Error::msg(format!(
-            "Failed to create project workspace Cargo.toml: '{}'. {err:?}",
+            "Failed to create project workspace Cargo.toml: '{}'. {error:?}",
             cargo_toml_path.display()
         ))
     })?;
@@ -181,9 +181,9 @@ channel = "nightly"
     "#;
 
     let rust_toolchain_path = workspace.join("rust-toolchain.toml");
-    write_file(&rust_toolchain_path, &rust_toolchain).map_err(|err| {
+    write_file(&rust_toolchain_path, &rust_toolchain).map_err(|error| {
         Error::msg(format!(
-            "Failed to create project workspace rust-toolchain.toml: '{}'. {err:?}",
+            "Failed to create project workspace rust-toolchain.toml: '{}'. {error:?}",
             rust_toolchain_path.display()
         ))
     })?;
@@ -201,9 +201,9 @@ fn init_ed_crate(root: &Path, workspace: &Path, plugins: &[Plugin]) -> Result<()
 
     let ed_path = workspace.join("ed");
 
-    std::fs::create_dir_all(&ed_path).map_err(|err| {
+    std::fs::create_dir_all(&ed_path).map_err(|error| {
         Error::msg(format!(
-            "Failed to create project ed crate directory: '{}'. {err:?}",
+            "Failed to create project ed crate directory: '{}'. {error:?}",
             ed_path.display()
         ))
     })?;
@@ -227,32 +227,32 @@ arcana-ed = {{ workspace = true }}
         gh_issue = github_autogen_issue_template("ed/Cargo.toml")
     );
 
-    for plugin in plugins {
-        let dep = plugin
-            .dependency
-            .clone()
-            .make_relative_from(root, &plugins_path)
-            .unify_error()?;
+    // for plugin in plugins {
+    //     let dep = plugin
+    //         .dependency
+    //         .clone()
+    //         .make_relative_from(root, &plugins_path)
+    //         .unify_error()?;
 
-        cargo_toml.push_str(&format!(
-            "{name} = {dependency}\n",
-            name = &plugin.name,
-            dependency = ArcanaDependency(&dep)
-        ));
-    }
+    //     cargo_toml.push_str(&format!(
+    //         "{name} = {dependency}\n",
+    //         name = &plugin.name,
+    //         dependency = ArcanaDependency(&dep)
+    //     ));
+    // }
 
     let cargo_toml_path = ed_path.join("Cargo.toml");
-    write_file(&cargo_toml_path, &cargo_toml).map_err(|err| {
+    write_file(&cargo_toml_path, &cargo_toml).map_err(|error| {
         Error::msg(format!(
-            "Failed to create project ed crate Cargo.toml '{}'. {err:?}",
+            "Failed to create project ed crate Cargo.toml '{}'. {error:?}",
             cargo_toml_path.display()
         ))
     })?;
 
     let src_path = ed_path.join("src");
-    std::fs::create_dir_all(&src_path).map_err(|err| {
+    std::fs::create_dir_all(&src_path).map_err(|error| {
         Error::msg(format!(
-            "Failed to create project ed crate src directory: '{}'. {err:?}",
+            "Failed to create project ed crate src directory: '{}'. {error:?}",
             src_path.display()
         ))
     })?;
@@ -282,9 +282,9 @@ fn main() {{
     );
 
     let main_rs_path = src_path.join("main.rs");
-    write_file(&main_rs_path, &main_rs).map_err(|err| {
+    write_file(&main_rs_path, &main_rs).map_err(|error| {
         Error::msg(format!(
-            "Failed to create project ed crate source: '{}'. {err:?}",
+            "Failed to create project ed crate source: '{}'. {error:?}",
             main_rs_path.display()
         ))
     })?;
@@ -298,9 +298,9 @@ fn main() {{
 fn init_plugins_crate(root: &Path, workspace: &Path, plugins: &[Plugin]) -> Result<(), Error> {
     let plugins_path = workspace.join("plugins");
 
-    std::fs::create_dir_all(&plugins_path).map_err(|err| {
+    std::fs::create_dir_all(&plugins_path).map_err(|error| {
         Error::msg(format!(
-            "Failed to create project plugins crate directory: '{}'. {err:?}",
+            "Failed to create project plugins crate directory: '{}'. {error:?}",
             plugins_path.display()
         ))
     })?;
@@ -342,17 +342,17 @@ arcana-ed = {{ workspace = true }}
     }
 
     let cargo_toml_path = plugins_path.join("Cargo.toml");
-    write_file(&cargo_toml_path, &cargo_toml).map_err(|err| {
+    write_file(&cargo_toml_path, &cargo_toml).map_err(|error| {
         Error::msg(format!(
-            "Failed to create project plugins crate Cargo.toml '{}'. {err:?}",
+            "Failed to create project plugins crate Cargo.toml '{}'. {error:?}",
             cargo_toml_path.display()
         ))
     })?;
 
     let src_path = plugins_path.join("src");
-    std::fs::create_dir_all(&src_path).map_err(|err| {
+    std::fs::create_dir_all(&src_path).map_err(|error| {
         Error::msg(format!(
-            "Failed to create project plugins crate src directory: '{}'. {err:?}",
+            "Failed to create project plugins crate src directory: '{}'. {error:?}",
             src_path.display()
         ))
     })?;
@@ -398,9 +398,9 @@ pub fn arcana_plugins() -> Vec<(arcana::Ident, arcana::plugin::ArcanaPlugin)> {{
     );
 
     let lib_rs_path = src_path.join("lib.rs");
-    write_file(&lib_rs_path, &lib_rs).map_err(|err| {
+    write_file(&lib_rs_path, &lib_rs).map_err(|error| {
         Error::msg(format!(
-            "Failed to create project plugins crate source: '{}'. {err:?}",
+            "Failed to create project plugins crate source: '{}'. {error:?}",
             lib_rs_path.display()
         ))
     })?;
@@ -417,9 +417,9 @@ fn init_game_crate(
 ) -> Result<(), Error> {
     let game_path = workspace.join("game");
 
-    std::fs::create_dir_all(&game_path).map_err(|err| {
+    std::fs::create_dir_all(&game_path).map_err(|error| {
         Error::msg(format!(
-            "Failed to create project game crate directory: '{}'. {err:?}",
+            "Failed to create project game crate directory: '{}'. {error:?}",
             game_path.display()
         ))
     })?;
@@ -460,17 +460,17 @@ arcana = {{ workspace = true }}
     }
 
     let cargo_toml_path = game_path.join("Cargo.toml");
-    write_file(&cargo_toml_path, &cargo_toml).map_err(|err| {
+    write_file(&cargo_toml_path, &cargo_toml).map_err(|error| {
         Error::msg(format!(
-            "Failed to create project game crate Cargo.toml '{}'. {err:?}",
+            "Failed to create project game crate Cargo.toml '{}'. {error:?}",
             cargo_toml_path.display()
         ))
     })?;
 
     let src_path = game_path.join("src");
-    std::fs::create_dir_all(&src_path).map_err(|err| {
+    std::fs::create_dir_all(&src_path).map_err(|error| {
         Error::msg(format!(
-            "Failed to create project game crate src directory: '{}'. {err:?}",
+            "Failed to create project game crate src directory: '{}'. {error:?}",
             src_path.display()
         ))
     })?;
@@ -505,9 +505,9 @@ fn main() {{
     );
 
     let main_rs_path = src_path.join("main.rs");
-    write_file(&main_rs_path, &main_rs).map_err(|err| {
+    write_file(&main_rs_path, &main_rs).map_err(|error| {
         Error::msg(format!(
-            "Failed to create project game crate source: '{}'. {err:?}",
+            "Failed to create project game crate source: '{}'. {error:?}",
             main_rs_path.display()
         ))
     })?;
@@ -532,5 +532,7 @@ where
 }
 
 fn github_autogen_issue_template(file: &str) -> String {
-    format!("https://github.com/zakarumych/arcana/issues/new?body=%3C%21--%20Please%2C%20provide%20your%20reason%20to%20edit%20auto-generated%20{file}%20in%20Arcana%20project%20--%3E")
+    format!(
+        "https://github.com/zakarumych/arcana/issues/new?body=%3C%21--%20Please%2C%20provide%20your%20reason%20to%20edit%20auto-generated%20{file}%20in%20Arcana%20project%20--%3E"
+    )
 }

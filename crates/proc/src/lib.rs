@@ -58,13 +58,13 @@ pub fn derive_has_stid(input: TokenStream) -> TokenStream {
 
     let stid = match r {
         Some(Ok(stid)) => Some(stid),
-        Some(Err(err)) => return err.to_compile_error().into(),
+        Some(Err(error)) => return error.to_compile_error().into(),
         None => None,
     };
 
     match stid::has_stid(stid, &input) {
         Ok(output) => output.into(),
-        Err(err) => err.to_compile_error().into(),
+        Err(error) => error.to_compile_error().into(),
     }
 }
 
@@ -74,7 +74,7 @@ pub fn has_stid(tokens: TokenStream) -> TokenStream {
 
     match stid::has_stid_fn(input) {
         Ok(output) => output.into(),
-        Err(err) => err.to_compile_error().into(),
+        Err(error) => error.to_compile_error().into(),
     }
 }
 
@@ -90,7 +90,7 @@ pub fn filter(attr: TokenStream, item: TokenStream) -> TokenStream {
     let item = syn::parse_macro_input!(item as syn::ItemFn);
     match filter::filter(attr, item) {
         Ok(output) => output.into(),
-        Err(err) => err.to_compile_error().into(),
+        Err(error) => error.to_compile_error().into(),
     }
 }
 
@@ -100,7 +100,7 @@ pub fn system(attr: TokenStream, item: TokenStream) -> TokenStream {
     let item = syn::parse_macro_input!(item as syn::ItemFn);
     match system::system(attr, item) {
         Ok(output) => output.into(),
-        Err(err) => err.to_compile_error().into(),
+        Err(error) => error.to_compile_error().into(),
     }
 }
 
@@ -110,7 +110,7 @@ pub fn job(attr: TokenStream, item: TokenStream) -> TokenStream {
     let item = syn::parse_macro_input!(item as syn::ItemImpl);
     match job::job(attr, item) {
         Ok(output) => output.into(),
-        Err(err) => err.to_compile_error().into(),
+        Err(error) => error.to_compile_error().into(),
     }
 }
 
@@ -120,7 +120,7 @@ pub fn importer(attr: TokenStream, item: TokenStream) -> TokenStream {
     let item = syn::parse_macro_input!(item as syn::ItemImpl);
     match importer::importer(attr, item) {
         Ok(output) => output.into(),
-        Err(err) => err.to_compile_error().into(),
+        Err(error) => error.to_compile_error().into(),
     }
 }
 
@@ -130,7 +130,7 @@ pub fn init(attr: TokenStream, item: TokenStream) -> TokenStream {
     let item = syn::parse_macro_input!(item as syn::ItemFn);
     match init::init(attr, item) {
         Ok(output) => output.into(),
-        Err(err) => err.to_compile_error().into(),
+        Err(error) => error.to_compile_error().into(),
     }
 }
 
@@ -140,7 +140,7 @@ pub fn codex(attr: TokenStream, item: TokenStream) -> TokenStream {
     let item = syn::parse_macro_input!(item as syn::ItemFn);
     match codex::codex(attr, item) {
         Ok(output) => output.into(),
-        Err(err) => err.to_compile_error().into(),
+        Err(error) => error.to_compile_error().into(),
     }
 }
 
@@ -149,6 +149,6 @@ pub fn codex(attr: TokenStream, item: TokenStream) -> TokenStream {
 // pub fn plugin(_tokens: TokenStream) -> TokenStream {
 //     match plugin::plugin() {
 //         Ok(output) => output.into(),
-//         Err(err) => err.to_compile_error().into(),
+//         Err(error) => error.to_compile_error().into(),
 //     }
 // }

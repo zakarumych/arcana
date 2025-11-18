@@ -1,29 +1,29 @@
 use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 
 use arcana::{
+    Ident, Name,
     ecs::entity::EntityId,
-    metatype::Stid,
+    id::Stid,
     mev,
     model::Value,
     plugin::{JobInfo, Location},
     render::RenderGraphId,
     work_graph::{Cycle, Edge, HookId, Image2D, JobDesc, JobId, JobIdx, PinId, WorkGraph},
-    Ident, Name,
 };
 use egui::Ui;
 use egui_snarl::{
-    ui::{AnyPins, PinInfo, SnarlStyle, SnarlViewer},
     InPin, InPinId, NodeId, OutPin, OutPinId, Snarl,
+    ui::{AnyPins, PinInfo, SnarlStyle, SnarlViewer},
 };
 use hashbrown::HashMap;
 
-use crate::{model::ValueProbe, project::Project};
+use crate::{error::Errors, model::ValueProbe, project::Project};
 
 use super::{
-    container::Container,
     hue_hash,
     ide::Ide,
     instance::Instance,
+    plugins::Plugins,
     sample::ImageSample,
     ui::{Sampler, Selector, UserTextures},
 };
@@ -114,11 +114,11 @@ impl Rendering {
         }
     }
 
-    pub fn update_plugins(&mut self, project: &mut Project, container: &Container) {
+    pub fn update_plugins(&mut self, project: &mut Project, plugins: &Plugins) {
         let mut all_jobs = HashMap::new();
         self.available.clear();
 
-        for (name, plugin) in container.plugins() {
+        for (name, plugin) in plugins.iter() {
             let jobs = self.available.entry(name).or_default();
 
             for info in plugin.jobs() {
@@ -168,6 +168,7 @@ impl Rendering {
     pub fn show(
         &mut self,
         project: &mut Project,
+        errors: &mut Errors,
         sample: &ImageSample,
         device: &mev::Device,
         main: &mut Instance,
@@ -260,7 +261,7 @@ impl Rendering {
 
             if viewer.modified {
                 render_graph.modification += 1;
-                try_log_err!(project.sync());
+                project.sync_in_ui(ui.ctx(), errors);
             }
         });
     }

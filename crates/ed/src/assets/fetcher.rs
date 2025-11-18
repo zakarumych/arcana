@@ -78,13 +78,13 @@ impl Fetcher {
                     return Err(NewSourcesError::PathIsNotDir(path));
                 }
             }
-            Err(err) if err.kind() == io::ErrorKind::NotFound => {
-                if let Err(err) = fs::create_dir_all(&path) {
-                    return Err(NewSourcesError::DirectoryCreationFailed(err));
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                if let Err(error) = fs::create_dir_all(&path) {
+                    return Err(NewSourcesError::DirectoryCreationFailed(error));
                 }
             }
-            Err(err) => {
-                return Err(NewSourcesError::DirectoryOpenFailed(err));
+            Err(error) => {
+                return Err(NewSourcesError::DirectoryOpenFailed(error));
             }
         }
 
@@ -148,9 +148,9 @@ impl Fetcher {
                     let hex = format!("{:x}", sha256);
                     let path = self.path.join(hex);
 
-                    if let Err(err) = std::fs::write(&*path, data) {
+                    if let Err(error) = std::fs::write(&*path, data) {
                         return Err(SourcesError::FileError {
-                            error: err,
+                            error: error,
                             url: source.clone(),
                             path,
                         });

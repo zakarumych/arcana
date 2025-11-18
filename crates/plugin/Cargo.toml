@@ -20,3 +20,4 @@ hashbrown.workspace = true
 edict.workspace = true
 tracing.workspace = true
 ctor.workspace = true
+linkme.workspace = true

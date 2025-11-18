@@ -14,6 +14,9 @@ use parking_lot::Mutex;
 
 use crate::blobs::{BlobId, Blobs};
 
+/// Loader of local imported assets.
+///
+/// Provided by [`AssetStore`](super::store::AssetStore).
 #[derive(Clone)]
 pub struct AssetRegistry {
     inner: Arc<Inner>,
@@ -80,7 +83,7 @@ impl Loader for AssetRegistry {
                     bytes: bytes.into_boxed_slice(),
                     version: item.version,
                 }),
-                Err(err) => Err(AssetError::new(err)),
+                Err(error) => Err(AssetError::new(error)),
             },
         }))
     }
@@ -100,7 +103,7 @@ impl Loader for AssetRegistry {
                     bytes: bytes.into_boxed_slice(),
                     version: item.version,
                 })),
-                Err(err) => Err(AssetError::new(err)),
+                Err(error) => Err(AssetError::new(error)),
             },
         }))
     }

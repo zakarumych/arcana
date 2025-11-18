@@ -10,7 +10,7 @@ pub fn init(attr: proc_macro::TokenStream, item: syn::ItemFn) -> syn::Result<Tok
 
     let ident = &item.sig.ident;
     Ok(quote::quote! {
-        ::arcana::plugin_ctor_add!(plugin => {
+        ::arcana::plugin::plugin_ctor_add!(plugin => {
             plugin.add_init(#ident);
         });
 

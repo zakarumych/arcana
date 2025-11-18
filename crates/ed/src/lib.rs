@@ -14,8 +14,8 @@ macro_rules! ok_log_err {
     ($res:expr) => {
         match { $res } {
             Ok(ok) => Some(ok),
-            Err(err) => {
-                tracing::error!("{err:?}");
+            Err(error) => {
+                tracing::error!("{error:?}");
                 None
             }
         }
@@ -28,8 +28,8 @@ macro_rules! try_log_err {
     ($res:expr $(; $ret:expr)?) => {
         match { $res } {
             Ok(ok) => ok,
-            Err(err) => {
-                tracing::error!("{err:?}");
+            Err(error) => {
+                tracing::error!("{error:?}");
                 return $($ret)?;
             }
         }
@@ -55,14 +55,11 @@ where
 mod app;
 mod assets;
 mod blobs;
-// mod code;
-mod container;
 mod error;
 mod filters;
 mod ide;
 mod inspector;
 mod instance;
-// mod modal;
 mod model;
 mod plugins;
 mod project;
@@ -77,8 +74,8 @@ mod viewport;
 
 /// Runs the editor application
 pub fn run(project_path: impl AsRef<Path>) {
-    if let Err(err) = _run(project_path.as_ref()) {
-        eprintln!("Error: {}", err);
+    if let Err(error) = _run(project_path.as_ref()) {
+        eprintln!("Error: {}", error);
     }
 }
 
@@ -93,14 +90,14 @@ fn _run(project_path: &Path) -> Result<(), Error> {
 
     use tracing_subscriber::layer::SubscriberExt as _;
 
-    if let Err(err) = tracing::subscriber::set_global_default(
+    if let Err(error) = tracing::subscriber::set_global_default(
         tracing_subscriber::fmt()
             // .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
             .finish()
             .with(tracing_error::ErrorLayer::default()),
         // .with(event_collector.clone()),
     ) {
-        panic!("Failed to install tracing subscriber: {}", err);
+        panic!("Failed to install tracing subscriber: {}", error);
     }
 
     // basis_universal::transcoder_init();

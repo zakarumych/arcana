@@ -9,7 +9,7 @@ use arcana::{
         AssetId,
         import::{ImportContext, ImportError, ImporterDesc, ImporterId, Missing},
     },
-    error::{Error, WithContext, fail, msg_fail},
+    error::{Error, WithContext, fail},
     id::TimeUidGen,
     model::Value,
     plugin::PluginsHub,
@@ -19,7 +19,6 @@ use base64::{
     alphabet::URL_SAFE,
     engine::general_purpose::{GeneralPurpose, NO_PAD},
 };
-use egui::Ui;
 use rand::random;
 
 use hashbrown::HashMap;
@@ -27,7 +26,7 @@ use url::Url;
 
 use crate::{
     assets::{fetcher::Fetcher, meta::SourceMeta, registry::AssetRegistry},
-    container::Container,
+    plugins::Plugins,
     project::Project,
 };
 
@@ -86,30 +85,27 @@ impl AssetStore {
         &self.registry
     }
 
-    pub fn find_importer(
+    pub fn find_importers(
         &self,
         target: Ident,
         format: Option<Name>,
-    ) -> Option<(ImporterId, &ImporterDesc)> {
-        let mut found = None;
+        extension: Option<&str>,
+    ) -> Vec<(ImporterId, &ImporterDesc)> {
+        let mut found = Vec::new();
         for (id, desc) in self.importers.iter() {
-            if desc.target == target && format.map_or(true, |f| desc.formats.contains(&f)) {
-                if found.is_some() {
-                    match format {
-                        None => tracing::error!(
-                            "Multiple importers found for target '{target}', try to narrow down with input format"
-                        ),
-                        Some(format) => {
-                            tracing::error!(
-                                "Multiple importers found for target '{target}' and format '{format}'"
-                            );
-                        }
-                    }
-                    return None;
-                }
-
-                found = Some((*id, desc));
+            if desc.target != target {
+                continue;
             }
+
+            if format.map_or(false, |f| !desc.formats.contains(&f)) {
+                continue;
+            }
+
+            if extension.map_or(false, |ext| !desc.extensions.contains(&ext)) {
+                continue;
+            }
+
+            found.push((*id, desc));
         }
 
         found
@@ -169,11 +165,11 @@ impl AssetStore {
 
             let mut modified = match top.source.metadata().and_then(|md| md.modified()) {
                 Ok(modified) => modified,
-                Err(err) => {
+                Err(error) => {
                     fail!(
                         "Failed to fetch asset source '{}' modified time: {}",
                         top.source.display(),
-                        err
+                        error
                     );
                 }
             };
@@ -187,14 +183,14 @@ impl AssetStore {
                 latest: &mut modified,
             };
 
-            if let Err(err) = importer.import(&*top.source, &*tmp, top.config.clone(), &mut ctx) {
-                match err {
+            if let Err(error) = importer.import(&*top.source, &*tmp, top.config.clone(), &mut ctx) {
+                match error {
                     ImportError::Requires {
                         sources,
                         dependencies,
                     } => {
                         if top.attempt >= MAX_ITEM_ATTEMPTS {
-                            msg_fail!(
+                            fail!(
                                 "Failed to import asset '{}' -> {}: Max attempts reached",
                                 top.source.display(),
                                 desc.target
@@ -205,23 +201,23 @@ impl AssetStore {
                         for extra_source in sources {
                             let extra_source = match top.source_url.join(&extra_source) {
                                 Ok(url) => url,
-                                Err(err) => {
+                                Err(error) => {
                                     fail!(
                                         "Failed to convert extra source '{}' into URL when importing '{}' with URL '{}': {}",
                                         extra_source,
                                         top.source.display(),
                                         top.source_url,
-                                        err
+                                        error
                                     );
                                 }
                             };
 
-                            if let Err(err) = self.fetcher.fetch(&extra_source) {
+                            if let Err(error) = self.fetcher.fetch(&extra_source) {
                                 fail!(
                                     "Failed to fetch extra source '{}' when importing '{}': {}",
                                     extra_source,
                                     top.source.display(),
-                                    err
+                                    error
                                 );
                             }
                         }
@@ -231,43 +227,33 @@ impl AssetStore {
                         // Analyze missing dependencies and put their import on top.
                         for dep in dependencies {
                             let dep_id = AssetId::generate(&mut self.id_gen);
+                            let importers = self.find_importers(dep.target, dep.format, None);
+                            let (dep_importer_id, dep_desc) =
+                                exactly_one_importer(importers, dep.target, dep.format, None)?;
 
-                            match self.find_importer(dep.target, None) {
-                                None => {
-                                    msg_fail!(
-                                        "Failed to pick importer for asset dependency '{}', while importing asset '{}' -> {}",
-                                        dep.target,
-                                        top.source.display(),
-                                        desc.target
-                                    );
-                                }
-                                Some((dep_importer_id, dep_desc)) => {
-                                    let dep_source = top.source.join(&*dep.source);
+                            let dep_source = top.source.join(&*dep.source);
 
-                                    let Ok(dep_source_url) = Url::from_file_path(&*dep_source)
-                                    else {
-                                        fail!(
-                                            "Failed to convert source path '{}' into URL",
-                                            dep_source.display()
-                                        );
-                                    };
+                            let Ok(dep_source_url) = Url::from_file_path(&*dep_source) else {
+                                fail!(
+                                    "Failed to convert source path '{}' into URL",
+                                    dep_source.display()
+                                );
+                            };
 
-                                    let config = dep_desc.config.1.clone();
+                            let config = dep_desc.config.1.clone();
 
-                                    stack.push(ImportItem {
-                                        id: dep_id,
-                                        source: dep_source,
-                                        source_url: dep_source_url,
-                                        importer: dep_importer_id,
-                                        config,
-                                        attempt: 0,
-                                    });
-                                }
-                            }
+                            stack.push(ImportItem {
+                                id: dep_id,
+                                source: dep_source,
+                                source_url: dep_source_url,
+                                importer: dep_importer_id,
+                                config,
+                                attempt: 0,
+                            });
                         }
                     }
                     ImportError::Other { reason } => {
-                        msg_fail!(
+                        fail!(
                             "Failed to import asset '{}' -> {}: {}",
                             top.source.display(),
                             desc.target,
@@ -280,15 +266,15 @@ impl AssetStore {
             // Asset successfully imported.
             let version = modified_to_version(modified);
 
-            if let Err(err) = self
+            if let Err(error) = self
                 .registry
                 .add_asset_from_tmp_file(top.id, version, &*tmp)
             {
-                msg_fail!(
+                fail!(
                     "Failed to register imported asset '{}' -> {}: {}",
                     top.source.display(),
                     desc.target,
-                    err
+                    error
                 );
             }
         }
@@ -296,17 +282,13 @@ impl AssetStore {
         Ok(())
     }
 
-    pub fn update_container(&mut self, container: &Container) {
+    pub fn update_plugins(&mut self, plugins: &Plugins) {
         self.importers.clear();
-        for (_, plugin) in container.plugins() {
+        for (_, plugin) in plugins.iter() {
             for importer in plugin.importers() {
                 self.importers.insert(importer.id, importer.desc.clone());
             }
         }
-    }
-
-    pub fn show(&mut self, ui: &mut Ui) -> Result<(), Error> {
-        Ok(())
     }
 }
 
@@ -379,4 +361,51 @@ fn modified_to_version(modified: SystemTime) -> u64 {
         .duration_since(SystemTime::UNIX_EPOCH)
         .expect("SystemTime must be after UNIX_EPOCH")
         .as_secs()
+}
+
+fn exactly_one_importer<'a>(
+    importers: Vec<(ImporterId, &'a ImporterDesc)>,
+    target: Ident,
+    format: Option<Name>,
+    extension: Option<&str>,
+) -> Result<(ImporterId, &'a ImporterDesc), Error> {
+    if importers.len() > 1 {
+        match (format, extension) {
+            (None, None) => fail!(
+                "Multiple importers found for target '{target}', try to narrow down with input format"
+            ),
+            (Some(format), None) => {
+                fail!("Multiple importers found for target '{target}' and format '{format}'");
+            }
+            (None, Some(extension)) => {
+                fail!("Multiple importers found for target '{target}' and extension '{extension}'");
+            }
+            (Some(format), Some(extension)) => {
+                fail!(
+                    "Multiple importers found for target '{target}', format {format} and extension '{extension}'"
+                );
+            }
+        }
+    }
+
+    if importers.is_empty() {
+        match (format, extension) {
+            (None, None) => fail!(
+                "No importers found for target '{target}', try to narrow down with input format"
+            ),
+            (Some(format), None) => {
+                fail!("No importers found for target '{target}' and format '{format}'");
+            }
+            (None, Some(extension)) => {
+                fail!("No importers found for target '{target}' and extension '{extension}'");
+            }
+            (Some(format), Some(extension)) => {
+                fail!(
+                    "No importers found for target '{target}', format {format} and extension '{extension}'"
+                );
+            }
+        }
+    }
+
+    Ok(importers[0])
 }

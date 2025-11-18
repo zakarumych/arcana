@@ -1,15 +1,15 @@
 use arcana::{
+    Ident, Name,
     ecs::world::World,
     input::{FilterId, Input},
     plugin::{Location, PluginsHub},
-    Ident, Name,
 };
 use egui::{Color32, Ui, WidgetText};
 use hashbrown::HashMap;
 
-use crate::project::Project;
+use crate::{error::Errors, project::Project};
 
-use super::{container::Container, ide::Ide};
+use super::{ide::Ide, plugins::Plugins};
 
 #[derive(Clone, Debug, Hash, serde::Serialize, serde::Deserialize)]
 struct Filter {
@@ -57,8 +57,13 @@ impl Filters {
         }
     }
 
-    pub fn show(&mut self, project: &mut Project, ide: Option<&dyn Ide>, ui: &mut Ui) {
-        let mut sync = false;
+    pub fn show(
+        &mut self,
+        project: &mut Project,
+        errors: &mut Errors,
+        ide: Option<&dyn Ide>,
+        ui: &mut Ui,
+    ) {
         let mut add_filter = None;
 
         ui.menu_button(egui_phosphor::regular::PLUS, |ui| {
@@ -79,7 +84,7 @@ impl Filters {
         if let Some(idx) = add_filter {
             let filter = self.available.remove(idx);
             project.data.funnel.filters.push(filter);
-            sync = true;
+            project.sync_in_ui(ui.ctx(), errors);
         }
 
         let mut toggle_filter = None;
@@ -162,29 +167,28 @@ impl Filters {
 
         if let Some(idx) = toggle_filter {
             project.data.funnel.filters[idx].enabled = !project.data.funnel.filters[idx].enabled;
-            sync = true;
+
+            project.sync_in_ui(ui.ctx(), errors);
         }
 
         if let Some(idx) = remove_filter {
             let info = project.data.funnel.filters.remove(idx);
             self.available.push(info);
-            sync = true;
+
+            project.sync_in_ui(ui.ctx(), errors);
         }
 
         if let Some(update) = r.update {
             egui_dnd::utils::shift_vec(update.from, update.to, &mut project.data.funnel.filters);
-            sync = true;
-        }
 
-        if sync {
-            try_log_err!(project.sync());
+            project.sync_in_ui(ui.ctx(), errors);
         }
     }
 
-    pub fn update_plugins(&mut self, project: &mut Project, container: &Container) {
+    pub fn update_plugins(&mut self, project: &mut Project, plugins: &Plugins) {
         let mut all_filters = HashMap::new();
 
-        for (name, plugin) in container.plugins() {
+        for (name, plugin) in plugins.iter() {
             for info in plugin.filters() {
                 all_filters.insert(info.id, (name, info));
             }

@@ -18,20 +18,21 @@ use std::{
     collections::VecDeque,
     fs::File,
     path::{Path, PathBuf},
-    sync::{atomic::AtomicBool, Arc},
+    sync::{Arc, atomic::AtomicBool},
 };
 
-use hashbrown::{hash_map::RawEntryMut, HashMap, HashSet};
+use hashbrown::{HashMap, HashSet, hash_map::RawEntryMut};
 
 use arcana::{
-    error::{error, msg_error, Error, UnifyError, WithContext},
-    plugin::{check_arcana_instance, ArcanaPlugin},
     Ident,
+    error::{Error, UnifyError, WithContext, error},
+    plugin::{ArcanaPlugin, check_arcana_instance},
 };
 
-use crate::project::Dependency;
-
-use super::error::{FileCopyError, FileOpenError, FileReadError};
+use crate::{
+    error::{FileCopyError, FileOpenError, FileReadError},
+    project::Dependency,
+};
 
 #[derive(thiserror::Error, Debug)]
 #[error("Plugin not found")]
@@ -125,18 +126,21 @@ impl Drop for Loaded {
     }
 }
 
+/// Container with loaded and initialized plugins.
+/// Clone of it must be kept where exported items are stored,
+/// until after all exported items are dropped.
 #[derive(Clone, Default)]
-pub struct Container {
+pub struct Plugins {
     active_plugins: HashSet<Ident>,
 
     // Unload library last.
     loaded: Option<Arc<Loaded>>,
 }
 
-impl fmt::Debug for Container {
+impl fmt::Debug for Plugins {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if self.loaded.is_none() {
-            return f.debug_struct("Container").finish();
+            return f.debug_struct("Plugins {{ #empty# }}").finish();
         }
 
         struct Plugins<I> {
@@ -158,24 +162,21 @@ impl fmt::Debug for Container {
             }
         }
 
-        f.debug_struct("Container")
-            .field(
-                "plugins",
-                &Plugins {
-                    plugins: self.plugins(),
-                },
-            )
+        f.debug_tuple("Plugins")
+            .field(&Plugins {
+                plugins: self.iter(),
+            })
             .finish()
     }
 }
 
-impl Container {
+impl Plugins {
     /// Create a new container from same library with the given plugins enabled.
     pub fn with_plugins(&self, enabled_plugins: &HashSet<Ident>) -> Self {
         let active_plugins = self.loaded.as_ref().map_or(HashSet::new(), |loaded| {
             get_active_plugins(loaded, enabled_plugins)
         });
-        Container {
+        Plugins {
             loaded: self.loaded.clone(),
             active_plugins,
         }
@@ -192,15 +193,7 @@ impl Container {
         self.active_plugins.contains(&name)
     }
 
-    /// Returns all plugins loaded from the library.
-    fn loaded_plugins(&self) -> &[(Ident, ArcanaPlugin)] {
-        let Some(loaded) = self.loaded.as_ref() else {
-            return &[];
-        };
-        &*loaded.plugins
-    }
-
-    pub fn get_plugin(&self, name: Ident) -> Option<&ArcanaPlugin> {
+    pub fn get(&self, name: Ident) -> Option<&ArcanaPlugin> {
         let Some(loaded) = self.loaded.as_ref() else {
             return None;
         };
@@ -215,10 +208,13 @@ impl Container {
     }
 
     /// Returns all active plugins loaded from the library.
-    pub fn plugins<'a>(&'a self) -> impl Iterator<Item = (Ident, &'a ArcanaPlugin)> + Clone + 'a {
-        let plugins = self.loaded_plugins();
+    pub fn iter<'a>(&'a self) -> impl Iterator<Item = (Ident, &'a ArcanaPlugin)> + Clone + 'a {
+        let loaded_plugins = match &self.loaded {
+            None => &[],
+            Some(loaded) => &*loaded.plugins,
+        };
 
-        plugins.iter().filter_map(|(name, plugin)| {
+        loaded_plugins.iter().filter_map(|(name, plugin)| {
             if self.active_plugins.contains(name) {
                 Some((*name, plugin))
             } else {
@@ -228,7 +224,7 @@ impl Container {
     }
 }
 
-impl PartialEq for Container {
+impl PartialEq for Plugins {
     fn eq(&self, other: &Self) -> bool {
         match (&self.loaded, &other.loaded) {
             (Some(lhs), Some(rhs)) if !Arc::ptr_eq(lhs, rhs) => return false,
@@ -244,7 +240,7 @@ impl PartialEq for Container {
     }
 }
 
-impl Eq for Container {}
+impl Eq for Plugins {}
 
 /// Sort plugins placing dependencies first.
 /// Errors if there are circular dependencies or missing dependencies.
@@ -343,11 +339,11 @@ impl Borrow<Path> for TmpPath {
 impl Drop for TmpPath {
     fn drop(&mut self) {
         if self.remove {
-            if let Err(err) = std::fs::remove_file(&self.path) {
+            if let Err(error) = std::fs::remove_file(&self.path) {
                 tracing::warn!(
                     "Failed to remove temp file '{}': {}",
                     self.path.display(),
-                    err
+                    error
                 );
             }
         }
@@ -386,7 +382,7 @@ fn copy_dylib(path: &Path, new_path: PathBuf) -> Result<TmpPath, Error> {
 /// Copies the dylib to the new path and returns the new path.
 fn find_tmp_path(path: &Path) -> Result<PathBuf, Error> {
     let Some(file_stem) = path.file_stem() else {
-        return Err(msg_error!("Bad dylib path: {}", path.display()));
+        return Err(error!("Bad dylib path: {}", path.display()));
     };
 
     let ext = path.extension();
@@ -441,7 +437,7 @@ impl Loader {
         &mut self,
         path: &Path,
         enabled_plugins: &HashSet<Ident>,
-    ) -> Result<Container, Error> {
+    ) -> Result<Plugins, Error> {
         let new_path = find_tmp_path(path).with_context("Failed to find temp path for dylib")?;
 
         let loaded = match self.loaded.raw_entry_mut().from_key(&*new_path) {
@@ -456,7 +452,7 @@ impl Loader {
 
         let active_plugins = get_active_plugins(&loaded, enabled_plugins);
 
-        Ok(Container {
+        Ok(Plugins {
             loaded: Some(loaded),
             active_plugins: active_plugins.into(),
         })
@@ -501,7 +497,7 @@ fn load_lib(path: &Path, new_path: PathBuf) -> Result<Loaded, Error> {
                 source,
                 path: path.to_owned(),
             })
-            .unify_error()
+            .unify_error();
         }
     };
 

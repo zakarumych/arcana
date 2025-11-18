@@ -2,3 +2,10 @@ name = "example"
 
 [engine]
 path = "../crates/arcana"
+
+[[plugins]]
+name = "dummy"
+description = ""
+
+[plugins.dependency]
+path = '..\crates\plugins\dummy'
