@@ -25,13 +25,13 @@ use crate::{
     ide::{Ide, IdeType},
     init_mev,
     instance::Instance,
-    plugins::{Plugins, PluginsManager, PluginsWidget},
+    plugins::{PluginsManager, PluginsWidget},
     project::Project,
     render::Rendering,
     sample::ImageSample,
     subprocess::{filter_subprocesses, kill_subprocesses},
-    systems::Systems,
-    tool::{ToolId, Toolbox},
+    systems::{SystemsManager, SystemsWidget},
+    tool::Toolbox,
     ui::{Ui, UiViewport, UserTextures},
 };
 
@@ -45,12 +45,14 @@ pub enum UserEvent {}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 enum TabKind {
     Plugins,
+    Systems,
 }
 
 impl fmt::Display for TabKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             TabKind::Plugins => f.write_str("Plugins"),
+            TabKind::Systems => f.write_str("Systems"),
         }
     }
 }
@@ -59,6 +61,7 @@ impl TabKind {
     fn build(&self) -> Tab {
         match self {
             TabKind::Plugins => Tab::Plugins(PluginsWidget::new()),
+            TabKind::Systems => Tab::Systems(SystemsWidget::new()),
         }
     }
 }
@@ -66,12 +69,14 @@ impl TabKind {
 #[derive(serde::Serialize, serde::Deserialize)]
 enum Tab {
     Plugins(PluginsWidget),
+    Systems(SystemsWidget),
 }
 
 impl Tab {
     fn kind(&self) -> TabKind {
         match self {
             Tab::Plugins(_) => TabKind::Plugins,
+            Tab::Systems(_) => TabKind::Systems,
         }
     }
 }
@@ -108,7 +113,7 @@ pub struct App {
     toolbox: Toolbox,
 
     plugins: PluginsManager,
-    systems: Systems,
+    systems: SystemsManager,
 
     /// App views correspond to windows.
     views: Vec<AppView>,
@@ -138,7 +143,7 @@ impl App {
 
         let plugins = PluginsManager::new();
         // let console = Console::new(event_collector);
-        let systems = Systems::new();
+        let systems = SystemsManager::new();
         let filters = Filters::new();
         let rendering = Rendering::new();
         let image_sample = ImageSample::new(&device).unwrap();
@@ -274,29 +279,16 @@ impl App {
                                     }
                                 });
                                 ui.menu_button("View", |ui| {
-                                    if ui.button("Plugins").clicked() {
-                                        focus_or_add_tab(
-                                            view.dock_state.main_surface_mut(),
-                                            TabKind::Plugins,
-                                        );
-                                        ui.close();
+                                    let tab_kinds = [TabKind::Plugins, TabKind::Systems];
+                                    for tab in tab_kinds {
+                                        if ui.button(tab.to_string()).clicked() {
+                                            focus_or_add_tab(
+                                                view.dock_state.main_surface_mut(),
+                                                tab,
+                                            );
+                                            ui.close();
+                                        }
                                     }
-
-                                    // if ui.button("Systems").clicked() {
-                                    //     focus_or_add_tab(
-                                    //         view.dock_state.main_surface_mut(),
-                                    //         Tab::Systems,
-                                    //     );
-                                    //     ui.close();
-                                    // }
-
-                                    // if ui.button("Assets").clicked() {
-                                    //     focus_or_add_tab(
-                                    //         view.dock_state.main_surface_mut(),
-                                    //         Tab::Assets,
-                                    //     );
-                                    //     ui.close();
-                                    // }
 
                                     for (plugin, name) in self.toolbox.enumerate() {
                                         if ui.button(format!("{name} @ {plugin}")).clicked() {
@@ -528,7 +520,7 @@ struct AppModel<'a> {
     ide: Option<&'a dyn Ide>,
     toolbox: &'a mut Toolbox,
     plugins: &'a mut PluginsManager,
-    systems: &'a mut Systems,
+    systems: &'a mut SystemsManager,
     errors: &'a mut Errors,
 }
 
@@ -537,34 +529,12 @@ impl egui_dock::widgets::TabViewer for AppModel<'_> {
 
     fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Tab) {
         match tab {
-            // Tab::Assets => self.assets.show(ui, self.main),
-            Tab::Plugins(widget) => widget.show(self.plugins, self.project, self.errors, ui),
-            // Tab::Console => self.console.show(ui),
-            // Tab::Systems => self.systems.show(self.project, self.ide, ui),
-            // // Tab::Filters => self.filters.show(self.project, self.data, self.ide, ui),
-            // // Tab::Codes => self.code.show(self.project, self.data, ui),
-            // // Tab::Rendering => self.rendering.show(
-            // //     self.project,
-            // //     self.data,
-            // //     self.sample,
-            // //     self.device,
-            // //     self.main,
-            // //     &mut self.textures,
-            // //     self.ide,
-            // //     ui,
-            // // ),
-            // // Tab::Main => self.main.show(self.window.id(), &mut self.textures, ui),
-            // // Tab::Inspector => {} //Inspector::show(self.world, ui),
-            // Tab::Assets => {
-            //     if let Err(error) = self.assets.show(ui) {
-            //         self.errors
-            //             .push_error(ui.ctx().viewport_id(), "Assets error", error);
-            //     }
-            // }
-            // Tab::Tool { id } => {
-            //     self.toolbox
-            //         .show(id, self.project, self.ide.as_deref(), self.main, ui);
-            // }
+            Tab::Plugins(widget) => {
+                widget.show(self.plugins, self.project, self.errors, ui);
+            }
+            Tab::Systems(widget) => {
+                widget.show(self.systems, self.project, self.errors, self.ide, ui)
+            }
         }
     }
 

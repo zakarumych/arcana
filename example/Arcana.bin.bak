@@ -1,1 +1,1 @@
-{"enabled_plugins":[],"systems":{"nodes":{},"wires":[]},"funnel":{"filters":[]},"render_graphs":{}}
+{"enabled_plugins":["dummy"],"systems":{"nodes":{"0":{"value":{"system":10126194212770239711,"name":"dummy_system","plugin":"dummy","enabled":true,"category":"Var"},"pos":{"x":140.32289,"y":206.3333},"open":true}},"wires":[]},"funnel":{"filters":[]},"render_graphs":{}}

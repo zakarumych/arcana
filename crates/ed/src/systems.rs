@@ -101,44 +101,14 @@ fn order_systems(snarl: &Snarl<SystemNode>, category: Category) -> Vec<SystemId>
     order
 }
 
-pub struct Systems {
+pub struct SystemsManager {
     available: Vec<SystemNode>,
 }
 
-impl Systems {
+impl SystemsManager {
     pub fn new() -> Self {
-        Systems {
+        SystemsManager {
             available: Vec::new(),
-        }
-    }
-
-    pub fn show(
-        &mut self,
-        project: &mut Project,
-        errors: &mut Errors,
-        ide: Option<&dyn Ide>,
-        ui: &mut Ui,
-    ) {
-        const STYLE: SnarlStyle = SnarlStyle::new();
-
-        let mut viewer = SystemViewer {
-            modified: false,
-            available: &mut self.available,
-            ide,
-        };
-
-        project
-            .data
-            .systems
-            .snarl
-            .show(&mut viewer, &STYLE, "systems", ui);
-
-        if viewer.modified {
-            project.sync_in_ui(ui.ctx(), errors);
-        }
-
-        if viewer.modified {
-            project.data.systems.modification += 1;
         }
     }
 
@@ -178,6 +148,46 @@ impl Systems {
     }
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct SystemsWidget {}
+
+impl SystemsWidget {
+    pub fn new() -> Self {
+        SystemsWidget {}
+    }
+
+    pub fn show(
+        &mut self,
+        manager: &mut SystemsManager,
+        project: &mut Project,
+        errors: &mut Errors,
+        ide: Option<&dyn Ide>,
+        ui: &mut Ui,
+    ) {
+        const STYLE: SnarlStyle = SnarlStyle::new();
+
+        let mut viewer = SystemViewer {
+            modified: false,
+            available: &mut manager.available,
+            ide,
+        };
+
+        project
+            .data
+            .systems
+            .snarl
+            .show(&mut viewer, &STYLE, "systems", ui);
+
+        if viewer.modified {
+            project.sync_in_ui(ui.ctx(), errors);
+        }
+
+        if viewer.modified {
+            project.data.systems.modification += 1;
+        }
+    }
+}
+
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(transparent)]
 pub struct SystemGraph {
@@ -214,9 +224,9 @@ impl Default for SystemGraph {
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 struct SystemNode {
-    plugin: Ident,
-    name: Name,
     system: SystemId,
+    name: Name,
+    plugin: Ident,
     enabled: bool,
     category: Category,
 
@@ -242,7 +252,7 @@ impl SnarlViewer<SystemNode> for SystemViewer<'_> {
         &mut self,
         id: NodeId,
         _inputs: &[InPin],
-        _utputs: &[OutPin],
+        _outputs: &[OutPin],
         ui: &mut Ui,
         snarl: &mut Snarl<SystemNode>,
     ) {
@@ -308,19 +318,17 @@ impl SnarlViewer<SystemNode> for SystemViewer<'_> {
                 let mut is_fix = node.category == Category::Fix;
                 ui.label("Variable rate");
                 let r = toggle_ui(ui, &mut is_fix);
+                r.on_hover_text("Execute system with variable or fixed rate");
                 ui.label("Fixed rate");
                 toggle = is_fix != (node.category == Category::Fix);
-
-                self.modified |= r.changed();
             });
         });
 
         if remove {
-            let node = snarl.remove_node(id);
-            self.available.push(node);
-            self.available.sort_by_cached_key(|node| node.name.clone());
             self.modified = true;
-        } else if toggle {
+        }
+
+        if toggle {
             node.category = match node.category {
                 Category::Fix => Category::Var,
                 Category::Var => Category::Fix,
@@ -331,6 +339,7 @@ impl SnarlViewer<SystemNode> for SystemViewer<'_> {
                 node: id,
                 output: 0,
             });
+            self.modified = true;
         }
     }
 
