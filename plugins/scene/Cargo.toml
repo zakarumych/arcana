@@ -1,0 +1,15 @@
+[package]
+name = "scene"
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+license.workspace = true
+version.workspace = true
+
+[features]
+dim2 = []
+dim3 = []
+
+[dependencies]
+arcana = { path = "../../engine/arcana" }
+na.workspace = true

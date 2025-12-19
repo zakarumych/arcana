@@ -1,0 +1,13 @@
+[package]
+name = "sdf"
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+arcana = { path = "../../engine/arcana" }
+scene = { path = "../scene", features = ["dim2"] }
+camera = { path = "../camera" }
+na.workspace = true

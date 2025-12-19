@@ -1,26 +1,28 @@
 [workspace]
 members = [
-    "crates/alloc",
-    "crates/proc",
-    "crates/intern",
-    "crates/base-encoding",
-    "crates/io",
-    "crates/hash",
-    "crates/id",
-    "crates/project",
-    "crates/model",
-    "crates/assets",
-    "crates/unfold",
-    "crates/work-graph",
-    "crates/ecs",
-    "crates/graphics",
-    "crates/input",
-    "crates/plugin",
-    "crates/num2name",
-    "crates/arcana",
-    "crates/ed",
-    "crates/launcher",
-    "crates/error",
+    "engine/alloc",
+    "engine/proc",
+    "engine/intern",
+    "engine/base-encoding",
+    "engine/io",
+    "engine/hash",
+    "engine/id",
+    "engine/project",
+    "engine/model",
+    "engine/assets",
+    "engine/unfold",
+    "engine/work-graph",
+    "engine/ecs",
+    "engine/graphics",
+    "engine/input",
+    "engine/plugin",
+    "engine/num2name",
+    "engine/arcana",
+    "engine/ed",
+    "engine/launcher",
+    "engine/error",
+    "plugins/dummy",
+    "plugins/jkl",
 ]
 resolver = "2"
 
@@ -46,7 +48,7 @@ basis-universal-sys = "0.3.1"
 bincode = "2.0.1"
 bitflags = "2.10.0"
 bit-vec = { version = "0.8.0" }
-blink-alloc = { version = "0.3.1", features = ["nightly"] }
+blink-alloc = { version = "0.4", features = ["nightly"] }
 bytemuck = { version = "1.23.1", features = ["derive", "min_const_generics", "extern_crate_alloc"] }
 camino = "1.1.10"
 cargo_toml = "0.22.1"

@@ -1,0 +1,18 @@
+[package]
+name = "motion"
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+license.workspace = true
+version.workspace = true
+
+[features]
+dim2 = ["scene/dim2", "physics/dim2"]
+dim3 = ["scene/dim3", "physics/dim3"]
+
+[dependencies]
+arcana = { path = "../../engine/arcana" }
+scene = { path = "../scene" }
+physics = { path = "../physics" }
+na.workspace = true
+tracing.workspace = true

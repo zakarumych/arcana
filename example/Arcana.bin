@@ -1,1 +1,1 @@
-{"enabled_plugins":["dummy"],"systems":{"nodes":{"0":{"value":{"system":10126194212770239711,"name":"dummy_system","plugin":"dummy","enabled":true,"category":"Fix"},"pos":{"x":202.32289,"y":167.66664},"open":true}},"wires":[]},"funnel":{"filters":[]},"render_graphs":{}}
+{"enabled_plugins":["dummy","jkl-plugin"],"systems":{"nodes":{},"wires":[]},"funnel":{"filters":[]},"render_graphs":{}}

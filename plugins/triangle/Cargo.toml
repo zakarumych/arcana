@@ -1,0 +1,11 @@
+[package]
+name = "triangle"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+arcana = { path = "../../engine/arcana" }
+dummy = { path = "../dummy" }
+tracing.workspace = true
+palette.workspace = true

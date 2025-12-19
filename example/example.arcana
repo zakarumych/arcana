@@ -1,11 +1,18 @@
 name = "example"
 
 [engine]
-path = "../crates/arcana"
+path = "../engine/arcana"
 
 [[plugins]]
 name = "dummy"
 description = ""
 
 [plugins.dependency]
-path = '..\crates\plugins\dummy'
+path = '..\plugins\dummy'
+
+[[plugins]]
+name = "jkl-plugin"
+description = ""
+
+[plugins.dependency]
+path = '..\plugins\jkl'

@@ -1,0 +1,12 @@
+[package]
+name = "jkl-plugin"
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+license.workspace = true
+version.workspace = true
+publish = false
+
+[dependencies]
+arcana = { path = "../../engine/arcana" }
+#jkl = { path = "../../../jkl" }
