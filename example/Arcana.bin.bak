@@ -1,1 +1,1 @@
-{"enabled_plugins":["dummy"],"systems":{"nodes":{},"wires":[]},"funnel":{"filters":[]},"render_graphs":{}}
+{"enabled_plugins":["jkl-plugin","dummy"],"systems":{"nodes":{},"wires":[]},"funnel":{"filters":[]},"render_graphs":{}}

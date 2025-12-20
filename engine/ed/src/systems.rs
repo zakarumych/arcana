@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 use arcana::{
-    Ident, Name,
+    Name,
     ecs::{SystemId, action::ActionBufferSliceExt, world::World},
     plugin::{Location, PluginsHub},
 };

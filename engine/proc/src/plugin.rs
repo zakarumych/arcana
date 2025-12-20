@@ -39,6 +39,7 @@ proc_easy::easy_terminated! {
 }
 
 proc_easy::easy_parse! {
+    #[allow(dead_code)]
     enum DepKind {
         Path(path),
         Path2(syn::Token![...]),

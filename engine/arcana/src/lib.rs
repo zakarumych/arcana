@@ -1,4 +1,4 @@
-#![feature(allocator_api, maybe_uninit_slice)]
+#![feature(allocator_api)]
 #![deny(unsafe_op_in_unsafe_fn, unused_must_use, non_snake_case)]
 // #![recursion_limit = "512"]
 
