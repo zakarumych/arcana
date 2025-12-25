@@ -4,12 +4,12 @@ use std::{
     env::consts::{DLL_PREFIX, DLL_SUFFIX, EXE_SUFFIX},
     fmt,
     path::{Path, PathBuf},
-    process::{Child, Command},
+    process::{Child, Command, Stdio},
 };
 
 use arcana_error::Error;
 
-use crate::{path::make_relative, WORKSPACE_DIR_NAME};
+use crate::{WORKSPACE_DIR_NAME, path::make_relative};
 
 use super::Dependency;
 
@@ -40,6 +40,7 @@ pub fn run_editor(root_path: &Path, manifest_path: &Path, profile: Profile) -> C
     // cmd.arg("--verbose")
     cmd.env("RUSTFLAGS", "-Zshare-generics=off -Cprefer-dynamic=yes")
         .current_dir(&workspace);
+
     cmd
 }
 
@@ -54,6 +55,7 @@ pub fn build_editor(root: &Path, profile: Profile) -> Command {
     // cmd.arg("--verbose")
     cmd.env("RUSTFLAGS", "-Zshare-generics=off -Cprefer-dynamic=yes")
         .current_dir(&workspace);
+
     cmd
 }
 
@@ -68,8 +70,19 @@ pub fn run_game(root: &Path, profile: Profile) -> Command {
     if profile == Profile::Release {
         cmd.arg("--release");
     }
-    cmd.env("RUSTFLAGS", "-Zshare-generics=off -Cprefer-dynamic=yes")
+    cmd.env("RUSTFLAGS", "-Zshare-generics=off")
         .current_dir(&workspace);
+
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+
     cmd
 }
 
@@ -83,6 +96,17 @@ pub fn build_game(root: &Path, profile: Profile) -> Command {
     }
     cmd.env("RUSTFLAGS", "-Zshare-generics=off")
         .current_dir(&workspace);
+
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+
     cmd
 }
 
@@ -99,16 +123,25 @@ pub fn build_plugins(root: &Path, profile: Profile) -> Result<BuildProcess, Erro
         cmd.arg("--release");
     }
 
-    let child = cmd
-        .env("RUSTFLAGS", "-Zshare-generics=off -Cprefer-dynamic=yes")
-        .current_dir(&workspace)
-        .spawn()
-        .map_err(|error| {
-            Error::msg(format!(
-                "Failed to start building plugins '{}'. {error:?}",
-                workspace.display()
-            ))
-        })?;
+    cmd.env("RUSTFLAGS", "-Zshare-generics=off -Cprefer-dynamic=yes")
+        .current_dir(&workspace);
+
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+
+    let child = cmd.spawn().map_err(|error| {
+        Error::msg(format!(
+            "Failed to start building plugins '{}'. {error:?}",
+            workspace.display()
+        ))
+    })?;
 
     let artifact = plugins_lib_path(&workspace, profile);
 

@@ -6,10 +6,10 @@
 use std::{
     fmt,
     fs::{File, FileType},
-    io::{Read, Seek, SeekFrom, Write},
+    io::{BufRead, BufReader, Read, Seek, SeekFrom, Write},
     ops::Deref,
     path::{MAIN_SEPARATOR, Path, PathBuf, absolute},
-    process::Child,
+    process::{Child, ChildStderr, ChildStdout, Stdio},
 };
 
 use arcana_error::Error;
@@ -372,8 +372,24 @@ impl Project {
 
     pub fn build_editor_non_blocking(&self, profile: Profile) -> Result<Child, Error> {
         self.init_workspace()?;
-        match wrapper::build_editor(self.root_path(), profile).spawn() {
-            Ok(child) => Ok(child),
+
+        let mut cmd = wrapper::build_editor(self.root_path(), profile);
+
+        // We choose to hide the console window for editor build process
+        // and redirect output to logs.
+        // No input is expected by the build process.
+        cmd.stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        }
+
+        match cmd.spawn() {
+            Ok(mut child) => Ok(child),
             Err(error) => {
                 return Err(Error::msg(format!(
                     "Cannot build \"ed\" on \"{}\": {error:?}",
@@ -385,8 +401,21 @@ impl Project {
 
     pub fn run_editor_non_blocking(&self, profile: Profile) -> Result<Child, Error> {
         self.init_workspace()?;
-        match wrapper::run_editor(self.root_path(), &self.manifest_path, profile).spawn() {
-            Ok(child) => Ok(child),
+
+        let mut cmd = wrapper::run_editor(self.root_path(), &self.manifest_path, profile);
+
+        cmd.stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        }
+
+        match cmd.spawn() {
+            Ok(mut child) => Ok(child),
             Err(error) => {
                 return Err(Error::msg(format!(
                     "Cannot run \"ed\" on \"{}\": {error:?}",

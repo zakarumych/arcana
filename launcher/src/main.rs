@@ -1,36 +1,57 @@
+#![cfg_attr(windows, windows_subsystem = "windows")]
+
 use std::{
+    io::Read,
     path::{PathBuf, absolute},
-    process::{Child, ExitCode, Termination},
+    process::{Child, ChildStderr, ChildStdout, ExitCode, Termination},
 };
 
 use arcana_error::Error;
 use arcana_launcher::{Dependency, Ident, Profile, Project, Start, validate_engine_path};
 use egui_file::FileDialog;
 use hashbrown::HashMap;
+use tracing_subscriber::util::SubscriberInitExt;
 
 mod cli;
+
+static LOGO256_RAW: &'static [u8] = include_bytes!(concat!(env!("OUT_DIR"), "/logo256.raw"));
 
 fn main() -> ExitCode {
     use tracing_subscriber::layer::SubscriberExt as _;
 
-    if let Err(error) = tracing::subscriber::set_global_default(
-        tracing_subscriber::fmt()
-            // .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-            .finish()
-            .with(tracing_error::ErrorLayer::default()),
-    ) {
-        panic!("Failed to install tracing subscriber: {}", error);
-    }
-
     if std::env::args().len() > 1 {
+        if let Err(error) = tracing::subscriber::set_global_default(
+            tracing_subscriber::fmt()
+                // .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+                .finish()
+                .with(tracing_error::ErrorLayer::default()),
+        ) {
+            panic!("Failed to install tracing subscriber: {}", error);
+        }
+
         return cli::run_cli().report();
     }
 
-    let native_options = eframe::NativeOptions::default();
+    let collector = egui_tracing::EventCollector::default();
+    tracing_subscriber::registry()
+        .with(collector.clone())
+        .init();
+
+    let icon = egui::IconData {
+        rgba: LOGO256_RAW.to_vec(),
+        width: 256,
+        height: 256,
+    };
+
+    let native_options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default().with_icon(icon),
+        ..Default::default()
+    };
+
     return eframe::run_native(
         "Arcana Launcher",
         native_options,
-        Box::new(|cc| Ok(Box::new(App::new(cc)))),
+        Box::new(|cc| Ok(Box::new(App::new(cc, collector)))),
     )
     .report();
 }
@@ -187,6 +208,12 @@ impl eframe::App for App {
                 }
             });
         });
+
+        egui::TopBottomPanel::bottom("Log")
+            .resizable(true)
+            .show(cx, |ui| {
+                ui.add(egui_tracing::Logs::new(self.collector.clone()));
+            });
 
         let mut remove_recent = None;
 
@@ -473,6 +500,7 @@ impl Drop for AppChild {
         match self {
             AppChild::None => {}
             AppChild::EditorBuilding(child, _) => {
+                pipes_to_log(child.stdout.take(), child.stderr.take(), "ed build");
                 let _ = child.kill();
             }
             AppChild::EditorRunning(child) => {
@@ -499,10 +527,12 @@ pub struct App {
     ///
     /// When child app finishes, launcher is shown again.
     child: AppChild,
+
+    collector: egui_tracing::EventCollector,
 }
 
 impl App {
-    pub fn new(cc: &eframe::CreationContext) -> Self {
+    pub fn new(cc: &eframe::CreationContext, collector: egui_tracing::EventCollector) -> Self {
         let mut fonts = egui::FontDefinitions::default();
         egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
         cc.egui_ctx.set_fonts(fonts);
@@ -514,6 +544,7 @@ impl App {
 
             dialog: None,
             child: AppChild::None,
+            collector,
         }
     }
 }
@@ -782,6 +813,32 @@ fn display_dependency(dep: &Dependency) -> String {
         }
         Dependency::Path { path } => {
             format!("{}{}", egui_phosphor::regular::FILE_CODE, path)
+        }
+    }
+}
+
+fn pipes_to_log(stdout: Option<ChildStdout>, stderr: Option<ChildStderr>, name: &'static str) {
+    if let Some(mut stdout) = stdout {
+        let mut output = String::new();
+        match stdout.read_to_string(&mut output) {
+            Ok(output) => {
+                tracing::info!("[{name} stdout] {}", output);
+            }
+            Err(error) => {
+                tracing::error!("Failed to read stdout from {name} stdout: {error:?}");
+            }
+        }
+    }
+
+    if let Some(mut stderr) = stderr {
+        let mut output = String::new();
+        match stderr.read_to_string(&mut output) {
+            Ok(output) => {
+                tracing::info!("[{name} stderr] {}", output);
+            }
+            Err(error) => {
+                tracing::error!("Failed to read stderr from {name} stderr: {error:?}");
+            }
         }
     }
 }

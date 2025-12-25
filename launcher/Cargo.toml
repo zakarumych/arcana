@@ -12,9 +12,9 @@ name = "arcana"
 path = "src/main.rs"
 
 [dependencies]
-arcana-intern = { path = "../intern" }
-arcana-project = { path = "../project" }
-arcana-error = { path = "../error" }
+arcana-intern = { path = "../engine/intern" }
+arcana-project = { path = "../engine/project" }
+arcana-error = { path = "../engine/error" }
 
 camino = { workspace = true, features = ["serde1"] }
 clap.workspace = true
@@ -24,6 +24,7 @@ egui.workspace = true
 egui_dnd.workspace = true
 egui_file.workspace = true
 egui-phosphor.workspace = true
+egui_tracing.workspace = true
 eframe.workspace = true
 figa = { workspace = true, features = ["derive"] }
 hashbrown.workspace = true
@@ -33,3 +34,7 @@ toml.workspace = true
 tracing.workspace = true
 tracing-error.workspace = true
 tracing-subscriber.workspace = true
+
+[build-dependencies]
+cc.workspace = true
+image.workspace = true

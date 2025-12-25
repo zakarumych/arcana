@@ -1,26 +1,26 @@
 [workspace]
 members = [
     "engine/alloc",
-    "engine/proc",
-    "engine/intern",
-    "engine/base-encoding",
-    "engine/io",
-    "engine/hash",
-    "engine/id",
-    "engine/project",
-    "engine/model",
+    "engine/arcana",
     "engine/assets",
+    "engine/base-encoding",
+    "engine/ecs",
+    "engine/ed",
+    "engine/error",
+    "engine/graphics",
+    "engine/hash",
+    "engine/intern",
+    "engine/id",
+    "engine/input",
+    "engine/io",
+    "engine/model",
+    "engine/num2name",
+    "engine/plugin",
+    "engine/proc",
+    "engine/project",
     "engine/unfold",
     "engine/work-graph",
-    "engine/ecs",
-    "engine/graphics",
-    "engine/input",
-    "engine/plugin",
-    "engine/num2name",
-    "engine/arcana",
-    "engine/ed",
-    "engine/launcher",
-    "engine/error",
+    "launcher",
     "plugins/dummy",
     "plugins/jkl",
 ]
@@ -52,6 +52,7 @@ blink-alloc = { version = "0.4", features = ["nightly"] }
 bytemuck = { version = "1.23.1", features = ["derive", "min_const_generics", "extern_crate_alloc"] }
 camino = "1.1.10"
 cargo_toml = "0.22.1"
+cc = "1"
 chrono = "0.4.41"
 cint = "0.3.1"
 clap = { version = "4.5.53", features = ["derive"] }
@@ -71,7 +72,7 @@ egui_file = { version = "0.24.0" }
 egui-phosphor = { version = "0.10.0", git = "https://github.com/zakarumych/egui-phosphor.git", branch = "egui-0.33" }
 egui-probe = { path = "../egui-probe" }
 egui-snarl = { path = "../egui-snarl" }
-# egui_tracing = { version = "0.2.6" }
+egui_tracing = { version = "0.2.6", git = "https://github.com/codabrink/egui_tracing.git", branch = "dev" }
 eframe = { version = "0.33.0" }
 flume = "0.11.1"
 figa = { version = "0.3.0" }
@@ -126,3 +127,6 @@ unicode-ident = "1.0.18"
 url = "2.5.4"
 uuid = { version = "1.17.0" }
 winit = { version = "0.30.11" }
+
+[profile.release]
+panic = "abort"
