@@ -181,8 +181,7 @@ impl App {
         tracing::subscriber::set_global_default(
             tracing_subscriber::fmt()
                 // .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-                .finish()
-                .with(toaster.tracing_layer()),
+                .finish(), // .with(toaster.tracing_layer()),
         )
         .expect("Global subscriber is set only once");
 

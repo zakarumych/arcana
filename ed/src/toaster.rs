@@ -151,6 +151,10 @@ impl Toaster {
         self.next_idx += 1;
     }
 
+    pub fn push_info(&mut self, message: String) {
+        self.push(Level::Info, message);
+    }
+
     pub fn tick(&mut self) {
         let len = self.toasts.len();
         self.toasts.append(&mut self.remote.lock());

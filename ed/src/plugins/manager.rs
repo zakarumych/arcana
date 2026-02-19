@@ -148,6 +148,7 @@ impl PluginsManager {
                                 tracing::info!(
                                     "New plugins container version pending. {container:#?}"
                                 );
+                                toaster.push_info("Plugins library updated.".to_string());
                                 self.pending = Some(container);
                                 self.unset_failure();
                             }

@@ -98,7 +98,7 @@ palette = { version = "0.7.6", features = ["serializing"] }
 parking_lot = "0.12.4"
 percent-encoding = "2.3.1"
 proc-macro2 = "1.0.95"
-rand = "0.9.2"
+rand = { version = "0.10", features = ["chacha", "serde"] }
 proc-easy = "0.4.0"
 quote = "1.0.40"
 raw-window-handle = "0.6.2"
