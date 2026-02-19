@@ -67,7 +67,7 @@ pub fn make_relative(path: &Path, base: &Path) -> PathBuf {
 /// but checks that path is not occupied,
 /// and no ancestor is a file or inaccessible,
 /// and that some first existing ancestor is a directory.
-pub fn is_available(path: &Path) -> bool {
+pub fn is_path_available(path: &Path) -> bool {
     if path.exists() {
         return false;
     }

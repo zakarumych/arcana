@@ -1,5 +1,5 @@
 [package]
-name = "jkl-plugin"
+name = "chess"
 edition.workspace = true
 authors.workspace = true
 readme.workspace = true
@@ -8,5 +8,5 @@ version.workspace = true
 publish = false
 
 [dependencies]
+cursor = { path = "../cursor" }
 arcana = { path = "../../engine/arcana" }
-jkl = { path = "../../../jkl" }

@@ -7,6 +7,9 @@ use std::{
     path::Path,
 };
 
+pub use arcana::project::{
+    BuildProcess, Dependency, Plugin, Profile, ProjectManifest, is_path_available, new_plugin_crate,
+};
 use arcana::{
     Name,
     error::{Error, fail},
@@ -14,17 +17,11 @@ use arcana::{
 };
 use hashbrown::{HashMap, HashSet};
 
-use crate::error::Errors;
-
-use super::{filters::Funnel, render::RenderGraph, systems::SystemGraph};
-
-pub use arcana_project::{
-    BuildProcess, Dependency, Plugin, Profile, ProjectManifest, is_available, new_plugin_crate,
-};
+use crate::{error::ModalError, filters::Funnel, render::RenderGraph, systems::SystemGraph};
 
 /// Generic project data.
 pub struct Project {
-    pub inner: arcana_project::Project,
+    pub inner: arcana::project::Project,
     pub data: internal::ProjectData,
 }
 
@@ -50,7 +47,7 @@ mod internal {
 }
 
 impl Deref for Project {
-    type Target = arcana_project::Project;
+    type Target = arcana::project::Project;
 
     fn deref(&self) -> &Self::Target {
         &self.inner
@@ -65,7 +62,7 @@ impl DerefMut for Project {
 
 impl Project {
     pub fn load(path: &Path) -> Result<Self, Error> {
-        let project = arcana_project::Project::open(path)?;
+        let project = arcana::project::Project::open(path)?;
 
         let path = project.root_path().join("Arcana.bin");
 
@@ -135,9 +132,9 @@ impl Project {
         Ok(())
     }
 
-    pub fn sync_in_ui(&self, ctx: &egui::Context, errors: &mut Errors) {
+    pub fn sync_in_ui(&self, ctx: &egui::Context, modal_error: &mut ModalError) {
         if let Err(error) = self.sync() {
-            errors.push_error(ctx.viewport_id(), "Project sync error", error);
+            modal_error.push_error(ctx.viewport_id(), "Project sync error", error);
         }
     }
 }

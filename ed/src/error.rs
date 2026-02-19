@@ -71,13 +71,13 @@ impl ErrorWidget {
 ///
 /// Usually there can't be more than one error at a time, since when dialog has one error it
 /// prevents interaction with the rest of the UI.
-pub struct Errors {
+pub struct ModalError {
     widgets: SmallVec<[(ErrorWidget, egui::ViewportId); 16]>,
 }
 
-impl Errors {
+impl ModalError {
     pub fn new() -> Self {
-        Errors {
+        ModalError {
             widgets: SmallVec::new(),
         }
     }

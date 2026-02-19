@@ -3,8 +3,9 @@
 use std::{
     env::consts::{DLL_PREFIX, DLL_SUFFIX, EXE_SUFFIX},
     fmt,
+    io::Read,
     path::{Path, PathBuf},
-    process::{Child, Command, Stdio},
+    process::{Child, Command, ExitStatus, Stdio},
 };
 
 use arcana_error::Error;
@@ -116,8 +117,30 @@ pub fn build_game(root: &Path, profile: Profile) -> Command {
 pub fn build_plugins(root: &Path, profile: Profile) -> Result<BuildProcess, Error> {
     let workspace = root.join(WORKSPACE_DIR_NAME);
 
+    // let mut cargo_tree = Command::new("cargo")
+    //     .arg("+nightly")
+    //     .arg("tree")
+    //     .arg("--edges=features,build,normal")
+    //     .arg("--package=arcana")
+    //     .spawn()
+    //     .unwrap();
+
+    // cargo_tree.wait().unwrap();
+
+    // let mut output = String::new();
+    // cargo_tree
+    //     .stderr
+    //     .take()
+    //     .unwrap()
+    //     .read_to_string(&mut output)
+    //     .unwrap();
+
+    // tracing::error!("Cargo tree output:\n{output}");
+
     let mut cmd = Command::new("cargo");
     cmd.arg("+nightly").arg("build").arg("--package=plugins");
+
+    // cmd.arg("--message-format=json-diagnostic-rendered-ansi");
 
     if profile == Profile::Release {
         cmd.arg("--release");
@@ -170,25 +193,75 @@ impl Drop for BuildProcess {
     }
 }
 
+struct BuildError {
+    status: ExitStatus,
+    stderr: String,
+}
+
+impl fmt::Debug for BuildError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Build process failed: '{status}'\n\n{stderr}",
+            status = self.status,
+            stderr = self.stderr
+        )
+    }
+}
+
+impl fmt::Display for BuildError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if f.alternate() {
+            write!(
+                f,
+                "Build process failed: '{status}'\n\n{stderr}",
+                status = self.status,
+                stderr = self.stderr
+            )
+        } else {
+            write!(f, "Build process failed: '{status}'", status = self.status)
+        }
+    }
+}
+
+impl std::error::Error for BuildError {}
+
+impl BuildError {
+    pub fn status(&self) -> ExitStatus {
+        self.status
+    }
+
+    pub fn stderr(&self) -> &str {
+        &self.stderr
+    }
+}
+
 impl BuildProcess {
-    /// Checks if process has finished.
-    /// Returns error if process exit unsuccessfully.
-    /// Returns Ok(true) if process is complete.
-    /// Returns Ok(false) if process is still running.
-    pub fn finished(&mut self) -> Result<bool, Error> {
+    /// Checks if build process has finished and returns result.
+    ///
+    /// Returns [`None`] if process is still running,
+    /// [`Ok`] if process finished successfully
+    /// and [`Err`] if process finished with error or failed to wait.
+    pub fn finished(&mut self) -> Option<Result<(), Error>> {
         match self.child.try_wait() {
-            Err(error) => {
-                return Err(Error::msg(format!(
-                    "Failed to wait for build process to finish. {error:?}"
-                )));
-            }
-            Ok(None) => Ok(false),
-            Ok(Some(status)) if status.success() => Ok(true),
+            Err(error) => Some(Err(Error::msg(format!(
+                "Failed to wait for build process to finish. {error:?}"
+            )))),
+            Ok(None) => None,
+            Ok(Some(status)) if status.success() => Some(Ok(())),
             Ok(Some(status)) => {
-                return Err(Error::msg(format!(
-                    "Build process failed with status '{status}'.",
-                    status = status
-                )));
+                let stderr = match self.child.stderr.take() {
+                    None => format!("<STDERR NOT CAPTURED>"),
+                    Some(mut stderr) => {
+                        let mut buf = String::new();
+                        match stderr.read_to_string(&mut buf) {
+                            Ok(_) => buf,
+                            Err(error) => format!("<FAILED TO READ STDERR: {error:?}>"),
+                        }
+                    }
+                };
+
+                Some(Err(Error::wrap(BuildError { status, stderr })))
             }
         }
     }

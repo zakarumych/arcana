@@ -12,7 +12,7 @@ use egui_snarl::{
 };
 use hashbrown::{HashMap, HashSet};
 
-use crate::{error::Errors, project::Project};
+use crate::{error::ModalError, project::Project};
 
 use super::{ide::Ide, plugins::Plugins, toggle_ui};
 
@@ -160,7 +160,7 @@ impl SystemsWidget {
         &mut self,
         manager: &mut SystemsManager,
         project: &mut Project,
-        errors: &mut Errors,
+        modal_error: &mut ModalError,
         ide: Option<&dyn Ide>,
         ui: &mut Ui,
     ) {
@@ -179,7 +179,7 @@ impl SystemsWidget {
             .show(&mut viewer, &STYLE, "systems", ui);
 
         if viewer.modified {
-            project.sync_in_ui(ui.ctx(), errors);
+            project.sync_in_ui(ui.ctx(), modal_error);
         }
 
         if viewer.modified {

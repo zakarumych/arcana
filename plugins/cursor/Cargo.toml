@@ -9,4 +9,3 @@ publish = false
 
 [dependencies]
 arcana = { path = "../../engine/arcana" }
-na.workspace = true

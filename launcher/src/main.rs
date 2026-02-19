@@ -8,8 +8,10 @@ use std::{
 
 use arcana_error::Error;
 use arcana_launcher::{Dependency, Ident, Profile, Project, Start, validate_engine_path};
+use clap::Parser;
 use egui_file::FileDialog;
 use hashbrown::HashMap;
+use tracing::Level;
 use tracing_subscriber::util::SubscriberInitExt;
 
 mod cli;
@@ -19,7 +21,9 @@ static LOGO256_RAW: &'static [u8] = include_bytes!(concat!(env!("OUT_DIR"), "/lo
 fn main() -> ExitCode {
     use tracing_subscriber::layer::SubscriberExt as _;
 
-    if std::env::args().len() > 1 {
+    let cli = cli::Cli::parse();
+
+    if !cli.is_empty() {
         if let Err(error) = tracing::subscriber::set_global_default(
             tracing_subscriber::fmt()
                 // .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
@@ -29,10 +33,10 @@ fn main() -> ExitCode {
             panic!("Failed to install tracing subscriber: {}", error);
         }
 
-        return cli::run_cli().report();
+        return cli::run_cli(cli).report();
     }
 
-    let collector = egui_tracing::EventCollector::default();
+    let collector = egui_tracing::EventCollector::default().with_level(Level::INFO);
     tracing_subscriber::registry()
         .with(collector.clone())
         .init();

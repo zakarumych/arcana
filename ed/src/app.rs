@@ -1,5 +1,5 @@
 use core::fmt;
-use std::{borrow::Cow, hash::Hash, path::PathBuf};
+use std::{hash::Hash, path::PathBuf};
 
 use arboard::Clipboard;
 use arcana::{
@@ -11,6 +11,7 @@ use arcana::{
 use egui::{TopBottomPanel, WidgetText};
 use egui_dock::{DockArea, DockState, Tree};
 use egui_probe::Probe;
+use tracing_subscriber::layer::SubscriberExt as _;
 use winit::{
     dpi,
     event::WindowEvent,
@@ -20,7 +21,7 @@ use winit::{
 
 use crate::{
     assets::AssetStore,
-    error::Errors,
+    error::ModalError,
     filters::Filters,
     ide::{Ide, IdeType},
     init_mev,
@@ -31,6 +32,7 @@ use crate::{
     sample::ImageSample,
     subprocess::{filter_subprocesses, kill_subprocesses},
     systems::{SystemsManager, SystemsWidget},
+    toaster::Toaster,
     tool::Toolbox,
     ui::{Ui, UiViewport, UserTextures},
 };
@@ -119,7 +121,8 @@ pub struct App {
     views: Vec<AppView>,
 
     preferences: Preferences,
-    errors: Errors,
+    modal_error: ModalError,
+    toaster: Toaster,
 }
 
 struct AppView {
@@ -173,6 +176,16 @@ impl App {
         let assets = AssetStore::new(&project)?;
 
         let toolbox = Toolbox::new();
+        let toaster = Toaster::new();
+
+        tracing::subscriber::set_global_default(
+            tracing_subscriber::fmt()
+                // .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+                .finish()
+                .with(toaster.tracing_layer()),
+        )
+        .expect("Global subscriber is set only once");
+
         Ok(App {
             should_quit: false,
 
@@ -201,7 +214,8 @@ impl App {
             systems,
 
             preferences: Preferences::new(cfg),
-            errors: Errors::new(),
+            modal_error: ModalError::new(),
+            toaster,
         })
     }
 
@@ -221,7 +235,7 @@ impl App {
     }
 
     pub fn tick(&mut self, step: ClockStep) {
-        self.plugins.tick(&mut self.project);
+        self.plugins.tick(&mut self.project, &mut self.toaster);
 
         if let Some(c) = self.plugins.take_updated() {
             self.toolbox.update_plugins(&mut self.project, &c);
@@ -231,6 +245,7 @@ impl App {
         }
 
         self.toolbox.tick(&mut self.project, &mut self.main);
+        self.toaster.tick();
         self.main.tick(&self.project, step);
     }
 
@@ -315,7 +330,8 @@ impl App {
                                 toolbox: &mut self.toolbox,
                                 plugins: &mut self.plugins,
                                 systems: &mut self.systems,
-                                errors: &mut self.errors,
+                                modal_error: &mut self.modal_error,
+                                toaster: &mut self.toaster,
                             };
 
                             let dock_area = DockArea::new(&mut view.dock_state);
@@ -323,10 +339,14 @@ impl App {
                         });
 
                         if let Err(error) = self.preferences.show(cx, &mut self.cfg) {
-                            self.errors
-                                .push_error(cx.viewport_id(), "Preferences Error", error);
+                            self.modal_error.push_error(
+                                cx.viewport_id(),
+                                "Preferences Error",
+                                error,
+                            );
                         }
-                        self.errors.show(cx);
+                        self.toaster.show(cx);
+                        self.modal_error.show(cx);
                     },
                 );
 
@@ -521,7 +541,8 @@ struct AppModel<'a> {
     toolbox: &'a mut Toolbox,
     plugins: &'a mut PluginsManager,
     systems: &'a mut SystemsManager,
-    errors: &'a mut Errors,
+    modal_error: &'a mut ModalError,
+    toaster: &'a mut Toaster,
 }
 
 impl egui_dock::widgets::TabViewer for AppModel<'_> {
@@ -530,10 +551,10 @@ impl egui_dock::widgets::TabViewer for AppModel<'_> {
     fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Tab) {
         match tab {
             Tab::Plugins(widget) => {
-                widget.show(self.plugins, self.project, self.errors, ui);
+                widget.show(self.plugins, self.project, self.modal_error, ui);
             }
             Tab::Systems(widget) => {
-                widget.show(self.systems, self.project, self.errors, self.ide, ui)
+                widget.show(self.systems, self.project, self.modal_error, self.ide, ui)
             }
         }
     }

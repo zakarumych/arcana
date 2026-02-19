@@ -1,12 +1,11 @@
 use std::path::{PathBuf, absolute};
 
-use arcana::{Ident, error::Error, validate_ident};
-use arcana_project::Plugin;
+use arcana::{error::Error, project::Plugin, validate_ident};
 use camino::{Utf8Path, Utf8PathBuf};
 use egui::{Color32, RichText, Ui};
 use egui_file::FileDialog;
 
-use crate::{error::Errors, project::Project};
+use crate::{error::ModalError, project::Project};
 
 use super::PluginsManager;
 
@@ -40,7 +39,7 @@ impl PluginsWidget {
         &mut self,
         manager: &mut PluginsManager,
         project: &mut Project,
-        errors: &mut Errors,
+        modal_error: &mut ModalError,
         ui: &mut Ui,
     ) {
         // Building status
@@ -55,7 +54,7 @@ impl PluginsWidget {
                     if manager.is_building() {
                         ui.spinner();
                         ui.label("Building");
-                    } else if let Some(failure) = manager.last_failure() {
+                    } else if let Some(failure) = manager.last_build_failure() {
                         let r = ui.label(
                             egui::RichText::from("Plugins build: failed")
                                 .color(ui.visuals().error_fg_color),
@@ -285,7 +284,7 @@ impl PluginsWidget {
                                         Ok(real_path) => {
                                             new_plugin.real_path = real_path;
                                             new_plugin.real_path.push(&new_plugin.name);
-                                            new_plugin.ready = crate::project::is_available(
+                                            new_plugin.ready = crate::project::is_path_available(
                                                 new_plugin.real_path.as_std_path(),
                                             );
                                         }
@@ -299,12 +298,16 @@ impl PluginsWidget {
                                 .add_enabled(new_plugin.ready, egui::Button::new("OK"))
                                 .clicked()
                             {
-                                match manager.new_plugin(new_plugin.name.clone(), &new_plugin.real_path, project) {
+                                match manager.new_plugin(
+                                    new_plugin.name.clone(),
+                                    &new_plugin.real_path,
+                                    project,
+                                ) {
                                     Ok(()) => {
                                         close = true;
                                     }
                                     Err(error) => {
-                                        errors.push_error(
+                                        modal_error.push_error(
                                             ui.ctx().viewport_id(),
                                             "New plugins errors",
                                             error,
@@ -326,7 +329,7 @@ impl PluginsWidget {
         }
 
         if sync_project {
-            project.sync_in_ui(ui.ctx(), errors);
+            project.sync_in_ui(ui.ctx(), modal_error);
             manager.refresh_enabled_plugins(project);
         }
 

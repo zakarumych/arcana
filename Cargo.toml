@@ -5,7 +5,6 @@ members = [
     "engine/assets",
     "engine/base-encoding",
     "engine/ecs",
-    "engine/ed",
     "engine/error",
     "engine/graphics",
     "engine/hash",
@@ -20,6 +19,7 @@ members = [
     "engine/project",
     "engine/unfold",
     "engine/work-graph",
+    "ed",
     "launcher",
     "plugins/dummy",
     "plugins/jkl",
@@ -73,6 +73,7 @@ egui-phosphor = { version = "0.10.0", git = "https://github.com/zakarumych/egui-
 egui-probe = { path = "../egui-probe" }
 egui-snarl = { path = "../egui-snarl" }
 egui_tracing = { version = "0.2.6", git = "https://github.com/codabrink/egui_tracing.git", branch = "dev" }
+egui-toast = { version = "0.19.1" }
 eframe = { version = "0.33.0" }
 flume = "0.11.1"
 figa = { version = "0.3.0" }

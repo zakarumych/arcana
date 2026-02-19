@@ -67,8 +67,8 @@ pub use {
     },
     arcana_io as io, arcana_model as model, arcana_num2name as num2name, arcana_plugin as plugin,
     arcana_proc::*,
-    arcana_unfold as unfold, arcana_work_graph as work_graph, athena, bytemuck, gametime,
-    hashbrown, mev, parking_lot, smol_str, tokio, tracing,
+    arcana_project as project, arcana_unfold as unfold, arcana_work_graph as work_graph, athena,
+    bytemuck, gametime, hashbrown, mev, parking_lot, smol_str, tokio, tracing,
 };
 
 extern crate self as arcana;

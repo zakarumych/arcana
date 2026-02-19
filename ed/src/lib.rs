@@ -1,7 +1,6 @@
 use std::{hash::Hash, path::Path};
 
-use arcana::{error::Error, hash::sha256, mev};
-use arcana_project::Profile;
+use arcana::{error::Error, hash::sha256, mev, project::Profile};
 use winit::event_loop::EventLoop;
 
 #[cfg(windows)]
@@ -68,6 +67,7 @@ mod sample;
 mod subprocess;
 mod systems;
 mod task;
+mod toaster;
 mod tool;
 mod ui;
 mod viewport;
@@ -85,20 +85,6 @@ fn _run(project_path: &Path) -> Result<(), Error> {
     arcana::plugin::set_running_arcana_instance();
 
     let project = Project::load(project_path)?;
-
-    // let event_collector = egui_tracing::EventCollector::default();
-
-    use tracing_subscriber::layer::SubscriberExt as _;
-
-    if let Err(error) = tracing::subscriber::set_global_default(
-        tracing_subscriber::fmt()
-            // .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-            .finish()
-            .with(tracing_error::ErrorLayer::default()),
-        // .with(event_collector.clone()),
-    ) {
-        panic!("Failed to install tracing subscriber: {}", error);
-    }
 
     // basis_universal::transcoder_init();
 

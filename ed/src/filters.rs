@@ -7,7 +7,7 @@ use arcana::{
 use egui::{Color32, Ui, WidgetText};
 use hashbrown::HashMap;
 
-use crate::{error::Errors, project::Project};
+use crate::{error::ModalError, project::Project};
 
 use super::{ide::Ide, plugins::Plugins};
 
@@ -60,7 +60,7 @@ impl Filters {
     pub fn show(
         &mut self,
         project: &mut Project,
-        errors: &mut Errors,
+        modal_error: &mut ModalError,
         ide: Option<&dyn Ide>,
         ui: &mut Ui,
     ) {
@@ -84,7 +84,7 @@ impl Filters {
         if let Some(idx) = add_filter {
             let filter = self.available.remove(idx);
             project.data.funnel.filters.push(filter);
-            project.sync_in_ui(ui.ctx(), errors);
+            project.sync_in_ui(ui.ctx(), modal_error);
         }
 
         let mut toggle_filter = None;
@@ -168,20 +168,20 @@ impl Filters {
         if let Some(idx) = toggle_filter {
             project.data.funnel.filters[idx].enabled = !project.data.funnel.filters[idx].enabled;
 
-            project.sync_in_ui(ui.ctx(), errors);
+            project.sync_in_ui(ui.ctx(), modal_error);
         }
 
         if let Some(idx) = remove_filter {
             let info = project.data.funnel.filters.remove(idx);
             self.available.push(info);
 
-            project.sync_in_ui(ui.ctx(), errors);
+            project.sync_in_ui(ui.ctx(), modal_error);
         }
 
         if let Some(update) = r.update {
             egui_dnd::utils::shift_vec(update.from, update.to, &mut project.data.funnel.filters);
 
-            project.sync_in_ui(ui.ctx(), errors);
+            project.sync_in_ui(ui.ctx(), modal_error);
         }
     }
 

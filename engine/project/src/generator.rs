@@ -141,7 +141,7 @@ pub fn init_workspace(
 
     let ed = match engine.clone() {
         Dependency::Path { path } => {
-            let path = absolute_utf8(path.join("../ed")).unwrap();
+            let path = absolute_utf8(path.join("../../ed")).unwrap();
 
             Dependency::Path { path }
         }

@@ -29,7 +29,7 @@ pub use self::{
     dependency::Dependency,
     generator::new_plugin_crate,
     manifest::ProjectManifest,
-    path::{is_available, make_relative},
+    path::{is_path_available, make_relative},
     plugin::Plugin,
     wrapper::{BuildProcess, Profile, game_bin_path},
 };

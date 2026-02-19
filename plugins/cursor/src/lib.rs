@@ -6,15 +6,7 @@ use arcana::{
     input::{Input, InputFilter, ViewInput},
 };
 
-arcana::export_arcana_plugin! {
-    CursorPlugin {
-        resources: [MainCursor(Cursor {
-            x: 0.0,
-            y: 0.0,
-        })],
-        filters: [cursor: CursorFilter],
-    }
-}
+arcana::declare_plugin!();
 
 /// Value that represents a cursor.
 #[derive(Clone, Copy, Debug)]
@@ -23,22 +15,27 @@ pub struct Cursor {
     pub y: f32,
 }
 
+/// A resource that contains main cursor.
+/// Main cursor receives mouse moving events and updates its position.
 pub struct MainCursor(Cursor);
 
 impl Deref for MainCursor {
     type Target = Cursor;
+
+    #[inline]
     fn deref(&self) -> &Cursor {
         &self.0
     }
 }
 
 impl DerefMut for MainCursor {
+    #[inline]
     fn deref_mut(&mut self) -> &mut Cursor {
         &mut self.0
     }
 }
 
-struct CursorFilter;
+pub struct CursorFilter;
 
 impl InputFilter for CursorFilter {
     fn filter(&mut self, _blink: &Blink, world: &mut World, event: &Input) -> bool {

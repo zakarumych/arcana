@@ -4,7 +4,7 @@ use arcana_error::Error;
 use arcana_intern::Ident;
 use arcana_launcher::Start;
 use arcana_project::{Dependency, Profile};
-use clap::{builder::TypedValueParser, Parser, Subcommand};
+use clap::{Parser, Subcommand, builder::TypedValueParser};
 
 #[derive(Debug, Clone, serde::Deserialize)]
 struct ArcanaArg {
@@ -40,7 +40,10 @@ impl TypedValueParser for IdentValueParser {
         };
         match Ident::from_str(s) {
             Ok(ident) => Ok(ident.to_owned()),
-            Err(error) => Err(clap::Error::raw(clap::error::ErrorKind::InvalidValue, error)),
+            Err(error) => Err(clap::Error::raw(
+                clap::error::ErrorKind::InvalidValue,
+                error,
+            )),
         }
     }
 }
@@ -147,13 +150,18 @@ enum Command {
 #[command(name = "arcn")]
 #[command(about = "Arcana game engine CLI")]
 #[command(rename_all = "kebab-case")]
-struct Cli {
+pub struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
 }
 
-pub fn run_cli() -> Result<(), Error> {
-    let cli = Cli::parse();
+impl Cli {
+    pub fn is_empty(&self) -> bool {
+        self.command.is_none()
+    }
+}
+
+pub fn run_cli(cli: Cli) -> Result<(), Error> {
     let start = Start::new();
 
     match cli.command.unwrap_or_else(|| Command::Ed {

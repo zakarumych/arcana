@@ -24,7 +24,9 @@ use std::{
 use hashbrown::{HashMap, HashSet, hash_map::RawEntryMut};
 
 use arcana::{
-    Name, error::{Error, UnifyError, WithContext, error}, plugin::{ArcanaPlugin, check_arcana_instance}
+    Name,
+    error::{Error, UnifyError, WithContext, error},
+    plugin::{ArcanaPlugin, check_arcana_instance},
 };
 
 use crate::{
@@ -431,11 +433,7 @@ impl Loader {
     /// At the end this function is technically unsound, but it is the best we can do.
     ///
     /// It also checks that plugin dependencies are satisfied and no circular dependencies exist.
-    pub fn load(
-        &mut self,
-        path: &Path,
-        enabled_plugins: &HashSet<Name>,
-    ) -> Result<Plugins, Error> {
+    pub fn load(&mut self, path: &Path, enabled_plugins: &HashSet<Name>) -> Result<Plugins, Error> {
         let new_path = find_tmp_path(path).with_context("Failed to find temp path for dylib")?;
 
         let loaded = match self.loaded.raw_entry_mut().from_key(&*new_path) {

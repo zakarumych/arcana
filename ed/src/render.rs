@@ -1,7 +1,7 @@
 use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 
 use arcana::{
-    Ident, Name,
+    Name,
     ecs::entity::EntityId,
     id::Stid,
     mev,
@@ -17,7 +17,7 @@ use egui_snarl::{
 };
 use hashbrown::HashMap;
 
-use crate::{error::Errors, model::ValueProbe, project::Project};
+use crate::{error::ModalError, model::ValueProbe, project::Project};
 
 use super::{
     hue_hash,
@@ -168,7 +168,7 @@ impl Rendering {
     pub fn show(
         &mut self,
         project: &mut Project,
-        errors: &mut Errors,
+        modal_error: &mut ModalError,
         sample: &ImageSample,
         device: &mev::Device,
         main: &mut Instance,
@@ -261,7 +261,7 @@ impl Rendering {
 
             if viewer.modified {
                 render_graph.modification += 1;
-                project.sync_in_ui(ui.ctx(), errors);
+                project.sync_in_ui(ui.ctx(), modal_error);
             }
         });
     }

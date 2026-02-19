@@ -1,7 +1,4 @@
-use arcana::{
-    Ident,
-    error::{Error, fail},
-};
+use arcana::error::{Error, fail};
 use camino::Utf8Path;
 
 use crate::{
@@ -9,6 +6,7 @@ use crate::{
     project::{
         BuildProcess, Dependency, Plugin, Profile, Project, ProjectManifest, new_plugin_crate,
     },
+    toaster::Toaster,
 };
 
 use super::container::{Loader, Plugins, PluginsError};
@@ -34,7 +32,7 @@ pub struct PluginsManager {
     build: Option<BuildProcess>,
 
     /// Last plugins build failure report.
-    last_failure: Option<Error>,
+    last_build_failure: Option<Error>,
 
     profile: Profile,
 }
@@ -47,7 +45,7 @@ impl PluginsManager {
             updated: None,
             pending: None,
             build: None,
-            last_failure: None,
+            last_build_failure: None,
             profile: get_profile(),
         }
     }
@@ -108,7 +106,7 @@ impl PluginsManager {
         ) {
             Ok(plugin) => match project.add_plugin(plugin) {
                 Ok(true) => {
-                    project.sync();
+                    project.sync()?;
                     self.build = Some(project.build_plugins_library(self.profile)?);
                 }
                 Ok(false) => {
@@ -130,11 +128,11 @@ impl PluginsManager {
         self.updated.take()
     }
 
-    pub fn tick(&mut self, project: &mut Project) {
+    pub fn tick(&mut self, project: &mut Project, toaster: &mut Toaster) {
         if let Some(mut build) = self.build.take() {
             match build.finished() {
-                Ok(false) => self.build = Some(build),
-                Ok(true) => {
+                None => self.build = Some(build),
+                Some(Ok(())) => {
                     tracing::info!(
                         "Finished building plugins library {}",
                         build.artifact().display()
@@ -151,7 +149,7 @@ impl PluginsManager {
                                     "New plugins container version pending. {container:#?}"
                                 );
                                 self.pending = Some(container);
-                                self.last_failure = None;
+                                self.unset_failure();
                             }
                         }
                         Err(error) => {
@@ -163,9 +161,11 @@ impl PluginsManager {
                                     rebuild = true;
                                     tracing::error!("Missing dependency: {md:?}");
 
-                                    if let Err(error) =
-                                        self.add_plugin(md.plugin.to_string(), md.dependency.clone(), project)
-                                    {
+                                    if let Err(error) = self.add_plugin(
+                                        md.plugin.to_string(),
+                                        md.dependency.clone(),
+                                        project,
+                                    ) {
                                         tracing::error!(
                                             "Failed to add missing dependency. {error:?}"
                                         );
@@ -173,10 +173,18 @@ impl PluginsManager {
                                 }
 
                                 if !plugins_error.circular_dependencies.is_empty() {
-                                    self.last_failure = Some(error);
+                                    toaster.push_error(
+                                        "Failed to load plugins library.".to_string(),
+                                        &error,
+                                    );
+                                    self.set_build_failire(error);
                                 }
                             } else {
-                                self.last_failure = Some(error);
+                                toaster.push_error(
+                                    "Failed to load plugins library.".to_string(),
+                                    &error,
+                                );
+                                self.set_build_failire(error);
                             }
 
                             if rebuild {
@@ -187,23 +195,31 @@ impl PluginsManager {
                                         self.build = Some(build);
                                     }
                                     Err(error) => {
-                                        self.last_failure = Some(error);
+                                        toaster.push_error(
+                                            "Failed to build plugins library.".to_string(),
+                                            &error,
+                                        );
+                                        self.set_build_failire(error);
                                     }
                                 }
                             }
                         }
                     }
                 }
-                Err(error) => {
+                Some(Err(error)) => {
                     tracing::error!("Failed building plugins library. {error:?}");
-                    self.last_failure = Some(error);
+                    toaster.push_error("Failed to build plugins library.".to_string(), &error);
+                    self.set_build_failire(error);
                 }
             }
         }
 
         match self.pending.take() {
             None => {
-                if self.linked.is_none() && self.last_failure.is_none() && self.build.is_none() {
+                if self.linked.is_none()
+                    && self.last_build_failure.is_none()
+                    && self.build.is_none()
+                {
                     tracing::info!("Make initial plugins library build");
 
                     match project.build_plugins_library(self.profile) {
@@ -211,7 +227,9 @@ impl PluginsManager {
                             self.build = Some(build);
                         }
                         Err(error) => {
-                            self.last_failure = Some(error);
+                            toaster
+                                .push_error("Failed to build plugins library.".to_string(), &error);
+                            self.set_build_failire(error);
                         }
                     }
                 }
@@ -236,8 +254,16 @@ impl PluginsManager {
         self.build.is_some()
     }
 
-    pub fn last_failure(&self) -> Option<&Error> {
-        self.last_failure.as_ref()
+    fn unset_failure(&mut self) {
+        self.last_build_failure = None;
+    }
+
+    fn set_build_failire(&mut self, error: Error) {
+        self.last_build_failure = Some(error);
+    }
+
+    pub(super) fn last_build_failure(&self) -> Option<&Error> {
+        self.last_build_failure.as_ref()
     }
 
     pub fn start_new_build(&mut self, project: &Project) {

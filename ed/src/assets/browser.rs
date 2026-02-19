@@ -4,8 +4,8 @@ use arcana::{
     assets::import::{ImporterDesc, ImporterId},
     error::{Error, fail},
     model::Value,
+    project::Project,
 };
-use arcana_project::Project;
 use egui::Ui;
 use egui_file::FileDialog;
 use hashbrown::HashMap;
