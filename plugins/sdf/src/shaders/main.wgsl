@@ -13,7 +13,7 @@ struct Constants {
     shape_count: u32,
 }
 
-var<push_constant> pc: Constants;
+var<immediate> pc: Constants;
 
 @vertex
 fn vs_main(@builtin(vertex_index) index: u32) -> VertOutput {
@@ -33,11 +33,9 @@ struct Shape {
     layer: u32,
 }
 
-
 struct Circle {
     radius: f32,
 }
-
 
 struct Rect {
     half_box: vec2f,
@@ -77,7 +75,7 @@ fn fs_main(@location(0) sample: vec2f) -> @location(0) vec4f {
         let shape_sample = shape.inv_tr * vec3f(sample, 1f);
         let d = sdf(shape, shape_sample.xy);
         if d <= -0.001f {
-            let dd = abs(vec2f(d / dpdx(d) * dpdx(sample.x), d / dpdy(d) *  dpdy(sample.y)));
+            let dd = abs(vec2f(d / dpdx(d) * dpdx(sample.x), d / dpdy(d) * dpdy(sample.y)));
             var ddd = vec2f(0f, 0f);
             if dd.x > 10000000f {
                 ddd = vec2f(0f, dd.y);

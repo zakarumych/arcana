@@ -1,11 +1,13 @@
-use arcana::error::{Error, fail};
+use arcana::{
+    Name,
+    error::{Error, fail},
+    hash::HashSet,
+};
 use camino::Utf8Path;
 
 use crate::{
     get_profile,
-    project::{
-        BuildProcess, Dependency, Plugin, Profile, Project, ProjectManifest, new_plugin_crate,
-    },
+    project::{BuildProcess, Dependency, Plugin, Profile, Project, ProjectData, new_plugin_crate},
     toaster::Toaster,
 };
 
@@ -13,7 +15,7 @@ use super::container::{Loader, Plugins, PluginsError};
 
 /// Tool to manage plugins libraries
 /// and enable/disable self.
-pub struct PluginsManager {
+pub struct PluginManager {
     loader: Loader,
 
     /// Currently linked plugins container.
@@ -35,11 +37,17 @@ pub struct PluginsManager {
     last_build_failure: Option<Error>,
 
     profile: Profile,
+
+    /// List of all plugins in the project.
+    plugins: Vec<Plugin>,
+
+    /// Set of enabled plugins.
+    enabled_plugins: HashSet<Name>,
 }
 
-impl PluginsManager {
+impl PluginManager {
     pub fn new() -> Self {
-        PluginsManager {
+        PluginManager {
             loader: Loader::new(),
             linked: None,
             updated: None,
@@ -47,12 +55,24 @@ impl PluginsManager {
             build: None,
             last_build_failure: None,
             profile: get_profile(),
+            plugins: Vec::new(),
+            enabled_plugins: HashSet::default(),
         }
     }
 
-    /// Checks of all plugins from manifest are present in linked library.
-    fn check_plugins(project: &ProjectManifest, container: &Plugins) -> bool {
-        project.plugins.iter().all(|p| {
+    pub fn load(&mut self, project: &Project, data: &ProjectData) {
+        self.plugins = project.manifest().plugins.clone();
+        self.enabled_plugins = data.enabled_plugins.clone();
+    }
+
+    pub fn save(&self, project: &mut Project, data: &mut ProjectData) {
+        project.manifest_mut().plugins = self.plugins.clone();
+        data.enabled_plugins = self.enabled_plugins.clone();
+    }
+
+    /// Checks of all plugins are present in linked library.
+    fn check_plugins(plugins: &[Plugin], container: &Plugins) -> bool {
+        plugins.iter().all(|p| {
             let has = container.has(p.name);
             if !has {
                 tracing::debug!("Plugin '{}' is not linked", p.name);
@@ -61,19 +81,27 @@ impl PluginsManager {
         })
     }
 
+    pub fn plugins(&self) -> &[Plugin] {
+        &self.plugins
+    }
+
+    pub fn has_plugin(&self, name: Name) -> bool {
+        self.plugins.iter().any(|x| x.name == name)
+    }
+
     /// Adds plugin to project.
-    pub fn add_plugin(
-        &mut self,
-        name: String,
-        dep: Dependency,
-        project: &mut Project,
-    ) -> Result<(), Error> {
-        if project.has_plugin(&name) {
-            fail!("Plugin '{}' already exists", name);
+    pub fn load_plugin(&mut self, name: Name, dependency: Dependency) -> Result<(), Error> {
+        let plugin = Plugin::from_dependency(name.to_string(), dependency)?;
+        self.add_plugin(plugin)
+    }
+
+    /// Adds plugin to project.
+    pub fn add_plugin(&mut self, plugin: Plugin) -> Result<(), Error> {
+        if self.plugins.iter().any(|x| x.name == plugin.name) {
+            fail!("Plugin '{}' already exists", plugin.name);
         }
 
-        let plugin = Plugin::from_dependency(name, dep)?;
-        project.add_plugin(plugin)?;
+        self.plugins.push(plugin);
 
         if self.build.is_some() {
             // Stop current build if there was one.
@@ -87,14 +115,14 @@ impl PluginsManager {
         Ok(())
     }
 
-    /// Adds new local plugin
+    /// Creates new local plugin and adds it to the project.
     pub fn new_plugin(
         &mut self,
         name: String,
         path: &Utf8Path,
-        project: &mut Project,
+        project: &Project,
     ) -> Result<(), Error> {
-        if project.has_plugin(&name) {
+        if self.plugins.iter().any(|x| x.name == name) {
             fail!("Plugin '{}' already exists", name);
         }
 
@@ -104,18 +132,9 @@ impl PluginsManager {
             project.engine().clone(),
             Some(project.root_path()),
         ) {
-            Ok(plugin) => match project.add_plugin(plugin) {
-                Ok(true) => {
-                    project.sync()?;
-                    self.build = Some(project.build_plugins_library(self.profile)?);
-                }
-                Ok(false) => {
-                    fail!("Plugin '{}' already exists", name);
-                }
-                Err(error) => {
-                    fail!("Failed to add plugin. {error:?}");
-                }
-            },
+            Ok(plugin) => {
+                self.plugins.push(plugin);
+            }
             Err(error) => {
                 fail!("Failed to create new plugin. {error:?}");
             }
@@ -124,11 +143,30 @@ impl PluginsManager {
         Ok(())
     }
 
+    pub fn remove_plugin(&mut self, name: Name) {
+        self.plugins.retain(|x| x.name != name);
+        self.enabled_plugins.remove(&name);
+    }
+
+    pub fn is_plugin_enabled(&self, name: Name) -> bool {
+        self.enabled_plugins.contains(&name)
+    }
+
+    pub fn enable_plugin(&mut self, name: Name) {
+        debug_assert!(self.has_plugin(name));
+        self.enabled_plugins.insert(name);
+    }
+
+    pub fn disable_plugin(&mut self, name: Name) {
+        debug_assert!(self.has_plugin(name));
+        self.enabled_plugins.remove(&name);
+    }
+
     pub fn take_updated(&mut self) -> Option<Plugins> {
         self.updated.take()
     }
 
-    pub fn tick(&mut self, project: &mut Project, toaster: &mut Toaster) {
+    pub fn tick(&mut self, toaster: &mut Toaster, project: &Project) {
         if let Some(mut build) = self.build.take() {
             match build.finished() {
                 None => self.build = Some(build),
@@ -138,9 +176,9 @@ impl PluginsManager {
                         build.artifact().display()
                     );
                     let path = build.artifact();
-                    match self.loader.load(&path, &project.data.enabled_plugins) {
+                    match self.loader.load(&path, &self.enabled_plugins) {
                         Ok(container) => {
-                            if !Self::check_plugins(project.manifest(), &container) {
+                            if !Self::check_plugins(&self.plugins, &container) {
                                 tracing::warn!("Not all plugins are linked. Rebuilding");
                                 self.build =
                                     ok_log_err!(project.build_plugins_library(self.profile));
@@ -162,11 +200,9 @@ impl PluginsManager {
                                     rebuild = true;
                                     tracing::error!("Missing dependency: {md:?}");
 
-                                    if let Err(error) = self.add_plugin(
-                                        md.plugin.to_string(),
-                                        md.dependency.clone(),
-                                        project,
-                                    ) {
+                                    if let Err(error) =
+                                        self.load_plugin(md.plugin, md.dependency.clone())
+                                    {
                                         tracing::error!(
                                             "Failed to add missing dependency. {error:?}"
                                         );
@@ -189,8 +225,6 @@ impl PluginsManager {
                             }
 
                             if rebuild {
-                                try_log_err!(project.sync());
-
                                 match project.build_plugins_library(self.profile) {
                                     Ok(build) => {
                                         self.build = Some(build);
@@ -277,11 +311,11 @@ impl PluginsManager {
         self.build = Some(build);
     }
 
-    pub fn refresh_enabled_plugins(&mut self, project: &Project) {
+    pub fn refresh_enabled_plugins(&mut self) {
         if let Some(c) = &self.pending {
-            self.pending = Some(c.with_plugins(&project.data.enabled_plugins));
+            self.pending = Some(c.with_plugins(&self.enabled_plugins));
         } else if let Some(c) = &self.linked {
-            self.pending = Some(c.with_plugins(&project.data.enabled_plugins));
+            self.pending = Some(c.with_plugins(&self.enabled_plugins));
         }
     }
 }

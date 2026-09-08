@@ -21,6 +21,7 @@ use std::{
     sync::{Arc, atomic::AtomicBool},
 };
 
+use foldhash::fast::RandomState;
 use hashbrown::{HashMap, HashSet, hash_map::RawEntryMut};
 
 use arcana::{
@@ -172,7 +173,7 @@ impl fmt::Debug for Plugins {
 
 impl Plugins {
     /// Create a new container from same library with the given plugins enabled.
-    pub fn with_plugins(&self, enabled_plugins: &HashSet<Name>) -> Self {
+    pub fn with_plugins(&self, enabled_plugins: &HashSet<Name, RandomState>) -> Self {
         let active_plugins = self.loaded.as_ref().map_or(HashSet::new(), |loaded| {
             get_active_plugins(loaded, enabled_plugins)
         });
@@ -193,19 +194,19 @@ impl Plugins {
         self.active_plugins.contains(&name)
     }
 
-    pub fn get(&self, name: Name) -> Option<&ArcanaPlugin> {
-        let Some(loaded) = self.loaded.as_ref() else {
-            return None;
-        };
+    // pub fn get(&self, name: Name) -> Option<&ArcanaPlugin> {
+    //     let Some(loaded) = self.loaded.as_ref() else {
+    //         return None;
+    //     };
 
-        for &(plugin_name, ref plugin) in loaded.plugins.iter() {
-            if plugin_name == name {
-                return Some(plugin);
-            }
-        }
+    //     for &(plugin_name, ref plugin) in loaded.plugins.iter() {
+    //         if plugin_name == name {
+    //             return Some(plugin);
+    //         }
+    //     }
 
-        None
-    }
+    //     None
+    // }
 
     /// Returns all active plugins loaded from the library.
     pub fn iter<'a>(&'a self) -> impl Iterator<Item = (Name, &'a ArcanaPlugin)> + Clone + 'a {
@@ -433,7 +434,11 @@ impl Loader {
     /// At the end this function is technically unsound, but it is the best we can do.
     ///
     /// It also checks that plugin dependencies are satisfied and no circular dependencies exist.
-    pub fn load(&mut self, path: &Path, enabled_plugins: &HashSet<Name>) -> Result<Plugins, Error> {
+    pub fn load(
+        &mut self,
+        path: &Path,
+        enabled_plugins: &HashSet<Name, RandomState>,
+    ) -> Result<Plugins, Error> {
         let new_path = find_tmp_path(path).with_context("Failed to find temp path for dylib")?;
 
         let loaded = match self.loaded.raw_entry_mut().from_key(&*new_path) {
@@ -458,7 +463,10 @@ impl Loader {
 /// Activate plugins based on enabled plugins.
 ///
 /// Plugin is activated if it is enabled and all its dependencies are active.
-fn get_active_plugins(loaded: &Loaded, enabled_plugins: &HashSet<Name>) -> HashSet<Name> {
+fn get_active_plugins(
+    loaded: &Loaded,
+    enabled_plugins: &HashSet<Name, RandomState>,
+) -> HashSet<Name> {
     let mut active_set = HashSet::new();
 
     'a: for &(name, ref plugin) in loaded.plugins.iter() {

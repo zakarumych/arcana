@@ -3,8 +3,8 @@ struct Constants {
     extent: vec2f,
 }
 
-var<push_constant> pc: Constants;
-@group(0) @binding(0) var src : texture_2d<f32>;
+var<immediate> pc: Constants;
+@group(0) @binding(0) var src: texture_2d<f32>;
 @group(0) @binding(1) var s: sampler;
 
 struct VertOutput {
@@ -31,7 +31,6 @@ fn vs_main(@builtin(vertex_index) index: u32) -> VertOutput {
     };
 
     return VertOutput(vec4f(pos, 0.0, 1.0));
-
 
     // let x = (-0.5 + (f32(index) * 0.5));
     // let y = (-(sqrt(3.0) / 6.0) + f32(index == 1u) * sqrt(3.0) / 2.0);

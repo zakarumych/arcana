@@ -16,6 +16,8 @@ impl Ui {
         clipboard: &mut Clipboard,
         event: &ViewInput,
     ) -> bool {
+        let modifiers = self.modifiers;
+
         match *event {
             ViewInput::Resized { width, height } => {
                 viewport.size = egui::vec2(width as f32, height as f32);
@@ -42,45 +44,47 @@ impl Ui {
                 false
             }
             ViewInput::KeyboardInput { ref event, .. } => {
-                if let PhysicalKey::Code(keycode) = event.physical_key {
-                    let pressed = event.state == ElementState::Pressed;
+                let logical_key = key_from_winit_key(&event.logical_key);
+                let physical_key = if let PhysicalKey::Code(keycode) = event.physical_key {
+                    key_from_key_code(keycode)
+                } else {
+                    None
+                };
+                let pressed = event.state == ElementState::Pressed;
 
-                    if let Some(key) = translate_key_code(keycode) {
-                        if pressed && is_cut_command(viewport.raw_input.modifiers, key) {
-                            viewport.raw_input.events.push(egui::Event::Cut);
-                        } else if pressed && is_copy_command(viewport.raw_input.modifiers, key) {
-                            viewport.raw_input.events.push(egui::Event::Copy);
-                        } else if pressed && is_paste_command(viewport.raw_input.modifiers, key) {
-                            match clipboard.get_text() {
-                                Ok(content) => {
-                                    viewport.raw_input.events.push(egui::Event::Text(content))
-                                }
-                                Err(error) => {
-                                    tracing::error!("Failed to get text from clipboard: {:?}", error);
-                                }
+                if let Some(key) = logical_key.or(physical_key) {
+                    if pressed && is_cut_command(modifiers, key) {
+                        viewport.raw_input.events.push(egui::Event::Cut);
+                    } else if pressed && is_copy_command(modifiers, key) {
+                        viewport.raw_input.events.push(egui::Event::Copy);
+                    } else if pressed && is_paste_command(modifiers, key) {
+                        match clipboard.get_text() {
+                            Ok(content) => {
+                                viewport.raw_input.events.push(egui::Event::Text(content))
                             }
-                        } else {
-                            viewport.raw_input.events.push(egui::Event::Key {
-                                key,
-                                pressed,
-                                repeat: false, // egui will fill this in for us!
-                                modifiers: viewport.raw_input.modifiers,
-                                physical_key: None,
-                            });
+                            Err(error) => {
+                                tracing::error!("Failed to get text from clipboard: {:?}", error);
+                            }
+                        }
+                    } else {
+                        viewport.raw_input.events.push(egui::Event::Key {
+                            key,
+                            pressed,
+                            repeat: false, // egui will fill this in for us!
+                            modifiers: modifiers,
+                            physical_key: None,
+                        });
 
-                            if pressed {
-                                let is_cmd = viewport.raw_input.modifiers.ctrl
-                                    || viewport.raw_input.modifiers.command
-                                    || viewport.raw_input.modifiers.mac_cmd;
+                        if pressed {
+                            let is_cmd = modifiers.ctrl || modifiers.command || modifiers.mac_cmd;
 
-                                if !is_cmd {
-                                    if let Some(text) = &event.text {
-                                        if text.chars().all(is_printable_char) {
-                                            viewport
-                                                .raw_input
-                                                .events
-                                                .push(egui::Event::Text(text.to_string()));
-                                        }
+                            if !is_cmd {
+                                if let Some(text) = &event.text {
+                                    if text.chars().all(is_printable_char) {
+                                        viewport
+                                            .raw_input
+                                            .events
+                                            .push(egui::Event::Text(text.to_string()));
                                     }
                                 }
                             }
@@ -88,10 +92,13 @@ impl Ui {
                     }
                 }
 
-                self.cx.wants_keyboard_input()
+                // When pressing the Tab key, egui focuses the first focusable element, hence Tab always consumes.
+                self.cx.egui_wants_keyboard_input()
+                    || event.logical_key
+                        == winit::keyboard::Key::Named(winit::keyboard::NamedKey::Tab)
             }
             ViewInput::ModifiersChanged(modifiers) => {
-                viewport.raw_input.modifiers = egui::Modifiers {
+                self.modifiers = egui::Modifiers {
                     alt: modifiers.state().contains(ModifiersState::ALT),
                     ctrl: modifiers.state().contains(ModifiersState::CONTROL),
                     shift: modifiers.state().contains(ModifiersState::SHIFT),
@@ -103,6 +110,11 @@ impl Ui {
                     mac_cmd: cfg!(target_os = "macos")
                         && modifiers.state().contains(ModifiersState::SUPER),
                 };
+
+                viewport
+                    .raw_input
+                    .events
+                    .push(egui::Event::ModifiersChanged(self.modifiers));
                 false
             }
             ViewInput::CursorMoved { x, y, .. } => {
@@ -136,7 +148,8 @@ impl Ui {
                     viewport.raw_input.events.push(egui::Event::MouseWheel {
                         unit,
                         delta,
-                        modifiers: viewport.raw_input.modifiers,
+                        modifiers: modifiers,
+                        phase: egui::TouchPhase::Move,
                     });
                 }
 
@@ -150,11 +163,11 @@ impl Ui {
                 //     }
                 // };
 
-                // if viewport.raw_input.modifiers.ctrl || viewport.raw_input.modifiers.command {
+                // if modifiers.ctrl || modifiers.command {
                 //     // Treat as zoom instead:
                 //     let factor = (delta.y / 200.0).exp();
                 //     viewport.raw_input.events.push(egui::Event::Zoom(factor));
-                // } else if viewport.raw_input.modifiers.shift {
+                // } else if modifiers.shift {
                 //     // Treat as horizontal scrolling.
                 //     // Note: one Mac we already get horizontal scroll events when shift is down.
                 //     viewport
@@ -168,7 +181,7 @@ impl Ui {
                 //         .push(egui::Event::MouseWheel(delta));
                 // }
 
-                self.cx.wants_pointer_input()
+                self.cx.egui_wants_pointer_input()
             }
             ViewInput::MouseInput { state, button, .. } => {
                 if let Some(button) = translate_mouse_button(button) {
@@ -178,11 +191,11 @@ impl Ui {
                         pos: viewport.mouse_pos,
                         button,
                         pressed,
-                        modifiers: viewport.raw_input.modifiers,
+                        modifiers: modifiers,
                     });
                 }
 
-                self.cx.wants_pointer_input()
+                self.cx.egui_wants_pointer_input()
             }
         }
     }
@@ -201,7 +214,83 @@ fn translate_mouse_button(button: MouseButton) -> Option<egui::PointerButton> {
     }
 }
 
-fn translate_key_code(key: KeyCode) -> Option<egui::Key> {
+fn key_from_winit_key(key: &winit::keyboard::Key) -> Option<egui::Key> {
+    match key {
+        winit::keyboard::Key::Named(named_key) => key_from_named_key(*named_key),
+        winit::keyboard::Key::Character(str) => egui::Key::from_name(str.as_str()),
+        winit::keyboard::Key::Unidentified(_) | winit::keyboard::Key::Dead(_) => None,
+    }
+}
+
+fn key_from_named_key(named_key: winit::keyboard::NamedKey) -> Option<egui::Key> {
+    use egui::Key;
+    use winit::keyboard::NamedKey;
+
+    Some(match named_key {
+        NamedKey::Enter => Key::Enter,
+        NamedKey::Tab => Key::Tab,
+        NamedKey::ArrowDown => Key::ArrowDown,
+        NamedKey::ArrowLeft => Key::ArrowLeft,
+        NamedKey::ArrowRight => Key::ArrowRight,
+        NamedKey::ArrowUp => Key::ArrowUp,
+        NamedKey::End => Key::End,
+        NamedKey::Home => Key::Home,
+        NamedKey::PageDown => Key::PageDown,
+        NamedKey::PageUp => Key::PageUp,
+        NamedKey::Backspace => Key::Backspace,
+        NamedKey::Delete => Key::Delete,
+        NamedKey::Insert => Key::Insert,
+        NamedKey::Escape => Key::Escape,
+        NamedKey::Cut => Key::Cut,
+        NamedKey::Copy => Key::Copy,
+        NamedKey::Paste => Key::Paste,
+
+        NamedKey::Space => Key::Space,
+
+        NamedKey::F1 => Key::F1,
+        NamedKey::F2 => Key::F2,
+        NamedKey::F3 => Key::F3,
+        NamedKey::F4 => Key::F4,
+        NamedKey::F5 => Key::F5,
+        NamedKey::F6 => Key::F6,
+        NamedKey::F7 => Key::F7,
+        NamedKey::F8 => Key::F8,
+        NamedKey::F9 => Key::F9,
+        NamedKey::F10 => Key::F10,
+        NamedKey::F11 => Key::F11,
+        NamedKey::F12 => Key::F12,
+        NamedKey::F13 => Key::F13,
+        NamedKey::F14 => Key::F14,
+        NamedKey::F15 => Key::F15,
+        NamedKey::F16 => Key::F16,
+        NamedKey::F17 => Key::F17,
+        NamedKey::F18 => Key::F18,
+        NamedKey::F19 => Key::F19,
+        NamedKey::F20 => Key::F20,
+        NamedKey::F21 => Key::F21,
+        NamedKey::F22 => Key::F22,
+        NamedKey::F23 => Key::F23,
+        NamedKey::F24 => Key::F24,
+        NamedKey::F25 => Key::F25,
+        NamedKey::F26 => Key::F26,
+        NamedKey::F27 => Key::F27,
+        NamedKey::F28 => Key::F28,
+        NamedKey::F29 => Key::F29,
+        NamedKey::F30 => Key::F30,
+        NamedKey::F31 => Key::F31,
+        NamedKey::F32 => Key::F32,
+        NamedKey::F33 => Key::F33,
+        NamedKey::F34 => Key::F34,
+        NamedKey::F35 => Key::F35,
+
+        NamedKey::BrowserBack => Key::BrowserBack,
+        _ => {
+            return None;
+        }
+    })
+}
+
+fn key_from_key_code(key: KeyCode) -> Option<egui::Key> {
     Some(match key {
         KeyCode::ArrowDown => egui::Key::ArrowDown,
         KeyCode::ArrowLeft => egui::Key::ArrowLeft,

@@ -7,9 +7,9 @@ use std::{
 use arcana::{
     assets::{AssetData, AssetError, AssetId, Loader, NotFound},
     error::{Error, WithContext},
+    hash::HashMap,
 };
 use futures::future::BoxFuture;
-use hashbrown::HashMap;
 use parking_lot::Mutex;
 
 use crate::blobs::{BlobId, Blobs};
@@ -38,7 +38,7 @@ impl AssetRegistry {
             inner: Arc::new(Inner {
                 blobs: Blobs::new(base)
                     .with_context("Failed to open blobs path for asset registry")?,
-                artifacts: Mutex::new(HashMap::new()),
+                artifacts: Mutex::new(HashMap::default()),
             }),
         })
     }

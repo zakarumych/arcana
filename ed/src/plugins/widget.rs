@@ -1,13 +1,18 @@
-use std::path::{PathBuf, absolute};
+use std::path::absolute;
 
 use arcana::{error::Error, project::Plugin, validate_ident};
 use camino::{Utf8Path, Utf8PathBuf};
 use egui::{Color32, RichText, Ui};
 use egui_file::FileDialog;
+use winit::window::WindowId;
 
-use crate::{error::ModalError, project::Project};
+use crate::{
+    error::ModalErrors,
+    project::Project,
+    tool::{Tool, ToolContext, ToolTemplate},
+};
 
-use super::PluginsManager;
+use super::PluginManager;
 
 /// Widget to control [`PluginsManager`]
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -37,9 +42,9 @@ impl PluginsWidget {
 
     pub fn show(
         &mut self,
-        manager: &mut PluginsManager,
-        project: &mut Project,
-        modal_error: &mut ModalError,
+        manager: &mut PluginManager,
+        project: &Project,
+        errors: &mut ModalErrors,
         ui: &mut Ui,
     ) {
         // Building status
@@ -97,7 +102,7 @@ impl PluginsWidget {
 
                 let r = ui.button(egui_phosphor::regular::FOLDER_OPEN);
                 if r.clicked() {
-                    let mut dialog = FileDialog::select_folder(std::env::current_dir().ok());
+                    let mut dialog = FileDialog::select_folder();
                     dialog.open();
                     self.dialog = Some(PluginsDialog::FindPlugin(dialog));
                 } else {
@@ -111,11 +116,13 @@ impl PluginsWidget {
 
             // Plugins list
             let mut remove_plugin = None;
+            let mut enable_plugin = None;
+            let mut disable_plugin = None;
 
             egui::Grid::new("plugins-list")
                 .striped(true)
                 .show(ui, |ui| {
-                    for (idx, plugin) in project.inner.plugins().iter().enumerate() {
+                    for plugin in manager.plugins().iter() {
                         let mut heading = RichText::from(plugin.name.as_str());
 
                         let mut tooltip = "";
@@ -128,7 +135,7 @@ impl PluginsWidget {
                                 tooltip = "Plugin is missing in library";
                                 heading = heading.color(ui.visuals().error_fg_color);
                             }
-                        } else if !project.data.enabled_plugins.contains(&plugin.name) {
+                        } else if !manager.is_plugin_enabled(plugin.name) {
                             heading = heading.color(ui.visuals().warn_fg_color);
                         } else if !manager.linked().map_or(false, |c| c.is_active(plugin.name)) {
                             tooltip = "Dependencies are not enabled";
@@ -137,7 +144,7 @@ impl PluginsWidget {
                             heading = heading.color(Color32::LIGHT_GREEN);
                         }
 
-                        let was_enabled = project.data.enabled_plugins.contains(&plugin.name);
+                        let was_enabled = manager.is_plugin_enabled(plugin.name);
                         let mut enabled = was_enabled;
                         let r = ui.checkbox(&mut enabled, heading);
 
@@ -146,18 +153,17 @@ impl PluginsWidget {
                         }
 
                         if !was_enabled && enabled {
-                            project.data.enabled_plugins.insert(plugin.name.clone());
+                            enable_plugin = Some(plugin.name);
                             sync_project = true;
                         } else if was_enabled && !enabled {
-                            project.data.enabled_plugins.remove(&plugin.name);
+                            disable_plugin = Some(plugin.name);
                             sync_project = true;
                         }
 
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             let r = ui.button(egui_phosphor::regular::TRASH);
                             if r.clicked() {
-                                project.data.enabled_plugins.remove(&plugin.name);
-                                remove_plugin = Some(idx);
+                                remove_plugin = Some(plugin.name);
                                 sync_project = true;
                                 rebuild_plugins = true;
                             }
@@ -167,8 +173,16 @@ impl PluginsWidget {
                     }
                 });
 
-            if let Some(idx) = remove_plugin {
-                project.manifest_mut().remove_plugin_idx(idx);
+            if let Some(plugin_name) = enable_plugin {
+                manager.enable_plugin(plugin_name);
+            }
+
+            if let Some(plugin_name) = disable_plugin {
+                manager.disable_plugin(plugin_name);
+            }
+
+            if let Some(plugin_name) = remove_plugin {
+                manager.remove_plugin(plugin_name);
             }
         });
 
@@ -185,13 +199,8 @@ impl PluginsWidget {
                     }
                     Some(path) => {
                         match Utf8Path::from_path(path) {
-                            Some(path) => match add_plugin_with_path(path.to_path_buf(), project) {
-                                Ok(true) => {
-                                    try_log_err!(project.sync());
-                                }
-                                Ok(false) => {
-                                    tracing::warn!("Plugin already exists");
-                                }
+                            Some(path) => match add_plugin_with_path(path.to_path_buf(), manager) {
+                                Ok(()) => {}
                                 Err(error) => {
                                     tracing::error!("Failed to add plugin. {error:?}");
                                 }
@@ -259,13 +268,12 @@ impl PluginsWidget {
                             );
 
                             if r.clicked() {
-                                let initial_path = if new_plugin.path.is_empty() {
-                                    None
-                                } else {
-                                    Some(PathBuf::from(&new_plugin.path))
+                                let mut dialog = FileDialog::select_folder();
+
+                                if !new_plugin.path.is_empty() {
+                                    dialog = dialog.initial_path(new_plugin.path.clone());
                                 };
 
-                                let mut dialog = FileDialog::select_folder(initial_path);
                                 dialog.open();
                                 new_plugin.path_dialog = Some(dialog);
                             }
@@ -307,7 +315,7 @@ impl PluginsWidget {
                                         close = true;
                                     }
                                     Err(error) => {
-                                        modal_error.push_error(
+                                        errors.push_error(
                                             ui.ctx().viewport_id(),
                                             "New plugins errors",
                                             error,
@@ -329,8 +337,7 @@ impl PluginsWidget {
         }
 
         if sync_project {
-            project.sync_in_ui(ui.ctx(), modal_error);
-            manager.refresh_enabled_plugins(project);
+            manager.refresh_enabled_plugins();
         }
 
         if rebuild_plugins {
@@ -339,8 +346,41 @@ impl PluginsWidget {
     }
 }
 
+pub struct PluginsTemplate;
+
+impl ToolTemplate for PluginsTemplate {
+    fn key(&self) -> &str {
+        "plugins"
+    }
+
+    fn title(&self) -> &str {
+        "Plugins"
+    }
+
+    fn create(&self, state: Option<serde_json::Value>) -> Result<Box<dyn Tool>, serde_json::Error> {
+        Ok(Box::new(match state {
+            Some(state) => serde_json::from_value(state)?,
+            None => PluginsWidget::new(),
+        }))
+    }
+}
+
+impl Tool for PluginsWidget {
+    fn title(&self) -> &str {
+        "Plugins"
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, _window: WindowId, context: &mut ToolContext<'_>) {
+        self.show(context.plugins, context.project, context.errors, ui);
+    }
+
+    fn save(&self) -> Option<serde_json::Value> {
+        serde_json::to_value(self).ok()
+    }
+}
+
 /// Adds new plugins library
-fn add_plugin_with_path(path: Utf8PathBuf, project: &mut Project) -> Result<bool, Error> {
+fn add_plugin_with_path(path: Utf8PathBuf, manager: &mut PluginManager) -> Result<(), Error> {
     let plugin = Plugin::open_local(path)?;
-    project.add_plugin(plugin)
+    manager.add_plugin(plugin)
 }

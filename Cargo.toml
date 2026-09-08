@@ -22,9 +22,8 @@ members = [
     "ed",
     "launcher",
     "plugins/dummy",
-    "plugins/jkl",
 ]
-resolver = "2"
+resolver = "3"
 
 [workspace.package]
 edition = "2024"
@@ -36,98 +35,105 @@ version = "0.1.0"
 [workspace.dependencies]
 ahash = { version = "0.8.12" }
 alkahest = { version = "0.3.0", features = ["derive"] }
-amity = { git = "https://github.com/zakarumych/amity.git", features = ["flip-queue", "broad"] }
+amity = { git = "https://github.com/zakarumych/amity.git", features = [
+    "flip-queue",
+    "broad",
+] }
 approx = { version = "0.5.1" }
 arboard = { version = "3.6.0" }
-arc-swap = { version = "1.7.1" }
-athena = { git = "https://github.com/zakarumych/athena.git" }
-#athena = { path = "../athena" }
-base64 = "0.22.1"
-basis-universal = "0.3.1"
-basis-universal-sys = "0.3.1"
-bincode = "2.0.1"
-bitflags = "2.10.0"
-bit-vec = { version = "0.8.0" }
+arc-swap = { version = "1.9.2" }
+#athena = { git = "https://github.com/zakarumych/athena.git" }
+athena = { path = "../athena" }
+base64 = "0.23.1"
+bitflags = "2.13.1"
+bit-vec = { version = "0.10.1" }
 blink-alloc = { version = "0.4", features = ["nightly"] }
-bytemuck = { version = "1.23.1", features = ["derive", "min_const_generics", "extern_crate_alloc"] }
-camino = "1.1.10"
-cargo_toml = "0.22.1"
-cc = "1"
-chrono = "0.4.41"
+bytemuck = { version = "1.23.1", features = [
+    "derive",
+    "min_const_generics",
+    "extern_crate_alloc",
+] }
+camino = "1.2.5"
+cargo_toml = "1.0.1"
+cc = "1.4.5"
+chrono = "0.4.45"
 cint = "0.3.1"
-clap = { version = "4.5.53", features = ["derive"] }
+clap = { version = "4.6.0", features = ["derive"] }
 codespan-reporting = "0.13.1"
 const-random = "0.1.18"
 # core-graphics-types = { version = "0.1" }
-ctor = "0.6.1"
+ctor = "1.0.13"
 cursor-icon = { version = "1.2.0" }
 denvars = { version = "0.3.2" }
-dirs = { version = "6.0.0" }
-edict = { version = "1.0.0-rc7", path = "../edict" }
-edict-proc-lib = { version = "1.0.0-rc7", path = "../edict/proc-lib" }
-egui = { version = "0.33.0", features = ["bytemuck", "serde", "cint"] }
-egui_dnd = { version = "0.14.0" }
-egui_dock = { version = "0.18.0" }
-egui_file = { version = "0.24.0" }
-egui-phosphor = { version = "0.10.0", git = "https://github.com/zakarumych/egui-phosphor.git", branch = "egui-0.33" }
+dirs = { version = "7.0.0" }
+edict = { version = "1.0.0-rc10", path = "../edict" }
+edict-proc-lib = { version = "1.0.0-rc10", path = "../edict/proc-lib" }
+egui = { version = "0.36.1", features = ["bytemuck", "serde", "cint"] }
+egui_dnd = { version = "0.17.0" }
+egui_dock = { version = "0.21.1" }
+egui_file = { version = "0.28.0" }
+egui-phosphor = { version = "0.13.0", git = "https://github.com/UnknownSuperficialNight/egui-phosphor", branch = "main" }
 egui-probe = { path = "../egui-probe" }
 egui-snarl = { path = "../egui-snarl" }
-egui_tracing = { version = "0.2.6", git = "https://github.com/codabrink/egui_tracing.git", branch = "dev" }
-egui-toast = { version = "0.19.1" }
-eframe = { version = "0.33.0" }
-flume = "0.11.1"
+egui_tracing = { version = "0.3.0" }
+egui-toast = { version = "0.22" }
+eframe = { version = "0.36.1" }
+flume = "0.12.0"
 figa = { version = "0.3.0" }
 foldhash = { version = "0.2.0" }
-futures = "0.3.31"
+futures = "0.3.34"
 gametime = { version = "0.7.2" }
-gilrs = { version = "0.11.0" }
-hashbrown = { version = "0.16.1", features = ["nightly", "serde"] }
+gilrs = { version = "0.11.2" }
+hashbrown = { version = "0.17.1", features = ["nightly", "serde"] }
 hidden-trait = "0.1.2"
-image = "0.25.6"
+image = "0.25.10"
+jkl = { path = "../jkl/crates/jkl" }
+jkl-gui = { path = "../jkl/crates/gui" }
 libloading = "0.9.0"
-linkme = "0.3"
+linkme = "0.3.37"
 #mev = { git = "https://github.com/zakarumych/mev.git" }
 mev = { path = "../mev" }
 # na = { package = "nalgebra", version = "0.33", features = [
 #     "libm",
 #     "serde-serialize",
 # ] }
-open = { version = "5.3.2" }
-ordered-float = { version = "5.0.0" }
-palette = { version = "0.7.6", features = ["serializing"] }
+open = { version = "5.4.3" }
+ordered-float = { version = "5.5.0" }
+palette = { version = "0.7.7", features = ["serializing"] }
 parking_lot = "0.12.4"
 percent-encoding = "2.3.1"
-proc-macro2 = "1.0.95"
-rand = { version = "0.10", features = ["chacha", "serde"] }
-proc-easy = "0.4.0"
-quote = "1.0.40"
+proc-macro2 = "1.0.107"
+rand = { version = "0.10.2", features = ["chacha", "serde"] }
+proc-easy = "0.5.0"
+quote = "1.0.47"
 raw-window-handle = "0.6.2"
 relevant = "0.4.2"
-serde = { version = "1.0.219" }
-serde_json = { version = "1.0.141" }
+serde = { version = "1.0.229" }
+serde_json = { version = "1.0.151" }
 serde-nothing = "0.1.1"
-sha2 = "0.10.9"
+sha2 = "0.11.0"
 slab = "0.4.10"
-smallvec = "1.15.1"
-smol_str = "0.3.4"
-simba = { version = "0.9.0" }
-syn = "2.0.110"
-thiserror = "2.0.17"
+smallvec = "1.16.0"
+smol_str = "0.3.6"
+simba = { version = "0.10.2" }
+syn = "3.0.5"
+thiserror = "2.0.20"
 tiny-fn = { version = "0.1.9" }
-tokio = { version = "1.46.1", features = [
+tokio = { version = "1.53.1", features = [
     "rt",
     "time",
     "net",
     "io-util",
 ], default-features = false }
-toml = "0.9.8"
+toml = "1.1.5"
 tracing = "0.1.41"
 tracing-error = "0.2.1"
-tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 unicode-ident = "1.0.18"
 url = "2.5.4"
-uuid = { version = "1.17.0" }
-winit = { version = "0.30.11" }
+uuid = { version = "1.26.0" }
+winit = { version = "0.30.13" }
+windows-sys = "0.61"
 
 [profile.release]
 panic = "abort"

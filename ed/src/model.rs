@@ -1,12 +1,10 @@
-use std::hash::Hash;
-
 use arcana::{
+    hash::HashMap,
     model::{ColorModel, ColorValue, Model, Value},
     smol_str::SmolStr,
 };
 use egui::{Id, Response, Ui, Widget};
 use egui_probe::{DeleteMe, EguiProbe, Probe, Style};
-use hashbrown::HashMap;
 
 pub struct ModelProbe<'a> {
     model: &'a mut Model,
@@ -280,7 +278,7 @@ pub struct ValueProbe<'a> {
 }
 
 impl<'a> ValueProbe<'a> {
-    pub fn new(model: Option<&'a Model>, value: &'a mut Value, id_source: impl Hash) -> Self {
+    pub fn new(model: Option<&'a Model>, value: &'a mut Value, id_source: impl egui::AsId) -> Self {
         ValueProbe {
             model,
             local_id: Id::NULL,
@@ -1024,7 +1022,7 @@ impl EguiProbe for ValueProbe<'_> {
                                 self.value.kind()
                             ));
                             if ui.small_button("Reset to empty map").clicked() {
-                                *self.value = Value::Map(HashMap::new());
+                                *self.value = Value::Map(HashMap::default());
                                 changed = true;
                             }
                             ui.strong("?");

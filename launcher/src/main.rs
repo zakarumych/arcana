@@ -19,27 +19,32 @@ mod cli;
 static LOGO256_RAW: &'static [u8] = include_bytes!(concat!(env!("OUT_DIR"), "/logo256.raw"));
 
 fn main() -> ExitCode {
+    // If running on Windows and is launched from a console
+    // attach the parent console so that println! and other console output works
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::System::Console::AttachConsole;
+
+        unsafe {
+            AttachConsole(u32::MAX); // ATTACH_PARENT_PROCESS
+        }
+    }
+
     use tracing_subscriber::layer::SubscriberExt as _;
+
+    let ts = tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer())
+        .with(tracing_subscriber::filter::EnvFilter::from_default_env());
 
     let cli = cli::Cli::parse();
 
     if !cli.is_empty() {
-        if let Err(error) = tracing::subscriber::set_global_default(
-            tracing_subscriber::fmt()
-                // .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-                .finish()
-                .with(tracing_error::ErrorLayer::default()),
-        ) {
-            panic!("Failed to install tracing subscriber: {}", error);
-        }
-
+        ts.init();
         return cli::run_cli(cli).report();
     }
 
-    let collector = egui_tracing::EventCollector::default().with_level(Level::INFO);
-    tracing_subscriber::registry()
-        .with(collector.clone())
-        .init();
+    let collector = egui_tracing::EventCollector::default().with_max_level(Level::INFO);
+    ts.with(collector.clone()).init();
 
     let icon = egui::IconData {
         rgba: LOGO256_RAW.to_vec(),
@@ -61,7 +66,7 @@ fn main() -> ExitCode {
 }
 
 impl eframe::App for App {
-    fn update(&mut self, cx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         match self.child {
             AppChild::None => {}
             AppChild::EditorBuilding(ref mut child, _) => match child.try_wait() {
@@ -123,7 +128,7 @@ impl eframe::App for App {
                         self.child = AppChild::None;
                     }
                     Ok(None) => {
-                        egui::CentralPanel::default().show(cx, |ui| {
+                        egui::CentralPanel::default().show(ui, |ui| {
                             // ui.horizontal_centered(|ui| {
                             ui.vertical_centered_justified(|ui| {
                                 egui::Frame::window(ui.style()).show(ui, |ui| {
@@ -142,7 +147,7 @@ impl eframe::App for App {
 
         let mut run_editor = None;
 
-        egui::TopBottomPanel::top("Menu").show(cx, |ui| {
+        egui::Panel::top("Menu").show(ui, |ui| {
             if self.dialog.is_some() || self.child.is_some() {
                 ui.disable();
             }
@@ -161,7 +166,7 @@ impl eframe::App for App {
 
                 let r = ui.button("Open Project");
                 if r.clicked() {
-                    let mut dialog = FileDialog::open_file(None)
+                    let mut dialog = FileDialog::open_file()
                         .title("Open project")
                         .show_new_folder(false);
                     dialog.open();
@@ -170,16 +175,15 @@ impl eframe::App for App {
                     ui.close();
                 } else {
                     r.on_hover_ui(|ui| {
-                        ui.label("Create new project");
+                        ui.label("Open existing project");
                     });
                 }
 
                 let r = ui.button("Add Engine path");
                 if r.clicked() {
-                    let mut dialog: FileDialog =
-                        FileDialog::select_folder(std::env::current_dir().ok())
-                            .title("Add engine")
-                            .show_new_folder(false);
+                    let mut dialog: FileDialog = FileDialog::select_folder()
+                        .title("Add engine")
+                        .show_new_folder(false);
                     dialog.open();
                     self.dialog = Some(AppDialog::AddEngine(dialog));
 
@@ -192,7 +196,7 @@ impl eframe::App for App {
             });
         });
 
-        egui::TopBottomPanel::top("Controls").show(cx, |ui| {
+        egui::Panel::top("Controls").show(ui, |ui| {
             if self.dialog.is_some() || self.child.is_some() {
                 ui.disable();
             }
@@ -213,15 +217,13 @@ impl eframe::App for App {
             });
         });
 
-        egui::TopBottomPanel::bottom("Log")
-            .resizable(true)
-            .show(cx, |ui| {
-                ui.add(egui_tracing::Logs::new(self.collector.clone()));
-            });
+        // egui::Panel::bottom("Log").resizable(true).show(ui, |ui| {
+        //     ui.add(egui_tracing::Logs::new(self.collector.clone()));
+        // });
 
         let mut remove_recent = None;
 
-        egui::CentralPanel::default().show(cx, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             if self.dialog.is_some() {
                 ui.disable();
             }
@@ -250,7 +252,7 @@ impl eframe::App for App {
                         let result = match self.recent.entry(path.to_owned()) {
                             hashbrown::hash_map::Entry::Occupied(entry) => entry.into_mut(),
                             hashbrown::hash_map::Entry::Vacant(entry) => {
-                                entry.insert(Project::open(&path))
+                                entry.insert(Project::load(&path))
                             }
                         };
 
@@ -334,13 +336,13 @@ impl eframe::App for App {
             AppChild::None => match self.dialog {
                 None => {}
                 Some(AppDialog::Error(ref error)) => {
-                    if error.show(cx) {
+                    if error.show(ui) {
                         self.dialog = None;
-                        cx.request_repaint();
+                        ui.request_repaint();
                     }
                 }
                 Some(AppDialog::OpenProject(ref mut file_dialog)) => {
-                    match file_dialog.show(cx).state() {
+                    match file_dialog.show(ui).state() {
                         egui_file::State::Open => {}
                         egui_file::State::Closed | egui_file::State::Cancelled => {
                             self.dialog = None;
@@ -350,7 +352,7 @@ impl eframe::App for App {
                                 self.dialog = None;
                             }
                             Some(path) => {
-                                let result = Project::open(path);
+                                let result = Project::load(path);
                                 let result =
                                     self.recent.entry(path.to_owned()).insert(result).into_mut();
 
@@ -374,7 +376,7 @@ impl eframe::App for App {
                     }
                 }
                 Some(AppDialog::AddEngine(ref mut file_dialog)) => {
-                    match file_dialog.show(cx).state() {
+                    match file_dialog.show(ui).state() {
                         egui_file::State::Open => {}
                         egui_file::State::Closed | egui_file::State::Cancelled => {
                             self.dialog = None;
@@ -399,11 +401,11 @@ impl eframe::App for App {
                     }
                 }
                 Some(AppDialog::NewProject(ref mut new_project)) => {
-                    match new_project.show(&mut self.start, cx) {
+                    match new_project.show(&mut self.start, ui) {
                         None => {}
                         Some(None) => {
                             self.dialog = None;
-                            cx.request_repaint();
+                            ui.request_repaint();
                         }
                         Some(Some(project)) => {
                             let path = project.manifest_path().to_owned();
@@ -411,7 +413,7 @@ impl eframe::App for App {
                             self.start.add_recent(path.clone());
 
                             self.dialog = None;
-                            cx.request_repaint();
+                            ui.request_repaint();
                             run_editor = Some(path);
                         }
                     }
@@ -421,7 +423,7 @@ impl eframe::App for App {
                 egui::Window::new("Preparing project")
                     .resizable(false)
                     .collapsible(false)
-                    .show(cx, |ui| {
+                    .show(ui, |ui| {
                         ui.label("Preparing project...");
                         ui.spinner();
                     });
@@ -431,8 +433,8 @@ impl eframe::App for App {
             }
         }
 
-        if cx.requested_repaint_last_pass() {
-            cx.request_repaint();
+        if ui.requested_repaint_last_pass() {
+            ui.request_repaint();
         }
 
         match run_editor {
@@ -462,7 +464,7 @@ struct ErrorDialog {
 }
 
 impl ErrorDialog {
-    fn show(&self, cx: &egui::Context) -> bool {
+    fn show(&self, ui: &egui::Context) -> bool {
         let title = egui::WidgetText::from(&*self.title);
         let message = egui::WidgetText::from(&*self.message);
 
@@ -470,7 +472,7 @@ impl ErrorDialog {
         egui::Window::new(title)
             .resizable(false)
             .collapsible(false)
-            .show(cx, |ui| {
+            .show(ui, |ui| {
                 ui.label(message);
                 if ui.button("Ok").clicked() {
                     close = true;
@@ -532,7 +534,7 @@ pub struct App {
     /// When child app finishes, launcher is shown again.
     child: AppChild,
 
-    collector: egui_tracing::EventCollector,
+    _collector: egui_tracing::EventCollector,
 }
 
 impl App {
@@ -548,7 +550,7 @@ impl App {
 
             dialog: None,
             child: AppChild::None,
-            collector,
+            _collector: collector,
         }
     }
 }
@@ -600,7 +602,7 @@ impl NewProject {
         Ident::from_str(&self.name).is_ok() && self.path.is_some() && self.engine.is_some()
     }
 
-    fn show(&mut self, start: &mut Start, cx: &egui::Context) -> Option<Option<Project>> {
+    fn show(&mut self, start: &mut Start, ui: &egui::Context) -> Option<Option<Project>> {
         let mut create_project = false;
         let mut close_dialog = false;
 
@@ -608,7 +610,7 @@ impl NewProject {
             .auto_sized()
             .default_pos(egui::pos2(50.0, 50.0))
             .collapsible(false)
-            .show(cx, |ui| {
+            .show(ui, |ui| {
                 if self.dialog.is_some() {
                     ui.disable();
                 }
@@ -635,8 +637,7 @@ impl NewProject {
                             let r = ui.small_button(egui_phosphor::regular::DOTS_THREE);
                             if r.clicked() {
                                 let mut dialog =
-                                    FileDialog::select_folder(std::env::current_dir().ok())
-                                        .title("Select project path");
+                                    FileDialog::select_folder().title("Select project path");
                                 dialog.open();
                                 self.dialog = Some(NewProjectDialog::PickProjectPath(dialog));
                             }
@@ -666,9 +667,12 @@ impl NewProject {
 
                             let r = ui.small_button(egui_phosphor::regular::DOTS_THREE);
                             if r.clicked() {
-                                let mut dialog = FileDialog::select_folder(self.path.clone())
+                                let mut dialog = FileDialog::select_folder()
                                     .title("Select engine path")
                                     .show_new_folder(false);
+                                if let Some(path) = self.path.clone() {
+                                    dialog = dialog.initial_path(path);
+                                }
                                 dialog.open();
                                 self.dialog = Some(NewProjectDialog::PickEnginePath(dialog));
                             }
@@ -689,12 +693,12 @@ impl NewProject {
         match self.dialog {
             None => {}
             Some(NewProjectDialog::Error(ref error)) => {
-                if error.show(cx) {
+                if error.show(ui) {
                     self.dialog = None;
                 }
             }
             Some(NewProjectDialog::PickProjectPath(ref mut file_dialog)) => {
-                match file_dialog.show(cx).state() {
+                match file_dialog.show(ui).state() {
                     egui_file::State::Open => {}
                     egui_file::State::Closed | egui_file::State::Cancelled => {
                         self.dialog = None;
@@ -709,7 +713,7 @@ impl NewProject {
                 }
             }
             Some(NewProjectDialog::PickEnginePath(ref mut file_dialog)) => {
-                match file_dialog.show(cx).state() {
+                match file_dialog.show(ui).state() {
                     egui_file::State::Open => {}
                     egui_file::State::Closed | egui_file::State::Cancelled => {
                         self.dialog = None;

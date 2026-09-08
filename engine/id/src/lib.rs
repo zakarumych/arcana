@@ -1,6 +1,7 @@
 //! Strong id utility.
 
 mod seqgen;
+mod shufgen;
 mod stid;
 mod uidgen;
 
@@ -10,6 +11,7 @@ use arcana_base_encoding::base58;
 
 pub use self::{
     seqgen::SeqIdGen,
+    shufgen::ShufIdGen,
     stid::{HasStid, Stid, has_stid},
     uidgen::TimeUidGen,
 };

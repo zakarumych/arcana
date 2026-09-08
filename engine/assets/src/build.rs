@@ -34,7 +34,7 @@ impl AssetBuildContext {
     ) -> Result<(), mev::DeviceError> {
         let encoder = match self.encoder.take() {
             Some(encoder) => encoder,
-            None => queue.new_command_encoder()?,
+            None => queue.new_command_encoder(),
         };
 
         let mut builder = AssetBuilder {
@@ -46,8 +46,8 @@ impl AssetBuildContext {
         assets.build_assets(&mut builder);
 
         if builder.needs_flush {
-            let cbuf = builder.encoder.finish()?;
-            queue.submit([cbuf], false)?;
+            let cbuf = builder.encoder.finish();
+            queue.submit([cbuf])?;
         } else {
             self.encoder = Some(builder.encoder);
         }

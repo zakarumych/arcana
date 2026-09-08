@@ -1,3 +1,1 @@
-arcana::declare_plugin! {
-    dependencies: [],
-}
+arcana::declare_plugin! {}

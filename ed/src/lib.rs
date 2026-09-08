@@ -35,21 +35,21 @@ macro_rules! try_log_err {
     };
 }
 
-struct InPlaceSeed<'a, T: 'a>(pub &'a mut T);
+// struct InPlaceSeed<'a, T: 'a>(pub &'a mut T);
 
-impl<'a, 'de, T> serde::de::DeserializeSeed<'de> for InPlaceSeed<'a, T>
-where
-    T: serde::de::Deserialize<'de>,
-{
-    type Value = ();
+// impl<'a, 'de, T> serde::de::DeserializeSeed<'de> for InPlaceSeed<'a, T>
+// where
+//     T: serde::de::Deserialize<'de>,
+// {
+//     type Value = ();
 
-    fn deserialize<D>(self, deserializer: D) -> Result<(), D::Error>
-    where
-        D: serde::de::Deserializer<'de>,
-    {
-        T::deserialize_in_place(deserializer, self.0)
-    }
-}
+//     fn deserialize<D>(self, deserializer: D) -> Result<(), D::Error>
+//     where
+//         D: serde::de::Deserializer<'de>,
+//     {
+//         T::deserialize_in_place(deserializer, self.0)
+//     }
+// }
 
 mod app;
 mod assets;
@@ -58,12 +58,11 @@ mod error;
 mod filters;
 mod ide;
 mod inspector;
-mod instance;
 mod model;
 mod plugins;
 mod project;
 mod render;
-mod sample;
+mod simulation;
 mod subprocess;
 mod systems;
 mod task;

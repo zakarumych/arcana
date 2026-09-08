@@ -54,3 +54,9 @@ pub type NoHashMap<K, V> = HashMap<K, V, NoHashBuilder>;
 pub const fn no_hash_map<K, V>() -> NoHashMap<K, V> {
     HashMap::with_hasher(NoHashBuilder)
 }
+
+pub type NoHashSet<T> = hashbrown::HashSet<T, NoHashBuilder>;
+
+pub const fn no_hash_set<T>() -> NoHashSet<T> {
+    hashbrown::HashSet::with_hasher(NoHashBuilder)
+}

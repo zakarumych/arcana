@@ -3,6 +3,7 @@ use core::fmt;
 use arcana_base_encoding::base58;
 use arcana_intern::Name;
 use athena::{Matrix2, Matrix3, Matrix4, Vector2, Vector3, Vector4};
+use foldhash::fast::RandomState;
 use gametime::TimeSpan;
 use hashbrown::HashMap;
 use palette::IntoColor;
@@ -128,7 +129,7 @@ pub enum Value {
     Mat4(Matrix4<f64>),
     Option(Option<Box<Value>>),
     Array(Vec<Value>),
-    Map(HashMap<SmolStr, Value>),
+    Map(HashMap<SmolStr, Value, RandomState>),
     Enum(Name, Box<Value>),
 }
 
@@ -560,12 +561,12 @@ impl<'de> serde::de::Deserializer<'de> for Value {
                 ("Luma", &["luma"], ColorValue::Luma(luma)) => {
                     return visitor.visit_seq(serde::de::value::SeqDeserializer::new(
                         [luma.luma].into_iter(),
-                    ))
+                    ));
                 }
                 ("Lumaa", &["luma", "alpha"], ColorValue::Lumaa(lumaa)) => {
                     return visitor.visit_seq(serde::de::value::SeqDeserializer::new(
                         [lumaa.luma, lumaa.alpha].into_iter(),
-                    ))
+                    ));
                 }
                 _ => {}
             },
@@ -819,7 +820,7 @@ impl<'a> ValueSerializer<'a> {
     }
 
     fn map(self, len: Option<usize>) -> ValueMapSerializer<'a> {
-        let map = HashMap::with_capacity(len.unwrap_or(0));
+        let map = HashMap::with_capacity_and_hasher(len.unwrap_or(0), RandomState::default());
         *self.0 = Value::Map(map);
         match self.0 {
             Value::Map(map) => ValueMapSerializer { map, new_key: None },
@@ -843,7 +844,7 @@ impl<'a> ValueArraySerializer<'a> {
 }
 
 pub struct ValueMapSerializer<'a> {
-    map: &'a mut HashMap<SmolStr, Value>,
+    map: &'a mut HashMap<SmolStr, Value, RandomState>,
     new_key: Option<SmolStr>,
 }
 

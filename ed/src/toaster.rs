@@ -123,7 +123,7 @@ impl Toaster {
         }
     }
 
-    pub fn tracing_layer(&self) -> ToasterLayer {
+    pub fn layer(&self) -> ToasterLayer {
         ToasterLayer {
             toasts: self.remote.clone(),
         }
@@ -143,8 +143,8 @@ impl Toaster {
     pub fn push_error(&mut self, message: String, error: &Error) {
         self.toasts.push(Toast {
             level: Level::Error,
-            message: format!("{message}\n{error:?}"),
-            expanded: Some(format!("{message}\n{error:#?}")),
+            message: format!("{message}\n{error}"),
+            expanded: Some(format!("{message}\n{error:#}")),
             timestamp: Local::now(),
             idx: self.next_idx,
         });
@@ -168,13 +168,13 @@ impl Toaster {
         self.toasts.retain(|toast| !toast.time_left(now).is_zero());
     }
 
-    pub fn show(&mut self, cx: &egui::Context) {
-        let theme = cx.theme();
+    pub fn show(&mut self, ui: &mut egui::Ui) {
+        let theme = ui.theme();
         let now = Local::now();
-        let content_rect = cx.content_rect();
+        let content_rect = ui.content_rect();
         let toaster_id = egui::Id::new("arcana-ed-toaster-area");
 
-        let mut state = cx.data(|data| {
+        let mut state = ui.data(|data| {
             data.get_temp::<ToasterWidgetState>(toaster_id)
                 .unwrap_or_default()
         });
@@ -208,7 +208,7 @@ impl Toaster {
             return;
         }
 
-        let style = cx.style();
+        let style = ui.style();
         let toast_spacing = style.spacing.item_spacing.y;
         let desired_margin = style.spacing.window_margin;
 
@@ -242,7 +242,7 @@ impl Toaster {
             .kind(egui::UiKind::Popup)
             .sense(egui::Sense::HOVER);
 
-        area.show(cx, |ui| {
+        area.show(ui, |ui| {
             ui.set_max_size(content_rect.right_bottom() - ui.max_rect().left_top());
             // Position toasts at the bottom right of the screen.
 
@@ -388,7 +388,7 @@ impl Toaster {
                 ui.ctx().request_repaint();
             }
 
-            cx.data_mut(|data| data.insert_temp(toaster_id, state));
+            ui.data_mut(|data| data.insert_temp(toaster_id, state));
         });
     }
 }

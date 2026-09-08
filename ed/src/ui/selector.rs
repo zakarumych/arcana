@@ -18,7 +18,7 @@ pub struct Selector<K, E> {
 }
 
 impl<K, E> Selector<K, E> {
-    pub fn new<F>(id_source: impl Hash, get_text: F) -> Self
+    pub fn new<F>(id_source: impl egui::AsId, get_text: F) -> Self
     where
         F: for<'a> Fn(&'a K, &'a E) -> &'a str + 'static,
     {

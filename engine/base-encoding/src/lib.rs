@@ -54,7 +54,7 @@ pub trait Decoder {
 
 #[cfg(test)]
 mod tests {
-    use rand::{Rng, RngCore};
+    use rand::{Rng, RngExt};
 
     #[test]
     #[cfg(feature = "std")]

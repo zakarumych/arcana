@@ -4,8 +4,10 @@ use std::{
     path::Path,
 };
 
-use ahash::{AHasher, RandomState};
+use foldhash::fast::{FixedState, FoldHasher};
 use hashbrown::HashMap;
+
+const STABLE_FIXED_STATE: FixedState = FixedState::with_seed(17);
 
 use super::Hash64;
 
@@ -14,28 +16,41 @@ use super::Hash64;
 pub struct StableHashBuilder;
 
 impl BuildHasher for StableHashBuilder {
-    type Hasher = AHasher;
+    type Hasher = FoldHasher<'static>;
 
+    #[inline(always)]
     fn build_hasher(&self) -> Self::Hasher {
-        stable_hasher()
+        STABLE_FIXED_STATE.build_hasher()
     }
 }
 
 /// Hash map that uses stable hasher.
 ///
 /// This allows to use the hash map across different runs and compilations of the program.
-pub type StableHashMap<K, V> = HashMap<K, V, StableHashBuilder>;
+pub type StableHashMap<K, V> = HashMap<K, V, FixedState>;
 
+#[inline(always)]
 pub const fn stable_hash_map<K, V>() -> StableHashMap<K, V> {
-    HashMap::with_hasher(StableHashBuilder)
+    HashMap::with_hasher(STABLE_FIXED_STATE)
+}
+
+/// Hash set that uses stable hasher.
+///
+/// This allows to use the hash set across different runs and compilations of the program.
+pub type StableHashSet<T> = hashbrown::HashSet<T, FixedState>;
+
+#[inline(always)]
+pub const fn stable_hash_set<T>() -> StableHashSet<T> {
+    hashbrown::HashSet::with_hasher(STABLE_FIXED_STATE)
 }
 
 /// Return stable hasher instance.
 /// Hashes produced by this hasher are stable across different runs and compilations of the program.
-pub fn stable_hasher() -> AHasher {
+#[inline(always)]
+pub fn stable_hasher() -> FoldHasher<'static> {
     // ATTENTION: This is a stable hasher.
     // There must be VERY good reason to change the seeds.
-    RandomState::with_seeds(1, 2, 3, 4).build_hasher()
+    STABLE_FIXED_STATE.build_hasher()
 }
 
 /// Computes stable hash for the value.

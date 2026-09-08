@@ -1,102 +1,61 @@
 //! Data definition for the project.
 //!
 
-use std::{
-    fs, io,
-    ops::{Deref, DerefMut},
-    path::Path,
-};
+use std::{fs, io};
 
 pub use arcana::project::{
-    BuildProcess, Dependency, Plugin, Profile, ProjectManifest, is_path_available, new_plugin_crate,
+    BuildProcess, Dependency, Plugin, Profile, Project, is_path_available, new_plugin_crate,
 };
 use arcana::{
     Name,
     error::{Error, fail},
+    hash::{HashMap, HashSet},
     render::RenderGraphId,
 };
-use hashbrown::{HashMap, HashSet};
 
-use crate::{error::ModalError, filters::Funnel, render::RenderGraph, systems::SystemGraph};
+use crate::{error::ModalErrors, filters::FilterOrder, render::RenderGraph, systems::SystemGraph};
 
-/// Generic project data.
-pub struct Project {
-    pub inner: arcana::project::Project,
-    pub data: internal::ProjectData,
+/// In combination with `ProjectManifest` this defines the project completely.
+/// This includes enabled plugins, filter chain, system graph, asset collections, etc
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct ProjectData {
+    /// Set of enabled plugins.
+    pub enabled_plugins: HashSet<Name>,
+
+    /// System graph.
+    pub systems: SystemGraph,
+
+    /// Filter order.
+    pub filters: FilterOrder,
+
+    /// Render graphs.
+    pub renders: HashMap<RenderGraphId, RenderGraph>,
 }
 
-mod internal {
-    use super::*;
-
-    /// In combination with `ProjectManifest` this defines the project completely.
-    /// This includes enabled plugins, filter chain, system graph, asset collections, etc
-    #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
-    pub struct ProjectData {
-        /// Set of enabled plugins.
-        pub enabled_plugins: HashSet<Name>,
-
-        /// Systems graph.
-        pub systems: SystemGraph,
-
-        /// Event funnel.
-        pub funnel: Funnel,
-
-        /// Render graphs.
-        pub render_graphs: HashMap<RenderGraphId, RenderGraph>,
-    }
-}
-
-impl Deref for Project {
-    type Target = arcana::project::Project;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
-impl DerefMut for Project {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.inner
-    }
-}
-
-impl Project {
-    pub fn load(path: &Path) -> Result<Self, Error> {
-        let project = arcana::project::Project::open(path)?;
-
+impl ProjectData {
+    pub fn load(project: &Project) -> Result<Self, Error> {
         let path = project.root_path().join("Arcana.bin");
 
-        let data = match fs::File::open(path) {
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                internal::ProjectData::default()
-            }
+        match fs::File::open(path) {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(ProjectData::default()),
             Ok(file) => match serde_json::from_reader(file) {
-                Ok(data) => data,
-                Err(error) => {
-                    return Err(Error::msg(format!(
-                        "Failed to deserialize project data: {}",
-                        error
-                    )));
-                }
-            },
-            Err(error) => {
-                return Err(Error::msg(format!(
-                    "Failed to open Arcana.bin to load project data: {}",
+                Ok(data) => Ok(data),
+                Err(error) => Err(Error::msg(format!(
+                    "Failed to deserialize project data: {}",
                     error
-                )));
-            }
-        };
-
-        Ok(Project {
-            inner: project,
-            data,
-        })
+                ))),
+            },
+            Err(error) => Err(Error::msg(format!(
+                "Failed to open Arcana.bin to load project data: {}",
+                error
+            ))),
+        }
     }
 
-    fn sync(&self) -> Result<(), Error> {
+    fn save(&self, project: &Project) -> Result<(), Error> {
         use std::io::Write;
 
-        let path = self.inner.root_path().join("Arcana.bin");
+        let path = project.root_path().join("Arcana.bin");
         let bak = path.with_extension("bin.bak");
 
         let _ = std::fs::remove_file(&bak);
@@ -116,7 +75,7 @@ impl Project {
             }
         };
 
-        match serde_json::to_string(&self.data) {
+        match serde_json::to_string(self) {
             Ok(bytes) => match file.write_all(bytes.as_bytes()) {
                 Ok(()) => {}
                 Err(error) => {
@@ -128,13 +87,14 @@ impl Project {
             }
         }
 
-        self.inner.sync()?;
+        drop(file);
+        project.save()?;
         Ok(())
     }
 
-    pub fn sync_in_ui(&self, ctx: &egui::Context, modal_error: &mut ModalError) {
-        if let Err(error) = self.sync() {
-            modal_error.push_error(ctx.viewport_id(), "Project sync error", error);
+    pub fn save_in_ui(&self, project: &Project, ui: &egui::Ui, modal_error: &mut ModalErrors) {
+        if let Err(error) = self.save(project) {
+            modal_error.push_error(ui.viewport_id(), "Project sync error", error);
         }
     }
 }

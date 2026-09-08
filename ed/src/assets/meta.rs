@@ -6,8 +6,7 @@ use std::{
     time::SystemTime,
 };
 
-use arcana::{Ident, Name, assets::AssetId, model::Value, smol_str::SmolStr};
-use hashbrown::HashMap;
+use arcana::{Ident, Name, assets::AssetId, hash::HashMap, model::Value, smol_str::SmolStr};
 use serde::ser::SerializeSeq;
 use url::Url;
 
@@ -186,7 +185,7 @@ impl SourceMeta {
                     Ok(mut file) => {
                         let new_source_meta = SourceMeta {
                             meta_path,
-                            assets: HashMap::new(),
+                            assets: HashMap::default(),
                         };
 
                         let string = match new_source_meta.serialize() {
@@ -240,7 +239,7 @@ impl SourceMeta {
         match std::fs::read_to_string(&meta_path) {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(SourceMeta {
                 meta_path,
-                assets: HashMap::new(),
+                assets: HashMap::default(),
             }),
             Err(error) => Err(MetaError::ReadError {
                 error,
@@ -404,7 +403,7 @@ impl<'de> serde::de::Visitor<'de> for SourceMetaVisitor {
     where
         A: serde::de::SeqAccess<'de>,
     {
-        let mut assets = HashMap::new();
+        let mut assets = HashMap::default();
 
         while let Some(element) = seq.next_element::<AssetMeta>()? {
             assets.insert(element.target, element);

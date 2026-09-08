@@ -8,7 +8,7 @@ version.workspace = true
 description = "Arcana Engine Launcher"
 
 [[bin]]
-name = "arcana"
+name = "arcana-launcher"
 path = "src/main.rs"
 
 [dependencies]
@@ -34,6 +34,9 @@ toml.workspace = true
 tracing.workspace = true
 tracing-error.workspace = true
 tracing-subscriber.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_System_Console"] }
 
 [build-dependencies]
 cc.workspace = true

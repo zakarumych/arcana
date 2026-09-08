@@ -35,10 +35,8 @@ fn oklab_to_linear_srgb(c: vec3<f32>) -> vec3<f32> {
 struct VertInput {
     @location(0)
     position: vec2<f32>,
-
     @location(1)
     uv: vec2<f32>,
-
     @location(2)
     color: vec4<f32>,
 }
@@ -46,10 +44,8 @@ struct VertInput {
 struct VertOutput {
     @builtin(position)
     position: vec4<f32>,
-
     @location(0)
     uv: vec2<f32>,
-
     @location(1)
     color: vec4<f32>,
 }
@@ -57,7 +53,6 @@ struct VertOutput {
 struct FragInput {
     @location(0)
     uv: vec2<f32>,
-
     @location(1)
     color: vec4<f32>,
 }
@@ -65,14 +60,13 @@ struct FragInput {
 @group(0) @binding(0) var s: sampler;
 @group(0) @binding(1) var t: texture_2d<f32>;
 
-
 struct PC {
     width: u32,
     height: u32,
     scale: f32,
 }
 
-var<push_constant> pc: PC;
+var<immediate> pc: PC;
 
 // 0-1 linear  from  0-1 sRGB gamma
 fn linear_from_srgb(srgb: vec3<f32>) -> vec3<f32> {

@@ -13,4 +13,4 @@ arcana-io = { path = "../io" }
 serde.workspace = true
 hashbrown.workspace = true
 sha2.workspace = true
-ahash.workspace = true
+foldhash.workspace = true

@@ -5,11 +5,12 @@ use std::{
 };
 
 use arcana_alloc::Arena;
+use arcana_hash::{HashMap, HashSet};
 use arcana_id::{SeqIdGen, Stid};
 use arcana_intern::Name;
 use arcana_model::Value;
 use edict::world::World;
-use hashbrown::{HashMap, HashSet, hash_map::Entry};
+use hashbrown::hash_map::Entry;
 use slab::Slab;
 
 use crate::{Job, JobsSet, job::invalid_output_pin};
@@ -73,8 +74,8 @@ impl WorkGraph {
         // This queue must have dependencies-first order.
         // If dependency cycle is detected, return error.
 
-        let mut enqueued = HashSet::<JobIdx>::new();
-        let mut pending = HashSet::<JobIdx>::new();
+        let mut enqueued = HashSet::<JobIdx>::default();
+        let mut pending = HashSet::<JobIdx>::default();
         let mut stack = jobs.keys().copied().collect::<Vec<_>>();
         let mut queue = Vec::new();
 
@@ -111,8 +112,8 @@ impl WorkGraph {
 
         let mut idgen = SeqIdGen::new();
 
-        let mut output_targets = HashMap::<PinId, TargetId>::new();
-        let mut input_targets = HashMap::<PinId, TargetId>::new();
+        let mut output_targets = HashMap::<PinId, TargetId>::default();
+        let mut input_targets = HashMap::<PinId, TargetId>::default();
 
         // Iterate over jobs in reverse order.
         // Process inputs instead of outputs
@@ -151,7 +152,7 @@ impl WorkGraph {
         }
 
         // Construct execution plan.
-        let mut idx_to_order = HashMap::new();
+        let mut idx_to_order = HashMap::default();
         let mut plan = Vec::new();
 
         for job_idx in queue {
@@ -228,8 +229,8 @@ impl WorkGraph {
             // edges,
             hub: TargetHub::new(),
             idgen,
-            sinks: HashMap::new(),
-            selected_jobs: HashSet::new(),
+            sinks: HashMap::default(),
+            selected_jobs: HashSet::default(),
             cbufs: Arena::new(),
         })
     }
@@ -396,7 +397,8 @@ impl WorkGraph {
             node.exec(&mut self.hub, queue, &self.cbufs, world, job);
         }
 
-        queue.submit(self.cbufs.drain().filter_map(|e| e.finish().ok()), true)
+        queue.submit(self.cbufs.drain().map(|e| e.finish()))?;
+        Ok(())
     }
 }
 
@@ -523,7 +525,7 @@ impl CommandStream<'_> {
     /// Returned reference is bound to this `Exec`'s borrow,
     /// so make sure to fetch target references before calling this.
     pub fn new_encoder(&self) -> &mut mev::CommandEncoder {
-        let encoder = self.queue.borrow_mut().new_command_encoder().unwrap();
+        let encoder = self.queue.borrow_mut().new_command_encoder();
         self.cbufs.put(encoder)
     }
 }

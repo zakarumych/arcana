@@ -10,6 +10,7 @@ use arcana::{
         import::{ImportContext, ImportError, ImporterDesc, ImporterId, Missing},
     },
     error::{Error, WithContext, fail},
+    hash::HashMap,
     id::TimeUidGen,
     model::Value,
     plugin::PluginsHub,
@@ -21,7 +22,6 @@ use base64::{
 };
 use rand::random;
 
-use hashbrown::HashMap;
 use url::Url;
 
 use crate::{
@@ -74,7 +74,7 @@ impl AssetStore {
             base,
             temporaries,
             id_gen: TimeUidGen::random(),
-            importers: HashMap::new(),
+            importers: HashMap::default(),
             registry: AssetRegistry::new(registry)?,
             fetcher: Fetcher::new(sources)
                 .with_context("Failed to open temporary sources path for asset store")?,

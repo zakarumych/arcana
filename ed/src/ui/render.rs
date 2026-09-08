@@ -1,8 +1,8 @@
 use std::mem::{offset_of, size_of_val};
 
-use arcana::mev::{self, Arguments, DeviceRepr};
+use arcana::mev::{self, Arguments, DeviceRepr, Offset2};
 use egui::epaint::Vertex;
-use hashbrown::{hash_map::Entry, HashMap};
+use hashbrown::{HashMap, hash_map::Entry};
 
 use super::Sampler;
 
@@ -11,7 +11,7 @@ struct EguiArguments {
     #[mev(fragment)]
     sampler: mev::Sampler,
     #[mev(fragment)]
-    texture: mev::Image,
+    texture: mev::Image2D,
 }
 
 #[derive(mev::DeviceRepr)]
@@ -48,7 +48,7 @@ impl Render {
         cx: &egui::Context,
         mut frame: mev::Frame,
         queue: &mut mev::Queue,
-        textures: &mut HashMap<egui::TextureId, (mev::Image, Sampler)>,
+        textures: &mut HashMap<egui::TextureId, (mev::Image2D, Sampler)>,
         textures_delta: &mut egui::TexturesDelta,
         shapes: Vec<egui::epaint::ClippedShape>,
         pixels_per_point: f32,
@@ -61,30 +61,30 @@ impl Render {
                     mag_filter: mev::Filter::Nearest,
                     address_mode: [mev::AddressMode::ClampToEdge; 3],
                     ..mev::SamplerDesc::new()
-                })?;
+                });
                 let sampler_nl = queue.new_sampler(mev::SamplerDesc {
                     min_filter: mev::Filter::Nearest,
                     mag_filter: mev::Filter::Linear,
                     address_mode: [mev::AddressMode::ClampToEdge; 3],
                     ..mev::SamplerDesc::new()
-                })?;
+                });
                 let sampler_ln = queue.new_sampler(mev::SamplerDesc {
                     min_filter: mev::Filter::Linear,
                     mag_filter: mev::Filter::Nearest,
                     address_mode: [mev::AddressMode::ClampToEdge; 3],
                     ..mev::SamplerDesc::new()
-                })?;
+                });
                 let sampler_ll = queue.new_sampler(mev::SamplerDesc {
                     min_filter: mev::Filter::Linear,
                     mag_filter: mev::Filter::Linear,
                     address_mode: [mev::AddressMode::ClampToEdge; 3],
                     ..mev::SamplerDesc::new()
-                })?;
+                });
                 none.get_or_insert([sampler_nn, sampler_nl, sampler_ln, sampler_ll])
             }
         };
 
-        let mut encoder = queue.new_command_encoder()?;
+        let mut encoder = queue.new_command_encoder();
 
         encoder.init_image(
             mev::PipelineStages::empty(),
@@ -101,98 +101,74 @@ impl Render {
             );
 
             if !textures_delta.set.is_empty() {
-                let delta_size = textures_delta.set.iter().fold(0, |acc, (_, delta)| {
-                    acc + match &delta.image {
-                        egui::ImageData::Color(color) => std::mem::size_of_val(&color.pixels[..]),
-                        // egui::ImageData::Font(font) => std::mem::size_of_val(&font.pixels[..]),
+                let delta_size = textures_delta.set.iter().fold(0, |mut acc, (_, deltas)| {
+                    for delta in deltas {
+                        acc += match &delta.image {
+                            egui::ImageData::Color(color) => {
+                                std::mem::size_of_val(&color.pixels[..])
+                            } // egui::ImageData::Font(font) => std::mem::size_of_val(&font.pixels[..]),
+                        }
                     }
+                    acc
                 });
 
                 let mut upload_buffer = queue.new_buffer(mev::BufferDesc {
                     size: delta_size,
-                    usage: mev::BufferUsage::TRANSFER_SRC,
-                    memory: mev::Memory::Upload,
+                    usage: mev::BufferUsage::TRANSFER_SRC | mev::BufferUsage::HOST_WRITE,
                     name: "texture-delta-upload",
-                })?;
+                });
 
                 let mut offset = 0usize;
-                for (_, delta) in textures_delta.set.iter() {
-                    match &delta.image {
-                        egui::ImageData::Color(color) => unsafe {
-                            upload_buffer
-                                .write_unchecked(offset, bytemuck::cast_slice(&color.pixels[..]));
-                            offset += std::mem::size_of_val(&color.pixels[..]);
-                        },
-                        // egui::ImageData::Font(font) => unsafe {
-                        //     upload_buffer
-                        //         .write_unchecked(offset, bytemuck::cast_slice(&font.pixels[..]));
-                        //     offset += std::mem::size_of_val(&font.pixels[..]);
-                        // },
+                for (_, deltas) in textures_delta.set.iter() {
+                    for delta in deltas {
+                        match &delta.image {
+                            egui::ImageData::Color(color) => {
+                                upload_buffer
+                                    .write(offset, bytemuck::cast_slice(&color.pixels[..]))
+                                    .expect("Failed to write to upload buffer");
+                                offset += std::mem::size_of_val(&color.pixels[..]);
+                            } // egui::ImageData::Font(font) => unsafe {
+                              //     upload_buffer
+                              //         .write_unchecked(offset, bytemuck::cast_slice(&font.pixels[..]));
+                              //     offset += std::mem::size_of_val(&font.pixels[..]);
+                              // },
+                        }
                     }
                 }
 
                 let mut offset = 0usize;
-                for &(id, ref delta) in &textures_delta.set {
-                    let region = delta.image.size();
-                    let pos = delta.pos.unwrap_or([0; 2]);
-                    let size = [pos[0] + region[0], pos[1] + region[1]];
+                for (&id, deltas) in &textures_delta.set {
+                    for delta in deltas {
+                        let pos = delta.pos.unwrap_or([0; 2]);
+                        let size = delta.image.size();
 
-                    let format = match &delta.image {
-                        egui::ImageData::Color(_) => mev::PixelFormat::Rgba8Srgb,
-                        // egui::ImageData::Font(_) => mev::PixelFormat::R32Float,
-                    };
+                        let format = match &delta.image {
+                            egui::ImageData::Color(_) => mev::PixelFormat::Rgba8Srgb,
+                            // egui::ImageData::Font(_) => mev::PixelFormat::R32Float,
+                        };
 
-                    let mut image: mev::Image;
+                        let mut image: mev::Image2D;
 
-                    match textures.entry(id) {
-                        Entry::Vacant(entry) => {
-                            let new_image = queue.new_image(mev::ImageDesc {
-                                extent: mev::Extent2::new(size[0] as u32, size[1] as u32).into(),
-                                format,
-                                usage: mev::ImageUsage::SAMPLED
-                                    | mev::ImageUsage::TRANSFER_DST
-                                    | mev::ImageUsage::TRANSFER_SRC,
-                                layers: 1,
-                                levels: 1,
-                                name: &format!("egui-texture-{id:?}"),
-                            })?;
+                        match textures.entry(id) {
+                            Entry::Vacant(entry) => {
+                                if delta.pos.is_some() {
+                                    tracing::warn!(
+                                        "Delta position is set for a new image, which is unexpected."
+                                    );
+                                }
 
-                            copy_encoder.init_image(
-                                mev::PipelineStages::empty(),
-                                mev::PipelineStages::TRANSFER,
-                                &new_image,
-                            );
-
-                            // if let egui::ImageData::Font(_) = &delta.image {
-                            //     new_image = new_image.view(
-                            //         queue,
-                            //         mev::ViewDesc::new(format).swizzle(mev::Swizzle::RRRR),
-                            //     )?;
-                            // }
-
-                            image = entry
-                                .insert((new_image, Sampler::from_options(delta.options)))
-                                .0
-                                .clone();
-                        }
-                        Entry::Occupied(mut entry) => {
-                            entry.get_mut().1 = Sampler::from_options(delta.options);
-                            image = entry.get().0.clone();
-                            let extent = image.extent().expect_2d();
-                            if (extent.width() as usize) < size[0]
-                                || (extent.height() as usize) < size[1]
-                            {
                                 let new_image = queue.new_image(mev::ImageDesc {
-                                    extent: mev::Extent2::new(size[0] as u32, size[1] as u32)
-                                        .into(),
+                                    dims: mev::Extent2::new(
+                                        (pos[0] + size[0]) as u32,
+                                        (pos[1] + size[1]) as u32,
+                                    ),
                                     format,
                                     usage: mev::ImageUsage::SAMPLED
                                         | mev::ImageUsage::TRANSFER_DST
                                         | mev::ImageUsage::TRANSFER_SRC,
-                                    layers: 1,
                                     levels: 1,
                                     name: &format!("egui-texture-{id:?}"),
-                                })?;
+                                });
 
                                 copy_encoder.init_image(
                                     mev::PipelineStages::empty(),
@@ -200,50 +176,59 @@ impl Render {
                                     &new_image,
                                 );
 
-                                // if let egui::ImageData::Font(_) = &delta.image {
-                                //     new_image = new_image.view(
-                                //         queue,
-                                //         mev::ViewDesc::new(format).swizzle(mev::Swizzle::RRRR),
-                                //     )?;
-                                // }
+                                image = entry
+                                    .insert((new_image, Sampler::from_options(delta.options)))
+                                    .0
+                                    .clone();
+                            }
+                            Entry::Occupied(mut entry) => {
+                                entry.get_mut().1 = Sampler::from_options(delta.options);
+                                image = entry.get().0.clone();
+                                let extent = image.extent();
 
-                                copy_encoder.copy_image_region(
-                                    &image,
-                                    0,
-                                    0,
-                                    mev::Offset3::ZERO,
-                                    &new_image,
-                                    0,
-                                    0,
-                                    mev::Offset3::ZERO,
-                                    image.extent().into_3d(),
-                                    1,
-                                );
+                                if delta.pos.is_none()
+                                    && ((extent.width() as usize) != size[0]
+                                        || (extent.height() as usize) != size[1])
+                                {
+                                    let new_image = queue.new_image(mev::ImageDesc {
+                                        dims: mev::Extent2::new(size[0] as u32, size[1] as u32),
+                                        format,
+                                        usage: mev::ImageUsage::SAMPLED
+                                            | mev::ImageUsage::TRANSFER_DST
+                                            | mev::ImageUsage::TRANSFER_SRC,
 
-                                entry.get_mut().0 = new_image.clone();
-                                image = new_image;
+                                        levels: 1,
+                                        name: &format!("egui-texture-{id:?}"),
+                                    });
+
+                                    copy_encoder.init_image(
+                                        mev::PipelineStages::empty(),
+                                        mev::PipelineStages::TRANSFER,
+                                        &new_image,
+                                    );
+
+                                    entry.get_mut().0 = new_image.clone();
+                                    image = new_image;
+                                }
                             }
                         }
-                    }
 
-                    copy_encoder.copy_buffer_to_image(
-                        &upload_buffer,
-                        offset,
-                        4 * region[0],
-                        0,
-                        &image,
-                        mev::Offset3::new(pos[0] as u32, pos[1] as u32, 0),
-                        mev::Extent3::new(region[0] as u32, region[1] as u32, 1),
-                        0..1,
-                        0,
-                    );
+                        let region_offset = mev::Offset2::new(pos[0] as i32, pos[1] as i32);
+                        let region_extent = mev::Extent2::new(size[0] as u32, size[1] as u32);
 
-                    match &delta.image {
-                        egui::ImageData::Color(color) => {
-                            offset += std::mem::size_of_val(&color.pixels[..]);
-                        } // egui::ImageData::Font(font) => {
-                          //     offset += std::mem::size_of_val(&font.pixels[..]);
-                          // }
+                        copy_encoder.copy_buffer_to_image(
+                            &upload_buffer.slice(offset..),
+                            mev::TexelShape::new(format, region_extent),
+                            &image.slice((region_offset, region_extent)),
+                        );
+
+                        match &delta.image {
+                            egui::ImageData::Color(color) => {
+                                offset += std::mem::size_of_val(&color.pixels[..]);
+                            } // egui::ImageData::Font(font) => {
+                              //     offset += std::mem::size_of_val(&font.pixels[..]);
+                              // }
+                        }
                     }
                 }
 
@@ -283,9 +268,8 @@ impl Render {
                             slot.get_or_insert(queue.new_buffer(mev::BufferDesc {
                                 size: total_vertex_size,
                                 usage: mev::BufferUsage::VERTEX | mev::BufferUsage::TRANSFER_DST,
-                                memory: mev::Memory::Device,
                                 name: "egui-vertex-buffer",
-                            })?)
+                            }))
                         }
                     };
 
@@ -296,9 +280,8 @@ impl Render {
                             slot.get_or_insert(queue.new_buffer(mev::BufferDesc {
                                 size: total_index_size,
                                 usage: mev::BufferUsage::INDEX | mev::BufferUsage::TRANSFER_DST,
-                                memory: mev::Memory::Device,
                                 name: "egui-index-buffer",
-                            })?)
+                            }))
                         }
                     };
 
@@ -334,9 +317,7 @@ impl Render {
                         queue
                             .new_shader_library(mev::LibraryDesc {
                                 name: "egui",
-                                input: mev::include_library!(
-                                    "shaders/egui.wgsl" as mev::ShaderLanguage::Wgsl
-                                ),
+                                input: mev::include_library!(Wgsl "shaders/egui.wgsl"),
                             })
                             .unwrap()
                     });
@@ -380,6 +361,7 @@ impl Render {
                                         color_targets: vec![mev::ColorTargetDesc {
                                             format: target.format(),
                                             blend: Some(mev::BlendDesc::default()),
+                                            mask: mev::WriteMask::all(),
                                         }],
                                         depth_stencil: None,
                                         front_face: mev::FrontFace::default(),
@@ -429,6 +411,7 @@ impl Render {
                                         color_targets: vec![mev::ColorTargetDesc {
                                             format: target.format(),
                                             blend: Some(mev::BlendDesc::default()),
+                                            mask: mev::WriteMask::all(),
                                         }],
                                         depth_stencil: None,
                                         front_face: mev::FrontFace::default(),
@@ -443,7 +426,7 @@ impl Render {
 
                     drop(copy_encoder);
 
-                    let dims = target.extent().expect_2d();
+                    let dims = target.extent();
 
                     let mut render = encoder.render(mev::RenderPassDesc {
                         color_attachments: &[mev::AttachmentDesc::new(&target).no_load()],
@@ -524,9 +507,9 @@ impl Render {
         queue.sync_frame(&mut frame, mev::PipelineStages::FRAGMENT_SHADER);
         encoder.present(frame, mev::PipelineStages::FRAGMENT_SHADER);
 
-        let cbuf = encoder.finish()?;
+        let cbuf = encoder.finish();
 
-        queue.submit(std::iter::once(cbuf), true)?;
+        queue.submit_checkpoint(std::iter::once(cbuf))?;
 
         Ok(())
     }

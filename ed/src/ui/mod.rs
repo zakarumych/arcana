@@ -39,7 +39,7 @@ pub struct UiViewport {
 }
 
 pub struct UserTextures<'a> {
-    textures: &'a mut HashMap<egui::TextureId, (mev::Image, Sampler)>,
+    textures: &'a mut HashMap<egui::TextureId, (mev::Image2D, Sampler)>,
     next_user_texture_id: &'a mut u64,
 }
 
@@ -50,7 +50,7 @@ impl UserTextures<'_> {
         egui::TextureId::User(id)
     }
 
-    pub fn add(&mut self, image: mev::Image, sampler: Sampler) -> egui::TextureId {
+    pub fn add(&mut self, image: mev::Image2D, sampler: Sampler) -> egui::TextureId {
         let id = *self.next_user_texture_id;
         *self.next_user_texture_id += 1;
         self.textures
@@ -58,7 +58,7 @@ impl UserTextures<'_> {
         egui::TextureId::User(id)
     }
 
-    pub fn set(&mut self, id: egui::TextureId, image: mev::Image, sampler: Sampler) {
+    pub fn set(&mut self, id: egui::TextureId, image: mev::Image2D, sampler: Sampler) {
         assert!(matches!(id, egui::TextureId::User(_)));
 
         self.textures.insert(id, (image, sampler));
@@ -68,17 +68,18 @@ impl UserTextures<'_> {
 pub struct Ui {
     cx: egui::Context,
     next_id: egui::Id,
-    textures: HashMap<egui::TextureId, (mev::Image, Sampler)>,
+    textures: HashMap<egui::TextureId, (mev::Image2D, Sampler)>,
     textures_delta: egui::TexturesDelta,
     cursor: egui::CursorIcon,
     render: Render,
     next_user_texture_id: u64,
+    modifiers: egui::Modifiers,
 }
 
 impl Ui {
     pub fn new() -> Self {
         let cx = egui::Context::default();
-        cx.set_style(arcana_style());
+        cx.style_mut_of(egui::Theme::Dark, |s| *s = arcana_style());
         cx.set_embed_viewports(false);
 
         let mut fonts = egui::FontDefinitions::default();
@@ -93,6 +94,7 @@ impl Ui {
             cursor: egui::CursorIcon::Default,
             render: Render::new(),
             next_user_texture_id: 0,
+            modifiers: egui::Modifiers::NONE,
         }
     }
 
@@ -137,7 +139,7 @@ impl Ui {
         }
     }
 
-    pub fn textures(&mut self) -> UserTextures {
+    pub fn textures(&mut self) -> UserTextures<'_> {
         UserTextures {
             textures: &mut self.textures,
             next_user_texture_id: &mut self.next_user_texture_id,
@@ -150,17 +152,17 @@ impl Ui {
         clipboard: &mut Clipboard,
         window: &Window,
         time: TimeStamp,
-        mut run_ui: impl FnMut(&egui::Context, UserTextures),
+        mut run_ui: impl FnMut(&mut egui::Ui, UserTextures),
     ) {
         viewport.raw_input.time = Some(time.elapsed_since_start().as_secs_f64());
 
-        let output = self.cx.run(viewport.raw_input.take(), |cx| {
+        let output = self.cx.run_ui(viewport.raw_input.take(), |ui| {
             let user_textures = UserTextures {
                 textures: &mut self.textures,
                 next_user_texture_id: &mut self.next_user_texture_id,
             };
 
-            run_ui(cx, user_textures);
+            run_ui(ui, user_textures);
         });
 
         assert_eq!(output.pixels_per_point, viewport.scale_factor);

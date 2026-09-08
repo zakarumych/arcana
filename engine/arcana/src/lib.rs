@@ -1,4 +1,3 @@
-#![feature(allocator_api)]
 #![deny(unsafe_op_in_unsafe_fn, unused_must_use, non_snake_case)]
 // #![recursion_limit = "512"]
 
@@ -113,4 +112,65 @@ pub mod for_macro {
 
     pub fn is_job<T: Job>() {}
     pub fn is_importer<T: Importer>() {}
+}
+
+/// A wrapper type for constant values.
+///
+/// Prevents accidental modification of the value.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(transparent)]
+pub struct Const<T: ?Sized>(T);
+
+impl<T> Const<T> {
+    /// Creates a new constant value.
+    #[inline(always)]
+    pub const fn new(value: T) -> Self {
+        Const(value)
+    }
+
+    /// Consumes the `Const` wrapper and returns the inner value.
+    #[inline(always)]
+    pub fn into_inner(me: Self) -> T {
+        me.0
+    }
+}
+
+impl<T: ?Sized> Const<T> {
+    /// Returns a mutable reference to the constant value, allowing modification.
+    ///
+    /// The caller must think twice about their life choices before using this method.
+    #[inline(always)]
+    pub fn cheat(me: &mut Self) -> &mut T {
+        &mut me.0
+    }
+}
+
+impl<T: ?Sized> std::ops::Deref for Const<T> {
+    type Target = T;
+
+    #[inline(always)]
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T> From<T> for Const<T> {
+    #[inline(always)]
+    fn from(value: T) -> Self {
+        Const::new(value)
+    }
+}
+
+impl<T: ?Sized> AsRef<T> for Const<T> {
+    #[inline(always)]
+    fn as_ref(&self) -> &T {
+        &self.0
+    }
+}
+
+impl<T: ?Sized> std::borrow::Borrow<T> for Const<T> {
+    #[inline(always)]
+    fn borrow(&self) -> &T {
+        &self.0
+    }
 }

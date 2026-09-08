@@ -3,6 +3,13 @@ use proc_macro2::TokenStream;
 pub fn job(attr: proc_macro::TokenStream, item: syn::ItemImpl) -> syn::Result<TokenStream> {
     let mut tokens = TokenStream::new();
 
+    if item.modifiers.polarity.is_some() {
+        return Err(syn::Error::new_spanned(
+            item,
+            "expected non-negative `Job` trait implementation",
+        ));
+    }
+
     let job_trait_path = match item.trait_ {
         None => {
             return Err(syn::Error::new_spanned(
@@ -10,13 +17,7 @@ pub fn job(attr: proc_macro::TokenStream, item: syn::ItemImpl) -> syn::Result<To
                 "expected `Job` trait implementation",
             ));
         }
-        Some((Some(_), _, _)) => {
-            return Err(syn::Error::new_spanned(
-                item,
-                "expected non-negative `Job` trait implementation",
-            ));
-        }
-        Some((_, ref path, _)) => path,
+        Some((ref path, _)) => path,
     };
 
     let type_path = match *item.self_ty {

@@ -3,6 +3,7 @@ use std::collections::VecDeque;
 use arcana::{
     Name,
     ecs::{SystemId, action::ActionBufferSliceExt, world::World},
+    hash::{HashMap, HashSet},
     plugin::{Location, PluginsHub},
 };
 use egui::{Color32, Ui};
@@ -10,9 +11,12 @@ use egui_snarl::{
     InPin, InPinId, NodeId, OutPin, OutPinId, Snarl,
     ui::{AnyPins, PinInfo, PinShape, SnarlStyle, SnarlViewer},
 };
-use hashbrown::{HashMap, HashSet};
+use winit::window::WindowId;
 
-use crate::{error::ModalError, project::Project};
+use crate::{
+    project::{Project, ProjectData},
+    tool::{Tool, ToolContext, ToolTemplate},
+};
 
 use super::{ide::Ide, plugins::Plugins, toggle_ui};
 
@@ -68,7 +72,7 @@ fn order_systems(snarl: &Snarl<SystemNode>, category: Category) -> Vec<SystemId>
     let mut order = Vec::new();
 
     let mut queue = VecDeque::new();
-    let mut scheduled = HashSet::new();
+    let mut scheduled = HashSet::default();
 
     for (idx, node) in snarl.node_ids() {
         if node.category != category {
@@ -101,19 +105,35 @@ fn order_systems(snarl: &Snarl<SystemNode>, category: Category) -> Vec<SystemId>
     order
 }
 
-pub struct SystemsManager {
+pub struct SystemManager {
     available: Vec<SystemNode>,
+
+    /// Systems graph.
+    systems: SystemGraph,
+
+    modification: u64,
 }
 
-impl SystemsManager {
+impl SystemManager {
     pub fn new() -> Self {
-        SystemsManager {
+        SystemManager {
             available: Vec::new(),
+            systems: SystemGraph::new(),
+            modification: 1,
         }
     }
 
-    pub fn update_plugins(&mut self, project: &mut Project, plugins: &Plugins) {
-        let mut all_systems = HashMap::new();
+    pub fn load(&mut self, _project: &Project, data: &ProjectData) {
+        self.systems = data.systems.clone();
+        self.modification += 1;
+    }
+
+    pub fn save(&self, _project: &mut Project, data: &mut ProjectData) {
+        data.systems = self.systems.clone();
+    }
+
+    pub fn update_plugins(&mut self, plugins: &Plugins) {
+        let mut all_systems = HashMap::default();
 
         for (name, plugin) in plugins.iter() {
             for info in plugin.systems() {
@@ -121,10 +141,12 @@ impl SystemsManager {
             }
         }
 
-        for node in project.data.systems.snarl.nodes_mut() {
+        for node in self.systems.nodes_mut() {
             if let Some((_, info)) = all_systems.remove(&node.system) {
                 node.location = info.location.clone();
                 node.active = true;
+            } else {
+                node.active = false;
             }
         }
 
@@ -144,7 +166,19 @@ impl SystemsManager {
         self.available = new_systems;
         self.available.sort_by_cached_key(|node| node.name);
 
-        project.data.systems.modification += 1;
+        self.modification += 1;
+    }
+
+    pub fn update_schedule(&self, modification: &mut u64, schedule: &mut Schedule) {
+        if self.modification == *modification {
+            return;
+        }
+
+        debug_assert!(self.modification > *modification);
+
+        schedule.fix_schedule = order_systems(&self.systems, Category::Fix);
+        schedule.var_schedule = order_systems(&self.systems, Category::Var);
+        *modification = self.modification;
     }
 }
 
@@ -156,14 +190,7 @@ impl SystemsWidget {
         SystemsWidget {}
     }
 
-    pub fn show(
-        &mut self,
-        manager: &mut SystemsManager,
-        project: &mut Project,
-        modal_error: &mut ModalError,
-        ide: Option<&dyn Ide>,
-        ui: &mut Ui,
-    ) {
+    pub fn show(&mut self, manager: &mut SystemManager, ide: Option<&dyn Ide>, ui: &mut Ui) {
         const STYLE: SnarlStyle = SnarlStyle::new();
 
         let mut viewer = SystemViewer {
@@ -172,58 +199,18 @@ impl SystemsWidget {
             ide,
         };
 
-        project
-            .data
-            .systems
-            .snarl
-            .show(&mut viewer, &STYLE, "systems", ui);
+        manager.systems.show(&mut viewer, &STYLE, "systems", ui);
 
         if viewer.modified {
-            project.sync_in_ui(ui.ctx(), modal_error);
-        }
-
-        if viewer.modified {
-            project.data.systems.modification += 1;
+            manager.modification += 1;
         }
     }
 }
+
+pub type SystemGraph = Snarl<SystemNode>;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(transparent)]
-pub struct SystemGraph {
-    snarl: Snarl<SystemNode>,
-
-    #[serde(skip)]
-    modification: u64,
-}
-
-impl SystemGraph {
-    pub fn new() -> Self {
-        SystemGraph {
-            snarl: Snarl::new(),
-
-            modification: 0,
-        }
-    }
-
-    pub fn update_schedule(&self, modification: u64, schedule: &mut Schedule) {
-        if self.modification == modification {
-            return;
-        }
-
-        schedule.fix_schedule = order_systems(&self.snarl, Category::Fix);
-        schedule.var_schedule = order_systems(&self.snarl, Category::Var);
-    }
-}
-
-impl Default for SystemGraph {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-struct SystemNode {
+pub struct SystemNode {
     system: SystemId,
     name: Name,
     plugin: Name,
@@ -506,5 +493,38 @@ impl SnarlViewer<SystemNode> for SystemViewer<'_> {
                 return;
             }
         }
+    }
+}
+
+pub struct SystemsTemplate;
+
+impl ToolTemplate for SystemsTemplate {
+    fn key(&self) -> &str {
+        "systems"
+    }
+
+    fn title(&self) -> &str {
+        "Systems"
+    }
+
+    fn create(
+        &self,
+        _state: Option<serde_json::Value>,
+    ) -> Result<Box<dyn Tool>, serde_json::Error> {
+        Ok(Box::new(SystemsWidget::new()))
+    }
+}
+
+impl Tool for SystemsWidget {
+    fn title(&self) -> &str {
+        "Systems"
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, _window: WindowId, context: &mut ToolContext<'_>) {
+        self.show(context.systems, context.ide, ui);
+    }
+
+    fn save(&self) -> Option<serde_json::Value> {
+        None
     }
 }

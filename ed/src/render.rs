@@ -2,12 +2,13 @@ use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 
 use arcana::{
     Name,
-    ecs::entity::EntityId,
-    id::Stid,
+    hash::HashMap,
+    id::{ShufIdGen, Stid, hash_id},
     mev,
     model::Value,
     plugin::{JobInfo, Location},
     render::RenderGraphId,
+    validate_name,
     work_graph::{Cycle, Edge, HookId, Image2D, JobDesc, JobId, JobIdx, PinId, WorkGraph},
 };
 use egui::Ui;
@@ -15,16 +16,19 @@ use egui_snarl::{
     InPin, InPinId, NodeId, OutPin, OutPinId, Snarl,
     ui::{AnyPins, PinInfo, SnarlStyle, SnarlViewer},
 };
-use hashbrown::HashMap;
+use winit::window::WindowId;
 
-use crate::{error::ModalError, model::ValueProbe, project::Project};
+use crate::{
+    model::ValueProbe,
+    project::{Project, ProjectData},
+    tool::{Tool, ToolContext, ToolTemplate},
+};
 
 use super::{
     hue_hash,
     ide::Ide,
-    instance::Instance,
     plugins::Plugins,
-    sample::ImageSample,
+    simulation::Simulation,
     ui::{Sampler, Selector, UserTextures},
 };
 
@@ -38,6 +42,14 @@ pub struct RenderGraph {
 }
 
 impl RenderGraph {
+    pub fn new(name: Name) -> Self {
+        RenderGraph {
+            name,
+            snarl: Snarl::new(),
+            modification: 1,
+        }
+    }
+
     pub fn make_work_graph(&self) -> Result<WorkGraph, Cycle> {
         let jobs = self
             .snarl
@@ -90,32 +102,29 @@ impl RenderGraph {
     }
 }
 
-struct Preview {
-    image: Option<mev::Image>,
-    id: egui::TextureId,
-    hook: Option<HookId>,
-    size: Option<mev::Extent2>,
-}
-
-pub struct Rendering {
+pub struct RenderManager {
     available: BTreeMap<Name, Vec<JobInfo>>,
-    preview: Option<Rc<RefCell<Preview>>>,
-    render_graph: Option<RenderGraphId>,
-    renderer: Option<EntityId>,
+    renders: HashMap<RenderGraphId, RenderGraph>,
 }
 
-impl Rendering {
+impl RenderManager {
     pub fn new() -> Self {
-        Rendering {
+        RenderManager {
             available: BTreeMap::new(),
-            preview: None,
-            render_graph: None,
-            renderer: None,
+            renders: HashMap::default(),
         }
     }
 
-    pub fn update_plugins(&mut self, project: &mut Project, plugins: &Plugins) {
-        let mut all_jobs = HashMap::new();
+    pub fn load(&mut self, _project: &Project, data: &ProjectData) {
+        self.renders = data.renders.clone();
+    }
+
+    pub fn save(&self, _project: &mut Project, data: &mut ProjectData) {
+        data.renders = self.renders.clone();
+    }
+
+    pub fn update_plugins(&mut self, plugins: &Plugins) {
+        let mut all_jobs = HashMap::default();
         self.available.clear();
 
         for (name, plugin) in plugins.iter() {
@@ -129,7 +138,7 @@ impl Rendering {
             jobs.sort_by_key(|node| node.name);
         }
 
-        for render_graph in project.data.render_graphs.values_mut() {
+        for render_graph in self.renders.values_mut() {
             let mut add_present_node = true;
             for node in render_graph.snarl.nodes_mut() {
                 match node {
@@ -165,13 +174,50 @@ impl Rendering {
         }
     }
 
+    pub fn get_render_graph(&self, id: RenderGraphId) -> Option<&RenderGraph> {
+        self.renders.get(&id)
+    }
+
+    pub fn new_render(&mut self, name: Name) -> RenderGraphId {
+        let id = hash_id!(name);
+        self.renders.insert(id, RenderGraph::new(name));
+        id
+    }
+}
+
+struct Preview {
+    image: Option<mev::Image2D>,
+    id: egui::TextureId,
+    hook: Option<HookId>,
+    size: Option<mev::Extent2>,
+}
+
+struct NewRenderWidget {
+    name: String,
+    problem: String,
+}
+
+pub struct RenderWidget {
+    preview: Option<Rc<RefCell<Preview>>>,
+    render: Option<RenderGraphId>,
+    new_render: Option<NewRenderWidget>,
+}
+
+impl RenderWidget {
+    pub fn new() -> Self {
+        RenderWidget {
+            preview: None,
+            render: None,
+            new_render: None,
+        }
+    }
+
     pub fn show(
         &mut self,
-        project: &mut Project,
-        modal_error: &mut ModalError,
-        sample: &ImageSample,
+        manager: &mut RenderManager,
+        cvt: &mev::kernels::Cvt,
         device: &mev::Device,
-        main: &mut Instance,
+        main: &mut Simulation,
         textures: &mut UserTextures,
         ide: Option<&dyn Ide>,
         ui: &mut Ui,
@@ -183,14 +229,84 @@ impl Rendering {
                         graph.name.as_str()
                     });
 
-                selector.show(
-                    &mut self.render_graph,
-                    project.data.render_graphs.iter(),
-                    ui,
-                );
+                selector.show(&mut self.render, manager.renders.iter(), ui);
+
+                let mut clear_new_render = false;
+
+                if self.new_render.is_none() {
+                    if ui
+                        .button(egui_phosphor::regular::PLUS)
+                        .on_hover_text("Create new render")
+                        .clicked()
+                    {
+                        self.new_render = Some(NewRenderWidget {
+                            name: String::new(),
+                            problem: String::new(),
+                        });
+
+                        ui.request_repaint();
+                    }
+                }
+
+                if let Some(new_render) = &mut self.new_render {
+                    let edit = egui::TextEdit::singleline(&mut new_render.name)
+                        .lock_focus(true)
+                        .hint_text("New render name");
+
+                    let r = ui.add(edit);
+
+                    if r.changed() {
+                        match validate_name(&new_render.name) {
+                            Ok(_) => {
+                                new_render.problem.clear();
+                            }
+                            Err(err) => {
+                                new_render.problem = err.to_string();
+                            }
+                        };
+                    }
+
+                    if r.lost_focus() {
+                        let (enter_pressed, esc_pressed) = ui.input(|i| {
+                            (
+                                i.key_pressed(egui::Key::Enter),
+                                i.key_pressed(egui::Key::Escape),
+                            )
+                        });
+
+                        if enter_pressed {
+                            match Name::from_str(&new_render.name) {
+                                Ok(name) => {
+                                    let id = manager.new_render(name);
+                                    self.render = Some(id);
+                                    clear_new_render = true;
+                                }
+                                Err(err) => {
+                                    new_render.problem = err.to_string();
+                                    r.request_focus();
+                                }
+                            }
+                        } else if esc_pressed {
+                            clear_new_render = true;
+                        } else {
+                            r.request_focus();
+                        }
+                    }
+
+                    if !new_render.problem.is_empty() {
+                        ui.weak(
+                            egui::RichText::new(&new_render.problem)
+                                .color(ui.style().visuals.warn_fg_color),
+                        );
+                    }
+                }
+
+                if clear_new_render {
+                    self.new_render = None;
+                }
             });
 
-            let Some(render_graph_id) = self.render_graph else {
+            let Some(render_graph_id) = self.render else {
                 return;
             };
 
@@ -210,23 +326,21 @@ impl Rendering {
 
                 if let Some(size) = preview.size {
                     if let Some(image) = &preview.image {
-                        if size != image.extent().expect_2d() {
+                        if size != image.extent() {
                             preview.image = None;
                         }
                     }
 
                     let id = preview.id;
                     preview.image.get_or_insert_with(|| {
-                        let image = device
-                            .new_image(mev::ImageDesc {
-                                extent: size.into(),
-                                format: mev::PixelFormat::Rgba8Srgb,
-                                usage: mev::ImageUsage::TARGET | mev::ImageUsage::SAMPLED,
-                                layers: 1,
-                                levels: 1,
-                                name: "preview",
-                            })
-                            .unwrap();
+                        let image = device.new_image(mev::ImageDesc {
+                            dims: size,
+                            format: mev::PixelFormat::Rgba8Srgb,
+                            usage: mev::ImageUsage::TARGET | mev::ImageUsage::SAMPLED,
+
+                            levels: 1,
+                            name: "preview",
+                        });
 
                         textures.set(id, image.clone(), Sampler::LinearLinear);
 
@@ -237,9 +351,9 @@ impl Rendering {
 
             let mut viewer = RenderGraphViewer {
                 modified: false,
-                available: &mut self.available,
+                available: &mut manager.available,
                 main,
-                sample: &sample,
+                cvt,
                 preview,
                 ide,
             };
@@ -249,11 +363,7 @@ impl Rendering {
                 ..SnarlStyle::new()
             };
 
-            let render_graph = project
-                .data
-                .render_graphs
-                .get_mut(&render_graph_id)
-                .unwrap();
+            let render_graph = manager.renders.get_mut(&render_graph_id).unwrap();
 
             render_graph
                 .snarl
@@ -261,7 +371,6 @@ impl Rendering {
 
             if viewer.modified {
                 render_graph.modification += 1;
-                project.sync_in_ui(ui.ctx(), modal_error);
             }
         });
     }
@@ -288,8 +397,8 @@ pub enum RenderGraphNode {
 pub struct RenderGraphViewer<'a> {
     modified: bool,
     available: &'a mut BTreeMap<Name, Vec<JobInfo>>,
-    main: &'a mut Instance,
-    sample: &'a ImageSample,
+    main: &'a mut Simulation,
+    cvt: &'a mev::kernels::Cvt,
     preview: &'a Rc<RefCell<Preview>>,
     ide: Option<&'a dyn Ide>,
 }
@@ -690,9 +799,46 @@ fn default_params(desc: &JobDesc) -> HashMap<Name, Value> {
         .collect()
 }
 
+pub struct RenderTemplate;
+
+impl ToolTemplate for RenderTemplate {
+    fn title(&self) -> &str {
+        "Render"
+    }
+
+    fn key(&self) -> &str {
+        "render"
+    }
+
+    fn create(
+        &self,
+        _state: Option<serde_json::Value>,
+    ) -> Result<Box<dyn Tool>, serde_json::Error> {
+        Ok(Box::new(RenderWidget::new()))
+    }
+}
+
+impl Tool for RenderWidget {
+    fn title(&self) -> &str {
+        "Render"
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, _window: WindowId, context: &mut ToolContext<'_>) {
+        self.show(
+            context.renders,
+            context.cvt,
+            context.queue.device(),
+            context.simulation,
+            &mut context.textures,
+            context.ide,
+            ui,
+        );
+    }
+}
+
 // fn show_preview(
 //     main: &mut Instance,
-//     sample: &ImageSample,
+//     cvt: &mev::kernels::Cvt,
 //     r: egui::Response,
 //     pin: PinId,
 //     ty: Stid,
@@ -710,7 +856,6 @@ fn default_params(desc: &JobDesc) -> HashMap<Name, Value> {
 //             };
 
 //             if hook.is_none() {
-//                 let sample = sample.clone();
 //                 let preview = preview.clone();
 
 //                 let new_hook =
@@ -739,9 +884,16 @@ fn default_params(desc: &JobDesc) -> HashMap<Name, Value> {
 //                         let encoder = commands.new_encoder();
 
 //                         if let Some(image) = &preview.borrow().image {
-//                             sample
-//                                 .sample(target.0.clone(), image.clone(), encoder)
-//                                 .unwrap();
+//                             // sample
+//                             //     .sample(target.0.clone(), image.clone(), encoder)
+//                             //     .unwrap();
+
+//                             cvt.image_to_image_with(
+//                                 encoder,
+//                                 image.clone(),
+//                                 target.0.clone(),
+//                                 CvtOptions::default().filter(mev::Filter::Linear),
+//                             );
 //                         }
 //                     });
 

@@ -9,4 +9,4 @@ publish = false
 
 [dependencies]
 arcana = { path = "../../engine/arcana" }
-jkl = { path = "../../../jkl" }
+jkl = { path = "../../../jkl/crates/jkl" }

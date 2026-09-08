@@ -5,13 +5,13 @@ use std::{
     time::SystemTime,
 };
 
-use arcana::hash::sha256;
+use arcana::hash::{HashMap, sha256};
 use base64::{
     Engine,
     alphabet::URL_SAFE,
     engine::general_purpose::{GeneralPurpose, NO_PAD},
 };
-use hashbrown::{HashMap, hash_map::RawEntryMut};
+use hashbrown::hash_map::RawEntryMut;
 use url::Url;
 
 #[derive(Debug, thiserror::Error)]
@@ -90,7 +90,7 @@ impl Fetcher {
 
         Ok(Fetcher {
             path,
-            fetched: HashMap::new(),
+            fetched: HashMap::default(),
         })
     }
 

@@ -6,12 +6,12 @@ use std::{
 };
 
 use arcana_error::Error;
-use arcana_project::{new_plugin_crate, process_path_ident, Plugin};
+use arcana_project::{Plugin, new_plugin_crate, process_path_ident};
 use camino::Utf8PathBuf;
 use figa::Figa;
 
 pub use arcana_intern::Ident;
-pub use arcana_project::{validate_engine_path, Dependency, Profile, Project};
+pub use arcana_project::{Dependency, Profile, Project, validate_engine_path};
 
 #[derive(Default, serde::Serialize, serde::Deserialize, figa::Figa)]
 struct Config {
@@ -82,7 +82,11 @@ fn save_config_to_path(config: &Config, path: &Path) {
     let s = match toml::to_string_pretty(config) {
         Ok(s) => s,
         Err(error) => {
-            tracing::warn!("Failed to serialize config to {}: {}", path.display(), error);
+            tracing::warn!(
+                "Failed to serialize config to {}: {}",
+                path.display(),
+                error
+            );
             return;
         }
     };
@@ -166,15 +170,15 @@ impl Start {
     }
 
     pub fn open(&self, path: &Path) -> Result<Project, Error> {
-        Project::open(path)
+        Project::load(path)
     }
 
     pub fn init_workspace(&self, path: &Path) -> Result<(), Error> {
-        Project::open(path)?.init_workspace()
+        Project::load(path)?.init_workspace()
     }
 
     pub fn run_ed(&self, path: &Path, profile: Profile) -> Result<(), Error> {
-        let p = Project::open(path)?;
+        let p = Project::load(path)?;
         p.run_editor(profile)
     }
 
@@ -199,13 +203,13 @@ impl Start {
     }
 
     pub fn build_game(&self, path: &Path, profile: Profile) -> Result<PathBuf, Error> {
-        let p = Project::open(path)?;
+        let p = Project::load(path)?;
         p.init_workspace()?;
         p.build_game(profile)
     }
 
     pub fn run_game(&self, path: &Path, profile: Profile) -> Result<(), Error> {
-        let p = Project::open(path)?;
+        let p = Project::load(path)?;
         p.init_workspace()?;
         p.run_game(profile)
     }

@@ -171,7 +171,7 @@ impl Project {
     /// # Errors
     ///
     /// * If `path` is not a valid path to Arcana project.
-    pub fn open(path: &Path) -> Result<Self, Error> {
+    pub fn load(path: &Path) -> Result<Self, Error> {
         let manifest_path = match absolute(path) {
             Ok(path) => path,
             Err(error) => {
@@ -292,7 +292,7 @@ impl Project {
         &self.manifest_path
     }
 
-    pub fn sync(&self) -> Result<(), Error> {
+    pub fn save(&self) -> Result<(), Error> {
         let serialized_manifest = toml::to_string_pretty(&self.manifest)
             .map_err(|error| Error::msg(format!("Cannot serialize project manifest: {error:?}")))?;
 

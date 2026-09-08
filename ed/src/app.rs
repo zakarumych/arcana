@@ -1,5 +1,4 @@
-use core::fmt;
-use std::{hash::Hash, path::PathBuf};
+use std::path::PathBuf;
 
 use arboard::Clipboard;
 use arcana::{
@@ -8,10 +7,10 @@ use arcana::{
     input::ViewInput,
     mev,
 };
-use egui::{TopBottomPanel, WidgetText};
+use egui::{Panel, WidgetText};
 use egui_dock::{DockArea, DockState, Tree};
 use egui_probe::Probe;
-use tracing_subscriber::layer::SubscriberExt as _;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use winit::{
     dpi,
     event::WindowEvent,
@@ -21,20 +20,19 @@ use winit::{
 
 use crate::{
     assets::AssetStore,
-    error::ModalError,
-    filters::Filters,
+    error::ModalErrors,
+    filters::FilterManager,
     ide::{Ide, IdeType},
     init_mev,
-    instance::Instance,
-    plugins::{PluginsManager, PluginsWidget},
-    project::Project,
-    render::Rendering,
-    sample::ImageSample,
+    plugins::PluginManager,
+    project::{Project, ProjectData},
+    render::RenderManager,
+    simulation::Simulation,
     subprocess::{filter_subprocesses, kill_subprocesses},
-    systems::{SystemsManager, SystemsWidget},
+    systems::SystemManager,
     toaster::Toaster,
-    tool::Toolbox,
-    ui::{Ui, UiViewport, UserTextures},
+    tool::{ToolCommand, ToolContext, ToolId, ToolState, Toolbox, Tools, View},
+    ui::{Ui, UiViewport},
 };
 
 #[derive(Clone, Default, egui_probe::EguiProbe, serde::Serialize, serde::Deserialize)]
@@ -43,45 +41,6 @@ pub struct AppConfig {
 }
 
 pub enum UserEvent {}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-enum TabKind {
-    Plugins,
-    Systems,
-}
-
-impl fmt::Display for TabKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            TabKind::Plugins => f.write_str("Plugins"),
-            TabKind::Systems => f.write_str("Systems"),
-        }
-    }
-}
-
-impl TabKind {
-    fn build(&self) -> Tab {
-        match self {
-            TabKind::Plugins => Tab::Plugins(PluginsWidget::new()),
-            TabKind::Systems => Tab::Systems(SystemsWidget::new()),
-        }
-    }
-}
-
-#[derive(serde::Serialize, serde::Deserialize)]
-enum Tab {
-    Plugins(PluginsWidget),
-    Systems(SystemsWidget),
-}
-
-impl Tab {
-    fn kind(&self) -> TabKind {
-        match self {
-            Tab::Plugins(_) => TabKind::Plugins,
-            Tab::Systems(_) => TabKind::Systems,
-        }
-    }
-}
 
 /// Editor app instance.
 /// Contains state of the editor.
@@ -96,13 +55,14 @@ pub struct App {
 
     // Project main state.
     project: Project,
+    data: ProjectData,
 
     ui: Ui,
 
     assets: AssetStore,
-    main: Instance,
+    main: Simulation,
 
-    image_sample: ImageSample,
+    cvt: mev::kernels::Cvt,
     clipboard: Clipboard,
 
     clock: Clock,
@@ -112,23 +72,28 @@ pub struct App {
 
     // Currently configured IDE to use.
     ide: Option<Box<dyn Ide>>,
-    toolbox: Toolbox,
 
-    plugins: PluginsManager,
-    systems: SystemsManager,
+    plugins: PluginManager,
+    systems: SystemManager,
+    filters: FilterManager,
+    renders: RenderManager,
 
     /// App views correspond to windows.
     views: Vec<AppView>,
+    toolbox: Toolbox,
+    tools: Tools,
+    tool_commands: Vec<ToolCommand>,
+    suspended_views: Option<Vec<AppViewState<View>>>,
 
     preferences: Preferences,
-    modal_error: ModalError,
+    errors: ModalErrors,
     toaster: Toaster,
 }
 
 struct AppView {
     window: Window,
     surface: Option<mev::Surface>,
-    dock_state: DockState<Tab>,
+    dock_state: DockState<View>,
     viewport: UiViewport,
 }
 
@@ -142,23 +107,13 @@ impl Drop for AppView {
 
 impl App {
     pub fn new(project: Project) -> Result<Self, Error> {
-        let (device, queue) = init_mev();
+        let toaster = Toaster::new();
 
-        let plugins = PluginsManager::new();
-        // let console = Console::new(event_collector);
-        let systems = SystemsManager::new();
-        let filters = Filters::new();
-        let rendering = Rendering::new();
-        let image_sample = ImageSample::new(&device).unwrap();
-        let main = Instance::new();
-
-        let clock = Clock::new();
-
-        let clipboard = Clipboard::new().unwrap();
-
-        let views = Vec::new();
-
-        let limiter = clock.ticker(120.hz());
+        tracing_subscriber::registry()
+            .with(tracing_subscriber::fmt::layer())
+            .with(tracing_subscriber::filter::EnvFilter::from_default_env())
+            .with(toaster.layer())
+            .init();
 
         let cfg: AppConfig = match load_app_cfg() {
             Ok(cfg) => cfg,
@@ -168,6 +123,33 @@ impl App {
             }
         };
 
+        let data = ProjectData::load(&project)?;
+
+        let (device, queue) = init_mev();
+
+        let mut plugins = PluginManager::new();
+        plugins.load(&project, &data);
+
+        let mut systems = SystemManager::new();
+        systems.load(&project, &data);
+
+        let mut filters = FilterManager::new();
+        filters.load(&project, &data);
+
+        let mut renders = RenderManager::new();
+        renders.load(&project, &data);
+
+        let cvt = mev::kernels::Cvt::new(&device);
+        let main = Simulation::new();
+
+        let clock = Clock::new();
+
+        let clipboard = Clipboard::new().unwrap();
+
+        let views = Vec::new();
+
+        let limiter = clock.ticker(120.hz());
+
         let ide = match cfg.ide {
             None => None,
             Some(ide) => Some(ide.get()),
@@ -175,22 +157,17 @@ impl App {
 
         let assets = AssetStore::new(&project)?;
 
-        let toolbox = Toolbox::new();
-        let toaster = Toaster::new();
-
-        tracing::subscriber::set_global_default(
-            tracing_subscriber::fmt()
-                // .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-                .finish(), // .with(toaster.tracing_layer()),
-        )
-        .expect("Global subscriber is set only once");
-
         Ok(App {
             should_quit: false,
 
             project,
+            data,
 
             views,
+            toolbox: Toolbox::new(),
+            tools: Tools::default(),
+            tool_commands: Vec::new(),
+            suspended_views: None,
 
             ui: Ui::new(),
 
@@ -199,7 +176,7 @@ impl App {
             assets,
             main,
 
-            image_sample,
+            cvt,
             clipboard,
 
             clock,
@@ -207,13 +184,14 @@ impl App {
             cfg: cfg.clone(),
 
             ide,
-            toolbox,
 
             plugins,
             systems,
+            filters,
+            renders,
 
             preferences: Preferences::new(cfg),
-            modal_error: ModalError::new(),
+            errors: ModalErrors::new(),
             toaster,
         })
     }
@@ -234,23 +212,46 @@ impl App {
     }
 
     pub fn tick(&mut self, step: ClockStep) {
-        self.plugins.tick(&mut self.project, &mut self.toaster);
+        self.plugins.tick(&mut self.toaster, &self.project);
 
         if let Some(c) = self.plugins.take_updated() {
-            self.toolbox.update_plugins(&mut self.project, &c);
-            self.systems.update_plugins(&mut self.project, &c);
+            self.systems.update_plugins(&c);
             self.main.update_plugins(&c);
             self.assets.update_plugins(&c);
         }
 
-        self.toolbox.tick(&mut self.project, &mut self.main);
+        self.tools.update(
+            step,
+            &mut ToolContext {
+                simulation: &mut self.main,
+                plugins: &mut self.plugins,
+                systems: &mut self.systems,
+                filters: &mut self.filters,
+                renders: &mut self.renders,
+
+                queue: &mut self.queue,
+                cvt: &mut self.cvt,
+                textures: self.ui.textures(),
+
+                errors: &mut self.errors,
+                toaster: &mut self.toaster,
+
+                ide: self.ide.as_deref(),
+                toolbox: &self.toolbox,
+                commands: &mut self.tool_commands,
+
+                project: &self.project,
+                data: &self.data,
+            },
+        );
+        self.drain_tool_commands(None);
         self.toaster.tick();
-        self.main.tick(&self.project, step);
+        self.main.tick(&self.systems, step);
     }
 
     /// Runs rendering.
     pub fn handle_event(&mut self, window_id: WindowId, event: &WindowEvent) {
-        if self.main.handle_event(&self.project, window_id, event) {
+        if self.main.handle_event(&self.filters, window_id, event) {
             return;
         }
 
@@ -271,19 +272,27 @@ impl App {
     pub fn update_ui(&mut self, window_id: WindowId) {
         for view in &mut self.views {
             if view.window.id() == window_id {
-                let device = self.queue.device().clone();
-
                 self.ui.run(
                     &mut view.viewport,
                     &mut self.clipboard,
                     &view.window,
                     self.clock.now(),
-                    |cx, textures| {
-                        TopBottomPanel::top("Menu").show(cx, |ui| {
+                    |ui, textures| {
+                        Panel::top("Menu").show(ui, |ui| {
                             ui.horizontal(|ui| {
                                 ui.menu_button("File", |ui| {
+                                    if ui.button("Save").clicked() {
+                                        self.plugins.save(&mut self.project, &mut self.data);
+                                        self.systems.save(&mut self.project, &mut self.data);
+                                        self.filters.save(&mut self.project, &mut self.data);
+                                        self.renders.save(&mut self.project, &mut self.data);
+
+                                        self.data.save_in_ui(&self.project, ui, &mut self.errors);
+                                        ui.close();
+                                    }
+
                                     if ui.button("Preferences").clicked() {
-                                        self.preferences.open(cx.viewport_id());
+                                        self.preferences.open(ui.viewport_id());
                                         ui.close();
                                     }
 
@@ -292,60 +301,77 @@ impl App {
                                         ui.close();
                                     }
                                 });
-                                ui.menu_button("View", |ui| {
-                                    let tab_kinds = [TabKind::Plugins, TabKind::Systems];
-                                    for tab in tab_kinds {
-                                        if ui.button(tab.to_string()).clicked() {
-                                            focus_or_add_tab(
-                                                view.dock_state.main_surface_mut(),
-                                                tab,
-                                            );
+                                ui.menu_button("New tool", |ui| {
+                                    for template in self.toolbox.templates() {
+                                        if ui.button(template.title()).clicked() {
+                                            if let Some(tool) =
+                                                self.toolbox.materialize(template.key(), None)
+                                            {
+                                                self.tool_commands.push(ToolCommand::Create {
+                                                    tool,
+                                                    template: Some(template.key().to_owned()),
+                                                    open: true,
+                                                });
+                                            }
                                             ui.close();
                                         }
                                     }
-
-                                    for (plugin, name) in self.toolbox.enumerate() {
-                                        if ui.button(format!("{name} @ {plugin}")).clicked() {
-                                            todo!();
-                                            // let id = self.toolbox.add(plugin, name);
-
-                                            // view.tab_tree.tiles.insert_pane(Tab::Tool { id });
-                                            // ui.close();
-                                        }
-                                    }
                                 });
+                                egui::ComboBox::from_id_salt("alive-tools")
+                                    .selected_text("Tools")
+                                    .show_ui(ui, |ui| {
+                                        for (id, entry) in self.tools.iter() {
+                                            if ui
+                                                .selectable_label(
+                                                    false,
+                                                    format!("{} #{}", entry.tool.title(), id),
+                                                )
+                                                .clicked()
+                                            {
+                                                self.tool_commands.push(ToolCommand::Open(id));
+                                                ui.close();
+                                            }
+                                        }
+                                    });
                             });
                         });
 
-                        egui::containers::CentralPanel::default().show(cx, |ui| {
+                        egui::containers::CentralPanel::default().show(ui, |ui| {
                             let mut model = AppModel {
-                                // window: &view.window,
-                                project: &mut self.project,
-                                main: &mut self.main,
-                                sample: &self.image_sample,
-                                device: &device,
-                                textures,
-                                ide: self.ide.as_deref(),
-                                toolbox: &mut self.toolbox,
-                                plugins: &mut self.plugins,
-                                systems: &mut self.systems,
-                                modal_error: &mut self.modal_error,
-                                toaster: &mut self.toaster,
-                            };
+                                tools: &mut self.tools,
+                                window: window_id,
+                                context: ToolContext {
+                                    simulation: &mut self.main,
+                                    plugins: &mut self.plugins,
+                                    systems: &mut self.systems,
+                                    filters: &mut self.filters,
+                                    renders: &mut self.renders,
 
+                                    queue: &mut self.queue,
+                                    cvt: &mut self.cvt,
+                                    textures: textures,
+
+                                    errors: &mut self.errors,
+                                    toaster: &mut self.toaster,
+
+                                    ide: self.ide.as_deref(),
+                                    toolbox: &self.toolbox,
+                                    commands: &mut self.tool_commands,
+
+                                    project: &self.project,
+                                    data: &self.data,
+                                },
+                            };
                             let dock_area = DockArea::new(&mut view.dock_state);
                             dock_area.show_inside(ui, &mut model);
                         });
 
-                        if let Err(error) = self.preferences.show(cx, &mut self.cfg) {
-                            self.modal_error.push_error(
-                                cx.viewport_id(),
-                                "Preferences Error",
-                                error,
-                            );
+                        if let Err(error) = self.preferences.show(ui, &mut self.cfg) {
+                            self.errors
+                                .push_error(ui.viewport_id(), "Preferences Error", error);
                         }
-                        self.toaster.show(cx);
-                        self.modal_error.show(cx);
+                        self.toaster.show(ui);
+                        self.errors.show(ui);
                     },
                 );
 
@@ -354,6 +380,7 @@ impl App {
                 break;
             }
         }
+        self.drain_tool_commands(Some(window_id));
     }
 
     /// Runs rendering.
@@ -388,47 +415,153 @@ impl App {
         }
 
         self.main
-            .render(&mut self.queue, &self.project, &mut self.ui.textures())
+            .render(&mut self.queue, &self.renders, &mut self.ui.textures())
             .unwrap();
     }
 
     fn save_state(&self) {
-        let state = AppStateRef {
-            views: self
-                .views
-                .iter()
-                .map(|view| {
-                    let scale_factor = view.window.scale_factor();
-                    AppViewStateRef {
-                        pos: view
-                            .window
-                            .inner_position()
-                            .unwrap_or_default()
-                            .to_logical(scale_factor),
-                        size: view.window.inner_size().to_logical(scale_factor),
-                        tab_tree: view.dock_state.main_surface(),
-                        maximized: view.window.is_maximized(),
-                    }
-                })
-                .collect(),
-        };
-
+        let (ids, tools) = self.tools.snapshot();
+        let mut views: Vec<_> = self
+            .views
+            .iter()
+            .map(|view| {
+                let scale = view.window.scale_factor();
+                AppViewState {
+                    pos: view
+                        .window
+                        .inner_position()
+                        .unwrap_or_default()
+                        .to_logical(scale),
+                    size: view.window.inner_size().to_logical(scale),
+                    dock_state: view
+                        .dock_state
+                        .filter_map_tabs(|view| ids.get(&view.tool()).copied()),
+                    maximized: view.window.is_maximized(),
+                }
+            })
+            .collect();
+        if let Some(suspended) = &self.suspended_views {
+            views.extend(suspended.iter().map(|view| {
+                AppViewState {
+                    pos: view.pos,
+                    size: view.size,
+                    maximized: view.maximized,
+                    dock_state: view
+                        .dock_state
+                        .filter_map_tabs(|view| ids.get(&view.tool()).copied()),
+                }
+            }));
+        }
+        for view in &mut views {
+            normalize_layout(&mut view.dock_state);
+        }
+        let state = AppState { tools, views };
         if let Err(error) = save_app_state(&state, &self.project.name()) {
             tracing::error!("Failed to save app state: {error:?}");
         }
     }
 
+    fn drain_tool_commands(&mut self, preferred: Option<WindowId>) {
+        for command in std::mem::take(&mut self.tool_commands) {
+            match command {
+                ToolCommand::Create {
+                    tool,
+                    template,
+                    open,
+                } => {
+                    let id = self.tools.insert(tool, template);
+                    if open {
+                        self.open_tool(id, preferred);
+                    }
+                }
+                ToolCommand::Open(id) => self.open_tool(id, preferred),
+                ToolCommand::Detach(id) => self.close_tool_view(id, true),
+                ToolCommand::Close(id) => self.close_tool_view(id, false),
+            }
+        }
+    }
+
+    fn open_tool(&mut self, id: ToolId, preferred: Option<WindowId>) {
+        if self.suspended_views.is_some() {
+            self.tool_commands.push(ToolCommand::Open(id));
+            return;
+        }
+        for window in &mut self.views {
+            if let Some(path) = window.dock_state.find_tab_from(|view| view.tool() == id) {
+                window
+                    .dock_state
+                    .set_focused_node_and_surface(path.node_path());
+                let _ = window.dock_state.set_active_tab(path);
+                window.window.focus_window();
+                window.window.request_redraw();
+                return;
+            }
+        }
+        let index = self
+            .views
+            .iter()
+            .position(|v| Some(v.window.id()) == preferred)
+            .unwrap_or(0);
+        if let Some(window) = self.views.get_mut(index) {
+            if let Some(view) = self.tools.attach(id) {
+                let _ = window
+                    .dock_state
+                    .main_surface_mut()
+                    .push_to_focused_leaf(view);
+                window.window.request_redraw();
+            }
+        }
+    }
+
+    fn close_tool_view(&mut self, id: ToolId, detach: bool) {
+        for window in &mut self.views {
+            if let Some(path) = window.dock_state.find_tab_from(|view| view.tool() == id) {
+                window.dock_state.remove_tab(path);
+            }
+        }
+        if let Some(windows) = &mut self.suspended_views {
+            for window in windows {
+                if let Some(path) = window.dock_state.find_tab_from(|view| view.tool() == id) {
+                    window.dock_state.remove_tab(path);
+                }
+            }
+        }
+        if detach {
+            self.tools.detach(id);
+        } else {
+            self.tools.remove(id);
+        }
+    }
+
     fn load_state(&mut self, events: &ActiveEventLoop) {
-        let state = load_app_state(&self.project.name());
+        if !self.views.is_empty() {
+            return;
+        }
+        let state = match self.suspended_views.take() {
+            Some(views) => Ok(views),
+            None => load_app_state(&self.project.name()).map(|state| {
+                let restored = self.tools.restore(&self.toolbox, state.tools);
+                state
+                    .views
+                    .into_iter()
+                    .map(|view| AppViewState {
+                        pos: view.pos,
+                        size: view.size,
+                        maximized: view.maximized,
+                        dock_state: view.dock_state.filter_map_tabs(|index| {
+                            self.tools.attach(*restored.get(*index)?.as_ref()?)
+                        }),
+                    })
+                    .collect()
+            }),
+        };
 
         match state {
             Err(error) => {
                 tracing::warn!("Failed to load app state: {error:?}");
             }
-            Ok(state) => {
-                self.views.clear();
-
-                for view in state.views {
+            Ok(views) => {
+                for view in views {
                     let builder = Window::default_attributes()
                         .with_title("Ed")
                         .with_position(view.pos)
@@ -452,8 +585,7 @@ impl App {
                         window.scale_factor() as f32,
                     );
 
-                    let mut dock_state = DockState::new(Vec::new());
-                    *dock_state.main_surface_mut() = view.tab_tree;
+                    let dock_state = view.dock_state;
 
                     let view = AppView {
                         window,
@@ -494,82 +626,64 @@ impl App {
     }
 }
 
-fn focus_or_add_tab(tree: &mut Tree<Tab>, kind: TabKind) {
-    if let Some((node_index, tab_index)) = tree.find_tab_from(|t| t.kind() == kind) {
-        tree.set_focused_node(node_index);
-        tree.set_active_tab(node_index, tab_index);
-    } else {
-        let _ = tree.push_to_focused_leaf(kind.build());
-    }
-}
-
-#[derive(serde::Serialize)]
-struct AppViewStateRef<'a> {
-    pos: dpi::LogicalPosition<f64>,
-    size: dpi::LogicalSize<f64>,
-    maximized: bool,
-    tab_tree: &'a Tree<Tab>,
-}
-
 #[derive(serde::Serialize, serde::Deserialize)]
-struct AppViewState {
+struct AppViewState<T = usize> {
     pos: dpi::LogicalPosition<f64>,
     size: dpi::LogicalSize<f64>,
     maximized: bool,
-    tab_tree: Tree<Tab>,
+    dock_state: DockState<T>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
 struct AppState {
     views: Vec<AppViewState>,
-}
-
-#[derive(serde::Serialize)]
-struct AppStateRef<'a> {
-    views: Vec<AppViewStateRef<'a>>,
+    tools: Vec<ToolState>,
 }
 
 struct AppModel<'a> {
-    // window: &'a Window,
-    project: &'a mut Project,
-    main: &'a mut Instance,
-    sample: &'a ImageSample,
-    device: &'a mev::Device,
-    textures: UserTextures<'a>,
-    ide: Option<&'a dyn Ide>,
-    toolbox: &'a mut Toolbox,
-    plugins: &'a mut PluginsManager,
-    systems: &'a mut SystemsManager,
-    modal_error: &'a mut ModalError,
-    toaster: &'a mut Toaster,
+    tools: &'a mut Tools,
+    window: WindowId,
+    context: ToolContext<'a>,
 }
 
 impl egui_dock::widgets::TabViewer for AppModel<'_> {
-    type Tab = Tab;
+    type Tab = View;
 
-    fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Tab) {
-        match tab {
-            Tab::Plugins(widget) => {
-                widget.show(self.plugins, self.project, self.modal_error, ui);
-            }
-            Tab::Systems(widget) => {
-                widget.show(self.systems, self.project, self.modal_error, self.ide, ui)
-            }
+    fn id(&mut self, view: &mut View) -> egui::Id {
+        egui::Id::new(("tool", view.tool()))
+    }
+
+    fn title(&mut self, view: &mut View) -> WidgetText {
+        self.tools.title(view.tool()).into()
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, view: &mut View) {
+        if let Some(entry) = self.tools.get_mut(view.tool()) {
+            ui.push_id(("tool", view.tool()), |ui| {
+                entry.tool.ui(ui, self.window, &mut self.context)
+            });
         }
     }
 
-    fn title(&mut self, tab: &mut Tab) -> WidgetText {
-        tab.kind().to_string().into()
+    fn on_close(&mut self, view: &mut View) -> egui_dock::tab_viewer::OnCloseResponse {
+        self.context.commands.push(ToolCommand::Close(view.tool()));
+        egui_dock::tab_viewer::OnCloseResponse::Close
     }
 
-    fn scroll_bars(&self, tab: &Tab) -> [bool; 2] {
-        match tab {
-            // Tab::Assets => [false, false],
-            // Tab::Console => [false, false],
-            // Tab::Systems => [false, false],
-            // Tab::Codes => [false, false],
-            // Tab::Rendering => [false, false],
-            _ => [true, true],
+    fn context_menu(&mut self, ui: &mut egui::Ui, view: &mut View, _path: egui_dock::NodePath) {
+        if ui.button("Detach").clicked() {
+            self.context.commands.push(ToolCommand::Detach(view.tool()));
+            ui.close();
+        }
+    }
+}
+
+/// Layout rectangles are recomputed by egui and can be infinite before first draw.
+fn normalize_layout<T>(dock: &mut DockState<T>) {
+    for (_, node) in dock.iter_all_nodes_mut() {
+        node.set_rect(egui::Rect::ZERO);
+        if let Some(leaf) = node.get_leaf_mut() {
+            leaf.viewport = egui::Rect::ZERO;
         }
     }
 }
@@ -600,11 +714,58 @@ fn load_app_state(name: &str) -> Result<AppState, Error> {
     let mut file = std::fs::File::open(path).unify_error()?;
 
     let state = serde_json::from_reader(&mut file).unify_error()?;
-
-    Ok(state)
+    decode_app_state(state).unify_error()
 }
 
-fn save_app_state(state: &AppStateRef, name: &str) -> Result<(), Error> {
+fn decode_app_state(value: serde_json::Value) -> Result<AppState, serde_json::Error> {
+    if value.get("tools").is_some() {
+        return serde_json::from_value(value);
+    }
+    #[derive(serde::Deserialize)]
+    struct LegacyView {
+        pos: dpi::LogicalPosition<f64>,
+        size: dpi::LogicalSize<f64>,
+        maximized: bool,
+        tab_tree: Tree<serde_json::Value>,
+    }
+    #[derive(serde::Deserialize)]
+    struct LegacyState {
+        views: Vec<LegacyView>,
+    }
+    let legacy: LegacyState = serde_json::from_value(value)?;
+    let mut tools = Vec::new();
+    let views = legacy
+        .views
+        .into_iter()
+        .map(|view| {
+            let tree = view.tab_tree.filter_map_tabs(|tab| {
+                let (key, state) = tab.as_object()?.iter().next()?;
+                let template = match key.as_str() {
+                    "Plugins" => "plugins",
+                    "Systems" => "systems",
+                    _ => return None,
+                };
+                let index = tools.len();
+                tools.push(ToolState {
+                    template: template.to_owned(),
+                    state: state.clone(),
+                });
+                Some(index)
+            });
+            let mut dock_state = DockState::new(Vec::new());
+            *dock_state.main_surface_mut() = tree;
+            AppViewState {
+                pos: view.pos,
+                size: view.size,
+                maximized: view.maximized,
+                dock_state,
+            }
+        })
+        .collect();
+    Ok(AppState { views, tools })
+}
+
+fn save_app_state(state: &AppState, name: &str) -> Result<(), Error> {
     let path = app_state_path(true, name).ok_or_else(|| error!("Failed to get app state path"))?;
     let mut file = std::fs::File::create(path).unify_error()?;
     serde_json::to_writer_pretty(&mut file, state).unify_error()?;
@@ -654,8 +815,31 @@ impl winit::application::ApplicationHandler<UserEvent> for App {
     }
 
     fn suspended(&mut self, _events: &ActiveEventLoop) {
+        if self.suspended_views.is_some() {
+            return;
+        }
         self.save_state();
-        self.views.clear();
+        self.suspended_views = Some(
+            self.views
+                .drain(..)
+                .map(|mut view| {
+                    let scale = view.window.scale_factor();
+                    AppViewState {
+                        pos: view
+                            .window
+                            .inner_position()
+                            .unwrap_or_default()
+                            .to_logical(scale),
+                        size: view.window.inner_size().to_logical(scale),
+                        maximized: view.window.is_maximized(),
+                        dock_state: std::mem::replace(
+                            &mut view.dock_state,
+                            DockState::new(Vec::new()),
+                        ),
+                    }
+                })
+                .collect(),
+        );
     }
 
     fn new_events(&mut self, events: &ActiveEventLoop, _cause: winit::event::StartCause) {
@@ -674,7 +858,16 @@ impl winit::application::ApplicationHandler<UserEvent> for App {
                 if self.views.len() == 1 {
                     self.should_quit = true;
                 } else {
-                    self.views.retain(|view| view.window.id() != window_id);
+                    if let Some(index) = self
+                        .views
+                        .iter()
+                        .position(|view| view.window.id() == window_id)
+                    {
+                        let window = self.views.remove(index);
+                        for (_, view) in window.dock_state.iter_all_tabs() {
+                            self.tools.remove(view.tool());
+                        }
+                    }
                 }
             }
             WindowEvent::RedrawRequested => {
@@ -707,11 +900,11 @@ impl Preferences {
         self.open = Some(viewport_id);
     }
 
-    fn show(&mut self, cx: &egui::Context, cfg: &mut AppConfig) -> Result<(), Error> {
+    fn show(&mut self, ui: &egui::Context, cfg: &mut AppConfig) -> Result<(), Error> {
         let mut result = Ok(());
 
-        if self.open == Some(cx.viewport_id()) {
-            egui::Modal::new(egui::Id::new("arcana-ed-preferences")).show(cx, |ui| {
+        if self.open == Some(ui.viewport_id()) {
+            egui::Modal::new(egui::Id::new("arcana-ed-preferences")).show(ui, |ui| {
                 ui.vertical(|ui| {
                     ui.label("Editor Preferences");
 
@@ -746,5 +939,39 @@ impl Preferences {
         }
 
         result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_layout_migrates_widget_snapshots() {
+        let mut tree = Tree::new(vec![
+            serde_json::json!({"Plugins": {}}),
+            serde_json::json!({"Systems": {}}),
+        ]);
+        for node in tree.iter_mut() {
+            node.set_rect(egui::Rect::ZERO);
+            if let Some(leaf) = node.get_leaf_mut() {
+                leaf.viewport = egui::Rect::ZERO;
+            }
+        }
+        let value = serde_json::json!({"views": [{"pos": {"x": 10.0, "y": 20.0}, "size": {"width": 800.0, "height": 600.0}, "maximized": false, "tab_tree": tree}]});
+        let state = decode_app_state(value).unwrap();
+        assert_eq!(state.tools.len(), 2);
+        assert_eq!(state.tools[0].template, "plugins");
+        assert_eq!(state.tools[1].template, "systems");
+        assert_eq!(
+            state.views[0]
+                .dock_state
+                .iter_all_tabs()
+                .map(|(_, tab)| *tab)
+                .collect::<Vec<_>>(),
+            vec![0, 1]
+        );
+        let roundtrip = decode_app_state(serde_json::to_value(state).unwrap()).unwrap();
+        assert_eq!(roundtrip.views[0].dock_state.iter_all_tabs().count(), 2);
     }
 }

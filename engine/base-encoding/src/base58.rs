@@ -450,7 +450,7 @@ impl crate::Decoder for Decoder {
 
 #[cfg(test)]
 mod test_base58 {
-    use rand::{Rng, RngCore};
+    use rand::{Rng, RngExt};
 
     use super::*;
 

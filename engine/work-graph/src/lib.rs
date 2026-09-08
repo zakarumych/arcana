@@ -20,15 +20,15 @@ pub use self::{
 /// Generic 2d image target.
 /// It does not hold particular meaning behind pixel values.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Image2D(pub mev::Image);
+pub struct Image2D(pub mev::Image2D);
 
 has_stid!(Image2D @ arcana_id);
 
 impl Deref for Image2D {
-    type Target = mev::Image;
+    type Target = mev::Image2D;
 
     #[inline]
-    fn deref(&self) -> &mev::Image {
+    fn deref(&self) -> &mev::Image2D {
         &self.0
     }
 }
@@ -42,9 +42,9 @@ pub struct Image2DInfo {
 
 impl Image2DInfo {
     #[inline(always)]
-    pub fn from_image(image: &mev::Image) -> Self {
+    pub fn from_image(image: &mev::Image2D) -> Self {
         Image2DInfo {
-            extent: image.extent().expect_2d(),
+            extent: image.extent(),
             format: image.format(),
             usage: image.usage(),
         }
@@ -55,18 +55,31 @@ impl target::Target for Image2D {
     type Info = Image2DInfo;
 
     fn allocate(device: &mev::Device, name: &str, info: &Image2DInfo) -> Self {
-        let image = device
-            .new_image(mev::ImageDesc {
-                extent: info.extent.into(),
-                format: info.format,
-                usage: info.usage,
-                layers: 1,
-                levels: 1,
-                name,
-            })
-            .unwrap();
+        let image = device.new_image(mev::ImageDesc {
+            dims: info.extent,
+            format: info.format,
+            usage: info.usage,
+            levels: 1,
+            name,
+        });
 
         Image2D(image)
+    }
+
+    fn merge_info(info: &mut Image2DInfo, other: &Image2DInfo) -> bool
+    where
+        Self: Sized,
+    {
+        if info.format != other.format {
+            return false;
+        }
+
+        if info.extent != other.extent {
+            return false;
+        }
+
+        info.usage |= other.usage;
+        true
     }
 }
 
@@ -78,15 +91,15 @@ impl target::Target for Image2D {
 ///
 /// Largest required extent is used and usage is merged.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct SampledImage2D(pub mev::Image);
+pub struct SampledImage2D(pub mev::Image2D);
 
 has_stid!(SampledImage2D @ arcana_id);
 
 impl Deref for SampledImage2D {
-    type Target = mev::Image;
+    type Target = mev::Image2D;
 
     #[inline]
-    fn deref(&self) -> &mev::Image {
+    fn deref(&self) -> &mev::Image2D {
         &self.0
     }
 }
@@ -102,16 +115,13 @@ impl target::Target for SampledImage2D {
     type Info = SampledImage2DInfo;
 
     fn allocate(device: &mev::Device, name: &str, info: &SampledImage2DInfo) -> Self {
-        let image = device
-            .new_image(mev::ImageDesc {
-                extent: info.extent.into(),
-                format: info.format,
-                usage: info.usage,
-                layers: 1,
-                levels: 1,
-                name,
-            })
-            .unwrap();
+        let image = device.new_image(mev::ImageDesc {
+            dims: info.extent,
+            format: info.format,
+            usage: info.usage,
+            levels: 1,
+            name,
+        });
 
         SampledImage2D(image)
     }

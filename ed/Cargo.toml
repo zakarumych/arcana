@@ -29,7 +29,6 @@ tracing-error.workspace = true
 tracing-subscriber.workspace = true
 
 # Serialization
-bincode.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 serde-nothing.workspace = true
@@ -71,6 +70,7 @@ chrono.workspace = true
 flume.workspace = true
 futures.workspace = true
 hashbrown.workspace = true
+foldhash.workspace = true
 ordered-float.workspace = true
 parking_lot.workspace = true
 rand.workspace = true

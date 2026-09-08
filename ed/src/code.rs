@@ -2,31 +2,31 @@
 
 use std::{collections::BTreeMap, hash::Hash, ops::Range};
 
-use egui::{epaint::PathShape, Color32, Painter, PointerButton, Rect, Shape, Stroke, Ui};
+use arcana::hash::{HashMap, HashSet};
+use egui::{Color32, Painter, PointerButton, Rect, Shape, Stroke, Ui, epaint::PathShape};
 use egui_snarl::{
-    ui::{PinInfo, PinWireInfo, SnarlPin, SnarlStyle, SnarlViewer, WireStyle},
     InPin, InPinId, NodeId, OutPin, OutPinId, Snarl,
+    ui::{PinInfo, PinWireInfo, SnarlPin, SnarlStyle, SnarlViewer, WireStyle},
 };
-use hashbrown::{HashMap, HashSet};
 use smallvec::SmallVec;
 
 use crate::{
+    Ident, Name, NameError,
     code::{
         AsyncContinueQueue, CodeDesc, CodeGraphId, CodeNodeId, CodeValues, Continuation, FlowCode,
         PureCode, ValueId,
     },
     ecs::{
+        NoSuchEntity,
         flow::{FlowEntity, Flows},
         query::Cpy,
         world::World,
-        NoSuchEntity,
     },
     events::{EventId, Events},
     hash_id,
     id::Stid,
     plugin::{CodeInfo, EventInfo, PluginsHub},
     project::Project,
-    Ident, Name, NameError,
 };
 
 use super::{container::Container, hue_hash, project::ProjectData, ui::Selector};
@@ -44,7 +44,7 @@ pub struct OutputCache {
 impl OutputCache {
     pub fn new() -> Self {
         OutputCache {
-            map: HashMap::new(),
+            map: HashMap::default(),
         }
     }
 
@@ -90,7 +90,7 @@ fn schedule_pure_inputs(
     inputs: Range<usize>,
     snarl: &Snarl<CodeNode>,
 ) -> Vec<NodeId> {
-    let mut scheduled = HashSet::new();
+    let mut scheduled = HashSet::default();
     let mut queue = Vec::new();
     let mut schedule = Vec::new();
 

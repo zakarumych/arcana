@@ -1,13 +1,12 @@
 
 
-
 struct Constants {
     op: u32,
 }
 
-var<push_constant> pc: Constants;
-@group(0) @binding(0) var src : texture_storage_2d<rgba8unorm, read>;
-@group(0) @binding(1) var dst : texture_storage_2d<rgba8unorm, read_write>;
+var<immediate> pc: Constants;
+@group(0) @binding(0) var src: texture_storage_2d<rgba8unorm, read>;
+@group(0) @binding(1) var dst: texture_storage_2d<rgba8unorm, read_write>;
 
 @compute @workgroup_size(1)
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
@@ -15,7 +14,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let pdst = textureLoad(dst, id.xy).rgb;
     var pres = vec3(0.0);
 
-    switch (pc.op) {
+    switch pc.op {
         case 0u: {
             pres = pdst + psrc;
         }

@@ -352,58 +352,6 @@ pub mod for_macro {
     pub use ctor::ctor;
     pub use linkme::{self as linkme, distributed_slice};
 
-    // #[derive(Clone, Copy)]
-    // pub struct CtorNode {
-    //     ctor: fn(&mut ArcanaPlugin),
-    //     next: Option<&'static CtorNode>,
-    // }
-
-    // impl CtorNode {
-    //     pub const fn new(ctor: fn(&mut ArcanaPlugin)) -> Self {
-    //         CtorNode { ctor, next: None }
-    //     }
-    // }
-
-    // pub struct Registry {
-    //     manifest_dir: &'static str,
-    //     list: Option<&'static CtorNode>,
-    //     dependencies: BTreeMap<Ident, Dependency>,
-    // }
-
-    // impl Registry {
-    //     pub const fn new() -> Self {
-    //         Registry {
-    //             manifest_dir: env!("CARGO_MANIFEST_DIR"),
-    //             list: None,
-    //             dependencies: BTreeMap::new(),
-    //         }
-    //     }
-
-    //     pub fn register(&mut self, node: &'static mut CtorNode) {
-    //         node.next = self.list;
-    //         self.list = Some(node);
-    //     }
-
-    //     pub fn plugin(&mut self) -> ArcanaPlugin {
-    //         let mut plugin = ArcanaPlugin::new();
-    //         plugin.dependencies = self
-    //             .dependencies
-    //             .iter()
-    //             .map(|(n, d)| (*n, d.clone()))
-    //             .collect();
-
-    //         plugin.location = Some(PathBuf::from(self.manifest_dir));
-
-    //         let mut node = self.list;
-    //         while let Some(n) = node {
-    //             (n.ctor)(&mut plugin);
-    //             node = n.next;
-    //         }
-
-    //         plugin
-    //     }
-    // }
-
     #[doc(hidden)]
     #[macro_export]
     macro_rules! pkg_name {
@@ -417,23 +365,6 @@ pub mod for_macro {
     macro_rules! plugin_ctor_add {
         ($registry:ident @ $plugin:ident => $($code:tt)*) => {
             const _: () = {
-                // #[$crate::for_macro::ctor]
-                // fn add() {
-                //     static mut CTOR_NODE: $crate::for_macro::CtorNode =
-                //         $crate::for_macro::CtorNode::new(
-                //             |$plugin: &mut $crate::ArcanaPlugin| {
-                //                 // At this point cdylib is initialized and any code can be executed.
-                //                 $($code)*
-                //             },
-                //         );
-
-                //     // Safety: This code is executed at cdylib load time
-                //     // sequentially with other ctors.
-                //     unsafe {
-                //         crate::arcana_plugin::$registry.register(&mut CTOR_NODE);
-                //     }
-                // }
-
                 fn add($plugin: &mut $crate::ArcanaPlugin) {
                     // At this point cdylib is initialized and any code can be executed.
                     $($code)*

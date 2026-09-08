@@ -1,5 +1,5 @@
+use arcana_hash::HashMap;
 use arcana_intern::{Ident, Name};
-use hashbrown::HashMap;
 
 use crate::assets::import::{Importer, ImporterDesc};
 
@@ -10,7 +10,7 @@ pub struct Importers {
 impl Importers {
     pub fn new() -> Self {
         Importers {
-            importers: HashMap::new(),
+            importers: Vec::new(),
         }
     }
 

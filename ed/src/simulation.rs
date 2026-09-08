@@ -1,5 +1,7 @@
 //! Running instance of the project.
 
+use std::num::NonZeroU64;
+
 use arcana::{
     Name,
     ecs::{
@@ -10,7 +12,8 @@ use arcana::{
     },
     format_name,
     gametime::{ClockRate, ClockStep, FrequencyNumExt, FrequencyTicker, TimeSpan, TimeStamp},
-    id::{SeqIdGen, make_id},
+    hash::{HashMap, HashSet},
+    id::{ShufIdGen, make_id},
     input::{DeviceId, Input, KeyCode, PhysicalKey, ViewInput},
     mev,
     plugin::PluginsHub,
@@ -18,11 +21,13 @@ use arcana::{
     work_graph::{CommandStream, HookId, Image2D, Image2DInfo, PinId, Target, WorkGraph},
 };
 use egui::Ui;
-use hashbrown::{HashMap, HashSet};
 use winit::{event::WindowEvent, window::WindowId};
 
 use crate::{
-    project::Project,
+    filters::{FilterManager, Funnel},
+    render::RenderManager,
+    systems::SystemManager,
+    tool::{Tool, ToolContext, ToolTemplate},
     ui::Sampler,
     viewport::{ViewId, Viewport},
 };
@@ -38,7 +43,7 @@ make_id! {
     pub InstanceId;
 }
 
-struct InstanceView {
+struct SimulationView {
     name: Name,
 
     viewport: Viewport,
@@ -81,7 +86,7 @@ struct InstanceView {
 }
 
 /// Running instance of the project.
-pub struct Instance {
+pub struct Simulation {
     /// Own ECS world.
     world: World,
 
@@ -103,19 +108,21 @@ pub struct Instance {
     /// Container in which plugins reside.
     plugins: Option<Plugins>,
 
-    /// Modification id of the systems graph.
-    systems_modification: u64,
-
     /// Systems schedule.
     schedule: Schedule,
+    schedule_modification: u64,
+
+    /// Filters funnel.
+    funnel: Funnel,
+    funnel_modification: u64,
 
     /// Instance views.
-    views: HashMap<ViewId, InstanceView>,
+    views: HashMap<ViewId, SimulationView>,
 
-    view_id_gen: SeqIdGen,
+    id_gen: ShufIdGen,
 }
 
-impl Instance {
+impl Simulation {
     pub fn new() -> Self {
         let mut world = World::new();
         let hub = PluginsHub::new();
@@ -127,21 +134,24 @@ impl Instance {
         let flows = Flows::new();
 
         let schedule = Schedule::new();
+        let funnel = Funnel::new();
 
         init_world(&mut world);
 
-        Instance {
+        Simulation {
             world,
             hub,
             fix,
             limiter,
             rate,
             flows,
-            systems_modification: 0,
             schedule,
+            schedule_modification: 0,
+            funnel,
+            funnel_modification: 0,
             plugins: None,
-            views: HashMap::new(),
-            view_id_gen: SeqIdGen::new(),
+            views: HashMap::default(),
+            id_gen: ShufIdGen::new(),
         }
     }
 
@@ -163,7 +173,8 @@ impl Instance {
                 self.rate.reset();
 
                 for view in self.views.values_mut() {
-                    view.work_graph = WorkGraph::new(HashMap::new(), HashSet::new()).unwrap();
+                    view.work_graph =
+                        WorkGraph::new(HashMap::default(), HashSet::default()).unwrap();
                     view.present = None;
                     view.last_render_modification = 0;
                 }
@@ -183,17 +194,17 @@ impl Instance {
     }
 
     pub fn new_view(&mut self) -> ViewId {
-        let id = ViewId::generate(&mut self.view_id_gen);
+        let id = ViewId::generate(&mut self.id_gen);
 
         self.views.insert(
             id,
-            InstanceView {
+            SimulationView {
                 name: format_name!("New view {id}"),
                 viewport: Viewport::new_image(),
                 renderer: None,
                 last_render_graph: None,
                 last_render_modification: 0,
-                work_graph: WorkGraph::new(HashMap::new(), HashSet::new()).unwrap(),
+                work_graph: WorkGraph::new(HashMap::default(), HashSet::default()).unwrap(),
                 present: None,
                 window: None,
                 extent: mev::Extent2::new(0, 0),
@@ -201,7 +212,7 @@ impl Instance {
                 focused: false,
                 rect: egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(0.0, 0.0)),
                 pixel_per_point: 1.0,
-                contains_cursors: HashSet::new(),
+                contains_cursors: HashSet::default(),
             },
         );
 
@@ -216,11 +227,8 @@ impl Instance {
         &mut self.rate
     }
 
-    pub fn tick(&mut self, project: &Project, step: ClockStep) {
-        project
-            .data
-            .systems
-            .update_schedule(self.systems_modification, &mut self.schedule);
+    pub fn tick(&mut self, systems: &SystemManager, step: ClockStep) {
+        systems.update_schedule(&mut self.schedule_modification, &mut self.schedule);
 
         let step = self.rate.step(step.step);
 
@@ -247,24 +255,24 @@ impl Instance {
     pub fn render(
         &mut self,
         queue: &mut mev::Queue,
-        project: &Project,
+        renders: &RenderManager,
         textures: &mut UserTextures,
     ) -> Result<(), mev::SurfaceError> {
         #[cold]
         fn new_image(
             extent: mev::Extent2,
             device: &mev::Device,
-        ) -> Result<mev::Image, mev::OutOfMemory> {
+        ) -> Result<mev::Image2D, mev::OutOfMemory> {
             let image = device.new_image(mev::ImageDesc {
-                extent: extent.into(),
+                dims: extent,
                 format: mev::PixelFormat::Rgba8Srgb,
                 usage: mev::ImageUsage::TARGET
                     | mev::ImageUsage::SAMPLED
                     | mev::ImageUsage::STORAGE,
-                layers: 1,
+
                 levels: 1,
                 name: "Game Viewport",
-            })?;
+            });
             Ok(image)
         }
 
@@ -284,7 +292,7 @@ impl Instance {
                 return Ok(());
             };
 
-            let Some(render_graph) = project.data.render_graphs.get(&renderer.graph) else {
+            let Some(render_graph) = renders.get_render_graph(renderer.graph) else {
                 // View render graph is not found
                 return Ok(());
             };
@@ -352,10 +360,12 @@ impl Instance {
 
     pub fn handle_event(
         &mut self,
-        project: &Project,
+        filters: &FilterManager,
         window: WindowId,
         event: &WindowEvent,
     ) -> bool {
+        filters.update_funnel(&mut self.funnel_modification, &mut self.funnel);
+
         let Ok(event) = ViewInput::try_from(event) else {
             return false;
         };
@@ -377,7 +387,7 @@ impl Instance {
 
                     if view.rect.contains(egui::pos2(px, py)) {
                         if view.contains_cursors.insert(device_id) {
-                            project.data.funnel.filter(
+                            self.funnel.filter(
                                 &mut self.hub,
                                 &mut self.world,
                                 &Input::ViewInput {
@@ -386,7 +396,7 @@ impl Instance {
                             );
                         }
 
-                        project.data.funnel.filter(
+                        self.funnel.filter(
                             &mut self.hub,
                             &mut self.world,
                             &Input::ViewInput {
@@ -399,7 +409,7 @@ impl Instance {
                         );
                     } else {
                         if view.contains_cursors.remove(&device_id) {
-                            project.data.funnel.filter(
+                            self.funnel.filter(
                                 &mut self.hub,
                                 &mut self.world,
                                 &Input::ViewInput {
@@ -416,7 +426,7 @@ impl Instance {
                 | ViewInput::MouseWheel { device_id, .. }
                     if view.focused && view.contains_cursors.contains(&device_id) =>
                 {
-                    project.data.funnel.filter(
+                    self.funnel.filter(
                         &mut self.hub,
                         &mut self.world,
                         &Input::ViewInput { input: event },
@@ -432,7 +442,7 @@ impl Instance {
                 }
 
                 ViewInput::KeyboardInput { .. } if view.focused => {
-                    project.data.funnel.filter(
+                    self.funnel.filter(
                         &mut self.hub,
                         &mut self.world,
                         &Input::ViewInput { input: event },
@@ -480,39 +490,39 @@ impl Instance {
     }
 }
 
-pub struct Simulation {
+pub struct SimulationWidget {
     view: Option<ViewId>,
 }
 
-impl Simulation {
+impl SimulationWidget {
     pub fn new() -> Self {
-        Simulation { view: None }
+        SimulationWidget { view: None }
     }
 
     pub fn show(
         &mut self,
-        instance: &mut Instance,
+        simulation: &mut Simulation,
         window: WindowId,
         textures: &mut UserTextures,
         ui: &mut Ui,
     ) {
         ui.horizontal_top(|ui| {
             let selector =
-                Selector::<_, InstanceView>::new("Simulation view", |_, view| view.name.as_str())
+                Selector::<_, SimulationView>::new("Simulation view", |_, view| view.name.as_str())
                     .pick_first();
-            selector.show(&mut self.view, instance.views.iter(), ui);
+            selector.show(&mut self.view, simulation.views.iter(), ui);
 
             if ui
                 .button(egui_phosphor::regular::PLUS)
                 .on_hover_text("Create new view")
                 .clicked()
             {
-                self.view = Some(instance.new_view());
+                self.view = Some(simulation.new_view());
             }
         });
 
         let view = match self.view {
-            Some(id) => match instance.views.get_mut(&id) {
+            Some(id) => match simulation.views.get_mut(&id) {
                 Some(view) => view,
                 None => unreachable!(),
             },
@@ -579,4 +589,42 @@ fn init_world(world: &mut World) {
         now: TimeStamp::start(),
         step: TimeSpan::ZERO,
     });
+}
+
+pub struct SimulationTemplate;
+
+impl ToolTemplate for SimulationTemplate {
+    fn key(&self) -> &str {
+        "simulation"
+    }
+
+    fn title(&self) -> &str {
+        "Simulation"
+    }
+
+    fn create(&self, state: Option<serde_json::Value>) -> Result<Box<dyn Tool>, serde_json::Error> {
+        Ok(Box::new(match state {
+            Some(state) => {
+                let id = serde_json::from_value::<Option<u64>>(state)?;
+                SimulationWidget {
+                    view: id.and_then(NonZeroU64::new).map(ViewId::new),
+                }
+            }
+            None => SimulationWidget::new(),
+        }))
+    }
+}
+
+impl Tool for SimulationWidget {
+    fn title(&self) -> &str {
+        "Simulation"
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, window: WindowId, context: &mut ToolContext<'_>) {
+        self.show(context.simulation, window, &mut context.textures, ui);
+    }
+
+    fn save(&self) -> Option<serde_json::Value> {
+        serde_json::to_value(&self.view.map(|id| id.get())).ok()
+    }
 }

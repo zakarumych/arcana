@@ -1,6 +1,5 @@
 
 
-
 // Helper function to convert sRGB to linear RGB
 fn srgb_to_linear(c: f32) -> f32 {
     if c <= 0.04045 {
@@ -176,11 +175,9 @@ fn lch_to_rgb(lch: vec3<f32>) -> vec3<f32> {
 //     );
 // }
 
-
 struct VertOutput {
     @builtin(position)
     position: vec4<f32>,
-
     @location(0)
     color: vec3<f32>,
 }
@@ -191,7 +188,7 @@ struct Constants {
     height: u32,
 }
 
-var<push_constant> pc: Constants;
+var<immediate> pc: Constants;
 @group(0) @binding(0) var<uniform> colors: array<vec3<f32>, 3>;
 
 @vertex

@@ -9,14 +9,17 @@ use core::fmt;
 use arcana_base_encoding::base58;
 
 pub use self::{
-    noop::{no_hash_map, NoHashBuilder, NoHashMap, NoHasher},
+    noop::{NoHashBuilder, NoHashMap, NoHashSet, NoHasher, no_hash_map, no_hash_set},
     sha2::{sha256, sha256_file, sha256_io, sha512, sha512_file, sha512_io},
     stable::{
-        hue_hash, mix_hash_with_string, rgb_hash, rgba_hash, rgba_premultiplied_hash, stable_hash,
-        stable_hash_file, stable_hash_map, stable_hash_read, stable_hasher, StableHashBuilder,
-        StableHashMap,
+        StableHashBuilder, StableHashMap, StableHashSet, hue_hash, mix_hash_with_string, rgb_hash,
+        rgba_hash, rgba_premultiplied_hash, stable_hash, stable_hash_file, stable_hash_map,
+        stable_hash_read, stable_hash_set, stable_hasher,
     },
 };
+
+pub type HashMap<K, V> = hashbrown::HashMap<K, V, foldhash::fast::RandomState>;
+pub type HashSet<T> = hashbrown::HashSet<T, foldhash::fast::RandomState>;
 
 /// 64-bit hash value.
 #[repr(transparent)]

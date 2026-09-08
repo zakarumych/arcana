@@ -28,7 +28,7 @@ enum ViewportKind {
         window: Window,
     },
     Image {
-        image: Option<mev::Image>,
+        image: Option<mev::Image2D>,
     },
 }
 
@@ -68,25 +68,19 @@ impl Viewport {
                 let size = window.inner_size();
                 mev::Extent2::new(size.width as u32, size.height as u32)
             }
-            ViewportKind::Image { image: Some(image) } => image.extent().expect_2d(),
+            ViewportKind::Image { image: Some(image) } => image.extent(),
             ViewportKind::Image { .. } => mev::Extent2::ZERO,
         }
     }
 
-    pub fn set_image(&mut self, image: mev::Image) {
+    pub fn set_image(&mut self, image: mev::Image2D) {
         match &mut self.kind {
-            ViewportKind::Image { image: i } => match image.extent() {
-                mev::ImageExtent::D1(_) => panic!("Cannot set 1D image to viewport"),
-                mev::ImageExtent::D2(_) => {
-                    *i = Some(image);
-                }
-                mev::ImageExtent::D3(_) => panic!("Cannot set 3D image to viewport"),
-            },
+            ViewportKind::Image { image: i } => *i = Some(image),
             _ => panic!("Cannot set image to window viewport"),
         }
     }
 
-    pub fn get_image(&self) -> Option<&mev::Image> {
+    pub fn get_image(&self) -> Option<&mev::Image2D> {
         match &self.kind {
             ViewportKind::Image { image, .. } => image.as_ref(),
             _ => panic!("Cannot get image from window viewport"),
@@ -97,7 +91,7 @@ impl Viewport {
         &mut self,
         queue: &mut mev::Queue,
         before: mev::PipelineStages,
-    ) -> Result<Option<(mev::Image, Option<mev::Frame>)>, mev::SurfaceError> {
+    ) -> Result<Option<(mev::Image2D, Option<mev::Frame>)>, mev::SurfaceError> {
         match &mut self.kind {
             ViewportKind::Window { surface, window } => {
                 if window.inner_size().width == 0 || window.inner_size().height == 0 {

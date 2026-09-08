@@ -139,7 +139,7 @@ impl Model {
                 let len = len.unwrap_or(0);
                 Value::Array((0..len).map(|_| default_value(elem.as_deref())).collect())
             }
-            Model::Map(_) => Value::Map(HashMap::new()),
+            Model::Map(_) => Value::Map(HashMap::default()),
             Model::Tuple(ref fields) => {
                 Value::Array(fields.iter().map(|f| default_value(f.as_ref())).collect())
             }

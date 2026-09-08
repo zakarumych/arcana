@@ -3,12 +3,12 @@ use std::path::{PathBuf, absolute};
 use arcana::{
     assets::import::{ImporterDesc, ImporterId},
     error::{Error, fail},
+    hash::HashMap,
     model::Value,
     project::Project,
 };
 use egui::Ui;
 use egui_file::FileDialog;
-use hashbrown::HashMap;
 use smallvec::SmallVec;
 
 use crate::{assets::AssetStore, model::ValueProbe};
@@ -167,7 +167,8 @@ impl PickAsset {
     fn open(&mut self, project: &Project) {
         self.file.get_or_insert_with(|| {
             let path = project.root_path().join("assets");
-            let mut file = FileDialog::open_file(Some(path))
+            let mut file = FileDialog::open_file()
+                .initial_path(path)
                 .show_drives(false)
                 .title("Pick Asset");
             file.open();

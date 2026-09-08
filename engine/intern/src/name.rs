@@ -282,7 +282,15 @@ impl<'de> serde::de::Visitor<'de> for NameVisitor {
         match Name::from_str(s) {
             Ok(ident) => Ok(ident),
             Err(NameError::Empty) => Err(serde::de::Error::invalid_length(1, &self)),
+            Err(NameError::BadFirst(c)) => Err(serde::de::Error::invalid_value(
+                serde::de::Unexpected::Char(c),
+                &self,
+            )),
             Err(NameError::Bad(c)) => Err(serde::de::Error::invalid_value(
+                serde::de::Unexpected::Char(c),
+                &self,
+            )),
+            Err(NameError::BadLast(c)) => Err(serde::de::Error::invalid_value(
                 serde::de::Unexpected::Char(c),
                 &self,
             )),
@@ -302,7 +310,9 @@ impl<'de> serde::Deserialize<'de> for Name {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum NameError {
     Empty,
+    BadFirst(char),
     Bad(char),
+    BadLast(char),
 }
 
 impl NameError {
@@ -312,7 +322,13 @@ impl NameError {
     {
         match self {
             NameError::Empty => serde::de::Error::invalid_length(1, &NameVisitor),
+            NameError::BadFirst(c) => {
+                serde::de::Error::invalid_value(serde::de::Unexpected::Char(c), &NameVisitor)
+            }
             NameError::Bad(c) => {
+                serde::de::Error::invalid_value(serde::de::Unexpected::Char(c), &NameVisitor)
+            }
+            NameError::BadLast(c) => {
                 serde::de::Error::invalid_value(serde::de::Unexpected::Char(c), &NameVisitor)
             }
         }
@@ -331,9 +347,19 @@ impl fmt::Display for NameError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             NameError::Empty => write!(f, "Name must not be empty"),
+            NameError::BadFirst(c) => write!(
+                f,
+                "'{}' is not valid Name. Name may not start with control or whitespace characters",
+                c
+            ),
             NameError::Bad(c) => write!(
                 f,
-                "'{}' is not valid Name. 2nd and later chars must have XID_Continue property. Try latin letter or digit",
+                "'{}' is not valid Name. Name may not contain control characters",
+                c
+            ),
+            NameError::BadLast(c) => write!(
+                f,
+                "'{}' is not valid Name. Name may not end with control characters",
                 c
             ),
         }
@@ -346,6 +372,16 @@ impl fmt::Display for NameError {
 pub fn validate_name(s: &str) -> Result<(), NameError> {
     if s.is_empty() {
         return Err(NameError::Empty);
+    }
+
+    let bad_first_last = |c: char| c.is_control() || c.is_whitespace();
+
+    if s.starts_with(bad_first_last) {
+        return Err(NameError::BadFirst(s.chars().next().unwrap()));
+    }
+
+    if s.ends_with(bad_first_last) {
+        return Err(NameError::BadLast(s.chars().rev().next().unwrap()));
     }
 
     let bad = |c: char| c.is_control();

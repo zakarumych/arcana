@@ -17,5 +17,6 @@ serde = { workspace = true, features = ["derive"] }
 palette.workspace = true
 hashbrown.workspace = true
 thiserror.workspace = true
+foldhash.workspace = true
 smol_str = { workspace = true, features = ["serde"] }
 gametime = { workspace = true, features = ["serde"] }

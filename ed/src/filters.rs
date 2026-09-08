@@ -1,15 +1,44 @@
 use arcana::{
     Name,
     ecs::world::World,
+    hash::HashMap,
     input::{FilterId, Input},
     plugin::{Location, PluginsHub},
 };
 use egui::{Color32, Ui, WidgetText};
-use hashbrown::HashMap;
+use winit::window::WindowId;
 
-use crate::{error::ModalError, project::Project};
+use crate::{
+    project::{Project, ProjectData},
+    tool::{Tool, ToolContext, ToolTemplate},
+};
 
 use super::{ide::Ide, plugins::Plugins};
+
+#[derive(Clone, Debug, Default)]
+pub struct Funnel {
+    filters: Vec<FilterId>,
+}
+
+impl Funnel {
+    pub fn new() -> Self {
+        Funnel {
+            filters: Vec::new(),
+        }
+    }
+
+    pub fn filter(&self, hub: &mut PluginsHub, world: &mut World, input: &Input) -> bool {
+        for filter in self.filters.iter() {
+            if let Some(filter) = hub.filters.get_mut(filter) {
+                if filter.filter(world, input) {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+}
 
 #[derive(Clone, Debug, Hash, serde::Serialize, serde::Deserialize)]
 struct Filter {
@@ -25,53 +54,110 @@ struct Filter {
     active: bool,
 }
 
-pub struct Filters {
-    available: Vec<Filter>,
-}
-
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
-pub struct Funnel {
+#[derive(Clone, Debug, Default, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub struct FilterOrder {
     filters: Vec<Filter>,
 }
 
-impl Funnel {
-    pub fn filter(&self, hub: &mut PluginsHub, world: &mut World, input: &Input) -> bool {
-        for filter in self.filters.iter() {
-            if filter.enabled {
-                if let Some(filter) = hub.filters.get_mut(&filter.id) {
-                    if filter.filter(world, input) {
-                        return true;
-                    }
-                }
+pub struct FilterManager {
+    available: Vec<Filter>,
+    order: FilterOrder,
+    modification: u64,
+}
+
+impl FilterManager {
+    pub fn new() -> Self {
+        FilterManager {
+            available: Vec::new(),
+            order: FilterOrder {
+                filters: Vec::new(),
+            },
+            modification: 1,
+        }
+    }
+
+    pub fn load(&mut self, project: &Project, data: &ProjectData) {
+        self.order = data.filters.clone();
+    }
+
+    pub fn save(&self, _project: &mut Project, data: &mut ProjectData) {
+        data.filters = self.order.clone();
+    }
+
+    pub fn update_plugins(&mut self, plugins: &Plugins) {
+        let mut all_filters = HashMap::default();
+
+        for (name, plugin) in plugins.iter() {
+            for info in plugin.filters() {
+                all_filters.insert(info.id, (name, info));
             }
         }
 
-        false
+        for filter in self.order.filters.iter_mut() {
+            if let Some((_, info)) = all_filters.remove(&filter.id) {
+                filter.location = info.location.clone();
+                filter.active = true;
+            } else {
+                filter.active = false;
+            }
+        }
+
+        let new_filters = all_filters
+            .into_iter()
+            .map(|(id, (plugin, info))| Filter {
+                name: info.name,
+                plugin: plugin.to_owned(),
+                id,
+                enabled: false,
+                location: info.location.clone(),
+                active: true,
+            })
+            .collect::<Vec<_>>();
+
+        self.available = new_filters;
+        self.available.sort_by_cached_key(|info| info.name);
+    }
+
+    pub fn update_funnel(&self, modification: &mut u64, funnel: &mut Funnel) {
+        if self.modification == *modification {
+            return;
+        }
+
+        debug_assert!(self.modification > *modification);
+
+        funnel.filters.clear();
+        for filter in &self.order.filters {
+            if filter.enabled && filter.active {
+                funnel.filters.push(filter.id);
+            }
+        }
+        *modification = self.modification;
     }
 }
 
-impl Filters {
+pub struct FiltersWidget {}
+
+impl FiltersWidget {
     pub fn new() -> Self {
-        Filters {
-            available: Vec::new(),
-        }
+        FiltersWidget {}
     }
 
     pub fn show(
         &mut self,
-        project: &mut Project,
-        modal_error: &mut ModalError,
+        manager: &mut FilterManager,
+        plugins: Option<&Plugins>,
         ide: Option<&dyn Ide>,
         ui: &mut Ui,
     ) {
         let mut add_filter = None;
 
         ui.menu_button(egui_phosphor::regular::PLUS, |ui| {
-            if self.available.is_empty() {
+            if manager.available.is_empty() {
                 ui.weak("No available filters");
             }
 
-            for (idx, filter) in self.available.iter().enumerate() {
+            for (idx, filter) in manager.available.iter().enumerate() {
                 let r = ui.button(filter.name.as_str());
                 if r.clicked() {
                     add_filter = Some(idx);
@@ -82,32 +168,36 @@ impl Filters {
         });
 
         if let Some(idx) = add_filter {
-            let filter = self.available.remove(idx);
-            project.data.funnel.filters.push(filter);
-            project.sync_in_ui(ui.ctx(), modal_error);
+            let filter = manager.available.remove(idx);
+            manager.order.filters.push(filter);
         }
 
         let mut toggle_filter = None;
         let mut remove_filter = None;
         let r = egui_dnd::dnd(ui, "filter-list").show(
-            project.data.funnel.filters.iter(),
+            manager.order.filters.iter(),
             |ui, filter, handle, state| {
                 let mut heading = WidgetText::from(filter.name.as_str());
                 let mut tooltip = "";
 
-                match project.manifest().has_plugin(&filter.plugin) {
-                    false => {
-                        tooltip = "Plugin not found";
-                        heading = heading.color(Color32::DARK_RED);
-                    }
-                    true => {
-                        if filter.active {
-                            heading = heading.color(Color32::GREEN);
-                        } else {
-                            heading = heading.color(Color32::YELLOW);
-                            tooltip = "Plugin is not active";
+                if let Some(plugins) = plugins {
+                    match plugins.has(filter.plugin) {
+                        false => {
+                            tooltip = "Plugin not found";
+                            heading = heading.color(Color32::DARK_RED);
+                        }
+                        true => {
+                            if filter.active {
+                                heading = heading.color(Color32::GREEN);
+                            } else {
+                                heading = heading.color(Color32::YELLOW);
+                                tooltip = "Plugin is not active";
+                            }
                         }
                     }
+                } else {
+                    tooltip = "Plugin information unavailable";
+                    heading = heading.color(Color32::DARK_GRAY);
                 }
 
                 ui.horizontal(|ui| {
@@ -166,56 +256,45 @@ impl Filters {
         );
 
         if let Some(idx) = toggle_filter {
-            project.data.funnel.filters[idx].enabled = !project.data.funnel.filters[idx].enabled;
-
-            project.sync_in_ui(ui.ctx(), modal_error);
+            manager.order.filters[idx].enabled = !manager.order.filters[idx].enabled;
         }
 
         if let Some(idx) = remove_filter {
-            let info = project.data.funnel.filters.remove(idx);
-            self.available.push(info);
-
-            project.sync_in_ui(ui.ctx(), modal_error);
+            let info = manager.order.filters.remove(idx);
+            manager.available.push(info);
         }
 
         if let Some(update) = r.update {
-            egui_dnd::utils::shift_vec(update.from, update.to, &mut project.data.funnel.filters);
-
-            project.sync_in_ui(ui.ctx(), modal_error);
+            egui_dnd::utils::shift_vec(update.from, update.to, &mut manager.order.filters);
         }
     }
+}
 
-    pub fn update_plugins(&mut self, project: &mut Project, plugins: &Plugins) {
-        let mut all_filters = HashMap::new();
+pub struct FiltersTemplate;
 
-        for (name, plugin) in plugins.iter() {
-            for info in plugin.filters() {
-                all_filters.insert(info.id, (name, info));
-            }
-        }
+impl ToolTemplate for FiltersTemplate {
+    fn key(&self) -> &str {
+        "filters"
+    }
 
-        for filter in project.data.funnel.filters.iter_mut() {
-            if let Some((_, info)) = all_filters.remove(&filter.id) {
-                filter.location = info.location.clone();
-                filter.active = true;
-            } else {
-                filter.active = false;
-            }
-        }
+    fn title(&self) -> &str {
+        "Filters"
+    }
 
-        let new_filters = all_filters
-            .into_iter()
-            .map(|(id, (plugin, info))| Filter {
-                name: info.name,
-                plugin: plugin.to_owned(),
-                id,
-                enabled: false,
-                location: info.location.clone(),
-                active: true,
-            })
-            .collect::<Vec<_>>();
+    fn create(
+        &self,
+        _state: Option<serde_json::Value>,
+    ) -> Result<Box<dyn Tool>, serde_json::Error> {
+        Ok(Box::new(FiltersWidget::new()))
+    }
+}
 
-        self.available = new_filters;
-        self.available.sort_by_cached_key(|info| info.name);
+impl Tool for FiltersWidget {
+    fn title(&self) -> &str {
+        "Filters"
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, _window: WindowId, context: &mut ToolContext<'_>) {
+        self.show(context.filters, context.plugins.linked(), context.ide, ui);
     }
 }
