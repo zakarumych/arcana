@@ -22,6 +22,7 @@ use crate::{
     model::ValueProbe,
     project::{Project, ProjectData},
     tool::{Tool, ToolContext, ToolTemplate},
+    widgets::NewNameWidget,
 };
 
 use super::{
@@ -200,7 +201,7 @@ struct NewRenderWidget {
 pub struct RenderWidget {
     preview: Option<Rc<RefCell<Preview>>>,
     render: Option<RenderGraphId>,
-    new_render: Option<NewRenderWidget>,
+    new_render: NewNameWidget,
 }
 
 impl RenderWidget {
@@ -208,7 +209,7 @@ impl RenderWidget {
         RenderWidget {
             preview: None,
             render: None,
-            new_render: None,
+            new_render: NewNameWidget::new().with_hint("New render").collapsible(),
         }
     }
 
@@ -231,78 +232,14 @@ impl RenderWidget {
 
                 selector.show(&mut self.render, manager.renders.iter(), ui);
 
-                let mut clear_new_render = false;
-
-                if self.new_render.is_none() {
-                    if ui
-                        .button(egui_phosphor::regular::PLUS)
-                        .on_hover_text("Create new render")
-                        .clicked()
-                    {
-                        self.new_render = Some(NewRenderWidget {
-                            name: String::new(),
-                            problem: String::new(),
-                        });
-
-                        ui.request_repaint();
+                if let Some(name) = self.new_render.show_with_predicate(ui, |name| {
+                    match manager.get_render_graph(hash_id!(name)) {
+                        None => Ok(()),
+                        Some(_) => Err("Render graph with this name already exists".into()),
                     }
-                }
-
-                if let Some(new_render) = &mut self.new_render {
-                    let edit = egui::TextEdit::singleline(&mut new_render.name)
-                        .lock_focus(true)
-                        .hint_text("New render name");
-
-                    let r = ui.add(edit);
-
-                    if r.changed() {
-                        match validate_name(&new_render.name) {
-                            Ok(_) => {
-                                new_render.problem.clear();
-                            }
-                            Err(err) => {
-                                new_render.problem = err.to_string();
-                            }
-                        };
-                    }
-
-                    if r.lost_focus() {
-                        let (enter_pressed, esc_pressed) = ui.input(|i| {
-                            (
-                                i.key_pressed(egui::Key::Enter),
-                                i.key_pressed(egui::Key::Escape),
-                            )
-                        });
-
-                        if enter_pressed {
-                            match Name::from_str(&new_render.name) {
-                                Ok(name) => {
-                                    let id = manager.new_render(name);
-                                    self.render = Some(id);
-                                    clear_new_render = true;
-                                }
-                                Err(err) => {
-                                    new_render.problem = err.to_string();
-                                    r.request_focus();
-                                }
-                            }
-                        } else if esc_pressed {
-                            clear_new_render = true;
-                        } else {
-                            r.request_focus();
-                        }
-                    }
-
-                    if !new_render.problem.is_empty() {
-                        ui.weak(
-                            egui::RichText::new(&new_render.problem)
-                                .color(ui.style().visuals.warn_fg_color),
-                        );
-                    }
-                }
-
-                if clear_new_render {
-                    self.new_render = None;
+                }) {
+                    let id = manager.new_render(name);
+                    self.render = Some(id);
                 }
             });
 

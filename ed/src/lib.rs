@@ -70,6 +70,7 @@ mod toaster;
 mod tool;
 mod ui;
 mod viewport;
+mod widgets;
 
 /// Runs the editor application
 pub fn run(project_path: impl AsRef<Path>) {

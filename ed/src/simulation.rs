@@ -533,14 +533,11 @@ impl SimulationWidget {
 
         let game_frame = egui::Frame::NONE
             .corner_radius(egui::CornerRadius::same(5))
-            .stroke(egui::Stroke::new(
-                1.0,
-                if view.focused {
-                    egui::Color32::LIGHT_GRAY
-                } else {
-                    egui::Color32::DARK_GRAY
-                },
-            ))
+            .stroke(if view.focused {
+                egui::Stroke::new(2.0, egui::Color32::ORANGE)
+            } else {
+                egui::Stroke::new(1.0, egui::Color32::LIGHT_GRAY)
+            })
             .inner_margin(egui::Margin::same(10));
 
         game_frame.show(ui, |ui| {
@@ -556,28 +553,11 @@ impl SimulationWidget {
 
             let r = ui.add(image.sense(egui::Sense::click()));
 
-            if view.focused {
-                if !r.has_focus() {
-                    view.focused = false;
-                } else {
-                    view.rect = r.rect;
-                    view.pixel_per_point = ui.ctx().pixels_per_point();
-                }
-            } else {
-                if r.has_focus() {
-                    r.surrender_focus();
-                }
+            view.focused = r.has_focus();
 
-                let mut make_focused = false;
-                if r.clicked() {
-                    r.request_focus();
-                    make_focused = !view.focused
-                }
-
-                if make_focused {
-                    view.rect = r.rect;
-                    view.pixel_per_point = ui.ctx().pixels_per_point();
-                }
+            if r.gained_focus() {
+                view.rect = r.rect;
+                view.pixel_per_point = ui.ctx().pixels_per_point();
             }
         });
     }
