@@ -1,0 +1,11 @@
+name = "blockbreaker"
+
+[engine]
+path = "../engine/arcana"
+
+[[plugins]]
+name = "main"
+description = ""
+
+[plugins.dependency]
+path = 'C:\code\arcana\blockbreaker\main'

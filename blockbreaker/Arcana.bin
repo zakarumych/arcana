@@ -1,0 +1,87 @@
+{
+  "enabled_plugins": [
+    "main"
+  ],
+  "systems": {
+    "nodes": {
+      "0": {
+        "value": {
+          "name": "Blockbreaker update",
+          "plugin": "main",
+          "enabled": true,
+          "category": "Var",
+          "system": 1111640835
+        },
+        "open": true,
+        "pos": {
+          "x": 40,
+          "y": 40
+        }
+      }
+    },
+    "wires": []
+  },
+  "filters": [
+    {
+      "id": 1111640836,
+      "name": "Blockbreaker controls",
+      "enabled": true,
+      "plugin": "main"
+    }
+  ],
+  "renders": {
+    "1111640833": {
+      "name": "Blockbreaker",
+      "snarl": {
+        "nodes": {
+          "1": {
+            "value": "MainPresent",
+            "open": true,
+            "pos": {
+              "x": 370,
+              "y": 80
+            }
+          },
+          "0": {
+            "value": {
+              "Job": {
+                "params": {},
+                "name": "Blockbreaker frame",
+                "job": 1111640834,
+                "desc": {
+                  "creates": [
+                    {
+                      "ty": 9987399231104560588,
+                      "name": "Frame"
+                    }
+                  ],
+                  "reads": [],
+                  "params": [],
+                  "updates": []
+                },
+                "plugin": "main"
+              }
+            },
+            "open": true,
+            "pos": {
+              "x": 40,
+              "y": 80
+            }
+          }
+        },
+        "wires": [
+          {
+            "in_pin": {
+              "node": 1,
+              "input": 0
+            },
+            "out_pin": {
+              "node": 0,
+              "output": 0
+            }
+          }
+        ]
+      }
+    }
+  }
+}
