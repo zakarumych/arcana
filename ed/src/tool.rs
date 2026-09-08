@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use arcana::{gametime::ClockStep, mev};
 use serde_json::Value;
-use winit::window::WindowId;
+use winit::{event::WindowEvent, window::WindowId};
 
 use crate::{
     error::ModalErrors,
@@ -11,7 +11,7 @@ use crate::{
     plugins::{PluginManager, PluginsTemplate},
     project::{Project, ProjectData},
     render::{RenderManager, RenderTemplate},
-    simulation::{Simulation, SimulationTemplate},
+    scene_editor::{SceneEditor, SceneEditorTemplate},
     systems::{SystemManager, SystemsTemplate},
     toaster::Toaster,
     ui::UserTextures,
@@ -36,6 +36,17 @@ pub(crate) trait Tool {
     fn ui(&mut self, ui: &mut egui::Ui, window: WindowId, context: &mut ToolContext<'_>);
 
     fn update(&mut self, _step: ClockStep, _context: &mut ToolContext<'_>) {}
+
+    fn handle_event(
+        &mut self,
+        _window: WindowId,
+        _event: &WindowEvent,
+        _context: &mut ToolContext<'_>,
+    ) -> bool {
+        false
+    }
+
+    fn close(&mut self, _textures: &mut UserTextures<'_>) {}
 
     /// Session-only tools need not provide a snapshot.
     fn save(&self) -> Option<Value> {
@@ -62,7 +73,7 @@ impl Toolbox {
         toolbox.register(Box::new(SystemsTemplate));
         toolbox.register(Box::new(FiltersTemplate));
         toolbox.register(Box::new(RenderTemplate));
-        toolbox.register(Box::new(SimulationTemplate));
+        toolbox.register(Box::new(SceneEditorTemplate));
         toolbox
     }
 
@@ -103,7 +114,7 @@ pub(crate) enum ToolCommand {
 
 /// Shared services and deferred child-tool requests, supplied afresh for every call.
 pub(crate) struct ToolContext<'a> {
-    pub simulation: &'a mut Simulation,
+    pub scene_editor: &'a mut SceneEditor,
     pub plugins: &'a mut PluginManager,
     pub systems: &'a mut SystemManager,
     pub filters: &'a mut FilterManager,
@@ -143,6 +154,7 @@ pub(crate) struct MaterializedTool {
     pub tool: Box<dyn Tool>,
     template: Option<String>,
     attached: bool,
+    visible_window: Option<WindowId>,
 }
 
 #[derive(Default)]
@@ -167,6 +179,7 @@ impl Tools {
                 tool,
                 template,
                 attached: false,
+                visible_window: None,
             },
         );
         id
@@ -184,11 +197,55 @@ impl Tools {
     pub fn detach(&mut self, id: ToolId) {
         if let Some(entry) = self.entries.get_mut(&id) {
             entry.attached = false;
+            entry.visible_window = None;
         }
     }
 
-    pub fn remove(&mut self, id: ToolId) {
-        self.entries.remove(&id);
+    pub fn remove(&mut self, id: ToolId, textures: &mut UserTextures<'_>) {
+        if let Some(mut entry) = self.entries.remove(&id) {
+            entry.tool.close(textures);
+        }
+    }
+
+    pub fn begin_ui(&mut self, window: WindowId) {
+        for entry in self.entries.values_mut() {
+            if entry.visible_window == Some(window) {
+                entry.visible_window = None;
+            }
+        }
+    }
+
+    pub fn mark_visible(&mut self, id: ToolId, window: WindowId) {
+        if let Some(entry) = self.entries.get_mut(&id) {
+            if entry.attached {
+                entry.visible_window = Some(window);
+            }
+        }
+    }
+
+    pub fn clear_visibility(&mut self) {
+        for entry in self.entries.values_mut() {
+            entry.visible_window = None;
+        }
+    }
+
+    fn dispatch_event(
+        &mut self,
+        window: WindowId,
+        mut handle: impl FnMut(&mut dyn Tool) -> bool,
+    ) -> bool {
+        self.entries.values_mut().any(|entry| {
+            entry.attached && entry.visible_window == Some(window) && handle(&mut *entry.tool)
+        })
+    }
+
+    pub fn handle_event(
+        &mut self,
+        window: WindowId,
+        event: &WindowEvent,
+        context: &mut ToolContext<'_>,
+    ) -> bool {
+        self.dispatch_event(window, |tool| tool.handle_event(window, event, context))
     }
 
     pub fn get_mut(&mut self, id: ToolId) -> Option<&mut MaterializedTool> {
@@ -226,8 +283,15 @@ impl Tools {
         (ids, states)
     }
 
-    pub fn restore(&mut self, toolbox: &Toolbox, states: Vec<ToolState>) -> Vec<Option<ToolId>> {
-        self.entries.clear();
+    pub fn restore(
+        &mut self,
+        toolbox: &Toolbox,
+        states: Vec<ToolState>,
+        textures: &mut UserTextures<'_>,
+    ) -> Vec<Option<ToolId>> {
+        for (_, mut entry) in std::mem::take(&mut self.entries) {
+            entry.tool.close(textures);
+        }
         states
             .into_iter()
             .map(|state| {
@@ -235,5 +299,122 @@ impl Tools {
                 Some(self.insert(tool, Some(state.template)))
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{cell::RefCell, rc::Rc};
+
+    use super::*;
+
+    struct FakeTool {
+        name: &'static str,
+        lifecycle: Rc<RefCell<Vec<String>>>,
+    }
+
+    impl Tool for FakeTool {
+        fn title(&self) -> &str {
+            self.name
+        }
+
+        fn ui(&mut self, _: &mut egui::Ui, _: WindowId, _: &mut ToolContext<'_>) {}
+
+        fn close(&mut self, _: &mut UserTextures<'_>) {
+            self.lifecycle
+                .borrow_mut()
+                .push(format!("close {}", self.name));
+        }
+    }
+
+    impl Drop for FakeTool {
+        fn drop(&mut self) {
+            self.lifecycle
+                .borrow_mut()
+                .push(format!("drop {}", self.name));
+        }
+    }
+
+    fn insert(
+        tools: &mut Tools,
+        name: &'static str,
+        lifecycle: &Rc<RefCell<Vec<String>>>,
+    ) -> ToolId {
+        tools.insert(
+            Box::new(FakeTool {
+                name,
+                lifecycle: lifecycle.clone(),
+            }),
+            None,
+        )
+    }
+
+    #[test]
+    fn input_routes_only_to_visible_attached_tools_and_stops_at_first_consumer() {
+        let mut tools = Tools::default();
+        let lifecycle = Rc::new(RefCell::new(Vec::new()));
+        let first = insert(&mut tools, "first", &lifecycle);
+        let second = insert(&mut tools, "second", &lifecycle);
+        let other = insert(&mut tools, "other", &lifecycle);
+        let window = WindowId::from(1);
+        let other_window = WindowId::from(2);
+        for id in [first, second, other] {
+            assert!(tools.attach(id).is_some());
+        }
+        tools.mark_visible(first, window);
+        tools.mark_visible(second, window);
+        tools.mark_visible(other, other_window);
+        let mut routed = Vec::new();
+        assert!(tools.dispatch_event(window, |tool| {
+            routed.push(tool.title().to_owned());
+            true
+        }));
+        assert_eq!(routed, ["first"]);
+
+        tools.begin_ui(window);
+        tools.mark_visible(second, window);
+        routed.clear();
+        assert!(!tools.dispatch_event(window, |tool| {
+            routed.push(tool.title().to_owned());
+            false
+        }));
+        assert_eq!(routed, ["second"]);
+        assert!(tools.dispatch_event(other_window, |_| true));
+
+        tools.detach(second);
+        assert!(!tools.dispatch_event(window, |_| true));
+        assert!(tools.get_mut(second).is_some());
+        assert!(lifecycle.borrow().is_empty());
+        assert!(tools.attach(second).is_some());
+        assert!(tools.attach(second).is_none());
+        assert!(!tools.dispatch_event(window, |_| true));
+
+        tools.clear_visibility();
+        assert!(!tools.dispatch_event(other_window, |_| true));
+    }
+
+    #[test]
+    fn remove_and_restore_close_tools_before_dropping_them() {
+        let mut tools = Tools::default();
+        let lifecycle = Rc::new(RefCell::new(Vec::new()));
+        let removed = insert(&mut tools, "removed", &lifecycle);
+        let retained = insert(&mut tools, "retained", &lifecycle);
+        let mut ui = crate::ui::Ui::new();
+        tools.remove(removed, &mut ui.textures());
+        tools.remove(removed, &mut ui.textures());
+        assert_eq!(*lifecycle.borrow(), ["close removed", "drop removed"]);
+        assert!(tools.get_mut(retained).is_some());
+
+        let restored = tools.restore(&Toolbox::new(), Vec::new(), &mut ui.textures());
+        assert!(restored.is_empty());
+        assert_eq!(
+            *lifecycle.borrow(),
+            [
+                "close removed",
+                "drop removed",
+                "close retained",
+                "drop retained"
+            ]
+        );
     }
 }

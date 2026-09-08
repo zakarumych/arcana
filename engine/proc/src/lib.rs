@@ -1,10 +1,12 @@
 // extern crate proc_macro;
 
 mod codex;
+mod component;
 mod filter;
 mod importer;
 mod init;
 mod job;
+mod literal_hash;
 mod plugin;
 mod stable_hasher;
 mod stid;
@@ -12,6 +14,16 @@ mod system;
 
 use proc_macro::TokenStream;
 use stid::HasStid;
+
+/// Exports a component factory from a plugin.
+#[proc_macro_attribute]
+pub fn component(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let item = syn::parse_macro_input!(item as syn::ItemFn);
+    match component::component(attr.into(), item, &plugin_registry_name()) {
+        Ok(output) => output.into(),
+        Err(error) => error.to_compile_error().into(),
+    }
+}
 
 #[proc_macro_derive(Component, attributes(edict))]
 pub fn derive_component(item: TokenStream) -> TokenStream {
@@ -31,20 +43,13 @@ pub fn derive_relation(item: TokenStream) -> TokenStream {
 pub fn derive_has_stid(input: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(input as syn::DeriveInput);
 
-    fn parse_stid_attr(attr: &syn::Attribute) -> syn::Result<stid::StidValue> {
-        let name_value = attr.meta.require_name_value()?;
-        match &name_value.value {
-            syn::Expr::Lit(syn::ExprLit {
-                lit: syn::Lit::Str(lit),
-                ..
-            }) => Ok(stid::StidValue::Str(lit.clone())),
-            syn::Expr::Lit(syn::ExprLit {
-                lit: syn::Lit::Int(lit),
-                ..
-            }) => Ok(stid::StidValue::Int(lit.clone())),
-            value => Err(syn::Error::new_spanned(
-                value,
-                "expected string or integer literal",
+    fn parse_stid_attr(attr: &syn::Attribute) -> syn::Result<syn::Expr> {
+        match &attr.meta {
+            syn::Meta::NameValue(name_value) => Ok(name_value.value.clone()),
+            syn::Meta::List(_) => attr.parse_args(),
+            meta => Err(syn::Error::new_spanned(
+                meta,
+                "expected #[stid = literal] or #[stid(const_expression)]",
             )),
         }
     }
@@ -83,6 +88,15 @@ pub fn has_stid(tokens: TokenStream) -> TokenStream {
 pub fn stable_hash_tokens(tokens: TokenStream) -> TokenStream {
     let hash = stable_hasher::stable_hash(&tokens.to_string());
     quote::quote!(#hash).into()
+}
+
+#[proc_macro]
+pub fn stable_hash_literal(tokens: TokenStream) -> TokenStream {
+    let input = syn::parse_macro_input!(tokens as syn::Expr);
+    match literal_hash::stable_hash_literal(&input) {
+        Ok(hash) => quote::quote!(#hash).into(),
+        Err(error) => error.to_compile_error().into(),
+    }
 }
 
 /// Exports function as filter.

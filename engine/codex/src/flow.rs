@@ -2,7 +2,7 @@ use std::future::Future;
 
 use arcana_id::Stid;
 use arcana_intern::Name;
-use arcana_model::TypeModel;
+use arcana_model::Reflect;
 use edict::flow::FlowEntity;
 
 use crate::{
@@ -50,11 +50,11 @@ impl<'a> FlowContext<'a> {
 
     pub fn get<T>(&self, idx: usize) -> Option<T>
     where
-        T: TypeModel,
+        T: Reflect + Clone + 'static,
     {
         match self.inputs[idx] {
             NodeInput::Connected(id) => self.values.get(id).cloned(),
-            NodeInput::Specified(ref value) => T::try_clone_from_value(value),
+            NodeInput::Specified(ref value) => T::clone_from_value(value).ok(),
             NodeInput::Unspecified => None,
         }
     }

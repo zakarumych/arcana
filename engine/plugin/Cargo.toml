@@ -15,6 +15,7 @@ arcana-assets = { path = "../assets" }
 arcana-work-graph = { path = "../work-graph" }
 arcana-input = { path = "../input" }
 arcana-project = { path = "../project" }
+arcana-model = { path = "../model" }
 
 hashbrown.workspace = true
 edict.workspace = true

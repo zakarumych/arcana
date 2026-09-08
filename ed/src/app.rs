@@ -20,6 +20,7 @@ use winit::{
 
 use crate::{
     assets::AssetStore,
+    entity_ids::EntityIds,
     error::ModalErrors,
     filters::FilterManager,
     ide::{Ide, IdeType},
@@ -27,7 +28,7 @@ use crate::{
     plugins::PluginManager,
     project::{Project, ProjectData},
     render::RenderManager,
-    simulation::Simulation,
+    scene_editor::SceneEditor,
     subprocess::{filter_subprocesses, kill_subprocesses},
     systems::SystemManager,
     toaster::Toaster,
@@ -60,7 +61,7 @@ pub struct App {
     ui: Ui,
 
     assets: AssetStore,
-    main: Simulation,
+    scene_editor: SceneEditor,
 
     cvt: mev::kernels::Cvt,
     clipboard: Clipboard,
@@ -140,7 +141,7 @@ impl App {
         renders.load(&project, &data);
 
         let cvt = mev::kernels::Cvt::new(&device);
-        let main = Simulation::new();
+        let scene_editor = SceneEditor::new(EntityIds::new());
 
         let clock = Clock::new();
 
@@ -174,7 +175,7 @@ impl App {
             queue,
 
             assets,
-            main,
+            scene_editor,
 
             cvt,
             clipboard,
@@ -215,15 +216,21 @@ impl App {
         self.plugins.tick(&mut self.toaster, &self.project);
 
         if let Some(c) = self.plugins.take_updated() {
-            self.systems.update_plugins(&c);
-            self.main.update_plugins(&c);
-            self.assets.update_plugins(&c);
+            match self.scene_editor.update_plugins(&c) {
+                Ok(()) => {
+                    self.systems.update_plugins(&c);
+                    self.filters.update_plugins(&c);
+                    self.renders.update_plugins(&c);
+                    self.assets.update_plugins(&c);
+                }
+                Err(error) => tracing::error!("Failed to update scene plugins: {error:?}"),
+            }
         }
 
         self.tools.update(
             step,
             &mut ToolContext {
-                simulation: &mut self.main,
+                scene_editor: &mut self.scene_editor,
                 plugins: &mut self.plugins,
                 systems: &mut self.systems,
                 filters: &mut self.filters,
@@ -246,12 +253,37 @@ impl App {
         );
         self.drain_tool_commands(None);
         self.toaster.tick();
-        self.main.tick(&self.systems, step);
     }
 
-    /// Runs rendering.
+    /// Routes input to visible tools and the editor UI.
     pub fn handle_event(&mut self, window_id: WindowId, event: &WindowEvent) {
-        if self.main.handle_event(&self.filters, window_id, event) {
+        let consumed = self.tools.handle_event(
+            window_id,
+            event,
+            &mut ToolContext {
+                scene_editor: &mut self.scene_editor,
+                plugins: &mut self.plugins,
+                systems: &mut self.systems,
+                filters: &mut self.filters,
+                renders: &mut self.renders,
+
+                queue: &mut self.queue,
+                cvt: &mut self.cvt,
+                textures: self.ui.textures(),
+
+                errors: &mut self.errors,
+                toaster: &mut self.toaster,
+
+                ide: self.ide.as_deref(),
+                toolbox: &self.toolbox,
+                commands: &mut self.tool_commands,
+
+                project: &self.project,
+                data: &self.data,
+            },
+        );
+        self.drain_tool_commands(Some(window_id));
+        if consumed {
             return;
         }
 
@@ -278,6 +310,7 @@ impl App {
                     &view.window,
                     self.clock.now(),
                     |ui, textures| {
+                        self.tools.begin_ui(window_id);
                         Panel::top("Menu").show(ui, |ui| {
                             ui.horizontal(|ui| {
                                 ui.menu_button("File", |ui| {
@@ -341,7 +374,7 @@ impl App {
                                 tools: &mut self.tools,
                                 window: window_id,
                                 context: ToolContext {
-                                    simulation: &mut self.main,
+                                    scene_editor: &mut self.scene_editor,
                                     plugins: &mut self.plugins,
                                     systems: &mut self.systems,
                                     filters: &mut self.filters,
@@ -413,10 +446,6 @@ impl App {
                 break;
             }
         }
-
-        self.main
-            .render(&mut self.queue, &self.renders, &mut self.ui.textures())
-            .unwrap();
     }
 
     fn save_state(&self) {
@@ -530,7 +559,7 @@ impl App {
         if detach {
             self.tools.detach(id);
         } else {
-            self.tools.remove(id);
+            self.tools.remove(id, &mut self.ui.textures());
         }
     }
 
@@ -543,7 +572,9 @@ impl App {
             None => load_app_state(&self.project.name()).map(|state| {
                 dbg!(&state);
 
-                let restored = self.tools.restore(&self.toolbox, state.tools);
+                let restored =
+                    self.tools
+                        .restore(&self.toolbox, state.tools, &mut self.ui.textures());
                 state
                     .views
                     .into_iter()
@@ -661,6 +692,7 @@ impl egui_dock::widgets::TabViewer for AppModel<'_> {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, view: &mut View) {
+        self.tools.mark_visible(view.tool(), self.window);
         if let Some(entry) = self.tools.get_mut(view.tool()) {
             ui.push_id(("tool", view.tool()), |ui| {
                 entry.tool.ui(ui, self.window, &mut self.context)
@@ -773,6 +805,7 @@ impl winit::application::ApplicationHandler<UserEvent> for App {
             return;
         }
         self.save_state();
+        self.tools.clear_visibility();
         self.suspended_views = Some(
             self.views
                 .drain(..)
@@ -819,7 +852,7 @@ impl winit::application::ApplicationHandler<UserEvent> for App {
                     {
                         let window = self.views.remove(index);
                         for (_, view) in window.dock_state.iter_all_tabs() {
-                            self.tools.remove(view.tool());
+                            self.tools.remove(view.tool(), &mut self.ui.textures());
                         }
                     }
                 }

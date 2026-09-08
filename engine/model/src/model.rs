@@ -99,12 +99,16 @@ pub enum Model {
     /// Enum with named variants.
     Enum(Vec<(Ident, Option<Model>)>),
 
-    /// Reference to a value of specific type.
+    /// Reference to a value in the named domain.
+    ///
+    /// The name identifies a reference domain, not a globally unique Rust type.
     Reference(Ident),
 }
 
 impl Model {
     /// Returns default value that corresponds to the model.
+    /// Reference defaults contain zero, representing an unbound reference that
+    /// nonzero ID types reject when decoded.
     pub fn default_value(&self) -> Value {
         match *self {
             Model::Unit => Value::Unit,
@@ -157,7 +161,7 @@ impl Model {
                 let v = &variants[0];
                 Value::Enum(v.0, Box::new(default_value(v.1.as_ref())))
             }
-            Model::Reference(_) => Value::Int(0),
+            Model::Reference(tag) => Value::Reference(tag, 0),
         }
     }
 }

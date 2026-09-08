@@ -63,6 +63,10 @@ impl UserTextures<'_> {
 
         self.textures.insert(id, (image, sampler));
     }
+
+    pub fn remove(&mut self, id: egui::TextureId) {
+        self.textures.remove(&id);
+    }
 }
 
 pub struct Ui {

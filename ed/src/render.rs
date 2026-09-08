@@ -3,12 +3,11 @@ use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 use arcana::{
     Name,
     hash::HashMap,
-    id::{ShufIdGen, Stid, hash_id},
+    id::{Stid, hash_id},
     mev,
     model::Value,
     plugin::{JobInfo, Location},
     render::RenderGraphId,
-    validate_name,
     work_graph::{Cycle, Edge, HookId, Image2D, JobDesc, JobId, JobIdx, PinId, WorkGraph},
 };
 use egui::Ui;
@@ -29,7 +28,6 @@ use super::{
     hue_hash,
     ide::Ide,
     plugins::Plugins,
-    simulation::Simulation,
     ui::{Sampler, Selector, UserTextures},
 };
 
@@ -44,9 +42,13 @@ pub struct RenderGraph {
 
 impl RenderGraph {
     pub fn new(name: Name) -> Self {
+        let mut snarl = Snarl::new();
+
+        snarl.insert_node(egui::Pos2::ZERO, RenderGraphNode::MainPresent);
+
         RenderGraph {
             name,
-            snarl: Snarl::new(),
+            snarl,
             modification: 1,
         }
     }
@@ -179,6 +181,15 @@ impl RenderManager {
         self.renders.get(&id)
     }
 
+    pub fn render_graphs(&self) -> impl Iterator<Item = (RenderGraphId, &RenderGraph)> {
+        self.renders.iter().map(|(&id, graph)| (id, graph))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn insert_test_graph(&mut self, id: RenderGraphId, graph: RenderGraph) {
+        self.renders.insert(id, graph);
+    }
+
     pub fn new_render(&mut self, name: Name) -> RenderGraphId {
         let id = hash_id!(name);
         self.renders.insert(id, RenderGraph::new(name));
@@ -218,7 +229,6 @@ impl RenderWidget {
         manager: &mut RenderManager,
         cvt: &mev::kernels::Cvt,
         device: &mev::Device,
-        main: &mut Simulation,
         textures: &mut UserTextures,
         ide: Option<&dyn Ide>,
         ui: &mut Ui,
@@ -289,7 +299,6 @@ impl RenderWidget {
             let mut viewer = RenderGraphViewer {
                 modified: false,
                 available: &mut manager.available,
-                main,
                 cvt,
                 preview,
                 ide,
@@ -334,7 +343,6 @@ pub enum RenderGraphNode {
 pub struct RenderGraphViewer<'a> {
     modified: bool,
     available: &'a mut BTreeMap<Name, Vec<JobInfo>>,
-    main: &'a mut Simulation,
     cvt: &'a mev::kernels::Cvt,
     preview: &'a Rc<RefCell<Preview>>,
     ide: Option<&'a dyn Ide>,
@@ -771,7 +779,6 @@ impl Tool for RenderWidget {
             context.renders,
             context.cvt,
             context.queue.device(),
-            context.simulation,
             &mut context.textures,
             context.ide,
             ui,

@@ -10,6 +10,7 @@ description = "Hashing for Arcana Engine"
 [dependencies]
 arcana-base-encoding = { path = "../base-encoding" }
 arcana-io = { path = "../io" }
+arcana-proc = { path = "../proc" }
 serde.workspace = true
 hashbrown.workspace = true
 sha2.workspace = true

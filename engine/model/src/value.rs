@@ -131,6 +131,7 @@ pub enum Value {
     Array(Vec<Value>),
     Map(HashMap<SmolStr, Value, RandomState>),
     Enum(Ident, Box<Value>),
+    Reference(Ident, u64),
 }
 
 impl Default for Value {
@@ -164,6 +165,7 @@ impl Value {
             Value::Array(_) => "Array",
             Value::Map(_) => "Map",
             Value::Enum(_, _) => "Enum",
+            Value::Reference(_, _) => "Reference",
         }
     }
 
@@ -189,6 +191,7 @@ impl Value {
             },
             Value::Map(_) => Model::Map(None),
             Value::Enum(variant, _) => Model::Enum(vec![(*variant, None)]),
+            Value::Reference(ident, _) => Model::Reference(*ident),
         }
     }
 
@@ -544,6 +547,7 @@ impl<'de> serde::de::Deserializer<'de> for Value {
                 next_value: None,
             }),
             Value::Enum(name, value) => visitor.visit_enum(EnumAccess { name, value: value }),
+            Value::Reference(_, value) => visitor.visit_u64(value),
         }
     }
 

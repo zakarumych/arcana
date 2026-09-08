@@ -12,6 +12,7 @@ arcana-proc = { path = "../proc" }
 arcana-base-encoding = { path = "../base-encoding" }
 arcana-hash = { path = "../hash" }
 arcana-intern = { path = "../intern" }
+arcana-model = { path = "../model" }
 
 mev.workspace = true
 serde = { workspace = true, features = ["derive"] }

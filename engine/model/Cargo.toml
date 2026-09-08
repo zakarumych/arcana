@@ -10,7 +10,6 @@ description = "Defines a model and a value type for type-erased communications"
 [dependencies]
 arcana-intern = { path = "../intern" }
 arcana-base-encoding = { path = "../base-encoding" }
-arcana-id = { path = "../id" }
 
 athena = { workspace = true, features = ["serde"] }
 serde = { workspace = true, features = ["derive"] }
@@ -20,3 +19,4 @@ thiserror.workspace = true
 foldhash.workspace = true
 smol_str = { workspace = true, features = ["serde"] }
 gametime = { workspace = true, features = ["serde"] }
+edict.workspace = true

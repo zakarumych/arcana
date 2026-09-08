@@ -6,429 +6,181 @@ mod model;
 mod value;
 
 use athena::{Matrix2, Matrix3, Matrix4, Vector2, Vector3, Vector4};
+use edict::entity::EntityId;
 use gametime::TimeSpan;
 use palette::{Hsv, Hsva, LinLuma, LinLumaa, Srgb, Srgba};
 use smol_str::SmolStr;
 
 pub use self::{
     model::{ColorModel, Model},
-    value::{serialize_to_value, ColorValue, Value},
+    value::{ColorValue, Value, ValueError, serialize_to_value},
 };
 
-/// Trait for types that matches some data model.
+/// A type described by a data model and convertible to and from [`Value`].
 ///
-/// It is expected that values of the type can be converted to and from [`Value`] with that model.
-/// If type implements [`Serialize`], it should be able to serialize to a [`Value`] with that model.
-/// If type implements [`Deserialize`], it should be able to deserialize from a [`Value`] with that model.
-pub trait TypeModel: Clone + Send + Sync + 'static {
-    /// Returns data model that describes the type.
-    fn model() -> Model
-    where
-        Self: Sized;
+/// [`Reflect::to_value`] must produce a value matching [`Reflect::model`], and
+/// passing that value to [`Reflect::from_value`] must reconstruct an equivalent
+/// value of the type. Reflection does not require a serde implementation.
+pub trait Reflect: Sized {
+    /// Returns the data model that describes the type.
+    fn model() -> Model;
 
-    /// Converts value to a [`Value`] with the model of the type.
-    fn try_from_value(value: Value) -> Option<Self>
-    where
-        Self: Sized;
+    /// Converts this value to its model representation.
+    fn to_value(&self) -> Value;
 
-    /// Converts value to a [`Value`] with the model of the type.
-    fn try_clone_from_value(value: &Value) -> Option<Self>
-    where
-        Self: Sized;
+    /// Reconstructs a value, returning an error if the representation is invalid.
+    fn from_value(value: Value) -> Result<Self, ValueError>;
 
-    /// Converts value to a [`Value`] with the model of the type.
-    fn from_value(value: Value) -> Self
-    where
-        Self: Sized,
-    {
-        Self::try_from_value(value).expect("Value must match the type's model")
+    /// Reconstructs a value from a borrowed model representation.
+    fn clone_from_value(value: &Value) -> Result<Self, ValueError> {
+        Self::from_value(value.clone())
     }
 
-    /// Converts value to a [`Value`] with the model of the type.
-    fn clone_from_value(value: &Value) -> Self
-    where
-        Self: Sized,
-    {
-        Self::try_clone_from_value(value).expect("Value must match the type's model")
+    /// Applies a model representation to this value.
+    ///
+    /// Implementations must leave `self` unchanged when returning an error.
+    fn apply(&mut self, value: Value) -> Result<(), ValueError> {
+        *self = Self::from_value(value)?;
+        Ok(())
     }
 }
 
-impl TypeModel for () {
+fn unexpected_value(value: &Value, expected: &str) -> ValueError {
+    let actual = match value {
+        Value::Color(color) => format!("Color({})", color.kind()),
+        _ => value.kind().to_owned(),
+    };
+    ValueError::Custom(format!("Expected {expected}, found {actual}"))
+}
+
+impl Reflect for () {
     fn model() -> Model {
         Model::Unit
     }
 
-    fn try_from_value(value: Value) -> Option<Self> {
-        match value {
-            Value::Unit => Some(()),
-            _ => None,
-        }
+    fn to_value(&self) -> Value {
+        Value::Unit
     }
 
-    fn try_clone_from_value(value: &Value) -> Option<Self> {
-        Self::try_from_value(value.clone())
+    fn from_value(value: Value) -> Result<Self, ValueError> {
+        match value {
+            Value::Unit => Ok(()),
+            value => Err(unexpected_value(&value, "Unit")),
+        }
     }
 }
 
-impl TypeModel for bool {
+macro_rules! reflect_native {
+    ($ty:ty, $variant:ident) => {
+        impl Reflect for $ty {
+            fn model() -> Model {
+                Model::$variant
+            }
+
+            fn to_value(&self) -> Value {
+                Value::$variant(self.clone())
+            }
+
+            fn from_value(value: Value) -> Result<Self, ValueError> {
+                match value {
+                    Value::$variant(value) => Ok(value),
+                    value => Err(unexpected_value(&value, stringify!($variant))),
+                }
+            }
+        }
+    };
+}
+
+reflect_native!(bool, Bool);
+reflect_native!(i64, Int);
+reflect_native!(f64, Float);
+reflect_native!(SmolStr, String);
+reflect_native!(TimeSpan, TimeSpan);
+reflect_native!(Vector2<f64>, Vec2);
+reflect_native!(Vector3<f64>, Vec3);
+reflect_native!(Vector4<f64>, Vec4);
+reflect_native!(Matrix2<f64>, Mat2);
+reflect_native!(Matrix3<f64>, Mat3);
+reflect_native!(Matrix4<f64>, Mat4);
+
+impl Reflect for EntityId {
     fn model() -> Model {
-        Model::Bool
+        Model::Reference(arcana_intern::ident!(EntityId))
     }
 
-    fn try_from_value(value: Value) -> Option<Self> {
+    fn to_value(&self) -> Value {
+        Value::Reference(arcana_intern::ident!(EntityId), self.bits())
+    }
+
+    fn from_value(value: Value) -> Result<Self, ValueError> {
         match value {
-            Value::Bool(b) => Some(b),
-            _ => None,
-        }
-    }
-
-    fn try_clone_from_value(value: &Value) -> Option<Self> {
-        Self::try_from_value(value.clone())
-    }
-}
-
-impl TypeModel for i64 {
-    fn model() -> Model {
-        Model::Int
-    }
-
-    fn try_from_value(value: Value) -> Option<Self> {
-        match value {
-            Value::Int(i) => Some(i),
-            _ => None,
-        }
-    }
-
-    fn try_clone_from_value(value: &Value) -> Option<Self> {
-        Self::try_from_value(value.clone())
-    }
-}
-
-impl TypeModel for f64 {
-    fn model() -> Model {
-        Model::Float
-    }
-
-    fn try_from_value(value: Value) -> Option<Self> {
-        match value {
-            Value::Float(f) => Some(f),
-            _ => None,
-        }
-    }
-
-    fn try_clone_from_value(value: &Value) -> Option<Self> {
-        Self::try_from_value(value.clone())
-    }
-}
-
-impl TypeModel for SmolStr {
-    fn model() -> Model {
-        Model::String
-    }
-
-    fn try_from_value(value: Value) -> Option<Self> {
-        match value {
-            Value::String(s) => Some(s),
-            _ => None,
-        }
-    }
-
-    fn try_clone_from_value(value: &Value) -> Option<Self> {
-        match value {
-            Value::String(s) => Some(s.clone()),
-            _ => None,
+            Value::Reference(tag, bits) if tag == arcana_intern::ident!(EntityId) => {
+                Self::from_bits(bits).ok_or_else(|| {
+                    ValueError::Custom("EntityId reference cannot be zero".to_owned())
+                })
+            }
+            value => Err(unexpected_value(&value, "EntityId reference")),
         }
     }
 }
 
-impl TypeModel for LinLuma {
-    fn model() -> Model {
-        Model::Color(ColorModel::Luma)
-    }
+macro_rules! reflect_color {
+    ($ty:ty, $variant:ident) => {
+        impl Reflect for $ty {
+            fn model() -> Model {
+                Model::Color(ColorModel::$variant)
+            }
 
-    fn try_from_value(value: Value) -> Option<Self> {
-        match value {
-            Value::Color(ColorValue::Luma(luma)) => Some(luma),
-            _ => None,
-        }
-    }
+            fn to_value(&self) -> Value {
+                Value::Color(ColorValue::$variant(*self))
+            }
 
-    fn try_clone_from_value(value: &Value) -> Option<Self> {
-        match value {
-            Value::Color(ColorValue::Luma(luma)) => Some(luma.clone()),
-            _ => None,
+            fn from_value(value: Value) -> Result<Self, ValueError> {
+                match value {
+                    Value::Color(ColorValue::$variant(value)) => Ok(value),
+                    value => Err(unexpected_value(
+                        &value,
+                        concat!("Color(", stringify!($variant), ")"),
+                    )),
+                }
+            }
         }
-    }
+    };
 }
 
-impl TypeModel for LinLumaa {
-    fn model() -> Model {
-        Model::Color(ColorModel::Lumaa)
-    }
+reflect_color!(LinLuma, Luma);
+reflect_color!(LinLumaa, Lumaa);
+reflect_color!(Srgb, Srgb);
+reflect_color!(Srgba, Srgba);
+reflect_color!(Hsv, Hsv);
+reflect_color!(Hsva, Hsva);
 
-    fn try_from_value(value: Value) -> Option<Self> {
-        match value {
-            Value::Color(ColorValue::Lumaa(lumaa)) => Some(lumaa),
-            _ => None,
-        }
-    }
-
-    fn try_clone_from_value(value: &Value) -> Option<Self> {
-        match value {
-            Value::Color(ColorValue::Lumaa(lumaa)) => Some(lumaa.clone()),
-            _ => None,
-        }
-    }
-}
-
-impl TypeModel for Srgb {
-    fn model() -> Model {
-        Model::Color(ColorModel::Srgb)
-    }
-
-    fn try_from_value(value: Value) -> Option<Self> {
-        match value {
-            Value::Color(ColorValue::Srgb(srgb)) => Some(srgb),
-            _ => None,
-        }
-    }
-
-    fn try_clone_from_value(value: &Value) -> Option<Self> {
-        match value {
-            Value::Color(ColorValue::Srgb(srgb)) => Some(srgb.clone()),
-            _ => None,
-        }
-    }
-}
-
-impl TypeModel for Srgba {
-    fn model() -> Model {
-        Model::Color(ColorModel::Srgba)
-    }
-
-    fn try_from_value(value: Value) -> Option<Self> {
-        match value {
-            Value::Color(ColorValue::Srgba(srgba)) => Some(srgba),
-            _ => None,
-        }
-    }
-
-    fn try_clone_from_value(value: &Value) -> Option<Self> {
-        match value {
-            Value::Color(ColorValue::Srgba(srgba)) => Some(srgba.clone()),
-            _ => None,
-        }
-    }
-}
-
-impl TypeModel for Hsv {
-    fn model() -> Model {
-        Model::Color(ColorModel::Hsv)
-    }
-
-    fn try_from_value(value: Value) -> Option<Self> {
-        match value {
-            Value::Color(ColorValue::Hsv(hsv)) => Some(hsv),
-            _ => None,
-        }
-    }
-
-    fn try_clone_from_value(value: &Value) -> Option<Self> {
-        match value {
-            Value::Color(ColorValue::Hsv(hsv)) => Some(hsv.clone()),
-            _ => None,
-        }
-    }
-}
-
-impl TypeModel for Hsva {
-    fn model() -> Model {
-        Model::Color(ColorModel::Hsva)
-    }
-
-    fn try_from_value(value: Value) -> Option<Self> {
-        match value {
-            Value::Color(ColorValue::Hsva(hsva)) => Some(hsva),
-            _ => None,
-        }
-    }
-
-    fn try_clone_from_value(value: &Value) -> Option<Self> {
-        match value {
-            Value::Color(ColorValue::Hsva(hsva)) => Some(hsva.clone()),
-            _ => None,
-        }
-    }
-}
-
-impl TypeModel for TimeSpan {
-    fn model() -> Model {
-        Model::TimeSpan
-    }
-
-    fn try_from_value(value: Value) -> Option<Self> {
-        match value {
-            Value::TimeSpan(ts) => Some(ts),
-            _ => None,
-        }
-    }
-
-    fn try_clone_from_value(value: &Value) -> Option<Self> {
-        match value {
-            Value::TimeSpan(ts) => Some(ts.clone()),
-            _ => None,
-        }
-    }
-}
-
-impl TypeModel for Vector2<f64> {
-    fn model() -> Model {
-        Model::Vec2
-    }
-
-    fn try_from_value(value: Value) -> Option<Self> {
-        match value {
-            Value::Vec2(v) => Some(v),
-            _ => None,
-        }
-    }
-
-    fn try_clone_from_value(value: &Value) -> Option<Self> {
-        match value {
-            Value::Vec2(v) => Some(v.clone()),
-            _ => None,
-        }
-    }
-}
-
-impl TypeModel for Vector3<f64> {
-    fn model() -> Model {
-        Model::Vec3
-    }
-
-    fn try_from_value(value: Value) -> Option<Self> {
-        match value {
-            Value::Vec3(v) => Some(v),
-            _ => None,
-        }
-    }
-
-    fn try_clone_from_value(value: &Value) -> Option<Self> {
-        match value {
-            Value::Vec3(v) => Some(v.clone()),
-            _ => None,
-        }
-    }
-}
-
-impl TypeModel for Vector4<f64> {
-    fn model() -> Model {
-        Model::Vec4
-    }
-
-    fn try_from_value(value: Value) -> Option<Self> {
-        match value {
-            Value::Vec4(v) => Some(v),
-            _ => None,
-        }
-    }
-
-    fn try_clone_from_value(value: &Value) -> Option<Self> {
-        match value {
-            Value::Vec4(v) => Some(v.clone()),
-            _ => None,
-        }
-    }
-}
-
-impl TypeModel for Matrix2<f64> {
-    fn model() -> Model {
-        Model::Mat2
-    }
-
-    fn try_from_value(value: Value) -> Option<Self> {
-        match value {
-            Value::Mat2(m) => Some(m),
-            _ => None,
-        }
-    }
-
-    fn try_clone_from_value(value: &Value) -> Option<Self> {
-        match value {
-            Value::Mat2(m) => Some(m.clone()),
-            _ => None,
-        }
-    }
-}
-
-impl TypeModel for Matrix3<f64> {
-    fn model() -> Model {
-        Model::Mat3
-    }
-
-    fn try_from_value(value: Value) -> Option<Self> {
-        match value {
-            Value::Mat3(m) => Some(m),
-            _ => None,
-        }
-    }
-
-    fn try_clone_from_value(value: &Value) -> Option<Self> {
-        match value {
-            Value::Mat3(m) => Some(m.clone()),
-            _ => None,
-        }
-    }
-}
-
-impl TypeModel for Matrix4<f64> {
-    fn model() -> Model {
-        Model::Mat4
-    }
-
-    fn try_from_value(value: Value) -> Option<Self> {
-        match value {
-            Value::Mat4(m) => Some(m),
-            _ => None,
-        }
-    }
-
-    fn try_clone_from_value(value: &Value) -> Option<Self> {
-        match value {
-            Value::Mat4(m) => Some(m.clone()),
-            _ => None,
-        }
-    }
-}
-
-impl<T> TypeModel for Option<T>
+impl<T> Reflect for Option<T>
 where
-    T: TypeModel,
+    T: Reflect,
 {
     fn model() -> Model {
         Model::Option(Some(Box::new(T::model())))
     }
 
-    fn try_from_value(value: Value) -> Option<Self> {
-        match value {
-            Value::Option(Some(v)) => T::try_from_value(*v).map(Some),
-            Value::Option(None) => Some(None),
-            _ => None,
-        }
+    fn to_value(&self) -> Value {
+        Value::Option(self.as_ref().map(|value| Box::new(value.to_value())))
     }
 
-    fn try_clone_from_value(value: &Value) -> Option<Self> {
+    fn from_value(value: Value) -> Result<Self, ValueError> {
         match value {
-            Value::Option(Some(v)) => T::try_clone_from_value(&*v).map(Some),
-            Value::Option(None) => Some(None),
-            _ => None,
+            Value::Option(Some(value)) => T::from_value(*value)
+                .map(Some)
+                .map_err(|error| ValueError::Custom(format!("Option value: {error}"))),
+            Value::Option(None) => Ok(None),
+            value => Err(unexpected_value(&value, "Option")),
         }
     }
 }
 
-impl<T> TypeModel for Vec<T>
+impl<T> Reflect for Vec<T>
 where
-    T: TypeModel,
+    T: Reflect,
 {
     fn model() -> Model {
         Model::Array {
@@ -437,23 +189,22 @@ where
         }
     }
 
-    fn try_from_value(value: Value) -> Option<Self> {
-        match value {
-            Value::Array(arr) => arr
-                .into_iter()
-                .map(T::try_from_value)
-                .collect::<Option<Vec<_>>>(),
-            _ => None,
-        }
+    fn to_value(&self) -> Value {
+        Value::Array(self.iter().map(T::to_value).collect())
     }
 
-    fn try_clone_from_value(value: &Value) -> Option<Self> {
+    fn from_value(value: Value) -> Result<Self, ValueError> {
         match value {
-            Value::Array(arr) => arr
-                .iter()
-                .map(T::try_clone_from_value)
-                .collect::<Option<Vec<_>>>(),
-            _ => None,
+            Value::Array(values) => values
+                .into_iter()
+                .enumerate()
+                .map(|(index, value)| {
+                    T::from_value(value).map_err(|error| {
+                        ValueError::Custom(format!("Array element {index}: {error}"))
+                    })
+                })
+                .collect(),
+            value => Err(unexpected_value(&value, "Array")),
         }
     }
 }

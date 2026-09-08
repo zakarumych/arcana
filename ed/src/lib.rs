@@ -54,6 +54,7 @@ macro_rules! try_log_err {
 mod app;
 mod assets;
 mod blobs;
+mod entity_ids;
 mod error;
 mod filters;
 mod ide;
@@ -62,6 +63,8 @@ mod model;
 mod plugins;
 mod project;
 mod render;
+mod render_view;
+mod scene_editor;
 mod simulation;
 mod subprocess;
 mod systems;

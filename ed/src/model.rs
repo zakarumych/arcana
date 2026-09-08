@@ -1,4 +1,5 @@
 use arcana::{
+    Ident,
     hash::HashMap,
     model::{ColorModel, ColorValue, Model, Value},
     smol_str::SmolStr,
@@ -270,11 +271,18 @@ impl EguiProbe for MaybeModelProbe<'_> {
     }
 }
 
+/// Available references in a single ID domain, supplied by the owning editor.
+pub struct ReferenceChoices {
+    pub domain: Ident,
+    pub values: Vec<(u64, String)>,
+}
+
 pub struct ValueProbe<'a> {
     model: Option<&'a Model>,
     local_id: Id,
     value: &'a mut Value,
     id_source: Id,
+    references: &'a [ReferenceChoices],
 }
 
 impl<'a> ValueProbe<'a> {
@@ -284,7 +292,13 @@ impl<'a> ValueProbe<'a> {
             local_id: Id::NULL,
             value,
             id_source: Id::new(id_source),
+            references: &[],
         }
+    }
+
+    pub fn with_references(mut self, references: &'a [ReferenceChoices]) -> Self {
+        self.references = references;
+        self
     }
 
     pub fn show(mut self, ui: &mut Ui) -> Response {
@@ -300,6 +314,9 @@ impl EguiProbe for ValueProbe<'_> {
                 local_model(ui, self.local_id, style).0
             }
             Some(&Model::Unit) => ui.weak("Unit"),
+            Some(&Model::Reference(domain)) => {
+                reference_probe(ui, self.id_source, domain, self.value, self.references)
+            }
             Some(&Model::Bool) => match self.value {
                 Value::Bool(value) => value.probe(ui, style),
                 _ => {
@@ -863,6 +880,7 @@ impl EguiProbe for ValueProbe<'_> {
                     || Box::new(model.as_ref().map_or(Value::Unit, |m| m.default_value())),
                     |value, ui, style| {
                         ValueProbe::new(model.as_deref(), value, self.local_id.with("some"))
+                            .with_references(self.references)
                             .probe(ui, style)
                     },
                 ),
@@ -1085,7 +1103,8 @@ impl EguiProbe for ValueProbe<'_> {
 
                                     if !matches!(model, Model::Unit) {
                                         let mut probe =
-                                            ValueProbe::new(Some(model), value, self.local_id);
+                                            ValueProbe::new(Some(model), value, self.local_id)
+                                                .with_references(self.references);
                                         changed |= probe.probe(ui, style).changed();
                                     }
                                 }
@@ -1159,7 +1178,8 @@ impl EguiProbe for ValueProbe<'_> {
         match self.model {
             None => {
                 let local_elem = local_model_inner(ui, self.local_id, f);
-                let mut probe = ValueProbe::new(Some(&local_elem), self.value, self.local_id);
+                let mut probe = ValueProbe::new(Some(&local_elem), self.value, self.local_id)
+                    .with_references(self.references);
                 f("value", ui, &mut probe);
             }
             Some(Model::Unit) => {}
@@ -1168,6 +1188,7 @@ impl EguiProbe for ValueProbe<'_> {
             Some(Model::Float { .. }) => {}
             Some(Model::String { .. }) => {}
             Some(Model::Color(_)) => {}
+            Some(Model::Reference(_)) => {}
             Some(Model::Array { elem, len }) => {
                 let local_elem;
                 let elem = match elem {
@@ -1184,7 +1205,8 @@ impl EguiProbe for ValueProbe<'_> {
                             let mut idx = 0;
                             elems.retain_mut(|value| {
                                 let mut probe =
-                                    ValueProbe::new(Some(elem), value, self.local_id.with(idx));
+                                    ValueProbe::new(Some(elem), value, self.local_id.with(idx))
+                                        .with_references(self.references);
                                 let mut item = DeleteMe {
                                     value: &mut probe,
                                     delete: false,
@@ -1196,7 +1218,8 @@ impl EguiProbe for ValueProbe<'_> {
                         } else {
                             for (idx, value) in elems.iter_mut().enumerate() {
                                 let mut probe =
-                                    ValueProbe::new(Some(elem), value, self.local_id.with(idx));
+                                    ValueProbe::new(Some(elem), value, self.local_id.with(idx))
+                                        .with_references(self.references);
                                 f(&format!("[{idx}]"), ui, &mut probe);
                             }
                         }
@@ -1219,7 +1242,8 @@ impl EguiProbe for ValueProbe<'_> {
                         let mut idx = 0;
                         values.retain(|key, value| {
                             let mut probe =
-                                ValueProbe::new(Some(elem), value, self.local_id.with(idx));
+                                ValueProbe::new(Some(elem), value, self.local_id.with(idx))
+                                    .with_references(self.references);
                             let mut item = DeleteMe {
                                 value: &mut probe,
                                 delete: false,
@@ -1245,7 +1269,8 @@ impl EguiProbe for ValueProbe<'_> {
                         Some((_, Some(model))) => model,
                     };
 
-                    let mut probe = ValueProbe::new(Some(model), value, self.local_id);
+                    let mut probe = ValueProbe::new(Some(model), value, self.local_id)
+                        .with_references(self.references);
                     f("value", ui, &mut probe);
                 }
                 _ => {}
@@ -1253,6 +1278,119 @@ impl EguiProbe for ValueProbe<'_> {
             _ => todo!(),
         }
     }
+}
+
+fn parse_reference_id(text: &str) -> Result<u64, &'static str> {
+    let id = text
+        .trim()
+        .parse::<u64>()
+        .map_err(|_| "Enter an unsigned 64-bit decimal ID")?;
+    if id == 0 {
+        return Err("Reference IDs must be nonzero");
+    }
+    Ok(id)
+}
+
+fn reference_probe(
+    ui: &mut Ui,
+    id_source: Id,
+    domain: Ident,
+    value: &mut Value,
+    references: &[ReferenceChoices],
+) -> Response {
+    let current = match *value {
+        Value::Reference(actual, bits) if actual == domain => Some(bits),
+        _ => None,
+    };
+    let mut changed = false;
+    let mut response = ui
+        .vertical(|ui| {
+            match *value {
+                Value::Reference(actual, _) if actual != domain => {
+                    ui.colored_label(
+                        egui::Color32::RED,
+                        format!("Expected {domain} reference; found {actual}"),
+                    );
+                }
+                Value::Reference(_, 0) => {
+                    ui.colored_label(egui::Color32::RED, "Reference ID is zero");
+                }
+                Value::Reference(_, _) => {}
+                _ => {
+                    ui.colored_label(
+                        egui::Color32::RED,
+                        format!("Expected {domain} reference; found {}", value.kind()),
+                    );
+                }
+            }
+
+            if let Some(choices) = references.iter().find(|choices| choices.domain == domain) {
+                let selected = current.and_then(|bits| {
+                    choices
+                        .values
+                        .iter()
+                        .find(|(candidate, _)| *candidate == bits)
+                });
+                let label = selected.map_or_else(
+                    || match current {
+                        Some(bits) => format!("Unresolved {domain}: {bits}"),
+                        None => format!("Select {domain}"),
+                    },
+                    |(_, label)| label.clone(),
+                );
+                egui::ComboBox::from_id_salt(id_source.with("reference-choice"))
+                    .selected_text(label)
+                    .show_ui(ui, |ui| {
+                        for (bits, label) in &choices.values {
+                            if ui.selectable_label(current == Some(*bits), label).clicked() {
+                                let replacement = Value::Reference(domain, *bits);
+                                changed |= *value != replacement;
+                                *value = replacement;
+                            }
+                        }
+                    });
+                if choices.values.is_empty() {
+                    ui.weak(format!("No {domain} references available"));
+                } else if current.is_some() && selected.is_none() {
+                    ui.colored_label(egui::Color32::RED, "The referenced item is unavailable");
+                }
+            } else {
+                let id = ui.make_persistent_id(id_source.with("reference-id"));
+                let mut text = if ui.memory(|memory| memory.has_focus(id)) {
+                    ui.data(|data| data.get_temp::<String>(id))
+                } else {
+                    None
+                }
+                .unwrap_or_else(|| current.map_or_else(String::new, |bits| bits.to_string()));
+                let edit = ui.add(
+                    egui::TextEdit::singleline(&mut text)
+                        .id(id)
+                        .hint_text(format!("{domain} ID"))
+                        .desired_width(190.0),
+                );
+                match parse_reference_id(&text) {
+                    Ok(bits) if edit.changed() => {
+                        let replacement = Value::Reference(domain, bits);
+                        changed |= *value != replacement;
+                        *value = replacement;
+                    }
+                    Err(error) if edit.has_focus() || !text.is_empty() => {
+                        ui.colored_label(egui::Color32::RED, error);
+                    }
+                    _ => {}
+                }
+                if edit.has_focus() {
+                    ui.data_mut(|data| data.insert_temp(id, text));
+                } else {
+                    ui.data_mut(|data| data.remove::<String>(id));
+                }
+            }
+        })
+        .response;
+    if changed {
+        response.mark_changed();
+    }
+    response
 }
 
 fn convert_to_string<T: ToString>(
@@ -1316,4 +1454,19 @@ fn local_model_inner(
         .data_mut(|d| d.insert_temp(local_id, local_model.clone()));
 
     local_model
+}
+
+#[cfg(test)]
+mod reference_tests {
+    use super::parse_reference_id;
+
+    #[test]
+    fn reference_ids_keep_all_64_bits() {
+        assert_eq!(parse_reference_id("18446744073709551615"), Ok(u64::MAX));
+        assert_eq!(parse_reference_id("9007199254740993"), Ok((1 << 53) + 1));
+        assert_eq!(parse_reference_id("1"), Ok(1));
+        for text in ["0", "-1", "18446744073709551616", "1.5", ""] {
+            assert!(parse_reference_id(text).is_err());
+        }
+    }
 }

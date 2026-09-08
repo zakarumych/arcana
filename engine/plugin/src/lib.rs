@@ -7,16 +7,23 @@
 //! At development time, Arcana Ed will collect added plugins into a plugins library that can be loaded at runtime.
 //! For release plugins will be statically linked to the game binary, removing performance overhead.
 
+mod component;
+
+pub use component::{ComponentDesc, ComponentError};
+
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 
 use arcana_assets::import::{Importer, ImporterDesc, ImporterId};
 use arcana_ecs::SystemId;
+use arcana_id::{HasStid, Stid};
 use arcana_input::{FilterId, InputFilter, IntoInputFilter};
 use arcana_intern::Name;
+use arcana_model::{Reflect, Value};
 use arcana_project::Dependency;
 use arcana_work_graph::{Job, JobDesc, JobId};
 use edict::{
+    component::Component,
     system::{IntoSystem, System},
     world::World,
 };
@@ -87,14 +94,16 @@ pub struct ImporterInfo {
     pub location: Option<Location>,
 }
 
-/// Active plugin hub contains
-/// systems, filters and jobs
-/// populated from plugins.
+/// Active systems, filters, jobs, importers and component descriptors from plugins.
+///
+/// Retain each contributing plugin library while the hub or any cloned
+/// component descriptor is in use.
 pub struct PluginsHub {
     pub systems: HashMap<SystemId, Box<dyn System + Send>>,
     pub filters: HashMap<FilterId, Box<dyn InputFilter>>,
     pub jobs: HashMap<JobId, Box<dyn Job>>,
     pub importers: HashMap<ImporterId, Box<dyn Importer>>,
+    pub components: HashMap<Stid, ComponentDesc>,
 }
 
 impl PluginsHub {
@@ -104,7 +113,18 @@ impl PluginsHub {
             filters: HashMap::new(),
             jobs: HashMap::new(),
             importers: HashMap::new(),
+            components: HashMap::new(),
         }
+    }
+
+    /// Adds a component descriptor. Panics if its stable ID is already registered.
+    pub fn add_component(&mut self, component: ComponentDesc) {
+        let id = component.id();
+        assert!(
+            !self.components.contains_key(&id),
+            "Component stable ID {id} is already registered"
+        );
+        self.components.insert(id, component);
     }
 
     /// Adds a system from a plugin to the hub.
@@ -195,6 +215,9 @@ pub struct ArcanaPlugin {
     /// List of asset importers.
     importers: Vec<ImporterInfo>,
 
+    /// Editable component registrations.
+    components: Vec<ComponentDesc>,
+
     fill_hub: Vec<fn(&mut PluginsHub)>,
 }
 
@@ -208,6 +231,7 @@ impl ArcanaPlugin {
             systems: Vec::new(),
             jobs: Vec::new(),
             importers: Vec::new(),
+            components: Vec::new(),
             fill_hub: Vec::new(),
         }
     }
@@ -240,6 +264,27 @@ impl ArcanaPlugin {
         self.fill_hub.push(add);
     }
 
+    /// Registers editable component operations using `T`'s stable ID.
+    /// Panics if that ID is already registered by this plugin.
+    pub fn add_component<T>(
+        &mut self,
+        name: Name,
+        initial_value: fn() -> Value,
+    ) -> &mut ComponentDesc
+    where
+        T: Component + Reflect + HasStid,
+    {
+        let component = ComponentDesc::new::<T>(name, initial_value);
+        let id = component.id();
+        assert!(
+            self.components.iter().all(|component| component.id() != id),
+            "Component stable ID {id} is already registered"
+        );
+        let index = self.components.len();
+        self.components.push(component);
+        &mut self.components[index]
+    }
+
     pub fn location(&self) -> Option<PathBuf> {
         self.location.clone()
     }
@@ -249,6 +294,10 @@ impl ArcanaPlugin {
     }
 
     pub fn init(&self, world: &mut World, hub: &mut PluginsHub) {
+        for component in &self.components {
+            hub.add_component(component.clone());
+        }
+
         for fill in &self.fill_hub {
             fill(hub);
         }
@@ -272,6 +321,10 @@ impl ArcanaPlugin {
 
     pub fn importers(&self) -> &[ImporterInfo] {
         &self.importers
+    }
+
+    pub fn components(&self) -> &[ComponentDesc] {
+        &self.components
     }
 }
 

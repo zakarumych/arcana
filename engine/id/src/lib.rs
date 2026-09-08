@@ -201,6 +201,37 @@ macro_rules! make_id_base {
             }
         }
 
+        impl $crate::for_macro::Reflect for $name {
+            fn model() -> $crate::for_macro::Model {
+                $crate::for_macro::Model::Reference(
+                    $crate::for_macro::Ident::from_ident_static(stringify!($name).trim_start_matches("r#")),
+                )
+            }
+
+            fn to_value(&self) -> $crate::for_macro::Value {
+                $crate::for_macro::Value::Reference(
+                    $crate::for_macro::Ident::from_ident_static(stringify!($name).trim_start_matches("r#")),
+                    self.value.get(),
+                )
+            }
+
+            fn from_value(value: $crate::for_macro::Value) -> Result<Self, $crate::for_macro::ValueError> {
+                match value {
+                    $crate::for_macro::Value::Reference(tag, bits)
+                        if tag == $crate::for_macro::Ident::from_ident_static(stringify!($name).trim_start_matches("r#")) => {
+                        ::core::num::NonZeroU64::new(bits)
+                            .map(Self::new)
+                            .ok_or_else(|| $crate::for_macro::ValueError::Custom(
+                                ::std::format!("{} reference cannot be zero", stringify!($name)),
+                            ))
+                    }
+                    _ => Err($crate::for_macro::ValueError::Custom(
+                        ::std::format!("Expected {} reference", stringify!($name)),
+                    )),
+                }
+            }
+        }
+
         impl ::core::str::FromStr for $name {
             type Err = $crate::ParseIdError;
 
@@ -225,6 +256,8 @@ macro_rules! make_id_base {
 }
 
 #[macro_export]
+/// Defines a nonzero ID whose reflected reference domain is its type name.
+/// Domain names are not globally unique Rust type identities.
 macro_rules! make_id {
     (
         $(#[$meta:meta])+
@@ -258,6 +291,8 @@ pub enum ParseIdError {
 }
 
 #[macro_export]
+/// Defines a serializable nonzero ID whose reflected reference domain is its type name.
+/// Domain names are not globally unique Rust type identities.
 macro_rules! make_uid {
     (
         $(#[$meta:meta])+
@@ -364,6 +399,29 @@ impl BaseId {
     }
 }
 
+impl arcana_model::Reflect for BaseId {
+    fn model() -> arcana_model::Model {
+        arcana_model::Model::Reference(arcana_intern::ident!(BaseId))
+    }
+
+    fn to_value(&self) -> arcana_model::Value {
+        arcana_model::Value::Reference(arcana_intern::ident!(BaseId), self.value.get())
+    }
+
+    fn from_value(value: arcana_model::Value) -> Result<Self, arcana_model::ValueError> {
+        match value {
+            arcana_model::Value::Reference(tag, bits) if tag == arcana_intern::ident!(BaseId) => {
+                NonZeroU64::new(bits).map(Self::new).ok_or_else(|| {
+                    arcana_model::ValueError::Custom("BaseId reference cannot be zero".to_owned())
+                })
+            }
+            _ => Err(arcana_model::ValueError::Custom(
+                "Expected BaseId reference".to_owned(),
+            )),
+        }
+    }
+}
+
 #[inline(always)]
 #[doc(hidden)]
 pub fn fmt_id(value: u64, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -417,5 +475,7 @@ impl<T> GenUid for &mut T where T: GenUid {}
 pub mod for_macro {
     pub use ::serde::{de, ser};
     pub use arcana_hash::{mix_hash_with_string, stable_hasher};
+    pub use arcana_intern::Ident;
+    pub use arcana_model::{Model, Reflect, Value, ValueError};
     pub use arcana_proc::stable_hash_tokens;
 }

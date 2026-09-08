@@ -18,6 +18,30 @@ pub use self::{
     },
 };
 
+/// Hashes a literal's value during macro expansion.
+///
+/// Accepts strings, byte strings, characters, bytes, booleans, and nonnegative
+/// integers. Integers use an explicit fixed-width suffix or default to `i32`.
+/// The macro calls the stable hasher on the build host and emits a constant hash.
+///
+/// ```
+/// use arcana_hash::{Hash64, stable_hash};
+///
+/// const HASH: Hash64 = stable_hash!("my-plugin::Position");
+/// assert_eq!(HASH, stable_hash(&"my-plugin::Position"));
+/// ```
+#[macro_export]
+macro_rules! stable_hash {
+    ($literal:literal $(,)?) => {
+        $crate::Hash64::from_u64([$crate::for_macro::stable_hash_literal!($literal)])
+    };
+}
+
+#[doc(hidden)]
+pub mod for_macro {
+    pub use arcana_proc::stable_hash_literal;
+}
+
 pub type HashMap<K, V> = hashbrown::HashMap<K, V, foldhash::fast::RandomState>;
 pub type HashSet<T> = hashbrown::HashSet<T, foldhash::fast::RandomState>;
 
