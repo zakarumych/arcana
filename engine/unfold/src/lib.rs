@@ -9,6 +9,7 @@
 
 use std::{any::TypeId, ops::DerefMut};
 
+use arcana_hash::NoHashBuilder;
 use edict::{
     action::{ActionBuffer, ActionBufferSliceExt, ActionEncoder},
     component::Component,
@@ -70,14 +71,14 @@ where
 }
 
 struct UnfoldRegistrar {
-    registered: HashSet<TypeId>,
+    registered: HashSet<TypeId, NoHashBuilder>,
     systems: Vec<Box<dyn System + Send>>,
 }
 
 impl UnfoldRegistrar {
     fn new() -> Self {
         UnfoldRegistrar {
-            registered: HashSet::new(),
+            registered: HashSet::default(),
             systems: Vec::new(),
         }
     }

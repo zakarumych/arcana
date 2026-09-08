@@ -1,7 +1,7 @@
 use core::fmt;
 
 use arcana_base_encoding::base58;
-use arcana_intern::Name;
+use arcana_intern::Ident;
 use athena::{Matrix2, Matrix3, Matrix4, Vector2, Vector3, Vector4};
 use foldhash::fast::RandomState;
 use gametime::TimeSpan;
@@ -130,7 +130,7 @@ pub enum Value {
     Option(Option<Box<Value>>),
     Array(Vec<Value>),
     Map(HashMap<SmolStr, Value, RandomState>),
-    Enum(Name, Box<Value>),
+    Enum(Ident, Box<Value>),
 }
 
 impl Default for Value {
@@ -188,7 +188,7 @@ impl Value {
                 len: None,
             },
             Value::Map(_) => Model::Map(None),
-            Value::Enum(_, _) => Model::Enum(Vec::new()),
+            Value::Enum(variant, _) => Model::Enum(vec![(*variant, None)]),
         }
     }
 
@@ -387,7 +387,7 @@ impl<'de> serde::de::IntoDeserializer<'de, ValueError> for Value {
 }
 
 struct EnumAccess {
-    name: Name,
+    name: Ident,
     value: Box<Value>,
 }
 

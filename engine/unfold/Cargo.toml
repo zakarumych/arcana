@@ -8,5 +8,6 @@ version.workspace = true
 description = "Unfolding system for Arcana Engine"
 
 [dependencies]
+arcana-hash = { path = "../hash" }
 edict.workspace = true
 hashbrown.workspace = true

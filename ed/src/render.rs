@@ -193,15 +193,15 @@ struct Preview {
     size: Option<mev::Extent2>,
 }
 
-struct NewRenderWidget {
-    name: String,
-    problem: String,
-}
-
 pub struct RenderWidget {
     preview: Option<Rc<RefCell<Preview>>>,
     render: Option<RenderGraphId>,
     new_render: NewNameWidget,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct RenderWidgetState {
+    render: Option<RenderGraphId>,
 }
 
 impl RenderWidget {
@@ -747,11 +747,17 @@ impl ToolTemplate for RenderTemplate {
         "render"
     }
 
-    fn create(
-        &self,
-        _state: Option<serde_json::Value>,
-    ) -> Result<Box<dyn Tool>, serde_json::Error> {
-        Ok(Box::new(RenderWidget::new()))
+    fn create(&self, state: Option<serde_json::Value>) -> Result<Box<dyn Tool>, serde_json::Error> {
+        let mut widget = RenderWidget::new();
+
+        match state {
+            None => Ok(Box::new(widget)),
+            Some(state) => {
+                let RenderWidgetState { render } = serde_json::from_value(state)?;
+                widget.render = render;
+                Ok(Box::new(widget))
+            }
+        }
     }
 }
 
@@ -770,6 +776,13 @@ impl Tool for RenderWidget {
             context.ide,
             ui,
         );
+    }
+
+    fn save(&self) -> Option<serde_json::Value> {
+        serde_json::to_value(RenderWidgetState {
+            render: self.render,
+        })
+        .ok()
     }
 }
 

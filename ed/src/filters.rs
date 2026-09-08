@@ -272,6 +272,9 @@ impl FiltersWidget {
 
 pub struct FiltersTemplate;
 
+#[derive(serde::Serialize, serde::Deserialize)]
+struct FiltersWidgetState;
+
 impl ToolTemplate for FiltersTemplate {
     fn key(&self) -> &str {
         "filters"
@@ -281,11 +284,16 @@ impl ToolTemplate for FiltersTemplate {
         "Filters"
     }
 
-    fn create(
-        &self,
-        _state: Option<serde_json::Value>,
-    ) -> Result<Box<dyn Tool>, serde_json::Error> {
-        Ok(Box::new(FiltersWidget::new()))
+    fn create(&self, state: Option<serde_json::Value>) -> Result<Box<dyn Tool>, serde_json::Error> {
+        let widget = FiltersWidget::new();
+
+        match state {
+            None => Ok(Box::new(widget)),
+            Some(state) => {
+                let FiltersWidgetState {} = serde_json::from_value(state)?;
+                Ok(Box::new(widget))
+            }
+        }
     }
 }
 

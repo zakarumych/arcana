@@ -6,7 +6,7 @@ use winit::window::WindowId;
 
 use crate::{
     error::ModalErrors,
-    filters::FilterManager,
+    filters::{FilterManager, FiltersTemplate},
     ide::Ide,
     plugins::{PluginManager, PluginsTemplate},
     project::{Project, ProjectData},
@@ -60,6 +60,7 @@ impl Toolbox {
         };
         toolbox.register(Box::new(PluginsTemplate));
         toolbox.register(Box::new(SystemsTemplate));
+        toolbox.register(Box::new(FiltersTemplate));
         toolbox.register(Box::new(RenderTemplate));
         toolbox.register(Box::new(SimulationTemplate));
         toolbox
@@ -150,7 +151,7 @@ pub(crate) struct Tools {
     entries: BTreeMap<ToolId, MaterializedTool>,
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub(crate) struct ToolState {
     pub template: String,
     pub state: Value,

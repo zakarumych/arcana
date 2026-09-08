@@ -440,6 +440,7 @@ impl App {
                 }
             })
             .collect();
+
         if let Some(suspended) = &self.suspended_views {
             views.extend(suspended.iter().map(|view| {
                 AppViewState {
@@ -540,6 +541,8 @@ impl App {
         let state = match self.suspended_views.take() {
             Some(views) => Ok(views),
             None => load_app_state(&self.project.name()).map(|state| {
+                dbg!(&state);
+
                 let restored = self.tools.restore(&self.toolbox, state.tools);
                 state
                     .views
@@ -626,7 +629,7 @@ impl App {
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 struct AppViewState<T = usize> {
     pos: dpi::LogicalPosition<f64>,
     size: dpi::LogicalSize<f64>,
@@ -634,7 +637,7 @@ struct AppViewState<T = usize> {
     dock_state: DockState<T>,
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 struct AppState {
     views: Vec<AppViewState>,
     tools: Vec<ToolState>,
@@ -713,56 +716,7 @@ fn load_app_state(name: &str) -> Result<AppState, Error> {
 
     let mut file = std::fs::File::open(path).unify_error()?;
 
-    let state = serde_json::from_reader(&mut file).unify_error()?;
-    decode_app_state(state).unify_error()
-}
-
-fn decode_app_state(value: serde_json::Value) -> Result<AppState, serde_json::Error> {
-    if value.get("tools").is_some() {
-        return serde_json::from_value(value);
-    }
-    #[derive(serde::Deserialize)]
-    struct LegacyView {
-        pos: dpi::LogicalPosition<f64>,
-        size: dpi::LogicalSize<f64>,
-        maximized: bool,
-        tab_tree: Tree<serde_json::Value>,
-    }
-    #[derive(serde::Deserialize)]
-    struct LegacyState {
-        views: Vec<LegacyView>,
-    }
-    let legacy: LegacyState = serde_json::from_value(value)?;
-    let mut tools = Vec::new();
-    let views = legacy
-        .views
-        .into_iter()
-        .map(|view| {
-            let tree = view.tab_tree.filter_map_tabs(|tab| {
-                let (key, state) = tab.as_object()?.iter().next()?;
-                let template = match key.as_str() {
-                    "Plugins" => "plugins",
-                    "Systems" => "systems",
-                    _ => return None,
-                };
-                let index = tools.len();
-                tools.push(ToolState {
-                    template: template.to_owned(),
-                    state: state.clone(),
-                });
-                Some(index)
-            });
-            let mut dock_state = DockState::new(Vec::new());
-            *dock_state.main_surface_mut() = tree;
-            AppViewState {
-                pos: view.pos,
-                size: view.size,
-                maximized: view.maximized,
-                dock_state,
-            }
-        })
-        .collect();
-    Ok(AppState { views, tools })
+    serde_json::from_reader(&mut file).unify_error()
 }
 
 fn save_app_state(state: &AppState, name: &str) -> Result<(), Error> {
@@ -939,39 +893,5 @@ impl Preferences {
         }
 
         result
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn legacy_layout_migrates_widget_snapshots() {
-        let mut tree = Tree::new(vec![
-            serde_json::json!({"Plugins": {}}),
-            serde_json::json!({"Systems": {}}),
-        ]);
-        for node in tree.iter_mut() {
-            node.set_rect(egui::Rect::ZERO);
-            if let Some(leaf) = node.get_leaf_mut() {
-                leaf.viewport = egui::Rect::ZERO;
-            }
-        }
-        let value = serde_json::json!({"views": [{"pos": {"x": 10.0, "y": 20.0}, "size": {"width": 800.0, "height": 600.0}, "maximized": false, "tab_tree": tree}]});
-        let state = decode_app_state(value).unwrap();
-        assert_eq!(state.tools.len(), 2);
-        assert_eq!(state.tools[0].template, "plugins");
-        assert_eq!(state.tools[1].template, "systems");
-        assert_eq!(
-            state.views[0]
-                .dock_state
-                .iter_all_tabs()
-                .map(|(_, tab)| *tab)
-                .collect::<Vec<_>>(),
-            vec![0, 1]
-        );
-        let roundtrip = decode_app_state(serde_json::to_value(state).unwrap()).unwrap();
-        assert_eq!(roundtrip.views[0].dock_state.iter_all_tabs().count(), 2);
     }
 }

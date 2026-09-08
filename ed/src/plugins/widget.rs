@@ -15,12 +15,13 @@ use crate::{
 use super::PluginManager;
 
 /// Widget to control [`PluginsManager`]
-#[derive(serde::Serialize, serde::Deserialize)]
 pub struct PluginsWidget {
     /// Open dialog widget.
-    #[serde(skip)]
     dialog: Option<PluginsDialog>,
 }
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct PluginsWidgetState;
 
 enum PluginsDialog {
     NewPlugin(NewPlugin),
@@ -358,10 +359,13 @@ impl ToolTemplate for PluginsTemplate {
     }
 
     fn create(&self, state: Option<serde_json::Value>) -> Result<Box<dyn Tool>, serde_json::Error> {
-        Ok(Box::new(match state {
-            Some(state) => serde_json::from_value(state)?,
-            None => PluginsWidget::new(),
-        }))
+        match state {
+            None => Ok(Box::new(PluginsWidget::new())),
+            Some(state) => {
+                let PluginsWidgetState = serde_json::from_value(state)?;
+                Ok(Box::new(PluginsWidget::new()))
+            }
+        }
     }
 }
 
@@ -375,7 +379,7 @@ impl Tool for PluginsWidget {
     }
 
     fn save(&self) -> Option<serde_json::Value> {
-        serde_json::to_value(self).ok()
+        serde_json::to_value(PluginsWidgetState).ok()
     }
 }
 

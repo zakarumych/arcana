@@ -3,7 +3,7 @@
 //! It can be used to go from type-less to typed seamlessly with `serde`.
 //!
 
-use arcana_intern::Name;
+use arcana_intern::Ident;
 use athena::{Matrix2, Matrix3, Matrix4, Vector2, Vector3, Vector4};
 
 use gametime::TimeSpan;
@@ -87,17 +87,20 @@ pub enum Model {
         len: Option<usize>,
     },
 
-    /// Map of values with same model with string keys.
-    Map(Option<Box<Model>>),
-
     /// Tuple with unnamed fields.
     Tuple(Vec<Option<Model>>),
 
+    /// Map of values with same model with string keys.
+    Map(Option<Box<Model>>),
+
     /// Record with named fields.
-    Record(Vec<(Name, Option<Model>)>),
+    Record(Vec<(Ident, Option<Model>)>),
 
     /// Enum with named variants.
-    Enum(Vec<(Name, Option<Model>)>),
+    Enum(Vec<(Ident, Option<Model>)>),
+
+    /// Reference to a value of specific type.
+    Reference(Ident),
 }
 
 impl Model {
@@ -154,6 +157,7 @@ impl Model {
                 let v = &variants[0];
                 Value::Enum(v.0, Box::new(default_value(v.1.as_ref())))
             }
+            Model::Reference(_) => Value::Int(0),
         }
     }
 }

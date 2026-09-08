@@ -86,8 +86,6 @@ fn _run(project_path: &Path) -> Result<(), Error> {
 
     let project = Project::load(project_path)?;
 
-    // basis_universal::transcoder_init();
-
     let mut builder = EventLoop::<app::UserEvent>::with_user_event();
 
     #[cfg(windows)]

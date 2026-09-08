@@ -182,7 +182,6 @@ impl SystemManager {
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
 pub struct SystemsWidget {}
 
 impl SystemsWidget {
@@ -496,6 +495,9 @@ impl SnarlViewer<SystemNode> for SystemViewer<'_> {
     }
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+struct SystemsWidgetState;
+
 pub struct SystemsTemplate;
 
 impl ToolTemplate for SystemsTemplate {
@@ -507,11 +509,16 @@ impl ToolTemplate for SystemsTemplate {
         "Systems"
     }
 
-    fn create(
-        &self,
-        _state: Option<serde_json::Value>,
-    ) -> Result<Box<dyn Tool>, serde_json::Error> {
-        Ok(Box::new(SystemsWidget::new()))
+    fn create(&self, state: Option<serde_json::Value>) -> Result<Box<dyn Tool>, serde_json::Error> {
+        let widget = SystemsWidget::new();
+
+        match state {
+            None => Ok(Box::new(widget)),
+            Some(state) => {
+                let SystemsWidgetState {} = serde_json::from_value(state)?;
+                Ok(Box::new(widget))
+            }
+        }
     }
 }
 
@@ -525,6 +532,6 @@ impl Tool for SystemsWidget {
     }
 
     fn save(&self) -> Option<serde_json::Value> {
-        None
+        serde_json::to_value(SystemsWidgetState).ok()
     }
 }
