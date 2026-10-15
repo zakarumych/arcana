@@ -76,12 +76,10 @@ impl PluginsWidget {
 
             // Top menu
             ui.horizontal(|ui| {
-                let r = match !manager.is_building() {
-                    false => {
-                        ui.add_enabled(false, egui::Button::new(egui_phosphor::regular::HAMMER))
-                    }
-                    true => ui.button(egui_phosphor::regular::HAMMER),
-                };
+                let r = ui.add_enabled(
+                    !manager.is_building(),
+                    egui::Button::new(egui_phosphor::regular::HAMMER),
+                );
                 if r.clicked() {
                     manager.start_new_build(project);
                 }
@@ -350,6 +348,14 @@ impl PluginsWidget {
 pub struct PluginsTemplate;
 
 impl ToolTemplate for PluginsTemplate {
+    fn glyph(&self) -> &str {
+        egui_phosphor::regular::PLUG
+    }
+
+    fn description(&self) -> &str {
+        "Manage project plugins and build or reload plugin libraries."
+    }
+
     fn key(&self) -> &str {
         "plugins"
     }

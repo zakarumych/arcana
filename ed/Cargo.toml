@@ -44,6 +44,8 @@ egui-phosphor.workspace = true
 egui-probe = { workspace = true, features = ["derive"] }
 egui-snarl = { workspace = true, features = ["serde"] }
 egui_tracing.workspace = true
+egui_ltreeview.workspace = true
+transform-gizmo-egui.workspace = true
 
 # System
 arboard.workspace = true
@@ -79,3 +81,7 @@ smallvec.workspace = true
 sha2.workspace = true
 tiny-fn.workspace = true
 url = { workspace = true, features = ["serde"] }
+
+[dev-dependencies]
+image = { workspace = true, features = ["png"] }
+tilemap = { path = "../plugins/tilemap" }

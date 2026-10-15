@@ -1,5 +1,7 @@
 use proc_macro2::TokenStream;
 
+use crate::plugin_registry_name;
+
 pub fn job(attr: proc_macro::TokenStream, item: syn::ItemImpl) -> syn::Result<TokenStream> {
     let mut tokens = TokenStream::new();
 
@@ -41,24 +43,26 @@ pub fn job(attr: proc_macro::TokenStream, item: syn::ItemImpl) -> syn::Result<To
         ));
     }
 
+    let registry_name = plugin_registry_name();
+
     tokens.extend(quote::quote! {
-        ::arcana::plugin::plugin_ctor_add!(plugin => {
+        ::arcana::plugin::plugin_ctor_add!(#registry_name @ plugin => {
             fn job_is_job<T: #job_trait_path>() {
                 ::arcana::for_macro::is_job::<T>();
             }
             job_is_job::<#type_path>();
 
-            let id: ::arcana::work::JobId = ::arcana::id::local_name_hash_id!(#ident);
+            let id: ::arcana::work_graph::JobId = ::arcana::id::local_name_hash_id!(#ident);
 
             let add = |hub: &mut ::arcana::plugin::PluginsHub| {
-                let id: ::arcana::work::JobId = ::arcana::id::local_name_hash_id!(#ident);
-                hub.add_job(id, < #type_path as ::arcana::work::Job >::new());
+                let id: ::arcana::work_graph::JobId = ::arcana::id::local_name_hash_id!(#ident);
+                hub.add_job(id, < #type_path as ::arcana::work_graph::Job >::new());
             };
 
             let info = ::arcana::plugin::JobInfo {
                 id,
-                name: < #type_path as ::arcana::work::Job >::name(),
-                desc: < #type_path as ::arcana::work::Job >::desc(),
+                name: < #type_path as ::arcana::work_graph::Job >::name(),
+                desc: < #type_path as ::arcana::work_graph::Job >::desc(),
                 location: ::std::option::Option::Some(::arcana::plugin::Location {
                     file: std::string::String::from(::std::file!()),
                     line: ::std::line!(),

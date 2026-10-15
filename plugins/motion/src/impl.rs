@@ -2,7 +2,7 @@ use std::f32::EPSILON;
 
 use arcana::{
     edict::{ActionEncoder, Component, Entities, EntityId, Res, View, Without},
-    gametime::ClockStep,
+    gametime::Tick,
 };
 
 pub struct Motor {
@@ -272,7 +272,7 @@ impl Component for Motion {
 fn infer_motion(
     with_state: View<(Entities, &Global, &Motion, &Motor, Option<&mut MotorState>)>,
     globals: View<&Global>,
-    clocks: Res<ClockStep>,
+    clocks: Res<Tick>,
     mut encoder: ActionEncoder,
 ) {
     let delta_time = clocks.step.as_secs_f32();
@@ -342,7 +342,7 @@ fn cancel_move(
 /// Applies motion to entities.
 fn do_motion(
     entities: View<(&mut MotorState, &mut Global, Option<&mut RigidBody>)>,
-    clocks: Res<ClockStep>,
+    clocks: Res<Tick>,
 ) {
     let delta_time = clocks.step.as_secs_f32();
 

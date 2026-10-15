@@ -13,7 +13,7 @@ use edict::world::World;
 use hashbrown::hash_map::Entry;
 use slab::Slab;
 
-use crate::{Job, JobsSet, job::invalid_output_pin};
+use crate::{Job, JobsSet, job::invalid_output_pin, target::PlanError};
 
 use super::{
     job::{JobDesc, JobId},
@@ -45,6 +45,7 @@ pub struct WorkGraph {
     // Cleared after each run.
     selected_jobs: HashSet<JobIdx>,
     cbufs: Arena<mev::CommandEncoder>,
+    errors: Vec<(TargetId, PlanError)>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -197,7 +198,7 @@ impl WorkGraph {
             }
 
             for (idx, r) in job.reads.iter_mut().enumerate() {
-                let idx = idx + job.updates.len() + job.creates.len();
+                let idx = idx + job.updates.len();
                 r.id = input_targets
                     .get(&PinId {
                         job: job_idx,
@@ -214,7 +215,7 @@ impl WorkGraph {
                     let update = &mut job.updates[to_pin];
                     update.dep_idx = Some(edge.from.job);
                 } else {
-                    let read = &mut job.reads[to_pin - job.updates.len() - job.creates.len()];
+                    let read = &mut job.reads[to_pin - job.updates.len()];
                     read.dep_idx = Some(edge.from.job);
                 }
             }
@@ -232,10 +233,11 @@ impl WorkGraph {
             sinks: HashMap::default(),
             selected_jobs: HashSet::default(),
             cbufs: Arena::new(),
+            errors: Vec::new(),
         })
     }
 
-    pub fn set_sink<T>(&mut self, pin: PinId, target: T, info: T::Info)
+    pub fn set_sink<T>(&mut self, pin: PinId, target: T, req: T::Req)
     where
         T: Target,
     {
@@ -256,7 +258,7 @@ impl WorkGraph {
                     _ => invalid_output_pin(pin.pin),
                 }
 
-                self.hub.external(target_id, target, info);
+                self.hub.external(target_id, target, req);
             }
             Entry::Vacant(entry) => {
                 let mut target_id = TargetId::generate(&mut self.idgen);
@@ -280,7 +282,7 @@ impl WorkGraph {
                 }
 
                 entry.insert(target_id);
-                self.hub.external(target_id, target, info);
+                self.hub.external(target_id, target, req);
             }
         }
     }
@@ -357,6 +359,7 @@ impl WorkGraph {
         set: &mut JobsSet,
     ) -> Result<(), mev::DeviceError> {
         self.selected_jobs.clear();
+        self.errors.clear();
 
         for (&PinId { job, .. }, _) in &self.sinks {
             self.selected_jobs.insert(job);
@@ -381,6 +384,7 @@ impl WorkGraph {
                 queue.device().clone(),
                 world,
                 job,
+                &mut self.errors,
             );
         }
 
@@ -423,12 +427,14 @@ pub struct Planner<'a> {
     idx: JobIdx,
 
     params: &'a HashMap<Name, Value>,
+
+    errors: &'a mut Vec<(TargetId, PlanError)>,
 }
 
 impl Planner<'_> {
     /// Provide resource description for next input.
     /// Allows merging resource description other readers.
-    pub fn create<T>(&mut self) -> Option<&T::Info>
+    pub fn create<T>(&mut self) -> Option<&T::Req>
     where
         T: Target,
     {
@@ -443,12 +449,54 @@ impl Planner<'_> {
             "Plan must specify correct target type"
         );
 
-        self.hub
-            .plan_create::<T>(create.id?, &create.name, &self.device)
+        let id = create.id?;
+
+        let result = self
+            .hub
+            .plan_create::<T>(id, &create.name, &self.device, None);
+
+        match result {
+            Ok(req) => req,
+            Err(error) => {
+                self.errors.push((id, error));
+                None
+            }
+        }
+    }
+
+    /// Creates the next demanded output using a producer-adjusted description.
+    /// The closure must preserve reader usage requirements. External targets must
+    /// already match the adjusted description. Undemanded outputs stay unallocated.
+    pub fn create_with_req<T: Target>(&mut self, own_req: T::Req) -> Option<&T::Req> {
+        let create = self
+            .creates
+            .next()
+            .expect("Plan should create declared targets");
+        assert_eq!(
+            create.ty,
+            Stid::of::<T>(),
+            "Plan must specify correct target type"
+        );
+
+        let Some(id) = create.id else {
+            return None;
+        };
+
+        let result = self
+            .hub
+            .plan_create::<T>(id, &create.name, &self.device, Some(own_req));
+
+        match result {
+            Ok(req) => req,
+            Err(error) => {
+                self.errors.push((id, error));
+                None
+            }
+        }
     }
 
     /// Fetches resource description for next update.
-    pub fn update<T>(&mut self) -> Option<&T::Info>
+    pub fn update<T>(&mut self) -> Option<&T::Req>
     where
         T: Target,
     {
@@ -463,18 +511,61 @@ impl Planner<'_> {
             "Plan must specify correct target type"
         );
 
-        let info = self.hub.plan_update::<T>(update.id?)?;
+        let result = self.hub.plan_update::<T>(update.id?, None);
 
-        if let Some(dep_idx) = update.dep_idx {
-            self.selected_jobs.insert(dep_idx);
+        match result {
+            Ok(None) => None,
+            Ok(Some(req)) => {
+                if let Some(dep_idx) = update.dep_idx {
+                    self.selected_jobs.insert(dep_idx);
+                }
+
+                Some(req)
+            }
+            Err(error) => {
+                self.errors.push((update.id?, error));
+                None
+            }
         }
+    }
 
-        Some(info)
+    /// Fetches resource description for next update.
+    pub fn update_with_req<T>(&mut self, req: T::Req) -> Option<&T::Req>
+    where
+        T: Target,
+    {
+        let update = self
+            .updates
+            .next()
+            .expect("Plan should update declared targets");
+
+        assert_eq!(
+            update.ty,
+            Stid::of::<T>(),
+            "Plan must specify correct target type"
+        );
+
+        let result = self.hub.plan_update::<T>(update.id?, Some(req));
+
+        match result {
+            Ok(None) => None,
+            Ok(Some(req)) => {
+                if let Some(dep_idx) = update.dep_idx {
+                    self.selected_jobs.insert(dep_idx);
+                }
+
+                Some(req)
+            }
+            Err(error) => {
+                self.errors.push((update.id?, error));
+                None
+            }
+        }
     }
 
     /// Provide resource description for next input.
     /// Allows merging resource description other readers.
-    pub fn read<T>(&mut self, info: T::Info)
+    pub fn read<T>(&mut self, info: T::Req)
     where
         T: Target,
     {
@@ -493,10 +584,15 @@ impl Planner<'_> {
             return;
         };
 
-        self.hub.plan_read::<T>(id, info);
-
-        if let Some(dep_idx) = read.dep_idx {
-            self.selected_jobs.insert(dep_idx);
+        match self.hub.plan_read::<T>(id, info) {
+            Ok(()) => {
+                if let Some(dep_idx) = read.dep_idx {
+                    self.selected_jobs.insert(dep_idx);
+                }
+            }
+            Err(error) => {
+                self.errors.push((id, error));
+            }
         }
     }
 
@@ -741,6 +837,7 @@ impl JobNode {
         device: mev::Device,
         world: &mut World,
         job: &mut dyn Job,
+        errors: &mut Vec<(TargetId, PlanError)>,
     ) {
         let planner = Planner {
             updates: self.updates.iter(),
@@ -751,6 +848,7 @@ impl JobNode {
             device,
             idx: self.idx,
             params: &self.params,
+            errors,
         };
 
         job.plan(planner, world);

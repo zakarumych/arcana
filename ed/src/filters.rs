@@ -276,6 +276,14 @@ pub struct FiltersTemplate;
 struct FiltersWidgetState;
 
 impl ToolTemplate for FiltersTemplate {
+    fn glyph(&self) -> &str {
+        egui_phosphor::regular::FUNNEL
+    }
+
+    fn description(&self) -> &str {
+        "Configure input filters and their processing order."
+    }
+
     fn key(&self) -> &str {
         "filters"
     }

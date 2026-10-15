@@ -50,7 +50,7 @@ pub fn files_eq(path1: &Path, path2: &Path) -> io::Result<bool> {
                 }
                 return Ok(false);
             }
-            len1 += n;
+            len2 += n;
         }
 
         let len = usize::min(len1, len2);

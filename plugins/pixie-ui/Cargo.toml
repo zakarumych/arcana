@@ -1,0 +1,11 @@
+[package]
+name = "arcana-pixie-ui"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+arcana = { path = "../../engine/arcana" }
+pixie-ui = { path = "../../../pixie-ui" }
+pixie-ui-mev = { path = "../../../pixie-ui/mev" }

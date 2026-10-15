@@ -1,9 +1,12 @@
-use std::{error::Error, fmt};
+use core::fmt;
+use std::error::Error;
 
 use arcana_id::{HasStid, Stid};
 use arcana_intern::Name;
 use arcana_model::{Model, Reflect, Value, ValueError};
-use edict::{EntityError, component::Component, entity::EntityId, world::World};
+use edict::{EntityError, entity::EntityId, world::World};
+
+pub use edict::component::Component;
 
 use crate::Location;
 
@@ -50,19 +53,20 @@ impl From<EntityError> for ComponentError {
 /// library must remain loaded until all descriptors and components created
 /// through them have been dropped.
 #[derive(Clone)]
-pub struct ComponentDesc {
+pub struct ComponentInfo {
     id: Stid,
     pub name: Name,
     pub model: Model,
     pub location: Option<Location>,
     initial_value: Option<fn() -> Value>,
+    on_add: Option<fn(&mut World, EntityId)>,
     read: fn(&mut World, EntityId) -> Result<Value, ComponentError>,
     apply: fn(&mut World, EntityId, Value) -> Result<(), ComponentError>,
     insert: fn(&mut World, EntityId, Value) -> Result<(), ComponentError>,
     remove: fn(&mut World, EntityId) -> Result<(), ComponentError>,
 }
 
-impl ComponentDesc {
+impl ComponentInfo {
     /// Describes `T` using its stable ID and reflected representation.
     /// `initial_value` must produce a value accepted by `T::from_value`.
     pub fn new<T>(name: Name, initial_value: fn() -> Value) -> Self
@@ -83,9 +87,10 @@ impl ComponentDesc {
         Self {
             id: T::stid(),
             name,
-            model: T::model(),
+            model: T::model().clone(),
             location: None,
             initial_value: None,
+            on_add: None,
             read: |world, entity| Ok(world.get::<&T>(entity)?.to_value()),
             apply: |world, entity, value| {
                 world.get::<&mut T>(entity)?.apply(value)?;
@@ -105,6 +110,22 @@ impl ComponentDesc {
 
     pub fn id(&self) -> Stid {
         self.id
+    }
+
+    /// Sets an initializer for interactive addition to a live authored entity.
+    /// It may insert missing companion components and record their authored membership.
+    /// It must not despawn the entity or replace existing components.
+    pub fn with_add_callback(&mut self, callback: fn(&mut World, EntityId)) -> &mut Self {
+        self.on_add = Some(callback);
+        self
+    }
+
+    /// Initializes companions after a new component and its authored membership are committed.
+    /// Call only for interactive addition, never snapshot insertion or replacement.
+    pub fn initialize_added(&self, world: &mut World, entity: EntityId) {
+        if let Some(callback) = self.on_add {
+            callback(world, entity);
+        }
     }
 
     /// Creates editable data for adding a component, if a factory is available.

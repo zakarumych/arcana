@@ -9,6 +9,9 @@ version.workspace = true
 [dependencies]
 arcana-id = { path = "../id" }
 arcana-assets = { path = "../assets" }
+arcana-intern = { path = "../intern" }
+arcana-model = { path = "../model" }
+image = { workspace = true, features = ["png", "jpeg", "tga", "tiff", "bmp", "gif", "qoi", "webp"] }
 
 edict.workspace = true
 mev.workspace = true
@@ -16,3 +19,9 @@ smallvec.workspace = true
 thiserror.workspace = true
 futures.workspace = true
 jkl.workspace = true
+jkl-mev.workspace = true
+serde = { workspace = true, features = ["derive"] }
+
+[dev-dependencies]
+arcana-gpu = { path = "../gpu" }
+tokio.workspace = true

@@ -829,7 +829,7 @@ fn pipes_to_log(stdout: Option<ChildStdout>, stderr: Option<ChildStderr>, name: 
     if let Some(mut stdout) = stdout {
         let mut output = String::new();
         match stdout.read_to_string(&mut output) {
-            Ok(output) => {
+            Ok(_) => {
                 tracing::info!("[{name} stdout] {}", output);
             }
             Err(error) => {
@@ -841,7 +841,7 @@ fn pipes_to_log(stdout: Option<ChildStdout>, stderr: Option<ChildStderr>, name: 
     if let Some(mut stderr) = stderr {
         let mut output = String::new();
         match stderr.read_to_string(&mut output) {
-            Ok(output) => {
+            Ok(_) => {
                 tracing::info!("[{name} stderr] {}", output);
             }
             Err(error) => {

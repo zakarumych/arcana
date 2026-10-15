@@ -1,0 +1,10 @@
+[package]
+name = "arcana-crt"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+version.workspace = true
+publish = false
+
+[dependencies]
+arcana = { path = "../../engine/arcana" }

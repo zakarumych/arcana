@@ -14,7 +14,7 @@ use hashbrown::HashMap;
 pub use self::{
     graph::{CommandStream, Cycle, Edge, Exec, HookId, JobIdx, PinId, Planner, WorkGraph},
     job::{Job, JobDesc, JobId, TargetCreateDesc, TargetReadDesc, TargetUpdateDesc},
-    target::{Target, TargetHub, TargetId},
+    target::{MergeError, Req, Target, TargetId},
 };
 
 /// Generic 2d image target.
@@ -34,31 +34,34 @@ impl Deref for Image2D {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Image2DInfo {
-    pub extent: mev::Extent2,
-    pub format: mev::PixelFormat,
+pub struct Image2DReq {
+    pub extent: Req<mev::Extent2>,
+    pub format: Req<mev::PixelFormat>,
     pub usage: mev::ImageUsage,
 }
 
-impl Image2DInfo {
+impl Image2DReq {
     #[inline(always)]
     pub fn from_image(image: &mev::Image2D) -> Self {
-        Image2DInfo {
-            extent: image.extent(),
-            format: image.format(),
+        Image2DReq {
+            extent: Req::Strict(image.extent()),
+            format: Req::Strict(image.format()),
             usage: image.usage(),
         }
     }
 }
 
 impl target::Target for Image2D {
-    type Info = Image2DInfo;
+    type Req = Image2DReq;
 
-    fn allocate(device: &mev::Device, name: &str, info: &Image2DInfo) -> Self {
+    fn allocate(device: &mev::Device, name: &str, req: &Image2DReq) -> Self {
+        let dims = req.extent.get();
+        let format = req.format.get();
+
         let image = device.new_image(mev::ImageDesc {
-            dims: info.extent,
-            format: info.format,
-            usage: info.usage,
+            dims,
+            format,
+            usage: req.usage,
             levels: 1,
             name,
         });
@@ -66,79 +69,14 @@ impl target::Target for Image2D {
         Image2D(image)
     }
 
-    fn merge_info(info: &mut Image2DInfo, other: &Image2DInfo) -> bool
+    fn merge_req(info: &mut Image2DReq, other: &Image2DReq) -> Result<(), MergeError>
     where
         Self: Sized,
     {
-        if info.format != other.format {
-            return false;
-        }
-
-        if info.extent != other.extent {
-            return false;
-        }
-
+        info.extent.merge(&other.extent)?;
+        info.format.merge(&other.format)?;
         info.usage |= other.usage;
-        true
-    }
-}
-
-/// Generic 2d image target.
-/// It does not hold particular meaning behind pixel values.
-/// Consumers are going to sample it,
-/// so its actual extent and format is flexible,
-/// but consumers may still provide desired extent and usage.
-///
-/// Largest required extent is used and usage is merged.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct SampledImage2D(pub mev::Image2D);
-
-has_stid!(SampledImage2D @ arcana_id);
-
-impl Deref for SampledImage2D {
-    type Target = mev::Image2D;
-
-    #[inline]
-    fn deref(&self) -> &mev::Image2D {
-        &self.0
-    }
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct SampledImage2DInfo {
-    pub extent: mev::Extent2,
-    pub format: mev::PixelFormat,
-    pub usage: mev::ImageUsage,
-}
-
-impl target::Target for SampledImage2D {
-    type Info = SampledImage2DInfo;
-
-    fn allocate(device: &mev::Device, name: &str, info: &SampledImage2DInfo) -> Self {
-        let image = device.new_image(mev::ImageDesc {
-            dims: info.extent,
-            format: info.format,
-            usage: info.usage,
-            levels: 1,
-            name,
-        });
-
-        SampledImage2D(image)
-    }
-
-    fn merge_info(info: &mut SampledImage2DInfo, other: &SampledImage2DInfo) -> bool {
-        if info.format != other.format {
-            return false;
-        }
-
-        info.extent = mev::Extent2::new(
-            info.extent.width().max(other.extent.width()),
-            info.extent.height().max(other.extent.height()),
-        );
-
-        info.usage |= other.usage;
-
-        true
+        Ok(())
     }
 }
 

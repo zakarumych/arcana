@@ -2,15 +2,17 @@ use std::path::PathBuf;
 
 use arboard::Clipboard;
 use arcana::{
+    Gpu,
+    assets::AssetBuildContext,
     error::{Error, UnifyError, error},
-    gametime::{Clock, ClockStep, FrequencyNumExt, FrequencyTicker},
+    gametime::{Clock, FrequencyNumExt, Limiter, Tick},
     input::ViewInput,
     mev,
 };
 use egui::{Panel, WidgetText};
-use egui_dock::{DockArea, DockState, Tree};
+use egui_dock::{DockArea, DockState};
 use egui_probe::Probe;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::{Layer, layer::SubscriberExt, util::SubscriberInitExt};
 use winit::{
     dpi,
     event::WindowEvent,
@@ -28,7 +30,7 @@ use crate::{
     plugins::PluginManager,
     project::{Project, ProjectData},
     render::RenderManager,
-    scene_editor::SceneEditor,
+    simulation::Simulation,
     subprocess::{filter_subprocesses, kill_subprocesses},
     systems::SystemManager,
     toaster::Toaster,
@@ -36,9 +38,24 @@ use crate::{
     ui::{Ui, UiViewport},
 };
 
-#[derive(Clone, Default, egui_probe::EguiProbe, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, egui_probe::EguiProbe, serde::Serialize, serde::Deserialize)]
 pub struct AppConfig {
     ide: Option<IdeType>,
+    #[serde(default = "default_log_files_to_keep")]
+    log_files_to_keep: usize,
+}
+
+fn default_log_files_to_keep() -> usize {
+    10
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            ide: None,
+            log_files_to_keep: default_log_files_to_keep(),
+        }
+    }
 }
 
 pub enum UserEvent {}
@@ -48,11 +65,11 @@ pub enum UserEvent {}
 pub struct App {
     should_quit: bool,
 
-    /// Graphics queue.
+    /// Shared graphics state.
     /// It should be placed higher in field order
     /// to ensure that all processing is stopped and resources are released
     /// before views are dropped where surfaces require acquired images to be freed.
-    queue: mev::Queue,
+    gpu: Gpu,
 
     // Project main state.
     project: Project,
@@ -61,13 +78,12 @@ pub struct App {
     ui: Ui,
 
     assets: AssetStore,
-    scene_editor: SceneEditor,
+    asset_build: AssetBuildContext,
 
-    cvt: mev::kernels::Cvt,
     clipboard: Clipboard,
 
     clock: Clock,
-    limiter: FrequencyTicker,
+    limiter: Limiter,
 
     cfg: AppConfig,
 
@@ -78,10 +94,14 @@ pub struct App {
     systems: SystemManager,
     filters: FilterManager,
     renders: RenderManager,
+    simulation: Simulation,
+
+    ids: EntityIds,
 
     /// App views correspond to windows.
     views: Vec<AppView>,
     toolbox: Toolbox,
+    tool_launcher: Vec<String>,
     tools: Tools,
     tool_commands: Vec<ToolCommand>,
     suspended_views: Option<Vec<AppViewState<View>>>,
@@ -89,6 +109,7 @@ pub struct App {
     preferences: Preferences,
     errors: ModalErrors,
     toaster: Toaster,
+    log_writer: Option<crate::logging::LogWriter>,
 }
 
 struct AppView {
@@ -106,27 +127,81 @@ impl Drop for AppView {
     }
 }
 
+impl Drop for App {
+    fn drop(&mut self) {
+        if let Err(error) = self.asset_build.flush(&mut self.gpu) {
+            tracing::error!("Failed to flush asset commands: {error}");
+        }
+        // Retire submitted upload references while their device is alive.
+        if let Err(error) = self
+            .gpu
+            .queue
+            .submit_checkpoint(std::iter::empty())
+            .and_then(|_| self.gpu.queue.wait_idle())
+        {
+            tracing::error!("Failed to retire asset commands: {error}");
+        }
+    }
+}
+
 impl App {
+    fn pump_assets(&mut self) {
+        if let Err(error) = self
+            .simulation
+            .pump_assets(&mut self.asset_build, &mut self.gpu)
+        {
+            tracing::error!("Failed to submit asset build commands: {error}");
+            self.errors.push_error(
+                egui::ViewportId::ROOT,
+                "Failed to build assets",
+                Error::wrap(error),
+            );
+        }
+    }
+
     pub fn new(project: Project) -> Result<Self, Error> {
         let toaster = Toaster::new();
-
-        tracing_subscriber::registry()
-            .with(tracing_subscriber::fmt::layer())
-            .with(tracing_subscriber::filter::EnvFilter::from_default_env())
-            .with(toaster.layer())
-            .init();
-
-        let cfg: AppConfig = match load_app_cfg() {
-            Ok(cfg) => cfg,
+        let (mut cfg, config_error) = match load_app_cfg() {
+            Ok(cfg) => (cfg, None),
+            Err(error) => (AppConfig::default(), Some(error)),
+        };
+        cfg.log_files_to_keep = cfg.log_files_to_keep.max(1);
+        let log_writer = match crate::logging::LogWriter::new(cfg.log_files_to_keep) {
+            Ok(writer) => Some(writer),
             Err(error) => {
-                tracing::warn!("Failed to load app cfg: {error:?}");
-                AppConfig::default()
+                eprintln!("Failed to open editor log file: {error}");
+                None
             }
         };
 
+        let stdout_layer = tracing_subscriber::fmt::layer()
+            .with_ansi(true)
+            .with_filter(tracing_subscriber::filter::EnvFilter::from_default_env());
+
+        let file_layer = log_writer.clone().map(|writer| {
+            tracing_subscriber::fmt::layer()
+                .with_ansi(false)
+                .with_writer(writer)
+                .with_filter(tracing_subscriber::filter::LevelFilter::DEBUG)
+        });
+
+        tracing_subscriber::registry()
+            .with(stdout_layer)
+            .with(file_layer)
+            .with(
+                toaster
+                    .layer()
+                    .with_filter(tracing_subscriber::filter::LevelFilter::WARN),
+            )
+            .init();
+
+        if let Some(error) = config_error {
+            tracing::warn!("Failed to load app cfg: {error:?}");
+        }
+
         let data = ProjectData::load(&project)?;
 
-        let (device, queue) = init_mev();
+        let gpu = Gpu::new(init_mev()).map_err(Error::wrap)?;
 
         let mut plugins = PluginManager::new();
         plugins.load(&project, &data);
@@ -140,8 +215,8 @@ impl App {
         let mut renders = RenderManager::new();
         renders.load(&project, &data);
 
-        let cvt = mev::kernels::Cvt::new(&device);
-        let scene_editor = SceneEditor::new(EntityIds::new());
+        let ids = EntityIds::new();
+        let mut simulation = Simulation::new(ids.clone());
 
         let clock = Clock::new();
 
@@ -149,7 +224,7 @@ impl App {
 
         let views = Vec::new();
 
-        let limiter = clock.ticker(120.hz());
+        let limiter = clock.limiter(120.hz());
 
         let ide = match cfg.ide {
             None => None,
@@ -157,7 +232,10 @@ impl App {
         };
 
         let assets = AssetStore::new(&project)?;
+        simulation.connect_assets(assets.registry().clone());
 
+        let toolbox = Toolbox::new();
+        let tool_launcher = toolbox.launcher_defaults();
         Ok(App {
             should_quit: false,
 
@@ -165,19 +243,19 @@ impl App {
             data,
 
             views,
-            toolbox: Toolbox::new(),
+            tool_launcher,
+            toolbox,
             tools: Tools::default(),
             tool_commands: Vec::new(),
             suspended_views: None,
 
             ui: Ui::new(),
 
-            queue,
+            gpu,
 
             assets,
-            scene_editor,
+            asset_build: AssetBuildContext::new(),
 
-            cvt,
             clipboard,
 
             clock,
@@ -190,20 +268,22 @@ impl App {
             systems,
             filters,
             renders,
+            simulation,
+
+            ids,
 
             preferences: Preferences::new(cfg),
             errors: ModalErrors::new(),
             toaster,
+            log_writer,
         })
     }
 
     pub fn try_tick(&mut self, events: &ActiveEventLoop) {
-        let step = self.clock.step();
+        let tick = self.clock.advance();
 
-        let ticks = self.limiter.ticks(step.step);
-
-        for clock in ticks {
-            self.tick(clock);
+        if let Some(tick) = self.limiter.advance(tick.span) {
+            self.tick(tick);
         }
 
         filter_subprocesses();
@@ -212,32 +292,33 @@ impl App {
         events.set_control_flow(ControlFlow::WaitUntil(until));
     }
 
-    pub fn tick(&mut self, step: ClockStep) {
+    pub fn tick(&mut self, step: Tick) {
         self.plugins.tick(&mut self.toaster, &self.project);
 
         if let Some(c) = self.plugins.take_updated() {
-            match self.scene_editor.update_plugins(&c) {
-                Ok(()) => {
-                    self.systems.update_plugins(&c);
-                    self.filters.update_plugins(&c);
-                    self.renders.update_plugins(&c);
-                    self.assets.update_plugins(&c);
-                }
-                Err(error) => tracing::error!("Failed to update scene plugins: {error:?}"),
-            }
+            self.systems.update_plugins(&c);
+            self.filters.update_plugins(&c);
+            self.renders.update_plugins(&c);
+            self.assets.update_plugins(&c);
+            self.simulation.clear_textures(&mut self.ui.textures());
+            self.simulation.update_plugins(&c);
         }
 
+        self.pump_assets();
+        self.simulation.tick(&self.systems, step);
+        self.pump_assets();
         self.tools.update(
             step,
             &mut ToolContext {
-                scene_editor: &mut self.scene_editor,
+                assets: &mut self.assets,
                 plugins: &mut self.plugins,
                 systems: &mut self.systems,
                 filters: &mut self.filters,
                 renders: &mut self.renders,
+                simulation: &mut self.simulation,
 
-                queue: &mut self.queue,
-                cvt: &mut self.cvt,
+                queue: &mut self.gpu.queue,
+                cvt: &mut self.gpu.cvt,
                 textures: self.ui.textures(),
 
                 errors: &mut self.errors,
@@ -261,14 +342,15 @@ impl App {
             window_id,
             event,
             &mut ToolContext {
-                scene_editor: &mut self.scene_editor,
+                assets: &mut self.assets,
                 plugins: &mut self.plugins,
                 systems: &mut self.systems,
                 filters: &mut self.filters,
                 renders: &mut self.renders,
+                simulation: &mut self.simulation,
 
-                queue: &mut self.queue,
-                cvt: &mut self.cvt,
+                queue: &mut self.gpu.queue,
+                cvt: &mut self.gpu.cvt,
                 textures: self.ui.textures(),
 
                 errors: &mut self.errors,
@@ -308,7 +390,7 @@ impl App {
                     &mut view.viewport,
                     &mut self.clipboard,
                     &view.window,
-                    self.clock.now(),
+                    self.clock.last_stamp(),
                     |ui, textures| {
                         self.tools.begin_ui(window_id);
                         Panel::top("Menu").show(ui, |ui| {
@@ -329,8 +411,75 @@ impl App {
                                         ui.close();
                                     }
 
+                                    let logs_enabled =
+                                        self.cfg.ide.is_some() && self.log_writer.is_some();
+                                    let logs_menu = ui.add_enabled_ui(logs_enabled, |ui| {
+                                        ui.menu_button("Open Log File", |ui| {
+                                            let Some(writer) = &self.log_writer else {
+                                                return;
+                                            };
+                                            let current = writer.current_path();
+                                            match writer.files() {
+                                                Ok(files) => {
+                                                    if files.is_empty() {
+                                                        ui.label("No log files available");
+                                                    }
+                                                    egui::ScrollArea::vertical()
+                                                        .max_height(300.0)
+                                                        .show(ui, |ui| {
+                                                            for path in files {
+                                                                let name = path
+                                                                    .file_name()
+                                                                    .unwrap()
+                                                                    .to_string_lossy();
+                                                                let label = if path == current {
+                                                                    format!("{name} (current)")
+                                                                } else {
+                                                                    name.into_owned()
+                                                                };
+                                                                if ui
+                                                                    .button(label)
+                                                                    .on_hover_text(
+                                                                        path.display().to_string(),
+                                                                    )
+                                                                    .clicked()
+                                                                {
+                                                                    if let Some(ide) = self.cfg.ide
+                                                                    {
+                                                                        ide.get().open(&path, None);
+                                                                    }
+                                                                    ui.close();
+                                                                }
+                                                            }
+                                                        });
+                                                }
+                                                Err(error) => {
+                                                    ui.close();
+                                                    self.errors.push_error(
+                                                        ui.viewport_id(),
+                                                        "Log Files Error",
+                                                        Error::wrap(error),
+                                                    );
+                                                }
+                                            }
+                                        });
+                                    });
+                                    if self.cfg.ide.is_none() {
+                                        logs_menu.response.on_disabled_hover_text(
+                                            "Configure an editor in Preferences",
+                                        );
+                                    } else if self.log_writer.is_none() {
+                                        logs_menu.response.on_disabled_hover_text(
+                                            "Log file writing is unavailable for this run",
+                                        );
+                                    }
+
                                     if ui.button("Exit").clicked() {
                                         self.should_quit = true;
+                                        ui.close();
+                                    }
+
+                                    if ui.button("Print Refs").clicked() {
                                         ui.close();
                                     }
                                 });
@@ -369,19 +518,30 @@ impl App {
                             });
                         });
 
+                        Panel::top("Tool launcher").show(ui, |ui| {
+                            tool_launcher_ui(
+                                ui,
+                                &self.toolbox,
+                                &self.tools,
+                                &mut self.tool_launcher,
+                                &mut self.tool_commands,
+                            );
+                        });
+
                         egui::containers::CentralPanel::default().show(ui, |ui| {
                             let mut model = AppModel {
                                 tools: &mut self.tools,
                                 window: window_id,
                                 context: ToolContext {
-                                    scene_editor: &mut self.scene_editor,
+                                    assets: &mut self.assets,
                                     plugins: &mut self.plugins,
                                     systems: &mut self.systems,
                                     filters: &mut self.filters,
                                     renders: &mut self.renders,
+                                    simulation: &mut self.simulation,
 
-                                    queue: &mut self.queue,
-                                    cvt: &mut self.cvt,
+                                    queue: &mut self.gpu.queue,
+                                    cvt: &mut self.gpu.cvt,
                                     textures: textures,
 
                                     errors: &mut self.errors,
@@ -423,7 +583,7 @@ impl App {
                 // let mut render_view = |view: &mut AppView| {
                 let surface = match &mut view.surface {
                     Some(surface) => surface,
-                    slot => match self.queue.new_surface(&view.window, &view.window) {
+                    slot => match self.gpu.queue.new_surface(&view.window, &view.window) {
                         Ok(surface) => slot.get_or_insert(surface),
                         Err(error) => {
                             tracing::error!("Failed to create surface: {error}");
@@ -441,7 +601,9 @@ impl App {
                     }
                 };
 
-                self.ui.render(&mut view.viewport, frame, &mut self.queue);
+                view.window.pre_present_notify();
+                self.ui
+                    .render(&mut view.viewport, frame, &mut self.gpu.queue);
 
                 break;
             }
@@ -485,7 +647,11 @@ impl App {
         for view in &mut views {
             normalize_layout(&mut view.dock_state);
         }
-        let state = AppState { tools, views };
+        let state = AppState {
+            tools,
+            views,
+            tool_launcher: Some(self.tool_launcher.clone()),
+        };
         if let Err(error) = save_app_state(&state, &self.project.name()) {
             tracing::error!("Failed to save app state: {error:?}");
         }
@@ -559,7 +725,8 @@ impl App {
         if detach {
             self.tools.detach(id);
         } else {
-            self.tools.remove(id, &mut self.ui.textures());
+            self.tools
+                .remove(id, &mut self.simulation, &mut self.ui.textures());
         }
     }
 
@@ -570,11 +737,15 @@ impl App {
         let state = match self.suspended_views.take() {
             Some(views) => Ok(views),
             None => load_app_state(&self.project.name()).map(|state| {
-                dbg!(&state);
-
-                let restored =
-                    self.tools
-                        .restore(&self.toolbox, state.tools, &mut self.ui.textures());
+                self.tool_launcher = state
+                    .tool_launcher
+                    .unwrap_or_else(|| self.toolbox.launcher_defaults());
+                let restored = self.tools.restore(
+                    &self.toolbox,
+                    state.tools,
+                    &mut self.simulation,
+                    &mut self.ui.textures(),
+                );
                 state
                     .views
                     .into_iter()
@@ -672,6 +843,85 @@ struct AppViewState<T = usize> {
 struct AppState {
     views: Vec<AppViewState>,
     tools: Vec<ToolState>,
+    #[serde(default)]
+    tool_launcher: Option<Vec<String>>,
+}
+
+fn tool_launcher_ui(
+    ui: &mut egui::Ui,
+    toolbox: &Toolbox,
+    tools: &Tools,
+    displayed: &mut Vec<String>,
+    commands: &mut Vec<ToolCommand>,
+) {
+    let mut remove = None;
+    ui.horizontal_wrapped(|ui| {
+        for key in displayed.iter() {
+            let Some(template) = toolbox.templates().find(|t| t.key() == key) else {
+                continue;
+            };
+            ui.push_id(key, |ui| {
+                let response = ui
+                    .add_sized(
+                        [48.0, 48.0],
+                        egui::Button::new(egui::RichText::new(template.glyph()).size(28.0)),
+                    )
+                    .on_hover_ui(|ui| {
+                        ui.strong(template.title());
+                        ui.label(template.description());
+                    });
+                if response.clicked() {
+                    commands.extend(tools.launch(toolbox, key));
+                }
+                response.context_menu(|ui| {
+                    ui.strong(template.title());
+                    for (id, tool) in tools.instances(key) {
+                        if ui.button(format!("{} #{id}", tool.title())).clicked() {
+                            commands.push(ToolCommand::Open(id));
+                            ui.close();
+                        }
+                    }
+                    if ui
+                        .button(egui_phosphor::regular::PLUS)
+                        .on_hover_text("Create new instance")
+                        .clicked()
+                    {
+                        commands.extend(toolbox.create_command(key));
+                        ui.close();
+                    }
+                    ui.separator();
+                    if ui.button("Remove from panel").clicked() {
+                        remove = Some(key.clone());
+                        ui.close();
+                    }
+                });
+            });
+        }
+        let button =
+            egui::Button::new(egui_phosphor::regular::CARET_DOWN).min_size(egui::vec2(16.0, 48.0));
+        egui::containers::menu::MenuButton::from_button(button)
+            .ui(ui, |ui| {
+                let mut any = false;
+                for template in toolbox.templates() {
+                    if displayed.iter().any(|key| key == template.key()) {
+                        continue;
+                    }
+                    any = true;
+                    if ui.button(template.title()).clicked() {
+                        displayed.push(template.key().to_owned());
+                        ui.close();
+                    }
+                }
+                if !any {
+                    ui.label("All tools are on the panel");
+                }
+            })
+            .0
+            .on_hover_text("Add tool to panel");
+    });
+    if let Some(key) = remove {
+        displayed.retain(|item| item != &key);
+    }
 }
 
 struct AppModel<'a> {
@@ -852,7 +1102,11 @@ impl winit::application::ApplicationHandler<UserEvent> for App {
                     {
                         let window = self.views.remove(index);
                         for (_, view) in window.dock_state.iter_all_tabs() {
-                            self.tools.remove(view.tool(), &mut self.ui.textures());
+                            self.tools.remove(
+                                view.tool(),
+                                &mut self.simulation,
+                                &mut self.ui.textures(),
+                            );
                         }
                     }
                 }
@@ -897,6 +1151,8 @@ impl Preferences {
 
                     egui::Frame::group(ui.style()).show(ui, |ui| {
                         Probe::new(&mut self.cfg).show(ui);
+                        self.cfg.log_files_to_keep = self.cfg.log_files_to_keep.max(1);
+                        ui.label("Log files to keep: minimum 1. Applies on the next editor run.");
                     });
 
                     ui.horizontal(|ui| {
@@ -926,5 +1182,57 @@ impl Preferences {
         }
 
         result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn launcher_layout_defaults_and_explicit_empty_selection_are_distinct() {
+        let toolbox = Toolbox::new();
+        let legacy: AppState = serde_json::from_value(serde_json::json!({
+            "views": [], "tools": []
+        }))
+        .unwrap();
+        assert!(legacy.tool_launcher.is_none());
+        let defaults = legacy
+            .tool_launcher
+            .unwrap_or_else(|| toolbox.launcher_defaults());
+        assert_eq!(
+            defaults,
+            [
+                "plugins",
+                "systems",
+                "filters",
+                "render",
+                "simulation",
+                "assets"
+            ]
+        );
+        for template in toolbox.templates() {
+            assert!(!template.glyph().is_empty());
+            assert!(!template.description().is_empty());
+        }
+
+        for selection in [
+            Vec::new(),
+            vec!["assets".to_owned(), "simulation".to_owned()],
+        ] {
+            let state = AppState {
+                views: Vec::new(),
+                tools: Vec::new(),
+                tool_launcher: Some(selection.clone()),
+            };
+            let restored: AppState =
+                serde_json::from_value(serde_json::to_value(state).unwrap()).unwrap();
+            assert_eq!(
+                restored
+                    .tool_launcher
+                    .unwrap_or_else(|| toolbox.launcher_defaults()),
+                selection
+            );
+        }
     }
 }

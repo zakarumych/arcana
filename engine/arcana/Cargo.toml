@@ -17,6 +17,7 @@ arcana-base-encoding = { path = "../base-encoding" }
 arcana-ecs = { path = "../ecs" }
 arcana-error = { path = "../error" }
 arcana-graphics = { path = "../graphics" }
+arcana-gpu = { path = "../gpu" }
 arcana-hash = { path = "../hash" }
 arcana-id = { path = "../id" }
 arcana-input = { path = "../input" }

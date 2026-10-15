@@ -57,9 +57,10 @@
 
 // Re-exports
 pub use {
-    arcana_alloc as alloc, arcana_assets as assets, arcana_base_encoding as base_encoding,
-    arcana_ecs as ecs, arcana_error as error, arcana_graphics as graphics, arcana_hash as hash,
-    arcana_id as id, arcana_input as input,
+    arcana_alloc as alloc, arcana_base_encoding as base_encoding, arcana_ecs as ecs,
+    arcana_error as error, arcana_gpu as gpu,
+    arcana_gpu::Gpu,
+    arcana_graphics as graphics, arcana_hash as hash, arcana_id as id, arcana_input as input,
     arcana_intern::{
         Ident, IdentError, Name, NameError, format_ident, format_name, ident, name,
         try_format_ident, try_format_name, validate_ident, validate_name,
@@ -72,7 +73,9 @@ pub use {
 
 extern crate self as arcana;
 
+pub mod assets;
 pub mod render;
+pub mod scene;
 
 #[macro_export]
 macro_rules! static_assert {

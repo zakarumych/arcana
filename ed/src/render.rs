@@ -113,7 +113,10 @@ pub struct RenderManager {
 impl RenderManager {
     pub fn new() -> Self {
         RenderManager {
-            available: BTreeMap::new(),
+            available: BTreeMap::from([(
+                arcana::Name::from_name_static("Built-in"),
+                arcana::render::builtin_jobs(),
+            )]),
             renders: HashMap::default(),
         }
     }
@@ -129,6 +132,12 @@ impl RenderManager {
     pub fn update_plugins(&mut self, plugins: &Plugins) {
         let mut all_jobs = HashMap::default();
         self.available.clear();
+        let builtins = arcana::render::builtin_jobs();
+        for info in &builtins {
+            all_jobs.insert(info.id, info.clone());
+        }
+        self.available
+            .insert(arcana::Name::from_name_static("Built-in"), builtins);
 
         for (name, plugin) in plugins.iter() {
             let jobs = self.available.entry(name).or_default();
@@ -747,6 +756,14 @@ fn default_params(desc: &JobDesc) -> HashMap<Name, Value> {
 pub struct RenderTemplate;
 
 impl ToolTemplate for RenderTemplate {
+    fn glyph(&self) -> &str {
+        egui_phosphor::regular::IMAGE
+    }
+
+    fn description(&self) -> &str {
+        "Build and configure rendering graphs."
+    }
+
     fn title(&self) -> &str {
         "Render"
     }

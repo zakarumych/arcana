@@ -6,7 +6,7 @@ use arcana::{
     mev,
     plugin::PluginsHub,
     render::{CurrentRenderer, RenderGraphId, Renderer},
-    work_graph::{Image2D, Image2DInfo, PinId, WorkGraph},
+    work_graph::{Image2D, Image2DReq, PinId, WorkGraph},
 };
 
 use crate::{
@@ -44,6 +44,10 @@ impl RenderView {
             focused: false,
             plugins: None,
         }
+    }
+
+    pub(crate) fn extent(&self) -> mev::Extent2 {
+        self.extent
     }
 
     pub(crate) fn show(
@@ -175,9 +179,15 @@ impl RenderView {
         cache.work.set_sink(
             cache.present,
             Image2D(image.clone()),
-            Image2DInfo::from_image(&image),
+            Image2DReq::from_image(&image),
         );
+        if let Err(error) = arcana::scene::update_transforms(world) {
+            self.invalidate(textures);
+            tracing::error!("Invalid scene transforms: {error}");
+            return Ok(());
+        }
         world.insert_resource(CurrentRenderer { entity });
+        arcana::render::register_builtin_jobs(hub);
         if let Err(error) = cache.work.run(queue, world, &mut hub.jobs) {
             self.invalidate(textures);
             tracing::error!("Failed to render editor view: {error:?}");

@@ -970,9 +970,11 @@ impl<'a> serde::ser::Serializer for ValueSerializer<'a> {
         self,
         _name: &'static str,
         _variant_index: u32,
-        _variant: &'static str,
+        variant: &'static str,
     ) -> Result<Self::Ok, Self::Error> {
-        *self.0 = Value::Unit;
+        let name =
+            Ident::from_static(variant).map_err(|err| ValueError::Custom(err.to_string()))?;
+        *self.0 = Value::Enum(name, Box::new(Value::Unit));
         Ok(ValueSerializerOk { _private: () })
     }
 
@@ -1216,4 +1218,35 @@ where
     let serializer = ValueSerializer(&mut result);
     value.serialize(serializer)?;
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unit_enum_variants_preserve_names_and_roundtrip() {
+        #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+        enum Channel {
+            R,
+            One,
+            #[serde(rename = "RGBA8")]
+            Rgba8,
+        }
+        for (typed, name) in [
+            (Channel::R, "R"),
+            (Channel::One, "One"),
+            (Channel::Rgba8, "RGBA8"),
+        ] {
+            let value = serialize_to_value(&typed).unwrap();
+            assert_eq!(
+                value,
+                Value::Enum(Ident::from_static(name).unwrap(), Box::new(Value::Unit))
+            );
+            assert_eq!(
+                <Channel as serde::Deserialize>::deserialize(value).unwrap(),
+                typed
+            );
+        }
+    }
 }

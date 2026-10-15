@@ -92,6 +92,10 @@ impl Blobs {
     }
 
     #[must_use]
+    pub fn contains(&self, id: BlobId) -> bool {
+        join_path(&self.path, id.hash, id.index).is_file()
+    }
+
     pub fn read(&self, id: BlobId) -> io::Result<Vec<u8>> {
         let BlobId { hash, index } = id;
         let path = join_path(&self.path, hash, index);
@@ -103,7 +107,7 @@ impl Blobs {
 fn join_path(path: &Path, hash: Hash256, index: u64) -> PathBuf {
     let hex = format!("{hash:x}");
 
-    if index <= 256 {
+    if index <= 64 {
         path.join(&hex[..index as usize])
     } else {
         path.join(format!("{hash:x}_{index}"))
@@ -113,7 +117,7 @@ fn join_path(path: &Path, hash: Hash256, index: u64) -> PathBuf {
 fn push_path(path: &mut PathBuf, hash: Hash256, index: u64) {
     let hex = format!("{hash:x}");
 
-    if index <= 256 {
+    if index <= 64 {
         path.push(&hex[..index as usize])
     } else {
         path.push(format!("{hash:x}_{index}"))
@@ -131,7 +135,7 @@ enum EitherBlob<'a> {
 fn insert_blob(base: &Path, blob: EitherBlob) -> io::Result<BlobId> {
     let hash = match blob {
         EitherBlob::Bytes(bytes) => sha256(bytes),
-        EitherBlob::CopyFile(path) | EitherBlob::MoveFile(path) => sha256_file(path).unwrap(),
+        EitherBlob::CopyFile(path) | EitherBlob::MoveFile(path) => sha256_file(path)?,
     };
 
     let mut candidate = base.to_path_buf();
@@ -167,11 +171,11 @@ fn insert_blob(base: &Path, blob: EitherBlob) -> io::Result<BlobId> {
                     return Ok(BlobId { hash, index });
                 }
                 EitherBlob::CopyFile(path) => {
-                    fs::copy(candidate, &path)?;
+                    fs::copy(path, &candidate)?;
                     return Ok(BlobId { hash, index });
                 }
                 EitherBlob::MoveFile(path) => {
-                    fs::rename(candidate, &path)?;
+                    fs::rename(path, &candidate)?;
                     return Ok(BlobId { hash, index });
                 }
             },
@@ -182,4 +186,29 @@ fn insert_blob(base: &Path, blob: EitherBlob) -> io::Result<BlobId> {
     }
 
     panic!("Counted to u64::MAX. Impressive, but not expected");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn real_file_copy_move_and_duplicate() {
+        let root = std::env::temp_dir().join(format!("arcana-blobs-{}", rand::random::<u128>()));
+        std::fs::create_dir_all(&root).unwrap();
+        let blobs = Blobs::new(root.join("blobs")).unwrap();
+        let source = root.join("source");
+        let bytes = vec![17; 8193];
+        std::fs::write(&source, &bytes).unwrap();
+        let id = blobs.insert_file(&source).unwrap();
+        assert_eq!(std::fs::read(&source).unwrap(), bytes);
+        assert_eq!(blobs.read(id).unwrap(), bytes);
+        assert_eq!(blobs.insert_file(&source).unwrap(), id);
+        let temporary = root.join("temporary");
+        std::fs::write(&temporary, b"different").unwrap();
+        let moved = blobs.insert_tmp_file(&temporary).unwrap();
+        assert!(!temporary.exists());
+        assert_eq!(blobs.read(moved).unwrap(), b"different");
+        assert!(blobs.insert_file(root.join("missing")).is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

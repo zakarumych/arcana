@@ -1,5 +1,3 @@
-use std::hash::Hash;
-
 tiny_fn::tiny_fn! {
     struct GetText<K, E> = <'a> Fn(key: &'a K, element: &'a E) -> &'a str;
 }

@@ -1,17 +1,18 @@
 use std::collections::BTreeMap;
 
-use arcana::{gametime::ClockStep, mev};
+use arcana::{gametime::Tick, mev};
 use serde_json::Value;
 use winit::{event::WindowEvent, window::WindowId};
 
 use crate::{
+    assets::{AssetStore, AssetsTemplate},
     error::ModalErrors,
     filters::{FilterManager, FiltersTemplate},
     ide::Ide,
     plugins::{PluginManager, PluginsTemplate},
     project::{Project, ProjectData},
     render::{RenderManager, RenderTemplate},
-    scene_editor::{SceneEditor, SceneEditorTemplate},
+    simulation::{Simulation, SimulationTemplate},
     systems::{SystemManager, SystemsTemplate},
     toaster::Toaster,
     ui::UserTextures,
@@ -35,7 +36,7 @@ pub(crate) trait Tool {
 
     fn ui(&mut self, ui: &mut egui::Ui, window: WindowId, context: &mut ToolContext<'_>);
 
-    fn update(&mut self, _step: ClockStep, _context: &mut ToolContext<'_>) {}
+    fn update(&mut self, _step: Tick, _context: &mut ToolContext<'_>) {}
 
     fn handle_event(
         &mut self,
@@ -46,7 +47,7 @@ pub(crate) trait Tool {
         false
     }
 
-    fn close(&mut self, _textures: &mut UserTextures<'_>) {}
+    fn close(&mut self, _simulation: &mut Simulation, _textures: &mut UserTextures<'_>) {}
 
     /// Session-only tools need not provide a snapshot.
     fn save(&self) -> Option<Value> {
@@ -57,6 +58,8 @@ pub(crate) trait Tool {
 pub(crate) trait ToolTemplate {
     fn key(&self) -> &str;
     fn title(&self) -> &str;
+    fn glyph(&self) -> &str;
+    fn description(&self) -> &str;
     fn create(&self, state: Option<Value>) -> Result<Box<dyn Tool>, serde_json::Error>;
 }
 
@@ -73,7 +76,8 @@ impl Toolbox {
         toolbox.register(Box::new(SystemsTemplate));
         toolbox.register(Box::new(FiltersTemplate));
         toolbox.register(Box::new(RenderTemplate));
-        toolbox.register(Box::new(SceneEditorTemplate));
+        toolbox.register(Box::new(SimulationTemplate));
+        toolbox.register(Box::new(AssetsTemplate));
         toolbox
     }
 
@@ -99,6 +103,18 @@ impl Toolbox {
             }
         }
     }
+
+    pub fn launcher_defaults(&self) -> Vec<String> {
+        self.templates().map(|t| t.key().to_owned()).collect()
+    }
+
+    pub fn create_command(&self, key: &str) -> Option<ToolCommand> {
+        Some(ToolCommand::Create {
+            tool: self.materialize(key, None)?,
+            template: Some(key.to_owned()),
+            open: true,
+        })
+    }
 }
 
 pub(crate) enum ToolCommand {
@@ -114,11 +130,12 @@ pub(crate) enum ToolCommand {
 
 /// Shared services and deferred child-tool requests, supplied afresh for every call.
 pub(crate) struct ToolContext<'a> {
-    pub scene_editor: &'a mut SceneEditor,
+    pub assets: &'a mut AssetStore,
     pub plugins: &'a mut PluginManager,
     pub systems: &'a mut SystemManager,
     pub filters: &'a mut FilterManager,
     pub renders: &'a mut RenderManager,
+    pub simulation: &'a mut Simulation,
 
     pub queue: &'a mut mev::Queue,
     pub cvt: &'a mut mev::kernels::Cvt,
@@ -201,9 +218,14 @@ impl Tools {
         }
     }
 
-    pub fn remove(&mut self, id: ToolId, textures: &mut UserTextures<'_>) {
+    pub fn remove(
+        &mut self,
+        id: ToolId,
+        simulation: &mut Simulation,
+        textures: &mut UserTextures<'_>,
+    ) {
         if let Some(mut entry) = self.entries.remove(&id) {
-            entry.tool.close(textures);
+            entry.tool.close(simulation, textures);
         }
     }
 
@@ -262,7 +284,23 @@ impl Tools {
         self.entries.iter().map(|(&id, entry)| (id, entry))
     }
 
-    pub fn update(&mut self, step: ClockStep, context: &mut ToolContext<'_>) {
+    pub fn instances<'a>(
+        &'a self,
+        template: &'a str,
+    ) -> impl Iterator<Item = (ToolId, &'a dyn Tool)> {
+        self.iter().filter_map(move |(id, entry)| {
+            (entry.template.as_deref() == Some(template)).then_some((id, &*entry.tool))
+        })
+    }
+
+    pub fn launch(&self, toolbox: &Toolbox, template: &str) -> Option<ToolCommand> {
+        match self.instances(template).next() {
+            Some((id, _)) => Some(ToolCommand::Open(id)),
+            None => toolbox.create_command(template),
+        }
+    }
+
+    pub fn update(&mut self, step: Tick, context: &mut ToolContext<'_>) {
         for entry in self.entries.values_mut() {
             entry.tool.update(step, context);
         }
@@ -287,10 +325,11 @@ impl Tools {
         &mut self,
         toolbox: &Toolbox,
         states: Vec<ToolState>,
+        simulation: &mut Simulation,
         textures: &mut UserTextures<'_>,
     ) -> Vec<Option<ToolId>> {
         for (_, mut entry) in std::mem::take(&mut self.entries) {
-            entry.tool.close(textures);
+            entry.tool.close(simulation, textures);
         }
         states
             .into_iter()
@@ -320,7 +359,7 @@ mod tests {
 
         fn ui(&mut self, _: &mut egui::Ui, _: WindowId, _: &mut ToolContext<'_>) {}
 
-        fn close(&mut self, _: &mut UserTextures<'_>) {
+        fn close(&mut self, _: &mut Simulation, _: &mut UserTextures<'_>) {
             self.lifecycle
                 .borrow_mut()
                 .push(format!("close {}", self.name));
@@ -394,18 +433,85 @@ mod tests {
     }
 
     #[test]
+    fn launcher_reuses_instances_and_creates_only_when_missing() {
+        let toolbox = Toolbox::new();
+        let mut tools = Tools::default();
+        let Some(ToolCommand::Create {
+            tool,
+            template,
+            open,
+        }) = tools.launch(&toolbox, "simulation")
+        else {
+            panic!("missing instance must be created");
+        };
+        assert!(open);
+        let id = tools.insert(tool, template);
+        assert!(
+            matches!(tools.launch(&toolbox, "simulation"), Some(ToolCommand::Open(found)) if found == id)
+        );
+        assert!(tools.attach(id).is_some());
+        assert!(
+            matches!(tools.launch(&toolbox, "simulation"), Some(ToolCommand::Open(found)) if found == id)
+        );
+        tools.detach(id);
+        assert!(
+            matches!(tools.launch(&toolbox, "simulation"), Some(ToolCommand::Open(found)) if found == id)
+        );
+        let Some(ToolCommand::Create { tool, template, .. }) = toolbox.create_command("simulation")
+        else {
+            panic!("explicit creation must create another instance");
+        };
+        let second = tools.insert(tool, template);
+        let assets = toolbox.materialize("assets", None).unwrap();
+        tools.insert(assets, Some("assets".to_owned()));
+        assert_eq!(
+            tools
+                .instances("simulation")
+                .map(|(id, _)| id)
+                .collect::<Vec<_>>(),
+            [id, second]
+        );
+        assert!(tools.launch(&toolbox, "missing").is_none());
+    }
+
+    #[test]
+    fn simulation_template_registers_and_restores_tools() {
+        let toolbox = Toolbox::new();
+        let simulation = toolbox
+            .materialize("simulation", None)
+            .expect("registered tool");
+        assert_eq!(simulation.title(), "Simulation");
+        let mut tools = Tools::default();
+        tools.insert(simulation, Some("simulation".to_owned()));
+        let (_, states) = tools.snapshot();
+        assert_eq!(states.len(), 1);
+        assert_eq!(states[0].template, "simulation");
+        let mut runtime = Simulation::new(crate::entity_ids::EntityIds::new());
+        let mut ui = crate::ui::Ui::new();
+        let restored = tools.restore(&toolbox, states, &mut runtime, &mut ui.textures());
+        assert_eq!(restored.len(), 1);
+        assert_eq!(tools.title(restored[0].unwrap()), "Simulation");
+    }
+
+    #[test]
     fn remove_and_restore_close_tools_before_dropping_them() {
         let mut tools = Tools::default();
         let lifecycle = Rc::new(RefCell::new(Vec::new()));
         let removed = insert(&mut tools, "removed", &lifecycle);
         let retained = insert(&mut tools, "retained", &lifecycle);
         let mut ui = crate::ui::Ui::new();
-        tools.remove(removed, &mut ui.textures());
-        tools.remove(removed, &mut ui.textures());
+        let mut simulation = Simulation::new(crate::entity_ids::EntityIds::new());
+        tools.remove(removed, &mut simulation, &mut ui.textures());
+        tools.remove(removed, &mut simulation, &mut ui.textures());
         assert_eq!(*lifecycle.borrow(), ["close removed", "drop removed"]);
         assert!(tools.get_mut(retained).is_some());
 
-        let restored = tools.restore(&Toolbox::new(), Vec::new(), &mut ui.textures());
+        let restored = tools.restore(
+            &Toolbox::new(),
+            Vec::new(),
+            &mut simulation,
+            &mut ui.textures(),
+        );
         assert!(restored.is_empty());
         assert_eq!(
             *lifecycle.borrow(),

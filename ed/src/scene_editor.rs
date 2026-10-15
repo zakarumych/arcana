@@ -1,13 +1,13 @@
 //! Authored scene data and independent simulation sessions.
 
 use arcana::{
-    ecs::{entity::EntityId, flow::init_flows, query::Entities, world::World},
+    ecs::{entity::EntityId, flow::init_flows, query::Entities, relation::ChildOf, world::World},
     error::Error,
-    gametime::{ClockStep, TimeSpan, TimeStamp},
+    gametime::{Tick, TimeSpan, TimeStamp},
     hash::HashSet,
     id::{HasStid, Stid},
     model::{Model, Reflect, Value},
-    plugin::{ComponentDesc, PluginsHub},
+    plugin::{ComponentInfo, PluginsHub},
     render::{RenderGraphId, Renderer},
 };
 use winit::{event::WindowEvent, window::WindowId};
@@ -23,15 +23,12 @@ use crate::{
     ui::UserTextures,
 };
 
-/// Presence marks an authored entity; only listed components belong to its scene data.
-#[derive(arcana::Component, Default)]
-pub struct SceneComponents {
-    components: HashSet<Stid>,
-}
+pub use arcana::plugin::SceneComponents;
 
 #[derive(Debug, PartialEq)]
 struct SceneEntity {
     entity: EntityId,
+    parent: Option<EntityId>,
     components: Vec<(Stid, Value)>,
 }
 
@@ -47,6 +44,7 @@ impl SceneSnapshot {
             .iter()
             .map(|(entity, marker)| {
                 let mut components: Vec<_> = marker.components.iter().copied().collect();
+                components.retain(|id| !derived_transform(marker, *id));
                 components.sort_unstable();
                 (entity.id(), components)
             })
@@ -64,13 +62,41 @@ impl SceneSnapshot {
                         Ok((id, value))
                     })
                     .collect::<Result<_, Error>>()?;
-                Ok(SceneEntity { entity, components })
+                let parent = arcana::scene::parent(world, entity);
+                Ok(SceneEntity {
+                    entity,
+                    parent,
+                    components,
+                })
             })
             .collect::<Result<_, Error>>()?;
-        Ok(Self { entities })
+        let snapshot = Self { entities };
+        snapshot.validate_hierarchy()?;
+        Ok(snapshot)
+    }
+
+    fn validate_hierarchy(&self) -> Result<(), Error> {
+        for entry in &self.entities {
+            let mut seen = HashSet::default();
+            seen.insert(entry.entity);
+            let mut parent = entry.parent;
+            while let Some(id) = parent {
+                if !seen.insert(id) {
+                    return Err(Error::msg("Scene hierarchy contains a cycle".into()));
+                }
+                let ancestor = self
+                    .entities
+                    .iter()
+                    .find(|e| e.entity == id)
+                    .ok_or_else(|| Error::msg(format!("Parent {id} is not an authored entity")))?;
+                parent = ancestor.parent;
+            }
+        }
+        Ok(())
     }
 
     fn restore(&self, world: &mut World, hub: &PluginsHub) -> Result<(), Error> {
+        self.validate_hierarchy()?;
         for entry in &self.entities {
             if world.is_alive(entry.entity) {
                 return Err(Error::msg(format!(
@@ -100,6 +126,15 @@ impl SceneSnapshot {
             }
         }
 
+        for entry in &self.entities {
+            if let Some(parent) = entry.parent {
+                world
+                    .insert_relation(entry.entity, ChildOf, parent)
+                    .map_err(Error::wrap)?;
+            }
+        }
+        arcana::scene::update_transforms(world).map_err(Error::wrap)?;
+
         // Component hooks may remove entities or other authored components.
         for entry in &self.entities {
             world
@@ -115,10 +150,21 @@ impl SceneSnapshot {
     }
 }
 
-fn component_desc(hub: &PluginsHub, id: Stid) -> Result<&ComponentDesc, Error> {
+fn component_desc(hub: &PluginsHub, id: Stid) -> Result<&ComponentInfo, Error> {
     hub.components
         .get(&id)
         .ok_or_else(|| Error::msg(format!("Authored component {id} is not registered")))
+}
+
+fn derived_transform(marker: &SceneComponents, id: Stid) -> bool {
+    (id == arcana::scene::dim2::Transform::stid()
+        && marker
+            .components
+            .contains(&arcana::scene::dim2::LocalTransform::stid()))
+        || (id == arcana::scene::dim3::Transform::stid()
+            && marker
+                .components
+                .contains(&arcana::scene::dim3::LocalTransform::stid()))
 }
 
 /// Shared editable data. Running worlds belong to individual scene-editor tools.
@@ -128,6 +174,7 @@ pub struct SceneEditor {
     ids: EntityIds,
     plugin_revision: u64,
     renderer_order: Vec<EntityId>,
+    seeded: HashSet<arcana::Name>,
 
     // Plugin callbacks and values in the world and hub must be dropped first.
     plugins: Option<Plugins>,
@@ -137,20 +184,22 @@ impl SceneEditor {
     pub fn new(ids: EntityIds) -> Self {
         let mut world = ids.new_world();
         init_flows(&mut world);
-        world.insert_resource(ClockStep {
+        world.insert_resource(Tick {
             now: TimeStamp::start(),
-            step: TimeSpan::ZERO,
+            span: TimeSpan::ZERO,
         });
         let mut hub = PluginsHub::new();
-        hub.add_component(ComponentDesc::without_default::<Renderer>(arcana::name!(
+        hub.add_component(ComponentInfo::without_default::<Renderer>(arcana::name!(
             Renderer
         )));
+        arcana::scene::register_components(&mut hub);
         Self {
             world,
             hub,
             ids,
             plugin_revision: 0,
             renderer_order: Vec::new(),
+            seeded: HashSet::default(),
             plugins: None,
         }
     }
@@ -180,8 +229,12 @@ impl SceneEditor {
         let snapshot = SceneSnapshot::capture(&mut self.world, &self.hub)?;
         let mut replacement = Self::new(self.ids.clone());
         replacement.plugins = Some(plugins.clone());
+        replacement.seeded = self.seeded.clone();
         initialize(&mut replacement.world, &mut replacement.hub);
         snapshot.restore(&mut replacement.world, &replacement.hub)?;
+        replacement.seed_plugins(plugins.iter());
+        arcana::scene::update_transforms(&mut replacement.world).map_err(Error::wrap)?;
+        SceneSnapshot::capture(&mut replacement.world, &replacement.hub)?;
         replacement.renderer_order = self.renderer_order.clone();
         replacement.reconcile_renderers();
         replacement.plugin_revision = self
@@ -204,6 +257,17 @@ impl SceneEditor {
         Ok(simulation)
     }
 
+    fn seed_plugins<'a>(
+        &mut self,
+        plugins: impl IntoIterator<Item = (arcana::Name, &'a arcana::plugin::ArcanaPlugin)>,
+    ) {
+        for (name, plugin) in plugins {
+            if self.seeded.insert(name) {
+                plugin.seed_scene(&mut self.world);
+            }
+        }
+    }
+
     fn new_entity(&mut self) -> EntityId {
         self.world.spawn_one(SceneComponents::default()).id()
     }
@@ -212,7 +276,31 @@ impl SceneEditor {
         let value = component_desc(&self.hub, id)?
             .initial_value()
             .ok_or_else(|| Error::msg("Select an initial value for this component".into()))?;
-        self.insert_component(entity, id, value)
+        let is_new = !self
+            .world
+            .get::<&SceneComponents>(entity)
+            .map_err(Error::wrap)?
+            .components
+            .contains(&id);
+        self.insert_component(entity, id, value)?;
+        if is_new {
+            component_desc(&self.hub, id)?.initialize_added(&mut self.world, entity);
+            let marker = self
+                .world
+                .get::<&mut SceneComponents>(entity)
+                .map_err(Error::wrap)?;
+            if id == arcana::scene::dim2::LocalTransform::stid() {
+                marker
+                    .components
+                    .remove(&arcana::scene::dim2::Transform::stid());
+            }
+            if id == arcana::scene::dim3::LocalTransform::stid() {
+                marker
+                    .components
+                    .remove(&arcana::scene::dim3::Transform::stid());
+            }
+        }
+        Ok(())
     }
 
     fn add_renderer(
@@ -263,6 +351,28 @@ impl SceneEditor {
             .map_err(Error::wrap)?
             .components
             .remove(&id);
+        let marker = self
+            .world
+            .get::<&SceneComponents>(entity)
+            .map_err(Error::wrap)?;
+        let remove_two = id == arcana::scene::dim2::LocalTransform::stid()
+            && !marker
+                .components
+                .contains(&arcana::scene::dim2::Transform::stid());
+        let remove_three = id == arcana::scene::dim3::LocalTransform::stid()
+            && !marker
+                .components
+                .contains(&arcana::scene::dim3::Transform::stid());
+        if remove_two {
+            self.world
+                .drop::<arcana::scene::dim2::Transform>(entity)
+                .map_err(Error::wrap)?;
+        }
+        if remove_three {
+            self.world
+                .drop::<arcana::scene::dim3::Transform>(entity)
+                .map_err(Error::wrap)?;
+        }
         Ok(())
     }
 
@@ -299,6 +409,8 @@ impl SceneEditor {
 
 pub struct SceneEditorWidget {
     selected: Option<EntityId>,
+    tree: egui_ltreeview::TreeViewState<EntityId>,
+    viewport: crate::scene_viewport::SceneViewport,
     renderer: Option<EntityId>,
     preview: RenderView,
     simulation: Option<Simulation>,
@@ -311,6 +423,8 @@ impl SceneEditorWidget {
     pub fn new() -> Self {
         Self {
             selected: None,
+            tree: Default::default(),
+            viewport: Default::default(),
             renderer: None,
             preview: RenderView::new(),
             simulation: None,
@@ -415,21 +529,15 @@ impl SceneEditorWidget {
             self.selected = None;
         }
 
-        egui::ScrollArea::vertical()
-            .id_salt("scene-entities")
-            .max_height(160.0)
-            .show(ui, |ui| {
-                if entities.is_empty() {
-                    ui.weak("Create an entity to begin authoring the scene.");
-                }
-                for entity in entities {
-                    ui.selectable_value(
-                        &mut self.selected,
-                        Some(entity),
-                        format!("Entity {entity}"),
-                    );
-                }
-            });
+        if let Err(error) = crate::scene_tree::show(
+            &mut editor.world,
+            &editor.hub,
+            &mut self.tree,
+            &mut self.selected,
+            ui,
+        ) {
+            self.error = Some(error.to_string());
+        }
 
         let Some(entity) = self.selected else {
             return;
@@ -458,6 +566,14 @@ impl SceneEditorWidget {
                 ui.weak("No component types registered by the active plugins.");
             }
             for (id, name) in &available {
+                if derived_transform(
+                    &SceneComponents {
+                        components: authored.clone(),
+                    },
+                    *id,
+                ) {
+                    continue;
+                }
                 if *id == Renderer::stid() {
                     ui.add_enabled_ui(!authored.contains(id), |ui| {
                         ui.menu_button(name.as_str(), |ui| {
@@ -497,6 +613,9 @@ impl SceneEditorWidget {
         }
 
         let mut authored: Vec<_> = authored.into_iter().collect();
+        if let Ok(marker) = editor.world.get::<&SceneComponents>(entity) {
+            authored.retain(|id| !derived_transform(marker, *id));
+        }
         authored.sort_unstable();
         egui::ScrollArea::vertical()
             .id_salt("scene-components")
@@ -590,7 +709,22 @@ impl SceneEditorWidget {
             self.preview.clear(textures);
             ui.weak("Add a Renderer component to preview this scene.");
         } else {
-            self.preview.show(textures, ui);
+            if let Err(error) = arcana::scene::update_transforms(&mut editor.world) {
+                self.error = Some(error.to_string());
+            }
+            let response = self.preview.show(textures, ui);
+            if let Some(renderer) = self.renderer {
+                if let Err(error) = self.viewport.show(
+                    &mut editor.world,
+                    renderer,
+                    &mut self.selected,
+                    &response,
+                    self.preview.extent(),
+                    ui,
+                ) {
+                    self.error = Some(error.to_string());
+                }
+            }
         }
     }
 
@@ -655,6 +789,8 @@ fn model_has_editor(model: &Model) -> bool {
         | Model::Bool
         | Model::Int
         | Model::Float
+        | Model::Vec2
+        | Model::Vec3
         | Model::String
         | Model::Color(_)
         | Model::Reference(_) => true,
@@ -663,6 +799,9 @@ fn model_has_editor(model: &Model) -> bool {
         }
         | Model::Map(Some(elem)) => model_has_editor(elem),
         Model::Enum(variants) => variants
+            .iter()
+            .all(|(_, model)| model.as_ref().is_some_and(model_has_editor)),
+        Model::Record(fields) => fields
             .iter()
             .all(|(_, model)| model.as_ref().is_some_and(model_has_editor)),
         _ => false,
@@ -708,7 +847,7 @@ impl Tool for SceneEditorWidget {
         }
     }
 
-    fn update(&mut self, step: ClockStep, context: &mut ToolContext<'_>) {
+    fn update(&mut self, step: Tick, context: &mut ToolContext<'_>) {
         self.stop_stale(context.scene_editor.revision(), &mut context.textures);
         if let Some(simulation) = &mut self.simulation {
             simulation.tick(context.systems, step);
@@ -812,6 +951,83 @@ mod tests {
         let mut editor = SceneEditor::new(EntityIds::new());
         plugin().init(&mut editor.world, &mut editor.hub);
         editor
+    }
+
+    #[test]
+    fn hierarchy_survives_snapshot_play_reload_and_cascade_delete() -> Result<(), Error> {
+        use arcana::scene::{self, dim2};
+        let mut editor = SceneEditor::new(EntityIds::new());
+        let parent = editor.new_entity();
+        let child = editor.new_entity();
+        editor.add_component(parent, dim2::LocalTransform::stid())?;
+        editor.add_component(child, dim2::LocalTransform::stid())?;
+        scene::update_transforms(&mut editor.world).map_err(Error::wrap)?;
+        crate::scene_tree::reparent(&mut editor.world, child, Some(parent))?;
+        assert!(crate::scene_tree::reparent(&mut editor.world, parent, Some(child)).is_err());
+        let snapshot = SceneSnapshot::capture(&mut editor.world, &editor.hub)?;
+        assert!(
+            snapshot
+                .entities
+                .iter()
+                .flat_map(|e| &e.components)
+                .all(|(id, _)| *id != dim2::Transform::stid())
+        );
+        let mut simulation = editor.instantiate()?;
+        assert_eq!(
+            scene::parent(simulation.world_and_hub_mut().0, child),
+            Some(parent)
+        );
+        editor.update_plugins_with(&Plugins::default(), |_, _| {})?;
+        assert_eq!(scene::parent(&editor.world, child), Some(parent));
+        editor.delete_entity(parent)?;
+        assert!(!editor.world.is_alive(child));
+        Ok(())
+    }
+
+    #[test]
+    fn seed_once_even_after_every_seed_entity_is_deleted() -> Result<(), Error> {
+        let mut editor = SceneEditor::new(EntityIds::new());
+        let mut plugin = ArcanaPlugin::new(None);
+        plugin.add_scene_init(|world| {
+            world.spawn_one(SceneComponents::default());
+        });
+        editor.seed_plugins([(arcana::name!(test), &plugin)]);
+        let entity = editor
+            .world
+            .view::<(Entities, &SceneComponents)>()
+            .iter()
+            .next()
+            .expect("seeded entity")
+            .0
+            .id();
+        editor.delete_entity(entity)?;
+        editor.update_plugins_with(&Plugins::default(), |_, _| {})?;
+        editor.seed_plugins([(arcana::name!(test), &plugin)]);
+        assert_eq!(editor.world.view::<&SceneComponents>().iter().count(), 0);
+        Ok(())
+    }
+
+    #[test]
+    fn missing_authored_parent_is_rejected_and_local_removal_drops_derived_pose()
+    -> Result<(), Error> {
+        use arcana::scene::{self, dim2};
+        let mut editor = SceneEditor::new(EntityIds::new());
+        let child = editor.new_entity();
+        editor.add_component(child, dim2::LocalTransform::stid())?;
+        let parent = editor.world.spawn_one(dim2::Transform::default()).id();
+        editor
+            .world
+            .insert_relation(child, ChildOf, parent)
+            .map_err(Error::wrap)?;
+        assert!(SceneSnapshot::capture(&mut editor.world, &editor.hub).is_err());
+        editor
+            .world
+            .remove_relation::<ChildOf>(child, parent)
+            .map_err(Error::wrap)?;
+        scene::update_transforms(&mut editor.world).map_err(Error::wrap)?;
+        editor.remove_component(child, dim2::LocalTransform::stid())?;
+        assert!(editor.world.get::<&dim2::Transform>(child).is_err());
+        Ok(())
     }
 
     #[test]
@@ -991,7 +1207,7 @@ mod tests {
         let before = SceneSnapshot::capture(&mut editor.world, &editor.hub)?;
         let revision = editor.revision();
         let result = editor.update_plugins_with(&Plugins::default(), |_, hub| {
-            hub.add_component(ComponentDesc::new::<ChangedCounter>(
+            hub.add_component(ComponentInfo::new::<ChangedCounter>(
                 arcana::name!(Counter),
                 || Value::Unit,
             ));
@@ -1095,12 +1311,12 @@ mod tests {
             elem: Some(Box::new(Model::Bool)),
             len: None
         }));
-        assert!(!model_has_editor(&Model::Record(Vec::new())));
+        assert!(model_has_editor(&Model::Record(Vec::new())));
         assert!(!model_has_editor(&Model::Option(Some(Box::new(
             Model::Int
         )))));
         assert!(!model_has_editor(&Model::Array {
-            elem: Some(Box::new(Model::Vec3)),
+            elem: Some(Box::new(Model::Vec4)),
             len: None
         }));
         assert!(!model_has_editor(&Model::Map(None)));

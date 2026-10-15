@@ -4,36 +4,33 @@
 //! # Usage
 //!
 //! ```
+//! use arcana_assets::import::{ImportContext, ImportError, Importer, ImporterDesc};
+//! use arcana_intern::{Ident, Name};
+//! use arcana_model::{Model, Value};
+//!
 //! struct FooImporter;
 //!
 //! impl Importer for FooImporter {
-//!     fn name(&self) -> &str {
-//!         "Foo importer"
-//!     }
-//!
-//!     fn formats(&self) -> &[&str] {1
-//!         &["foo"]
-//!     }
-//!
-//!     fn target(&self) -> &str {
-//!         "foo"
-//!     }
-//!
-//!     fn extensions(&self) -> &[&str] {
-//!         &["json"]
+//!     fn desc() -> ImporterDesc {
+//!         ImporterDesc {
+//!             name: Name::from_static("Foo importer").unwrap(),
+//!             formats: vec![Name::from_static("foo").unwrap()],
+//!             extensions: vec!["foo"],
+//!             target: Ident::from_static("foo").unwrap(),
+//!             config: (Model::Unit, Value::Unit),
+//!         }
 //!     }
 //!
 //!     fn import(
 //!         &self,
 //!         source: &std::path::Path,
 //!         output: &std::path::Path,
-//!         _sources: &mut dyn Sources,
-//!         _dependencies: &mut dyn Dependencies,
+//!         _config: Value,
+//!         _context: &mut dyn ImportContext,
 //!     ) -> Result<(), ImportError> {
-//!         match std::fs::copy(source, output) {
-//!           Ok(_) => Ok(()),
-//!           Err(error) => Err(ImportError::Other { reason: "SOMETHING WENT WRONG".to_owned() }),
-//!         }
+//!         std::fs::copy(source, output)
+//!             .map(|_| ())
+//!             .map_err(|error| ImportError::Other { reason: error.to_string() })
 //!     }
 //! }
 //! ```

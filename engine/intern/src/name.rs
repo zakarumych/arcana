@@ -19,6 +19,9 @@ macro_rules! name {
 
 #[macro_export]
 macro_rules! format_name {
+    // ($fmt:literal) => { {
+    //     $crate::Name::from_static($fmt).unwrap()
+    // }};
     ($fmt:literal $(, $arg:expr)*) => { {
         $crate::Name::from_string(::std::format!($fmt $(, $arg)*)).unwrap()
     }};

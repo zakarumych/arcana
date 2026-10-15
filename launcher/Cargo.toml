@@ -40,4 +40,4 @@ windows-sys = { workspace = true, features = ["Win32_System_Console"] }
 
 [build-dependencies]
 cc.workspace = true
-image.workspace = true
+image = { workspace = true, features = ["png"] }

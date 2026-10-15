@@ -19,4 +19,52 @@ fn alloc_guard(alloc_size: usize) {
     }
 }
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 pub use self::arena::Arena;
+
+pub struct TrackingGlobalAllocator {
+    disabled: AtomicBool,
+}
+
+impl TrackingGlobalAllocator {
+    pub const fn new() -> Self {
+        TrackingGlobalAllocator {
+            disabled: AtomicBool::new(false),
+        }
+    }
+}
+
+unsafe impl std::alloc::GlobalAlloc for TrackingGlobalAllocator {
+    unsafe fn alloc(&self, layout: std::alloc::Layout) -> *mut u8 {
+        if layout.size() >= 1024 * 1024 {
+            let was_disabled = self.disabled.fetch_or(true, Ordering::SeqCst);
+
+            if !was_disabled {
+                let backtrace = std::backtrace::Backtrace::force_capture();
+
+                eprintln!("Allocation backtrace: {:?}", backtrace);
+
+                self.disabled.store(false, Ordering::SeqCst);
+            }
+        }
+
+        unsafe { std::alloc::System.alloc(layout) }
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: std::alloc::Layout) {
+        if layout.size() >= 1024 * 1024 {
+            let was_disabled = self.disabled.fetch_or(true, Ordering::SeqCst);
+
+            if !was_disabled {
+                let backtrace = std::backtrace::Backtrace::force_capture();
+
+                eprintln!("Deallocation backtrace: {:?}", backtrace);
+
+                self.disabled.store(false, Ordering::SeqCst);
+            }
+        }
+
+        unsafe { std::alloc::System.dealloc(ptr, layout) }
+    }
+}

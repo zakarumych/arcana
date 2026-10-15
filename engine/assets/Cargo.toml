@@ -8,10 +8,12 @@ version.workspace = true
 description = "Asset pipeline and loader for Arcana engine"
 
 [dependencies]
+arcana-gpu = { path = "../gpu" }
 arcana-intern = { path = "../intern" }
 arcana-error = { path = "../error" }
 arcana-id = { path = "../id" }
 arcana-model = { path = "../model" }
+arcana-hash = { path = "../hash" }
 
 mev.workspace = true
 

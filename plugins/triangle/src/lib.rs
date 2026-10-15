@@ -6,7 +6,7 @@ use arcana::{
     edict::{self, query::Cpy, world::World},
     events::{Event, emit_event},
     flow::{FlowEntity, sleep},
-    gametime::{ClockStep, TimeSpan},
+    gametime::{Tick, TimeSpan},
     hash_id,
     hashbrown::HashMap,
     local_name_hash_id,
@@ -382,7 +382,7 @@ fn get_angle(e: FlowEntity) -> (f32,) {
 }
 
 #[arcana::system]
-fn rotate_system(view: View<(&mut Angle, &Speed)>, clock: Res<ClockStep>) {
+fn rotate_system(view: View<(&mut Angle, &Speed)>, clock: Res<Tick>) {
     for (angle, speed) in view {
         angle.0 += speed.0 * clock.step.as_secs_f32();
 

@@ -25,7 +25,7 @@ pub trait Asset: AssetVersion + Send + Sync + Clone {
     type Loaded: Any + Send + Sync;
 
     fn load(
-        data: &[u8],
+        data: Box<[u8]>,
         assets: &Assets,
     ) -> impl Future<Output = Result<Self::Loaded, AssetError>> + Send;
 

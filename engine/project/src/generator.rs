@@ -87,7 +87,7 @@ arcana = {engine}
     let lib_rs = format!(
 r#"
 // This line allows this crate to function as a plugin for Arcana Engine.
-arcana::plugin::declare_plugin!();
+arcana::declare_plugin!();
 "#
     );
 

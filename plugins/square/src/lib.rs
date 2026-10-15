@@ -1,6 +1,6 @@
 use arcana::{
     edict::world::World,
-    gametime::ClockStep,
+    gametime::Tick,
     mev::{self, Arguments, DeviceRepr},
     work::{Exec, Image2D, Job, JobDesc, Planner},
 };
@@ -55,7 +55,7 @@ impl Job for DrawSquare {
 
         self.constants = DSConstants {
             angle: world
-                .expect_resource::<ClockStep>()
+                .expect_resource::<Tick>()
                 .now
                 .elapsed_since_start()
                 .as_secs_f32(),

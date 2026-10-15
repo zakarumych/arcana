@@ -59,12 +59,12 @@ mod error;
 mod filters;
 mod ide;
 mod inspector;
+mod logging;
 mod model;
 mod plugins;
 mod project;
 mod render;
 mod render_view;
-mod scene_editor;
 mod simulation;
 mod subprocess;
 mod systems;
@@ -148,8 +148,7 @@ fn toggle_ui(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
 }
 
 fn get_profile() -> Profile {
-    let s =
-        std::env::var("ARCANA_PROFILE").expect("ARCANA_PROFILE environment variable should be set");
+    let s = std::env::var("ARCANA_PROFILE").unwrap_or_else(|_| "debug".into());
     match &*s {
         "release" => Profile::Release,
         "debug" => Profile::Debug,
@@ -157,18 +156,23 @@ fn get_profile() -> Profile {
     }
 }
 
-fn init_mev() -> (mev::Device, mev::Queue) {
+fn init_mev() -> mev::Queue {
     let instance = mev::Instance::load().expect("Graphics initialization should succeed");
 
-    let (device, mut queues) = instance
+    let supported = instance.capabilities().devices[0].features;
+    let features = mev::Features::SURFACE
+        | (supported
+            & (mev::Features::BUFFER_MAP
+                | mev::Features::BUFFER_MAP_AT_CREATION
+                | mev::Features::TEXTURE_COMPRESSION_BC));
+    let (_, mut queues) = instance
         .new_device(mev::DeviceDesc {
             idx: 0,
             queues: &[0],
-            features: mev::Features::SURFACE,
+            features,
         })
         .unwrap();
-    let queue = queues.pop().unwrap();
-    (device, queue)
+    queues.pop().unwrap()
 }
 
 fn hue_hash<T>(value: &T) -> egui::Color32

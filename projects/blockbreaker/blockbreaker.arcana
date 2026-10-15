@@ -1,0 +1,25 @@
+name = "blockbreaker"
+
+[engine]
+path = "../engine/arcana"
+
+[[plugins]]
+name = "main"
+description = ""
+
+[plugins.dependency]
+path = 'C:\code\arcana\blockbreaker\main'
+
+[[plugins]]
+name = "arcana-pixie-ui"
+description = "Pixie UI widgets and rendering"
+
+[plugins.dependency]
+path = 'C:\code\arcana\plugins\pixie-ui'
+
+[[plugins]]
+name = "arcana-crt"
+description = ""
+
+[plugins.dependency]
+path = 'C:\code\arcana\plugins\crt'

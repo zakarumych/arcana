@@ -1,0 +1,11 @@
+[package]
+version = "0.0.0"
+name = "main"
+edition = "2021"
+publish = false
+
+[dependencies]
+arcana = { path = "..\\..\\engine\\arcana" }
+pixie-ui = { path = "..\\..\\..\\pixie-ui" }
+
+[workspace]

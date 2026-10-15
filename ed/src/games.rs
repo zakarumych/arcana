@@ -14,7 +14,7 @@ use arcana::{
     plugin::PluginsHub,
     project::Project,
     texture::Texture,
-    Blink, ClockStep, Component, Entities, EntityId, World,
+    Blink, Tick, Component, Entities, EntityId, World,
 };
 use parking_lot::Mutex;
 use winit::{
@@ -289,7 +289,7 @@ impl Games {
         }
     }
 
-    pub fn tick(world: &mut World, step: ClockStep) {
+    pub fn tick(world: &mut World, step: Tick) {
         Self::launch_games(world.local());
 
         let mut to_remove = Vec::new();

@@ -1,1 +1,0 @@
-arcana::declare_plugin! {}

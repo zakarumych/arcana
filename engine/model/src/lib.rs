@@ -32,13 +32,15 @@ pub trait Reflect: Sized {
     fn from_value(value: Value) -> Result<Self, ValueError>;
 
     /// Reconstructs a value from a borrowed model representation.
+    #[inline]
     fn clone_from_value(value: &Value) -> Result<Self, ValueError> {
         Self::from_value(value.clone())
     }
 
     /// Applies a model representation to this value.
     ///
-    /// Implementations must leave `self` unchanged when returning an error.
+    /// Implementations should leave `self` unchanged when returning an error.
+    #[inline]
     fn apply(&mut self, value: Value) -> Result<(), ValueError> {
         *self = Self::from_value(value)?;
         Ok(())
@@ -54,14 +56,17 @@ fn unexpected_value(value: &Value, expected: &str) -> ValueError {
 }
 
 impl Reflect for () {
+    #[inline]
     fn model() -> Model {
         Model::Unit
     }
 
+    #[inline]
     fn to_value(&self) -> Value {
         Value::Unit
     }
 
+    #[inline]
     fn from_value(value: Value) -> Result<Self, ValueError> {
         match value {
             Value::Unit => Ok(()),

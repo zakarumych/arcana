@@ -13,21 +13,67 @@ make_id! {
     pub TargetId;
 }
 
-pub trait Target: HasStid + 'static {
-    type Info: Eq + 'static;
+/// A type that can be used to define requirement types.
+///
+/// It uses two variants allowing flexible requirement declarations render jobs.
+/// With unambiguous merging rules.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum Req<T> {
+    /// Strict requirement.
+    /// Contains exact value that will not merge with strict variants unless value is equal.
+    Strict(T),
 
-    fn allocate(device: &mev::Device, name: &str, info: &Self::Info) -> Self
+    /// Suggestion will be overwritten by strict requirement.
+    Suggest(T),
+}
+
+impl<T> Req<T>
+where
+    T: Eq + Copy,
+{
+    pub fn merge(&mut self, other: &Self) -> Result<(), MergeError> {
+        match (self, other) {
+            (Req::Strict(this), Req::Strict(other)) => (*this == *other).ok_or(MergeError),
+            (this, Req::Strict(other)) => {
+                *this = Req::Strict(*other);
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+
+    pub fn get(self) -> T {
+        let (Req::Strict(value) | Req::Suggest(value)) = self;
+        value
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct MergeError;
+
+pub trait Target: HasStid + 'static {
+    /// Requirements from this target consumers.
+    /// Merged together using [`Target::merge_req`].
+    ///
+    /// Used to guide creator's [`Target::Req`]
+    type Req: core::fmt::Debug + Eq + 'static;
+
+    fn allocate(device: &mev::Device, name: &str, req: &Self::Req) -> Self
     where
         Self: Sized;
 
-    /// Merge two target info instances.
-    /// Returns true if the info merged successfully.
-    /// If the info is not mergeable, it must return false.
-    fn merge_info(_info: &mut Self::Info, _other: &Self::Info) -> bool
+    /// Merge two target req instances.
+    /// Returns true if the req merged successfully.
+    /// If the req is not mergeable, it must return false.
+    fn merge_req(req: &mut Self::Req, other: &Self::Req) -> Result<(), MergeError>
     where
         Self: Sized,
     {
-        false
+        if *req != *other {
+            Err(MergeError)
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -46,6 +92,9 @@ impl<K> Drop for AnyHashMap<K> {
 
 impl<K> AnyHashMap<K> {
     pub fn new<V: 'static>() -> Self {
+        // # Safety:
+        // This relies on layout of HasMap structure to be independent of value type.
+        // Operations will be done on references transmuted back to correct type.
         unsafe {
             AnyHashMap {
                 map: transmute(HashMap::<K, V>::new()),
@@ -65,14 +114,27 @@ impl<K> AnyHashMap<K> {
     }
 }
 
-pub struct TargetData<T: Target> {
-    external: Option<(T, T::Info)>,
+pub(crate) struct TargetData<T: Target> {
+    /// Externally owned target resource.
+    external: Option<(T, T::Req)>,
 
     /// Allocated target instance.
-    target: Option<(T, T::Info)>,
+    target: Option<(T, T::Req)>,
 
-    /// Target info.
-    new_info: Option<T::Info>,
+    /// Target req.
+    new_req: Option<T::Req>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum PlanError {
+    MergeError,
+    ExternalOverride,
+}
+
+impl From<MergeError> for PlanError {
+    fn from(_: MergeError) -> Self {
+        PlanError::MergeError
+    }
 }
 
 impl<T> TargetData<T>
@@ -83,59 +145,91 @@ where
         TargetData {
             external: None,
             target: None,
-            new_info: None,
+            new_req: None,
         }
     }
 
-    pub fn external(&mut self, instance: T, info: T::Info) {
-        self.external = Some((instance, info));
+    pub fn external(&mut self, instance: T, desc: T::Req) {
+        self.external = Some((instance, desc));
         self.target = None;
-        self.new_info = None;
+        self.new_req = None;
     }
 
     pub fn clear_external(&mut self) {
         self.external = None;
     }
 
-    pub fn plan_create<'a>(&'a mut self, name: &str, device: &mev::Device) -> Option<&'a T::Info> {
-        if let Some((_, info)) = &self.external {
-            return Some(info);
+    pub fn plan_create<'a>(
+        &'a mut self,
+        name: &str,
+        device: &mev::Device,
+        own_req: Option<T::Req>,
+    ) -> Result<Option<&'a T::Req>, PlanError> {
+        if let Some((_, req)) = &self.external {
+            if let Some(mut own_req) = own_req {
+                T::merge_req(&mut own_req, req)?;
+                if own_req != *req {
+                    return Err(PlanError::ExternalOverride);
+                }
+            }
+            return Ok(Some(req));
         }
 
-        let new_info = self.new_info.take()?;
+        let Some(mut new_req) = self.new_req.take() else {
+            return Ok(None);
+        };
+        if let Some(own_req) = own_req {
+            T::merge_req(&mut new_req, &own_req)?;
+        }
 
-        if let Some((_, info)) = &self.target {
-            if *info != new_info {
+        if let Some((_, req)) = &self.target {
+            if *req != new_req {
                 self.target = None;
             }
         }
 
         if self.target.is_none() {
-            let instance = T::allocate(device, name, &new_info);
-            self.target = Some((instance, new_info));
+            let instance = T::allocate(device, name, &new_req);
+            self.target = Some((instance, new_req));
         }
 
         match &self.target {
-            Some((_, info)) => Some(info),
+            Some((_, req)) => Ok(Some(req)),
             None => unreachable!(),
         }
     }
 
-    pub fn plan_update(&mut self) -> Option<&T::Info> {
-        if let Some((_, info)) = &self.external {
-            return Some(info);
+    pub fn plan_update(&mut self, own_req: Option<T::Req>) -> Result<Option<&T::Req>, PlanError> {
+        if let Some((_, req)) = &self.external {
+            if let Some(mut own_req) = own_req {
+                T::merge_req(&mut own_req, req)?;
+                if own_req != *req {
+                    return Err(PlanError::ExternalOverride);
+                }
+            }
+            return Ok(Some(req));
         }
 
-        self.new_info.as_ref()
+        let Some(new_req) = self.new_req.as_mut() else {
+            return Ok(None);
+        };
+
+        if let Some(own_req) = own_req {
+            T::merge_req(new_req, &own_req)?;
+        }
+
+        Ok(Some(new_req))
     }
 
-    pub fn plan_read(&mut self, info: T::Info) {
-        match self.new_info {
+    pub fn plan_read(&mut self, info: T::Req) -> Result<(), PlanError> {
+        match self.new_req {
             None => {
-                self.new_info = Some(info);
+                self.new_req = Some(info);
+                Ok(())
             }
-            Some(ref mut new_info) => {
-                T::merge_info(new_info, &info);
+            Some(ref mut new_req) => {
+                T::merge_req(new_req, &info)?;
+                Ok(())
             }
         }
     }
@@ -153,7 +247,7 @@ where
     }
 }
 
-pub struct TargetHub {
+pub(crate) struct TargetHub {
     types: NoHashMap<TypeId, AnyHashMap<TargetId>>,
 }
 
@@ -190,28 +284,37 @@ impl TargetHub {
         id: TargetId,
         name: &str,
         device: &mev::Device,
-    ) -> Option<&T::Info> {
-        let data = self.data_mut::<T>(id)?;
-        data.plan_create(name, device)
+        own_req: Option<T::Req>,
+    ) -> Result<Option<&T::Req>, PlanError> {
+        let Some(data) = self.data_mut::<T>(id) else {
+            return Ok(None);
+        };
+        data.plan_create(name, device, own_req)
     }
 
-    pub fn plan_update<T: Target>(&mut self, id: TargetId) -> Option<&T::Info> {
-        let data = self.data_mut::<T>(id)?;
-        data.plan_update()
+    pub fn plan_update<T: Target>(
+        &mut self,
+        id: TargetId,
+        own_req: Option<T::Req>,
+    ) -> Result<Option<&T::Req>, PlanError> {
+        let Some(data) = self.data_mut::<T>(id) else {
+            return Ok(None);
+        };
+        data.plan_update(own_req)
     }
 
-    pub fn plan_read<T: Target>(&mut self, id: TargetId, info: T::Info) {
+    pub fn plan_read<T: Target>(&mut self, id: TargetId, info: T::Req) -> Result<(), PlanError> {
         let data = self.make_data_mut::<T>(id);
-        data.plan_read(info);
+        data.plan_read(info)
     }
 
     pub fn get<T: Target>(&self, id: TargetId) -> Option<&T> {
         self.data::<T>(id)?.instance()
     }
 
-    pub fn external<T: Target>(&mut self, id: TargetId, instance: T, info: T::Info) {
+    pub fn external<T: Target>(&mut self, id: TargetId, instance: T, req: T::Req) {
         let data: &mut TargetData<T> = self.make_data_mut(id);
-        data.external(instance, info);
+        data.external(instance, req);
     }
 
     pub fn clear_external<T: Target>(&mut self, id: TargetId) {
@@ -221,7 +324,7 @@ impl TargetHub {
         data.clear_external();
     }
 
-    pub fn clear(&mut self) {
-        self.types.clear();
-    }
+    // pub fn clear(&mut self) {
+    //     self.types.clear();
+    // }
 }

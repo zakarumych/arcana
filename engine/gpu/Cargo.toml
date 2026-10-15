@@ -1,0 +1,12 @@
+[package]
+name = "arcana-gpu"
+edition.workspace = true
+authors.workspace = true
+readme.workspace = true
+license.workspace = true
+version.workspace = true
+description = "Shared GPU resources for Arcana engine"
+
+[dependencies]
+mev.workspace = true
+jkl-mev.workspace = true

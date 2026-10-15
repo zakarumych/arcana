@@ -4,7 +4,7 @@ use arcana::{
     ecs::{EntityError, world::World},
     id::HasStid,
     model::{Model, Reflect, Value, ValueError},
-    plugin::{ArcanaPlugin, ComponentDesc, ComponentError, PluginsHub},
+    plugin::{ArcanaPlugin, ComponentInfo, ComponentError, PluginsHub},
     render::{RenderGraphId, Renderer},
 };
 
@@ -75,7 +75,7 @@ fn local_state() -> LocalState {
     }
 }
 
-fn descriptor<T: HasStid>(plugin: &ArcanaPlugin) -> &ComponentDesc {
+fn descriptor<T: HasStid>(plugin: &ArcanaPlugin) -> &ComponentInfo {
     plugin
         .components()
         .iter()
@@ -212,7 +212,7 @@ impl Reflect for Collision {
 #[test]
 fn duplicate_stable_ids_do_not_overwrite_registrations() {
     let mut plugin = arcana_plugin::get();
-    let collision = ComponentDesc::new::<Collision>(arcana::name!(collision), || Value::Unit);
+    let collision = ComponentInfo::new::<Collision>(arcana::name!(collision), || Value::Unit);
     assert!(
         std::panic::catch_unwind(AssertUnwindSafe(|| {
             plugin.add_component::<Collision>(arcana::name!(collision), || Value::Unit);
@@ -274,7 +274,7 @@ fn renderer_requires_an_explicit_graph_and_round_trips_as_a_reference() -> Resul
     assert_eq!(Renderer::from_value(renderer.to_value())?.graph, graph);
     assert!(Renderer::from_value(Renderer::model().default_value()).is_err());
 
-    let desc = ComponentDesc::without_default::<Renderer>(arcana::name!(Renderer));
+    let desc = ComponentInfo::without_default::<Renderer>(arcana::name!(Renderer));
     assert_eq!(desc.id(), Renderer::stid());
     assert!(desc.initial_value().is_none());
     let mut world = World::new();

@@ -1,6 +1,6 @@
 use std::mem::{offset_of, size_of_val};
 
-use arcana::mev::{self, Arguments, DeviceRepr, Offset2};
+use arcana::mev::{self, Arguments, DeviceRepr};
 use egui::epaint::Vertex;
 use hashbrown::{HashMap, hash_map::Entry};
 

@@ -7,6 +7,7 @@ members = [
     "engine/ecs",
     "engine/error",
     "engine/graphics",
+    "engine/gpu",
     "engine/hash",
     "engine/intern",
     "engine/id",
@@ -21,7 +22,11 @@ members = [
     "engine/work-graph",
     "ed",
     "launcher",
+    "plugins/crt",
     "plugins/dummy",
+    "plugins/msdf-font",
+    "plugins/pixie-ui",
+    "plugins/tilemap",
 ]
 resolver = "3"
 
@@ -34,7 +39,9 @@ version = "0.1.0"
 
 [workspace.dependencies]
 ahash = { version = "0.8.12" }
-alkahest = { version = "0.3.0", features = ["derive"] }
+alkahest = { version = "0.4.0", features = [
+    "derive",
+], path = "../alkahest/alkahest" }
 amity = { git = "https://github.com/zakarumych/amity.git", features = [
     "flip-queue",
     "broad",
@@ -45,7 +52,7 @@ arc-swap = { version = "1.9.2" }
 #athena = { git = "https://github.com/zakarumych/athena.git" }
 athena = { path = "../athena" }
 base64 = "0.23.1"
-bitflags = "2.13.1"
+bitflags = "2.13.2"
 bit-vec = { version = "0.10.1" }
 blink-alloc = { version = "0.4", features = ["nightly"] }
 bytemuck = { version = "1.23.1", features = [
@@ -53,22 +60,21 @@ bytemuck = { version = "1.23.1", features = [
     "min_const_generics",
     "extern_crate_alloc",
 ] }
-camino = "1.2.5"
+camino = "1.2.6"
 cargo_toml = "1.0.1"
-cc = "1.4.5"
+cc = "1.8"
 chrono = "0.4.45"
 cint = "0.3.1"
-clap = { version = "4.6.0", features = ["derive"] }
+clap = { version = "4.6.7", features = ["derive"] }
 codespan-reporting = "0.13.1"
 const-random = "0.1.18"
-# core-graphics-types = { version = "0.1" }
 ctor = "1.0.13"
 cursor-icon = { version = "1.2.0" }
 denvars = { version = "0.3.2" }
 dirs = { version = "7.0.0" }
 edict = { version = "1.0.0-rc10", path = "../edict" }
 edict-proc-lib = { version = "1.0.0-rc10", path = "../edict/proc-lib" }
-egui = { version = "0.36.1", features = ["bytemuck", "serde", "cint"] }
+egui = { version = "0.36.2", features = ["bytemuck", "serde", "cint"] }
 egui_dnd = { version = "0.17.0" }
 egui_dock = { version = "0.21.1" }
 egui_file = { version = "0.28.0" }
@@ -76,48 +82,46 @@ egui-phosphor = { version = "0.13.0", git = "https://github.com/UnknownSuperfici
 egui-probe = { path = "../egui-probe" }
 egui-snarl = { path = "../egui-snarl" }
 egui_tracing = { version = "0.3.0" }
+egui_ltreeview = "0.9"
+transform-gizmo-egui = "0.11"
 egui-toast = { version = "0.22" }
-eframe = { version = "0.36.1" }
+eframe = { version = "0.36.2" }
 flume = "0.12.0"
 figa = { version = "0.3.0" }
 foldhash = { version = "0.2.0" }
 futures = "0.3.34"
-gametime = { version = "0.7.2" }
+gametime = { version = "0.8.0", path = "../gametime" }
 gilrs = { version = "0.11.2" }
 hashbrown = { version = "0.17.1", features = ["nightly", "serde"] }
 hidden-trait = "0.1.2"
-image = "0.25.10"
+image = { version = "0.25.10", default-features = false }
 jkl = { path = "../jkl/crates/jkl" }
 jkl-gui = { path = "../jkl/crates/gui" }
+jkl-mev = { path = "../jkl/crates/mev" }
 libloading = "0.9.0"
 linkme = "0.3.37"
-#mev = { git = "https://github.com/zakarumych/mev.git" }
 mev = { path = "../mev" }
-# na = { package = "nalgebra", version = "0.33", features = [
-#     "libm",
-#     "serde-serialize",
-# ] }
-open = { version = "5.4.3" }
+open = { version = "5.4.4" }
 ordered-float = { version = "5.5.0" }
 palette = { version = "0.7.7", features = ["serializing"] }
 parking_lot = "0.12.4"
-percent-encoding = "2.3.1"
-proc-macro2 = "1.0.107"
-rand = { version = "0.10.2", features = ["chacha", "serde"] }
+percent-encoding = "2.3"
+proc-macro2 = "1.0"
+rand = { version = "0.10.3", features = ["chacha", "serde"] }
 proc-easy = "0.5.0"
 quote = "1.0.47"
 raw-window-handle = "0.6.2"
 relevant = "0.4.2"
-serde = { version = "1.0.229" }
-serde_json = { version = "1.0.151" }
+serde = { version = "1.0" }
+serde_json = { version = "1.0" }
 serde-nothing = "0.1.1"
-sha2 = "0.11.0"
+sha2 = "0.11"
 slab = "0.4.10"
-smallvec = "1.16.0"
+smallvec = "1.16"
 smol_str = "0.3.6"
 simba = { version = "0.10.2" }
-syn = "3.0.5"
-thiserror = "2.0.20"
+syn = "3.0"
+thiserror = "2.0"
 tiny-fn = { version = "0.1.9" }
 tokio = { version = "1.53.1", features = [
     "rt",
@@ -125,13 +129,13 @@ tokio = { version = "1.53.1", features = [
     "net",
     "io-util",
 ], default-features = false }
-toml = "1.1.5"
+toml = "1.1"
 tracing = "0.1.41"
 tracing-error = "0.2.1"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-unicode-ident = "1.0.18"
+unicode-ident = "1.0"
 url = "2.5.4"
-uuid = { version = "1.26.0" }
+uuid = { version = "1.28" }
 winit = { version = "0.30.13" }
 windows-sys = "0.61"
 

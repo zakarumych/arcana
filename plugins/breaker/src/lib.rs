@@ -5,7 +5,7 @@ use arcana::{
     na,
     render::RenderGraph,
     viewport::Viewport,
-    ClockStep,
+    Tick,
 };
 use camera::Camera2;
 use cursor::MainCursor;
@@ -165,7 +165,7 @@ struct Burst {
 fn burst_system(
     burst: View<(Entities, &mut Burst, &mut sdf::Shape, &Global)>,
     mut bodies: View<(&mut RigidBody, &Global)>,
-    clock: Res<ClockStep>,
+    clock: Res<Tick>,
     mut encoder: ActionEncoder,
     physics: Res<PhysicsResource>,
 ) {

@@ -36,6 +36,11 @@ impl EguiProbe for ModelProbe<'_> {
         let mut r = egui::ComboBox::from_id_salt(self.local_id)
             .selected_text(var_name(self.model))
             .show_ui(ui, |ui| {
+                let r = ui.selectable_label(matches!(self.model, Model::Unit), "Unit");
+                if r.clicked() && !matches!(self.model, Model::Unit) {
+                    *self.model = Model::Unit;
+                    changed = true;
+                }
                 let r = ui.selectable_label(matches!(self.model, Model::Bool), "Bool");
                 if r.clicked() && !matches!(self.model, Model::Bool) {
                     *self.model = Model::Bool;
@@ -166,6 +171,11 @@ impl EguiProbe for MaybeModelProbe<'_> {
                 let r = ui.selectable_label(matches!(self.model, None), "None");
                 if r.clicked() {
                     *self.model = None;
+                }
+                let r =
+                    ui.selectable_label(matches!(self.model.as_deref(), Some(Model::Unit)), "Unit");
+                if r.clicked() {
+                    *self.model = Some(Box::new(Model::Unit));
                 }
                 let r =
                     ui.selectable_label(matches!(self.model.as_deref(), Some(Model::Bool)), "Bool");
@@ -314,6 +324,43 @@ impl EguiProbe for ValueProbe<'_> {
                 local_model(ui, self.local_id, style).0
             }
             Some(&Model::Unit) => ui.weak("Unit"),
+            Some(Model::Record(fields)) => {
+                self.local_id = ui.make_persistent_id(self.id_source);
+                ui.weak(format!("{} fields", fields.len()))
+            }
+            Some(model @ (Model::Vec2 | Model::Vec3)) => {
+                let mut changed = false;
+                let mut response = ui
+                    .horizontal(|ui| {
+                        let mut axis = |label, value: &mut f64| {
+                            changed |= ui
+                                .add(egui::DragValue::new(value).prefix(label).speed(0.1))
+                                .changed();
+                        };
+                        match self.value {
+                            Value::Vec2(v) if matches!(model, Model::Vec2) => {
+                                axis("X ", &mut v.x);
+                                axis("Y ", &mut v.y);
+                            }
+                            Value::Vec3(v) if matches!(model, Model::Vec3) => {
+                                axis("X ", &mut v.x);
+                                axis("Y ", &mut v.y);
+                                axis("Z ", &mut v.z);
+                            }
+                            _ => {
+                                if ui.small_button("Reset vector").clicked() {
+                                    *self.value = model.default_value();
+                                    changed = true;
+                                }
+                            }
+                        }
+                    })
+                    .response;
+                if changed {
+                    response.mark_changed();
+                }
+                response
+            }
             Some(&Model::Reference(domain)) => {
                 reference_probe(ui, self.id_source, domain, self.value, self.references)
             }
@@ -1189,6 +1236,22 @@ impl EguiProbe for ValueProbe<'_> {
             Some(Model::String { .. }) => {}
             Some(Model::Color(_)) => {}
             Some(Model::Reference(_)) => {}
+            Some(Model::Vec2 | Model::Vec3) => {}
+            Some(Model::Record(fields)) => {
+                if let Value::Map(values) = self.value {
+                    for (name, model) in fields {
+                        if let Some(value) = values.get_mut(name.as_str()) {
+                            let mut probe = ValueProbe::new(
+                                model.as_ref(),
+                                value,
+                                self.id_source.with(name.as_str()),
+                            )
+                            .with_references(self.references);
+                            f(name.as_str(), ui, &mut probe);
+                        }
+                    }
+                }
+            }
             Some(Model::Array { elem, len }) => {
                 let local_elem;
                 let elem = match elem {
@@ -1468,5 +1531,65 @@ mod reference_tests {
         for text in ["0", "-1", "18446744073709551616", "1.5", ""] {
             assert!(parse_reference_id(text).is_err());
         }
+    }
+}
+
+#[cfg(test)]
+mod spatial_tests {
+    use super::*;
+    use arcana::{athena::Vector2, model::Reflect, scene::dim2};
+
+    #[test]
+    fn record_vector_field_can_be_dragged() {
+        let model = dim2::Rect::model();
+        let mut value = dim2::Rect {
+            min: Vector2::new(2.0, 3.0),
+            max: Vector2::new(10.0, 20.0),
+        }
+        .to_value();
+        let context = egui::Context::default();
+        let mut pointer = egui::Pos2::ZERO;
+        let mut changed = false;
+        for frame in 0..5 {
+            let mut input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(500.0, 300.0),
+                )),
+                ..Default::default()
+            };
+            if frame > 0 {
+                input.events.push(egui::Event::PointerMoved(pointer));
+            }
+            if frame == 2 || frame == 4 {
+                input.events.push(egui::Event::PointerButton {
+                    pos: pointer,
+                    button: egui::PointerButton::Primary,
+                    pressed: frame == 2,
+                    modifiers: Default::default(),
+                });
+            }
+            let mut output = context.run_ui(input, |ui| {
+                let mut probe = ValueProbe::new(Some(&model), &mut value, "bounds-test");
+                probe.probe(ui, &Style::default());
+                probe.iterate_inner(ui, &mut |name, ui, field| {
+                    let response = field.probe(ui, &Style::default());
+                    changed |= response.changed();
+                    if name == "min" && frame == 0 {
+                        pointer = egui::pos2(response.rect.left() + 15.0, response.rect.center().y);
+                    }
+                    field.iterate_inner(ui, &mut |_, _, _| panic!("vector has no children"));
+                });
+            });
+            output.textures_delta.clear();
+            if frame == 2 {
+                pointer.x += 30.0;
+            }
+        }
+        let edited = dim2::Rect::from_value(value).expect("valid edited bounds");
+        assert!(changed);
+        assert_ne!(edited.min.x, 2.0);
+        assert_eq!(edited.min.y, 3.0);
+        assert_eq!(edited.max, Vector2::new(10.0, 20.0));
     }
 }

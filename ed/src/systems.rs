@@ -501,6 +501,14 @@ struct SystemsWidgetState;
 pub struct SystemsTemplate;
 
 impl ToolTemplate for SystemsTemplate {
+    fn glyph(&self) -> &str {
+        egui_phosphor::regular::GEAR
+    }
+
+    fn description(&self) -> &str {
+        "Configure simulation systems and their execution order."
+    }
+
     fn key(&self) -> &str {
         "systems"
     }

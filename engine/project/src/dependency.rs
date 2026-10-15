@@ -1,6 +1,6 @@
 use std::{
     fmt, io,
-    path::{absolute, Path, PathBuf},
+    path::{Path, PathBuf, absolute},
 };
 
 use arcana_error::Error;

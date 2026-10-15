@@ -1,5 +1,7 @@
 use proc_macro2::TokenStream;
 
+use crate::plugin_registry_name;
+
 pub fn importer(attr: proc_macro::TokenStream, item: syn::ItemImpl) -> syn::Result<TokenStream> {
     let mut tokens = TokenStream::new();
 
@@ -41,8 +43,10 @@ pub fn importer(attr: proc_macro::TokenStream, item: syn::ItemImpl) -> syn::Resu
         ));
     }
 
+    let registry_name = plugin_registry_name();
+
     tokens.extend(quote::quote! {
-        ::arcana::plugin::plugin_ctor_add!(plugin => {
+        ::arcana::plugin::plugin_ctor_add!(#registry_name @ plugin => {
             #[allow(dead_code)]
             fn importer_is_importer<T: #importer_trait_path>() {
                 ::arcana::for_macro::is_importer::<T>();
@@ -53,12 +57,14 @@ pub fn importer(attr: proc_macro::TokenStream, item: syn::ItemImpl) -> syn::Resu
 
             let add = |hub: &mut ::arcana::plugin::PluginsHub| {
                 let id: ::arcana::assets::import::ImporterId = ::arcana::id::local_name_hash_id!(#ident);
-                hub.add_importer(id, < #type_path as ::arcana::assets::import::Importer >::new());
+                hub.add_importer(id, < #type_path as ::std::default::Default >::default());
             };
 
+            let desc = < #type_path as ::arcana::assets::import::Importer >::desc();
             let info = ::arcana::plugin::ImporterInfo {
                 id,
-                name: < #type_path as ::arcana::assets::import::Importer >::name(),
+                name: desc.name,
+                desc,
                 location: ::std::option::Option::Some(::arcana::plugin::Location {
                     file: std::string::String::from(::std::file!()),
                     line: ::std::line!(),

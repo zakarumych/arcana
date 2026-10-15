@@ -1,0 +1,16 @@
+[package]
+name = "arcana-msdf-font"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+arcana = { path = "../../engine/arcana" }
+bymsdfgen-core = "=0.1.1"
+ttf-parser = "0.25"
+serde = { workspace = true, features = ["derive"] }
+thiserror.workspace = true
+
+[dev-dependencies]
+naga = { version = "30.0", features = ["wgsl-in"] }

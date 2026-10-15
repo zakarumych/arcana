@@ -24,6 +24,7 @@ pub enum Profile {
 pub fn run_editor(root_path: &Path, manifest_path: &Path, profile: Profile) -> Command {
     let workspace = root_path.join(WORKSPACE_DIR_NAME);
     let mut cmd = Command::new("cargo");
+
     cmd.arg("+nightly").arg("run").arg("--package=ed");
     match profile {
         Profile::Release => {
@@ -45,10 +46,11 @@ pub fn run_editor(root_path: &Path, manifest_path: &Path, profile: Profile) -> C
     cmd
 }
 
-/// Construct a command to run ed for arcana project.
+/// Construct a command to build ed for arcana project.
 pub fn build_editor(root: &Path, profile: Profile) -> Command {
     let workspace = root.join(WORKSPACE_DIR_NAME);
     let mut cmd = Command::new("cargo");
+
     cmd.arg("+nightly").arg("build").arg("--package=ed");
     if profile == Profile::Release {
         cmd.arg("--release");
@@ -60,10 +62,11 @@ pub fn build_editor(root: &Path, profile: Profile) -> Command {
     cmd
 }
 
-/// Construct a command to run ed for arcana project.
+/// Construct a command to run game for arcana project.
 pub fn run_game(root: &Path, profile: Profile) -> Command {
     let workspace = root.join(WORKSPACE_DIR_NAME);
     let mut cmd = Command::new("cargo");
+
     cmd.arg("+nightly")
         .arg("run")
         .arg("--package=game")
@@ -73,10 +76,6 @@ pub fn run_game(root: &Path, profile: Profile) -> Command {
     }
     cmd.env("RUSTFLAGS", "-Zshare-generics=off")
         .current_dir(&workspace);
-
-    cmd.stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
 
     #[cfg(windows)]
     {
@@ -91,16 +90,13 @@ pub fn run_game(root: &Path, profile: Profile) -> Command {
 pub fn build_game(root: &Path, profile: Profile) -> Command {
     let workspace = root.join(WORKSPACE_DIR_NAME);
     let mut cmd = Command::new("cargo");
+
     cmd.arg("+nightly").arg("build").arg("--package=game");
     if profile == Profile::Release {
         cmd.arg("--release");
     }
     cmd.env("RUSTFLAGS", "-Zshare-generics=off")
         .current_dir(&workspace);
-
-    cmd.stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
 
     #[cfg(windows)]
     {
@@ -138,6 +134,11 @@ pub fn build_plugins(root: &Path, profile: Profile) -> Result<BuildProcess, Erro
     // tracing::error!("Cargo tree output:\n{output}");
 
     let mut cmd = Command::new("cargo");
+
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
     cmd.arg("+nightly").arg("build").arg("--package=plugins");
 
     // cmd.arg("--message-format=json-diagnostic-rendered-ansi");
@@ -148,10 +149,6 @@ pub fn build_plugins(root: &Path, profile: Profile) -> Result<BuildProcess, Erro
 
     cmd.env("RUSTFLAGS", "-Zshare-generics=off -Cprefer-dynamic=yes")
         .current_dir(&workspace);
-
-    cmd.stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
 
     #[cfg(windows)]
     {

@@ -1,0 +1,8 @@
+{
+  "image": "atlas.png",
+  "tile_size": [16, 16],
+  "tiles": [
+    {"name": "ground", "region": [0, 0, 16, 16]},
+    {"name": "platform", "region": [16, 0, 16, 16]}
+  ]
+}

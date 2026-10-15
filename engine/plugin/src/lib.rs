@@ -8,151 +8,35 @@
 //! For release plugins will be statically linked to the game binary, removing performance overhead.
 
 mod component;
+mod filter;
+mod hub;
+mod import;
+mod job;
+mod system;
 
-pub use component::{ComponentDesc, ComponentError};
+pub use self::{
+    component::{Component, ComponentError, ComponentInfo},
+    filter::{FilterId, FilterInfo, InputFilter, IntoInputFilter},
+    hub::PluginsHub,
+    import::{Importer, ImporterDesc, ImporterId, ImporterInfo},
+    job::{Job, JobDesc, JobId, JobInfo},
+    system::{IntoSystem, System, SystemId, SystemInfo},
+};
 
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 
-use arcana_assets::import::{Importer, ImporterDesc, ImporterId};
-use arcana_ecs::SystemId;
-use arcana_id::{HasStid, Stid};
-use arcana_input::{FilterId, InputFilter, IntoInputFilter};
+use arcana_id::HasStid;
 use arcana_intern::Name;
 use arcana_model::{Reflect, Value};
 use arcana_project::Dependency;
-use arcana_work_graph::{Job, JobDesc, JobId};
-use edict::{
-    component::Component,
-    system::{IntoSystem, System},
-    world::World,
-};
-use hashbrown::HashMap;
+use edict::world::World;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Location {
     pub file: String,
     pub line: u32,
     pub column: u32,
-}
-
-/// System information declared by a plugin.
-#[derive(Clone, Debug)]
-pub struct SystemInfo {
-    /// Unique identified of the system.
-    pub id: SystemId,
-
-    /// Name of the system.
-    pub name: Name,
-
-    /// Location of the system in the source code.
-    pub location: Option<Location>,
-}
-
-/// Filter information declared by a plugin.
-#[derive(Clone, Debug)]
-pub struct FilterInfo {
-    /// Unique identified of the filter.
-    pub id: FilterId,
-
-    /// Name of the filter.
-    pub name: Name,
-
-    /// Location of the filter in the source code.
-    pub location: Option<Location>,
-}
-
-/// Job information declared by a plugin.
-#[derive(Clone)]
-pub struct JobInfo {
-    /// Unique identified of the job.
-    pub id: JobId,
-
-    /// Name of the job.
-    pub name: Name,
-
-    /// Description of the job.
-    pub desc: JobDesc,
-
-    /// Location of the filter in the source code.
-    pub location: Option<Location>,
-}
-
-/// System information declared by a plugin.
-#[derive(Clone, Debug)]
-pub struct ImporterInfo {
-    /// Unique identified of the importer.
-    pub id: ImporterId,
-
-    /// Name of the importer.
-    pub name: Name,
-
-    /// Description of the importer.
-    pub desc: ImporterDesc,
-
-    /// Location of the importer in the source code.
-    pub location: Option<Location>,
-}
-
-/// Active systems, filters, jobs, importers and component descriptors from plugins.
-///
-/// Retain each contributing plugin library while the hub or any cloned
-/// component descriptor is in use.
-pub struct PluginsHub {
-    pub systems: HashMap<SystemId, Box<dyn System + Send>>,
-    pub filters: HashMap<FilterId, Box<dyn InputFilter>>,
-    pub jobs: HashMap<JobId, Box<dyn Job>>,
-    pub importers: HashMap<ImporterId, Box<dyn Importer>>,
-    pub components: HashMap<Stid, ComponentDesc>,
-}
-
-impl PluginsHub {
-    pub fn new() -> Self {
-        PluginsHub {
-            systems: HashMap::new(),
-            filters: HashMap::new(),
-            jobs: HashMap::new(),
-            importers: HashMap::new(),
-            components: HashMap::new(),
-        }
-    }
-
-    /// Adds a component descriptor. Panics if its stable ID is already registered.
-    pub fn add_component(&mut self, component: ComponentDesc) {
-        let id = component.id();
-        assert!(
-            !self.components.contains_key(&id),
-            "Component stable ID {id} is already registered"
-        );
-        self.components.insert(id, component);
-    }
-
-    /// Adds a system from a plugin to the hub.
-    pub fn add_system<S, M>(&mut self, id: SystemId, system: S)
-    where
-        S: IntoSystem<M>,
-    {
-        self.systems.insert(id, Box::new(system.into_system()));
-    }
-
-    /// Adds a filter from a plugin to the hub.
-    pub fn add_filter<F, M>(&mut self, id: FilterId, filter: F)
-    where
-        F: IntoInputFilter<M>,
-    {
-        self.filters
-            .insert(id, Box::new(filter.into_input_filter()));
-    }
-
-    /// Adds a job from a plugin to the hub.
-    pub fn add_job(&mut self, id: JobId, job: impl Job) {
-        self.jobs.insert(id, Box::new(job));
-    }
-
-    /// Adds a importer from a plugin to the hub.
-    pub fn add_importer(&mut self, id: ImporterId, importer: impl Importer) {
-        self.importers.insert(id, Box::new(importer));
-    }
 }
 
 #[doc(hidden)]
@@ -200,6 +84,9 @@ pub struct ArcanaPlugin {
     /// Those will be run each time a world is initialized.
     init: Vec<fn(&mut World)>,
 
+    /// Authored defaults, invoked explicitly when creating a scene.
+    scene_init: Vec<fn(&mut World)>,
+
     /// List of dependencies.
     dependencies: Vec<(Name, Dependency)>,
 
@@ -216,7 +103,7 @@ pub struct ArcanaPlugin {
     importers: Vec<ImporterInfo>,
 
     /// Editable component registrations.
-    components: Vec<ComponentDesc>,
+    components: Vec<ComponentInfo>,
 
     fill_hub: Vec<fn(&mut PluginsHub)>,
 }
@@ -226,6 +113,7 @@ impl ArcanaPlugin {
         ArcanaPlugin {
             location,
             init: Vec::new(),
+            scene_init: Vec::new(),
             dependencies: Vec::new(),
             filters: Vec::new(),
             systems: Vec::new(),
@@ -242,6 +130,18 @@ impl ArcanaPlugin {
 
     pub fn add_init(&mut self, add: fn(&mut World)) {
         self.init.push(add);
+    }
+
+    /// Registers authored defaults. Ordinary world initialization does not seed scenes.
+    pub fn add_scene_init(&mut self, init: fn(&mut World)) {
+        self.scene_init.push(init);
+    }
+
+    /// Seeds a newly authored scene. Call once after runtime initialization.
+    pub fn seed_scene(&self, world: &mut World) {
+        for init in &self.scene_init {
+            init(world);
+        }
     }
 
     pub fn add_filter(&mut self, info: FilterInfo, add: fn(&mut PluginsHub)) {
@@ -270,11 +170,11 @@ impl ArcanaPlugin {
         &mut self,
         name: Name,
         initial_value: fn() -> Value,
-    ) -> &mut ComponentDesc
+    ) -> &mut ComponentInfo
     where
         T: Component + Reflect + HasStid,
     {
-        let component = ComponentDesc::new::<T>(name, initial_value);
+        let component = ComponentInfo::new::<T>(name, initial_value);
         let id = component.id();
         assert!(
             self.components.iter().all(|component| component.id() != id),
@@ -323,7 +223,7 @@ impl ArcanaPlugin {
         &self.importers
     }
 
-    pub fn components(&self) -> &[ComponentDesc] {
+    pub fn components(&self) -> &[ComponentInfo] {
         &self.components
     }
 }

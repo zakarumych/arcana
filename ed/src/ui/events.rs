@@ -15,7 +15,7 @@ impl Ui {
         viewport: &mut UiViewport,
         clipboard: &mut Clipboard,
         event: &ViewInput,
-    ) -> bool {
+    ) {
         let modifiers = self.modifiers;
 
         match *event {
@@ -28,7 +28,6 @@ impl Ui {
 
                 let vp_info = viewport.raw_input.viewports.entry(viewport.id).or_default();
                 vp_info.inner_rect = viewport.raw_input.screen_rect;
-                false
             }
             ViewInput::ScaleFactorChanged { scale_factor } => {
                 viewport.scale_factor = scale_factor;
@@ -40,8 +39,6 @@ impl Ui {
                 let vp_info = viewport.raw_input.viewports.entry(viewport.id).or_default();
                 vp_info.native_pixels_per_point = Some(scale_factor);
                 vp_info.inner_rect = viewport.raw_input.screen_rect;
-
-                false
             }
             ViewInput::KeyboardInput { ref event, .. } => {
                 let logical_key = key_from_winit_key(&event.logical_key);
@@ -93,9 +90,12 @@ impl Ui {
                 }
 
                 // When pressing the Tab key, egui focuses the first focusable element, hence Tab always consumes.
-                self.cx.egui_wants_keyboard_input()
+                if self.cx.egui_wants_keyboard_input()
                     || event.logical_key
                         == winit::keyboard::Key::Named(winit::keyboard::NamedKey::Tab)
+                {
+                    self.cx.request_repaint();
+                }
             }
             ViewInput::ModifiersChanged(modifiers) => {
                 self.modifiers = egui::Modifiers {
@@ -115,7 +115,10 @@ impl Ui {
                     .raw_input
                     .events
                     .push(egui::Event::ModifiersChanged(self.modifiers));
-                false
+
+                if self.cx.egui_wants_keyboard_input() {
+                    self.cx.request_repaint();
+                }
             }
             ViewInput::CursorMoved { x, y, .. } => {
                 viewport.mouse_pos = egui::pos2(
@@ -126,12 +129,18 @@ impl Ui {
                     .raw_input
                     .events
                     .push(egui::Event::PointerMoved(viewport.mouse_pos));
-                false
+
+                if self.cx.egui_wants_pointer_input() {
+                    self.cx.request_repaint();
+                }
             }
-            ViewInput::CursorEntered { .. } => false,
+            ViewInput::CursorEntered { .. } => {}
             ViewInput::CursorLeft { .. } => {
                 viewport.raw_input.events.push(egui::Event::PointerGone);
-                false
+
+                if self.cx.egui_wants_pointer_input() {
+                    self.cx.request_repaint();
+                }
             }
             ViewInput::MouseWheel { delta, .. } => {
                 {
@@ -181,7 +190,9 @@ impl Ui {
                 //         .push(egui::Event::MouseWheel(delta));
                 // }
 
-                self.cx.egui_wants_pointer_input()
+                if self.cx.egui_wants_pointer_input() {
+                    self.cx.request_repaint();
+                }
             }
             ViewInput::MouseInput { state, button, .. } => {
                 if let Some(button) = translate_mouse_button(button) {
@@ -195,7 +206,9 @@ impl Ui {
                     });
                 }
 
-                self.cx.egui_wants_pointer_input()
+                if self.cx.egui_wants_pointer_input() {
+                    self.cx.request_repaint();
+                }
             }
         }
     }

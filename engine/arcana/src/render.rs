@@ -2,6 +2,52 @@ use arcana_ecs::{component::Component, entity::EntityId};
 use arcana_id::make_uid;
 use arcana_model::{Model, Reflect, Value, ValueError};
 
+mod clear;
+mod overlay;
+pub use clear::{NewColorImage, NewDepthImage};
+pub use overlay::{OverlayImage, OverlayScale};
+
+/// Metadata for jobs available without a plugin.
+pub fn builtin_jobs() -> Vec<arcana_plugin::JobInfo> {
+    use arcana_work_graph::Job;
+
+    vec![
+        arcana_plugin::JobInfo {
+            id: OverlayImage::id(),
+            name: OverlayImage::name(),
+            desc: OverlayImage::desc(),
+            location: None,
+        },
+        arcana_plugin::JobInfo {
+            id: NewColorImage::id(),
+            name: NewColorImage::name(),
+            desc: NewColorImage::desc(),
+            location: None,
+        },
+        arcana_plugin::JobInfo {
+            id: NewDepthImage::id(),
+            name: NewDepthImage::name(),
+            desc: NewDepthImage::desc(),
+            location: None,
+        },
+    ]
+}
+
+/// Ensures built-in jobs exist while retaining existing job instances and caches.
+pub fn register_builtin_jobs(hub: &mut arcana_plugin::PluginsHub) {
+    use arcana_work_graph::Job;
+
+    hub.jobs
+        .entry(OverlayImage::id())
+        .or_insert_with(|| Box::new(OverlayImage::new()));
+    hub.jobs
+        .entry(NewColorImage::id())
+        .or_insert_with(|| Box::new(NewColorImage::new()));
+    hub.jobs
+        .entry(NewDepthImage::id())
+        .or_insert_with(|| Box::new(NewDepthImage::new()));
+}
+
 make_uid! {
     /// ID of the render graph.
     pub RenderGraphId;
